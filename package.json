@@ -25,6 +25,7 @@
     "i18n:verify": "npm run i18n:extract && npm run i18n:compile && npm run lint:i18n",
     "lint:i18n": "eslint . --max-warnings=0",
     "test": "vitest run --config vitest.server.config.ts",
+    "test:server": "vitest run --config vitest.server.config.ts",
     "storybook": "npm run build-storybook && npm run serve-storybook",
     "storybook:dev": "storybook dev -p $PORT",
     "build-storybook": "storybook build",
