@@ -122,6 +122,7 @@
     "eslint": "^10.8.0",
     "eslint-plugin-formatjs": "^6.4.19",
     "globals": "^17.8.0",
+    "jsdom": "^29.1.1",
     "playwright": "^1.58.2",
     "prisma": "^6.4.1",
     "prisma-kysely": "^1.8.0",
