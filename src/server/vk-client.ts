@@ -22,6 +22,13 @@ export interface Workspace {
   name: string | null;
 }
 
+export interface Repo {
+  id: string;
+  name: string;
+  display_name: string;
+  path: string;
+}
+
 export interface RepoWithBranch {
   id: string;
   name: string;
@@ -231,6 +238,9 @@ export interface PreviewSlotUrlResponse extends PreviewSlotUrlParts {
   customerSlug: string;
   host: string;
   url: string;
+export interface RegisterRepoBody {
+  path: string;
+  display_name?: string | null;
 }
 
 export interface CreateSessionBody {
@@ -297,6 +307,12 @@ export class VibeKanbanServerClient {
 
   getWorkspace(workspaceId: string): Promise<Workspace> {
     return this.get(`/workspaces/${encodeURIComponent(workspaceId)}`);
+  getRepos(): Promise<Repo[]> {
+    return this.get('/repos');
+  }
+
+  registerRepo(body: RegisterRepoBody): Promise<Repo> {
+    return this.post('/repos', body);
   }
 
   getWorkspaceRepos(workspaceId: string): Promise<RepoWithBranch[]> {
