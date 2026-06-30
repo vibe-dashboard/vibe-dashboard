@@ -48,6 +48,11 @@ export interface RepoWithBranch {
   target_branch: string;
 }
 
+export interface ProfilesContent {
+  content: string;
+  path: string;
+}
+
 // ── API response envelope ───────────────────────────────────────────────────
 
 interface ApiResponse<T> {
@@ -116,6 +121,30 @@ export class VibeKanbanClient {
 
   stopWorkspaceExecution(workspaceId: string): Promise<void> {
     return this.post(`/workspaces/${workspaceId}/execution/stop`, {});
+  }
+
+  getProfiles(): Promise<ProfilesContent> {
+    return this.get('/profiles');
+  }
+
+  saveProfiles(content: string): Promise<string> {
+    return this.put('/profiles', content);
+  }
+
+  private async put<T>(path: string, body: unknown): Promise<T> {
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: typeof body === 'string' ? body : JSON.stringify(body),
+    });
+    if (!res.ok) {
+      throw new Error(`PUT ${path} failed: ${res.statusText}`);
+    }
+    const json: ApiResponse<T> = await res.json();
+    if (!json.success) {
+      throw new Error(`PUT ${path} returned unsuccessful response`);
+    }
+    return json.data;
   }
 }
 

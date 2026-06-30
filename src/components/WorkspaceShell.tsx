@@ -71,7 +71,11 @@ export type WorkspaceActions = {
     title: string;
   }) => void;
   closeTab: (args: { tabGroupId: string; tabId: string }) => void;
-  addTab: (args: { tabGroupId: string; title: string; url: string }) => void;
+  addTab: (args: {
+    tabGroupId: string;
+    title: string;
+    url: string;
+  }) => Promise<{ tabId: string; tabGroupId: string }>;
   ensureCreateWorkspaceTab: () => Promise<
     { spaceId: string; tabGroupId: string; tabId: string } | undefined
   >;
@@ -1198,6 +1202,29 @@ export function WorkspaceShell({
     await performNavigateToWorkspaceTabGroup(spaceId, tabGroupId);
   };
 
+  const handleOpenOpenRouterModels = async () => {
+    const tabGroupId = session.activeTabGroupId;
+    const activeTabGroup = workspace.tabGroups.find(
+      (tabGroup) => tabGroup.id === tabGroupId,
+    );
+    if (!activeTabGroup) return;
+
+    const existing = activeTabGroup.tabs.find(
+      (tab) => tab.url === 'internal://openrouter-models',
+    );
+    if (existing) {
+      sessionActions.selectTab(tabGroupId, existing.id);
+      return;
+    }
+
+    const result = await actions.addTab({
+      tabGroupId,
+      title: 'OpenRouter Models',
+      url: 'internal://openrouter-models',
+    });
+    sessionActions.selectTab(tabGroupId, result.tabId);
+  };
+
   const handleAddTabModalNavigateToWorkspaceTabGroup = async (
     spaceId: string,
     tabGroupId: string,
@@ -2140,6 +2167,7 @@ export function WorkspaceShell({
             }}
             onNavigateToTabGroup={handleNavigateToWorkspaceTabGroup}
             onOpenVKWorkspace={handleWorkspaceSearchAddToSpace}
+            onOpenOpenRouterModels={handleOpenOpenRouterModels}
           />
         )}
         {!isPendingOpenCraftActive && expandedSessionTabGroup && (

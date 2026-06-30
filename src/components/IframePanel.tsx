@@ -4,6 +4,7 @@ import type { TabGroup, Tab } from '../types';
 import type { WorkspaceState, SavedWorkspaceSession } from '../types';
 import { AppLoadingScreen } from './AppLoadingScreen';
 import { SpacesOverview } from './SpacesOverview';
+import { OpenRouterModelChooser } from './OpenRouterModelChooser';
 import { hasSameBaseOrigin } from '../lib/originTrust';
 
 const INTERNAL_URL_PREFIX = 'internal://';
@@ -31,6 +32,7 @@ interface IframePanelProps {
     containerRef: string,
     spaceId: string,
   ) => void | Promise<void>;
+  onOpenOpenRouterModels?: () => void | Promise<void>;
 }
 
 /**
@@ -624,6 +626,7 @@ export function IframePanel({
   onStartNewSession,
   onNavigateToTabGroup,
   onOpenVKWorkspace,
+  onOpenOpenRouterModels,
 }: IframePanelProps) {
   const activeTab = tabGroup.tabs.find(
     (t) => t.id === activeItemId
@@ -696,6 +699,7 @@ export function IframePanel({
             {...(onStartNewSession ? { onStartNewSession } : {})}
             {...(onNavigateToTabGroup ? { onNavigateToTabGroup } : {})}
             {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
+            {...(onOpenOpenRouterModels ? { onOpenOpenRouterModels } : {})}
           />
       ) : (
         <EmptyView />
@@ -798,6 +802,7 @@ function SingleTabView({
   onStartNewSession,
   onNavigateToTabGroup,
   onOpenVKWorkspace,
+  onOpenOpenRouterModels,
 }: {
   activeTab: Tab;
   loadingState: Map<string, boolean>;
@@ -817,6 +822,7 @@ function SingleTabView({
     containerRef: string,
     spaceId: string,
   ) => void | Promise<void>;
+  onOpenOpenRouterModels?: () => void | Promise<void>;
 }) {
   const isLoaded = loadingState.get(activeTab.id) ?? false;
   const hasError = errorState.get(activeTab.id) ?? false;
@@ -847,7 +853,16 @@ function SingleTabView({
             onStartNewSession={onStartNewSession}
             onNavigateToTabGroup={onNavigateToTabGroup}
             {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
+            {...(onOpenOpenRouterModels ? { onOpenOpenRouterModels } : {})}
           />
+        </div>
+      );
+    }
+
+    if (internalPath === 'openrouter-models') {
+      return (
+        <div className="flex-1 min-h-0 relative h-full">
+          <OpenRouterModelChooser />
         </div>
       );
     }

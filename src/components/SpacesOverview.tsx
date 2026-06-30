@@ -1156,6 +1156,7 @@ interface SpacesOverviewProps {
     containerRef: string,
     spaceId: string,
   ) => void | Promise<void>;
+  onOpenOpenRouterModels?: () => void | Promise<void>;
 }
 
 export function SpacesOverview({
@@ -1168,6 +1169,7 @@ export function SpacesOverview({
   onStartNewSession,
   onNavigateToTabGroup,
   onOpenVKWorkspace,
+  onOpenOpenRouterModels,
 }: SpacesOverviewProps) {
   const { workspaces, repos, loading, error, refetch } = useVKDashboardData();
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
@@ -1320,8 +1322,23 @@ export function SpacesOverview({
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-          <p className="text-sm text-zinc-500 mt-1">Workspace activity feed</p>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h1 className="text-2xl font-bold text-white">Dashboard</h1>
+              <p className="text-sm text-zinc-500 mt-1">
+                Workspace activity feed
+              </p>
+            </div>
+            {onOpenOpenRouterModels && (
+              <button
+                type="button"
+                onClick={() => void onOpenOpenRouterModels()}
+                className="rounded-lg border border-violet-500/40 bg-violet-500/10 px-3 py-2 text-sm font-medium text-violet-100 transition hover:bg-violet-500/20"
+              >
+                OpenRouter Models
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Voyages */}

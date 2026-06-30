@@ -756,6 +756,7 @@ springboard.registerModule(
           if (result?.tabId) {
             sessionActions.selectTab(result.tabGroupId, result.tabId);
           }
+          return result;
         },
         createPair: async (args: { tabGroupId: string; tabIds: string[] }) => {
           const result = await actions.createPair(args);
