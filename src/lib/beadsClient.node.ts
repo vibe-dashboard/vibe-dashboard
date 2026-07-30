@@ -17,7 +17,7 @@ import {
   type BeadLike,
   type BeadsFormDefinition,
   type JsonObject,
-} from './beadsFormCore';
+} from './beadsFormCore.ts';
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_VD_BEADS_DIRECTORY = '/var/lib/vd/beads';
