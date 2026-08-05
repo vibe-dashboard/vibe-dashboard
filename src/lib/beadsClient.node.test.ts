@@ -323,6 +323,7 @@ describe('BeadsClient', () => {
       if (options.cwd === workspaceAStore && args[1] === 'list') {
         if (args.includes('beadFormsSummary')) return { stdout: JSON.stringify([
           { id: 'summary_done', title: 'Summary done', metadata: { beadFormsSummary: { hasForms: true, hasPendingAnswer: false, pendingResponseCount: 0, formIds: ['summary_done_form'], pendingFormIds: [] }, beadForms: { forms: [storedForm('summary_done_form', 'Done')] } } },
+          { id: 'task-pending', title: 'Pending bead', metadata: { beadFormsSummary: { hasForms: true, hasPendingAnswer: true, pendingResponseCount: 1, formIds: ['review'], pendingFormIds: ['review'] }, beadForms: { forms: [storedForm('review', 'Review')] } } },
         ]), stderr: '' };
         return { stdout: args.includes('beadForms') ? JSON.stringify([
           { id: 'task-pending', title: 'Pending bead', metadata: { beadForms: { forms: [storedForm('review', 'Review')] } } },

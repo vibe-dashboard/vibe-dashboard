@@ -12,6 +12,7 @@ import {
   assertMetadataFitsDoltTextColumn,
   buildPrettySummary,
   getBeadsForms,
+  getSupportedBeadsForms,
   selectBeadsForm,
   withBeadsFormsSummary,
   validateSubmittedValues,
@@ -81,7 +82,7 @@ export type PendingBeadsFormEntry = {
   workspaceId: string;
   repoDir: string;
   repoName: string;
-  bead: Pick<BeadLike, 'id' | 'title' | 'description'>;
+  bead: Pick<BeadLike, 'id' | 'title' | 'description' | 'createdAt' | 'updatedAt'>;
   form: Pick<BeadsFormDefinition, 'id' | 'title' | 'description'> & { responseCount: number };
 };
 
@@ -212,21 +213,24 @@ export class BeadsClient {
 
     const entries: PendingBeadsFormEntry[] = [];
     const skipped: Array<{ repoDir: string; reason: string }> = [];
-    for (const { workspaceId, storeDir } of workspaceStores) {
+    const storeResults = await mapWithConcurrency(workspaceStores, 5, async ({ workspaceId, storeDir }) => {
       try {
         if (!await pathExists(storeDir)) {
-          skipped.push({ repoDir: storeDir, reason: 'workspace beads store not initialized' });
-          continue;
+          return { storeDir, entries: [], reason: 'workspace beads store not initialized' };
         }
-        entries.push(...await this.listPendingFormsInWorkspaceStore(workspaceId, storeDir));
+        return { storeDir, entries: await this.listPendingFormsInWorkspaceStore(workspaceId, storeDir) };
       } catch (error) {
         if (isNoBeadsDatabaseError(error)) {
-          skipped.push({ repoDir: storeDir, reason: 'not initialized for beads' });
-        } else {
-          skipped.push({ repoDir: storeDir, reason: error instanceof Error ? error.message : String(error) });
+          return { storeDir, entries: [], reason: 'not initialized for beads' };
         }
+        return { storeDir, entries: [], reason: error instanceof Error ? error.message : String(error) };
       }
+    });
+    for (const result of storeResults) {
+      entries.push(...result.entries);
+      if (result.reason) skipped.push({ repoDir: result.storeDir, reason: result.reason });
     }
+    entries.sort(comparePendingEntriesMostRecent);
 
     return {
       reposRoot,
@@ -240,29 +244,27 @@ export class BeadsClient {
 
   private async listPendingFormsInWorkspaceStore(workspaceId: string, storeDir: string): Promise<PendingBeadsFormEntry[]> {
     const candidates = new Map<string, BeadLike>();
-    for (const metadataKey of ['beadFormsSummary', 'beadForms', 'beadsWeb']) {
-      const listed = parseBdJsonArray<BeadLike>((await this.exec(this.bdPath, [
-        '--readonly',
-        'list',
-        '--json',
-        '--all',
-        '--limit',
-        '0',
-        '--has-metadata-key',
-        metadataKey,
-      ], {
-        cwd: storeDir,
-        timeout: 15_000,
-        maxBuffer: 1024 * 1024 * 5,
-      })).stdout);
-      for (const bead of listed) {
-        if (bead.id) candidates.set(bead.id, bead);
-      }
+    const listed = parseBdJsonArray<BeadLike>((await this.exec(this.bdPath, [
+      '--readonly',
+      'list',
+      '--json',
+      '--all',
+      '--limit',
+      '0',
+      '--has-metadata-key',
+      'beadFormsSummary',
+    ], {
+      cwd: storeDir,
+      timeout: 15_000,
+      maxBuffer: 1024 * 1024 * 5,
+    })).stdout);
+    for (const bead of listed) {
+      if (bead.id) candidates.set(bead.id, bead);
     }
 
     return Array.from(candidates.values()).flatMap((bead) => {
       if (isClosedBead(bead)) return [];
-      const forms = getBeadsForms(bead.metadata)
+      const forms = getSupportedBeadsForms(bead.metadata)
         .filter((form) => isPendingForm(bead, form));
       return forms.map((form) => ({
         workspaceId,
@@ -272,6 +274,8 @@ export class BeadsClient {
           id: bead.id,
           ...(bead.title ? { title: bead.title } : {}),
           ...(bead.description ? { description: bead.description } : {}),
+          ...(beadCreatedAt(bead) ? { createdAt: beadCreatedAt(bead) } : {}),
+          ...(beadUpdatedAt(bead) ? { updatedAt: beadUpdatedAt(bead) } : {}),
         },
         form: {
           id: form.id,
@@ -490,6 +494,40 @@ function pendingQueueUpdateStrategy(): PendingBeadsFormQueueResult['updateStrate
   };
 }
 
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index] as T, index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+function comparePendingEntriesMostRecent(left: PendingBeadsFormEntry, right: PendingBeadsFormEntry): number {
+  const leftTime = Date.parse(left.bead.updatedAt ?? left.bead.createdAt ?? '');
+  const rightTime = Date.parse(right.bead.updatedAt ?? right.bead.createdAt ?? '');
+  if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) return rightTime - leftTime;
+  if (Number.isFinite(leftTime) !== Number.isFinite(rightTime)) return Number.isFinite(rightTime) ? 1 : -1;
+  return `${left.repoName}:${left.bead.id}:${left.form.id}`.localeCompare(`${right.repoName}:${right.bead.id}:${right.form.id}`);
+}
+
+function beadCreatedAt(bead: BeadLike): string | undefined {
+  return bead.createdAt ?? bead.created_at;
+}
+
+function beadUpdatedAt(bead: BeadLike): string | undefined {
+  return bead.updatedAt ?? bead.updated_at;
+}
+
 function isClosedBead(bead: BeadLike): boolean {
   return bead.status?.trim().toLowerCase() === 'closed';
 }
@@ -501,7 +539,7 @@ function isPendingForm(bead: BeadLike, form: BeadsFormDefinition): boolean {
   if (summary && Array.isArray(summary.pendingFormIds)) {
     return summary.pendingFormIds.includes(form.id);
   }
-  return (form.responses?.length ?? 0) === 0;
+  return false;
 }
 
 export function createNodeBeadsClient(options?: BeadsClientOptions): BeadsClient {
