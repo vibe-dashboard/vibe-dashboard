@@ -31,7 +31,8 @@ import {
 } from '../lib/beadsFormPreviewState';
 import { rewriteFolderPreviewMediaRefs } from '../lib/beadsFormPreviewMedia';
 import { normalizeBeadsFormQueryId } from '../lib/beadsFormUrl';
-import { initializeSingleQuestionMode } from '../lib/beadsFormSingleQuestion';
+import { shouldHydrateRefreshedWorkspaceForms } from '../lib/beadsFormRefreshState';
+import { initializeSingleQuestionMode, prehideInactiveSingleQuestionItems } from '../lib/beadsFormSingleQuestion';
 import { initializeCompactMoreInfo, refreshCompactMoreInfoState } from '../lib/beadsFormMoreInfo';
 import { preserveSubmittedFormDom } from '../lib/beadsFormSubmissionUi';
 import {
@@ -372,6 +373,10 @@ function normalizeSubmittedFormEvent(
   return normalizeSubmittedValues(form, values);
 }
 
+function wizardSafeFormHtml(form: BeadsFormDefinition, html: string, options: { urlState?: boolean } = {}): string {
+  if (form.format !== 'standard') return html;
+  return prehideInactiveSingleQuestionItems(html, options);
+}
 
 function SubmittingOverlay() {
   return (
@@ -416,14 +421,20 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
   const [submitting, setSubmitting] = useState(false);
   const [submitResult, setSubmitResult] = useState<SubmitPreviewFormResult | null>(null);
   const [submittedLocked, setSubmittedLocked] = useState(false);
+  const submittedLockedRef = useRef(false);
   const submitInFlightRef = useRef(false);
   const formHostRef = useRef<HTMLDivElement | null>(null);
+
+  React.useEffect(() => {
+    submittedLockedRef.current = submittedLocked;
+  }, [submittedLocked]);
 
   React.useEffect(() => {
     let cancelled = false;
     setLoaded(null);
     setError(null);
     setSubmitResult(null);
+    submittedLockedRef.current = false;
     setSubmittedLocked(false);
     if (!folder) {
       setError('Preview requires a folder query parameter.');
@@ -447,7 +458,8 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
   const selectedHtml = useMemo(() => {
     if (!loaded?.selectedForm) return '';
     const sanitized = sanitizeBeadsFormHtml(rewriteFolderPreviewMediaRefs(loaded.selectedForm.html, loaded.folder));
-    return loaded.selectedForm.format === 'standard' ? stripCompiledFormHeader(sanitized) : sanitized;
+    const withoutHeader = loaded.selectedForm.format === 'standard' ? stripCompiledFormHeader(sanitized) : sanitized;
+    return wizardSafeFormHtml(loaded.selectedForm, withoutHeader);
   }, [loaded?.folder, loaded?.selectedForm]);
 
   const previewStateKey = useMemo(() => {
@@ -468,7 +480,8 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
     initializeCompactMoreInfo(host);
     refreshCompactMoreInfoState(host);
 
-    const locked = !!snapshot.latest && !snapshot.editing;
+    const locked = submittedLockedRef.current || (!!snapshot.latest && !snapshot.editing);
+    submittedLockedRef.current = locked;
     setSubmittedLocked(locked);
     setSubmitButtonsDisabled(form, locked);
     setFormFieldsReadOnly(form, locked);
@@ -510,6 +523,7 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
   };
 
   const handleEditResponse = () => {
+    submittedLockedRef.current = false;
     setSubmittedLocked(false);
     if (previewStateKey && typeof window !== 'undefined') {
       startPreviewEdit(window.localStorage, previewStateKey);
@@ -546,6 +560,7 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
         lock: true,
         singleQuestionMode: loaded.selectedForm.format === 'standard',
       });
+      submittedLockedRef.current = true;
       setSubmittedLocked(true);
       setSubmitResult(result);
       await navigator.clipboard?.writeText(JSON.stringify(result.values, null, 2)).catch(() => undefined);
@@ -771,12 +786,17 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
 }) {
   const [status, setStatus] = useState<AggregateSubmitStatus>({ status: 'idle' });
   const [submittedLocked, setSubmittedLocked] = useState(false);
+  const submittedLockedRef = useRef(false);
   const submitInFlightRef = useRef(false);
   const formHostRef = useRef<HTMLDivElement | null>(null);
   const form = item.form;
   const domPrefix = useMemo(() => aggregateFormDomPrefix(item.ref), [item.ref]);
   const html = useMemo(() => (
-    form ? namespaceAggregateFormHtml(sanitizeBeadsFormHtml(form.html), domPrefix) : ''
+    form ? wizardSafeFormHtml(
+      form,
+      namespaceAggregateFormHtml(sanitizeBeadsFormHtml(form.html), domPrefix),
+      { urlState: false },
+    ) : ''
   ), [domPrefix, form]);
   const storageKey = useMemo(() => {
     if (!form || !item.beadRepoDir) return '';
@@ -788,13 +808,18 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
   }, [form, item.beadRepoDir, item.ref.beadId]);
 
   React.useEffect(() => {
+    submittedLockedRef.current = submittedLocked;
+  }, [submittedLocked]);
+
+  React.useEffect(() => {
     const element = formHostRef.current?.querySelector('form');
     if (!element || !form || !storageKey) return;
     const snapshot = readPreviewStorage(typeof window === 'undefined' ? undefined : window.localStorage, storageKey);
     const backendValues = latestSubmittedResponseValues(form.responses);
     const restoredValues = snapshot.editing ? (snapshot.draft ?? backendValues ?? snapshot.latest) : (backendValues ?? snapshot.latest ?? snapshot.draft);
     if (restoredValues) applyValuesToForm(element, restoredValues);
-    const locked = !!(backendValues ?? snapshot.latest) && !snapshot.editing;
+    const locked = submittedLockedRef.current || (!!(backendValues ?? snapshot.latest) && !snapshot.editing);
+    submittedLockedRef.current = locked;
     setSubmittedLocked(locked);
     setSubmitButtonsDisabled(element, locked);
     setFormFieldsReadOnly(element, locked);
@@ -821,6 +846,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
   };
 
   const handleEditResponse = () => {
+    submittedLockedRef.current = false;
     setSubmittedLocked(false);
     setStatus({ status: 'idle' });
     if (storageKey && typeof window !== 'undefined') startPreviewEdit(window.localStorage, storageKey);
@@ -853,6 +879,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
         singleQuestionMode: form.format === 'standard',
         singleQuestionModeUrlState: false,
       });
+      submittedLockedRef.current = true;
       setSubmittedLocked(true);
       setStatus({ status: 'success', values: result.values, warnings: result.warnings });
       await navigator.clipboard?.writeText(result.agentMessage).catch(() => undefined);
@@ -1005,14 +1032,20 @@ function BeadsFormRoute({ actions }: { actions: {
   const [submitting, setSubmitting] = useState(false);
   const [submitResult, setSubmitResult] = useState<SubmitFormResult | null>(null);
   const [submittedLocked, setSubmittedLocked] = useState(false);
+  const submittedLockedRef = useRef(false);
   const submitInFlightRef = useRef(false);
   const formHostRef = useRef<HTMLDivElement | null>(null);
+
+  React.useEffect(() => {
+    submittedLockedRef.current = submittedLocked;
+  }, [submittedLocked]);
 
   React.useEffect(() => {
     let cancelled = false;
     setLoaded(null);
     setError(null);
     setSubmitResult(null);
+    submittedLockedRef.current = false;
     setSubmittedLocked(false);
 
     if (!workspaceId && (!dir || !beadId)) {
@@ -1056,7 +1089,13 @@ function BeadsFormRoute({ actions }: { actions: {
           const fresh = workspaceId
             ? await (await actions.refreshWorkspaceForms(workspaceInput))
             : await directResult(actions.refreshBeadForms);
-          if (!cancelled) setLoaded(fresh);
+          if (!cancelled && shouldHydrateRefreshedWorkspaceForms({
+            cached: result,
+            fresh,
+            submittedLocked: submittedLockedRef.current,
+          })) {
+            setLoaded(fresh);
+          }
         }
       } catch (reason) {
         if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason));
@@ -1070,7 +1109,10 @@ function BeadsFormRoute({ actions }: { actions: {
 
   const selectedHtml = useMemo(() => {
     if (!loaded?.selected?.selectedForm) return '';
-    return sanitizeBeadsFormHtml(loaded.selected.selectedForm.html);
+    return wizardSafeFormHtml(
+      loaded.selected.selectedForm,
+      sanitizeBeadsFormHtml(loaded.selected.selectedForm.html),
+    );
   }, [loaded?.selected?.selectedForm]);
 
   const beadDraftStorageKey = useMemo(() => {
@@ -1098,7 +1140,8 @@ function BeadsFormRoute({ actions }: { actions: {
       initializeCompactMoreInfo(host);
       refreshCompactMoreInfoState(host);
     }
-    const locked = !!(backendValues ?? snapshot.latest) && !snapshot.editing;
+    const locked = submittedLockedRef.current || (!!(backendValues ?? snapshot.latest) && !snapshot.editing);
+    submittedLockedRef.current = locked;
     setSubmittedLocked(locked);
     setSubmitButtonsDisabled(form, locked);
     setFormFieldsReadOnly(form, locked);
@@ -1134,6 +1177,7 @@ function BeadsFormRoute({ actions }: { actions: {
   };
 
   const handleEditBeadResponse = () => {
+    submittedLockedRef.current = false;
     setSubmittedLocked(false);
     if (beadDraftStorageKey && typeof window !== 'undefined') {
       startPreviewEdit(window.localStorage, beadDraftStorageKey);
@@ -1171,6 +1215,7 @@ function BeadsFormRoute({ actions }: { actions: {
         lock: true,
         singleQuestionMode: loaded.selected.selectedForm.format === 'standard',
       });
+      submittedLockedRef.current = true;
       setSubmittedLocked(true);
       setSubmitResult(result);
       await navigator.clipboard?.writeText(result.agentMessage).catch(() => undefined);
