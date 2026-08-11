@@ -9,7 +9,7 @@ import { promisify } from 'node:util';
 
 import {
   appendBeadsFormResponse,
-  assertMetadataFitsDoltTextColumn,
+  assertMetadataWithinIssueJsonGuard,
   buildPrettySummary,
   getBeadsForms,
   getSupportedBeadsForms,
@@ -438,7 +438,7 @@ export class BeadsClient {
   }
 
   async updateMetadata(dir: string, beadId: string, metadata: JsonObject): Promise<void> {
-    assertMetadataFitsDoltTextColumn(metadata);
+    assertMetadataWithinIssueJsonGuard(metadata);
     const tempDir = await mkdtemp(join(tmpdir(), 'beadsform-'));
     const metadataPath = join(tempDir, 'metadata.json');
     try {
