@@ -1126,9 +1126,9 @@ function BeadsFormRoute({ actions }: { actions: {
         ): Promise<LoadWorkspaceFormsResult> => {
           const selected = await (await loader({ dir, beadId, formId }));
           return {
-            workspaceId: '',
+            workspaceId,
             workspaceBeads: {
-              workspaceId: '',
+              workspaceId,
               repos: [{
                 repo: { id: 'direct', name: dir },
                 dir,
@@ -1142,20 +1142,21 @@ function BeadsFormRoute({ actions }: { actions: {
             ...(selected.cache ? { cache: selected.cache } : {}),
           };
         };
+        const shouldUseDirectSelectedLoad = !!dir && !!beadId;
         const workspaceInput = {
           workspaceId,
           ...(beadId ? { beadId } : {}),
           ...(formId ? { formId } : {}),
           includeOtherWorkspaces,
         };
-        const result = workspaceId
-          ? await (await actions.loadWorkspaceForms(workspaceInput))
-          : await directResult(actions.loadBeadForms);
+        const result = shouldUseDirectSelectedLoad
+          ? await directResult(actions.loadBeadForms)
+          : await (await actions.loadWorkspaceForms(workspaceInput));
         if (!cancelled) setLoaded(result);
         if (result.cache?.status === 'cached') {
-          const fresh = workspaceId
-            ? await (await actions.refreshWorkspaceForms(workspaceInput))
-            : await directResult(actions.refreshBeadForms);
+          const fresh = shouldUseDirectSelectedLoad
+            ? await directResult(actions.refreshBeadForms)
+            : await (await actions.refreshWorkspaceForms(workspaceInput));
           if (!cancelled && shouldHydrateRefreshedWorkspaceForms({
             cached: result,
             fresh,
@@ -1314,8 +1315,8 @@ function BeadsFormRoute({ actions }: { actions: {
   if (!loaded) {
     return (
       <BeadsFormLoadingPage
-        title={workspaceId ? 'Loading workspace forms' : 'Loading bead form'}
-        description={workspaceId ? 'Reading workspace BeadsForm metadata…' : 'Reading this bead-backed form directly…'}
+        title={workspaceId && !dir ? 'Loading workspace forms' : 'Loading bead form'}
+        description={workspaceId && !dir ? 'Reading workspace BeadsForm metadata…' : 'Reading this bead-backed form directly…'}
       />
     );
   }
