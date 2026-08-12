@@ -55,6 +55,12 @@ import {
   workspaceBeadFormsCacheKey,
   type BeadsFormCacheMetadata,
 } from '../lib/beadsFormReadCache';
+import {
+  initialPendingQueueSentinel,
+  shouldRefreshPendingQueueForSentinel,
+  touchPendingQueueSentinel,
+  type PendingQueueSentinel,
+} from '../lib/beadsFormPendingQueueSentinel';
 
 // @platform "node"
 import { serverRegistry } from 'springboard/server/register';
@@ -171,6 +177,11 @@ type LoadPendingFormsInput = {
 
 type LoadPendingFormsResult = PendingBeadsFormQueueResult & {
   cache?: BeadsFormCacheMetadata;
+};
+
+type PendingQueueSentinelState = {
+  getState: () => PendingQueueSentinel;
+  setState: (updater: PendingQueueSentinel | ((current: PendingQueueSentinel) => PendingQueueSentinel)) => PendingQueueSentinel;
 };
 
 const beadsFormReadCache = new BeadsFormReadCache();
@@ -317,6 +328,33 @@ function pendingQueueFingerprint(result: PendingBeadsFormQueueResult): string {
     })),
     skipped: result.skipped.map((skip) => ({ repoDir: skip.repoDir, reason: skip.reason })),
   });
+}
+
+function pendingQueueScopeKey(input: LoadPendingFormsInput): string {
+  return pendingBeadsFormsCacheKey(input);
+}
+
+function markPendingQueueDirtyForRepo(state: PendingQueueSentinelState, repoDir: string): void {
+  const beadsDirectory = beadsDirectoryForStoreDir(repoDir);
+  const scopeKeys = beadsDirectory
+    ? [pendingQueueScopeKey({ beadsDirectory })]
+    : [];
+  state.setState((current) => touchPendingQueueSentinel(current, scopeKeys));
+}
+
+function beadsDirectoryForStoreDir(repoDir: string): string | undefined {
+  const trimmed = repoDir.replace(/\/+$/, '');
+  const workspacesSegment = '/workspaces/';
+  const workspacesIndex = trimmed.lastIndexOf(workspacesSegment);
+  if (workspacesIndex <= 0) return undefined;
+  return trimmed.slice(0, workspacesIndex);
+}
+
+function formatPendingEntryDate(value: string | undefined): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
 }
 
 async function readAggregateForms(input: LoadAggregateFormsInput): Promise<LoadAggregateFormsResult> {
@@ -686,12 +724,13 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
   );
 }
 
-function BeadsFormPendingQueue({ actions, parentDir }: {
+function BeadsFormPendingQueue({ actions, parentDir, pendingQueueSentinel }: {
   actions: {
     loadPendingForms: (input: LoadPendingFormsInput) => MaybeNestedPromise<LoadPendingFormsResult>;
     refreshPendingForms: (input: LoadPendingFormsInput) => MaybeNestedPromise<LoadPendingFormsResult>;
   };
   parentDir?: string;
+  pendingQueueSentinel: PendingQueueSentinel;
 }) {
   const [pending, setPending] = useState<LoadPendingFormsResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -700,6 +739,7 @@ function BeadsFormPendingQueue({ actions, parentDir }: {
   const [refreshNotice, setRefreshNotice] = useState<string | null>(null);
   const loadTokenRef = useRef(0);
   const pendingRef = useRef<LoadPendingFormsResult | null>(null);
+  const observedSentinelVersionRef = useRef<number | undefined>(undefined);
 
   React.useEffect(() => {
     pendingRef.current = pending;
@@ -751,6 +791,46 @@ function BeadsFormPendingQueue({ actions, parentDir }: {
   React.useEffect(() => {
     void load();
   }, [load]);
+
+  React.useEffect(() => {
+    const input = {
+      ...(parentDir ? { beadsDirectory: parentDir } : {}),
+    };
+    if (!shouldRefreshPendingQueueForSentinel({
+      previousVersion: observedSentinelVersionRef.current,
+      sentinel: pendingQueueSentinel,
+      scopeKey: pendingQueueScopeKey(input),
+    })) {
+      observedSentinelVersionRef.current = pendingQueueSentinel.version;
+      return;
+    }
+    observedSentinelVersionRef.current = pendingQueueSentinel.version;
+    if (!pendingRef.current) return;
+
+    const token = loadTokenRef.current + 1;
+    loadTokenRef.current = token;
+    setRefreshing(true);
+    setError(null);
+    setRefreshNotice(null);
+    void (async () => {
+      const fresh = await (await actions.refreshPendingForms(input));
+      if (token !== loadTokenRef.current) return;
+      const changed = pendingRef.current
+        ? pendingQueueFingerprint(pendingRef.current) !== pendingQueueFingerprint(fresh)
+        : true;
+      pendingRef.current = fresh;
+      setPending(fresh);
+      if (changed) {
+        const message = 'Pending BeadsForms changed.';
+        setRefreshNotice(message);
+        addToast({ title: 'Pending BeadsForms updated', description: message, color: 'primary' });
+      }
+    })().catch((reason) => {
+      if (token === loadTokenRef.current) setError(reason instanceof Error ? reason.message : String(reason));
+    }).finally(() => {
+      if (token === loadTokenRef.current) setRefreshing(false);
+    });
+  }, [actions, parentDir, pendingQueueSentinel]);
 
   return (
     <div className="beadsform-root beadsform-page">
@@ -1075,7 +1155,7 @@ function BeadsFormAggregateRoute({ actions }: { actions: {
   );
 }
 
-function BeadsFormRoute({ actions }: { actions: {
+function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
   loadBeadForms: (input: LoadFormsInput) => MaybeNestedPromise<LoadFormsResult>;
   refreshBeadForms: (input: LoadFormsInput) => MaybeNestedPromise<LoadFormsResult>;
   loadWorkspaceForms: (input: LoadWorkspaceFormsInput) => MaybeNestedPromise<LoadWorkspaceFormsResult>;
@@ -1083,7 +1163,7 @@ function BeadsFormRoute({ actions }: { actions: {
   loadPendingForms: (input: LoadPendingFormsInput) => MaybeNestedPromise<LoadPendingFormsResult>;
   refreshPendingForms: (input: LoadPendingFormsInput) => MaybeNestedPromise<LoadPendingFormsResult>;
   submitBeadForm: (input: SubmitFormInput) => MaybeNestedPromise<SubmitFormResult>;
-} }) {
+}; pendingQueueSentinel: PendingQueueSentinel }) {
   const [params] = useSearchParams();
   const workspaceId = params.get('workspace') ?? '';
   const dir = params.get('dir') ?? '';
@@ -1305,7 +1385,7 @@ function BeadsFormRoute({ actions }: { actions: {
   };
 
   if (!workspaceId && (!dir || !beadId)) {
-    return <BeadsFormPendingQueue actions={actions} parentDir={parentDir || undefined} />;
+    return <BeadsFormPendingQueue actions={actions} parentDir={parentDir || undefined} pendingQueueSentinel={pendingQueueSentinel} />;
   }
 
   if (error && !loaded) {
@@ -1429,6 +1509,9 @@ springboard.registerModule(
   'BeadsForm',
   { rpcMode: 'remote' },
   async (moduleAPI) => {
+    const states = await moduleAPI.createStates({
+      pendingQueueSentinel: initialPendingQueueSentinel,
+    });
     const actions = moduleAPI.createActions({
       loadPreviewForms: async (input: LoadPreviewFormsInput): Promise<LoadPreviewFormsResult> => {
         const forms = await loadBeadsFormsFromFolder(input.folder);
@@ -1491,6 +1574,7 @@ springboard.registerModule(
       submitBeadForm: async (input: SubmitFormInput): Promise<SubmitFormResult> => {
         const result = await nodeClient().submitForm(input);
         beadsFormReadCache.invalidateAll();
+        markPendingQueueDirtyForRepo(states.pendingQueueSentinel, input.dir);
         const forms = getBeadsForms(result.metadata);
         const form = forms.find((candidate) => candidate.id === input.formId) ?? { id: input.formId, title: input.formId, html: '' };
         return {
@@ -1516,7 +1600,7 @@ springboard.registerModule(
     });
 
     moduleAPI.registerRoute('/dashboard/forms', { hideApplicationShell: true }, () => (
-      <BeadsFormRoute actions={actions} />
+      <BeadsFormRoute actions={actions} pendingQueueSentinel={states.pendingQueueSentinel.useState()} />
     ));
 
     moduleAPI.registerRoute('/dashboard/forms/preview', { hideApplicationShell: true }, () => (
@@ -1527,6 +1611,6 @@ springboard.registerModule(
       <BeadsFormAggregateRoute actions={actions} />
     ));
 
-    return { actions };
+    return { actions, states };
   },
 );
