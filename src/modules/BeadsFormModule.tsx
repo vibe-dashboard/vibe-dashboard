@@ -509,6 +509,7 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
   const [submitResult, setSubmitResult] = useState<SubmitPreviewFormResult | null>(null);
   const [clipboardResult, setClipboardResult] = useState<ClipboardCopyResult | null>(null);
   const [submittedLocked, setSubmittedLocked] = useState(false);
+  const [editResponseVersion, setEditResponseVersion] = useState(0);
   const submittedLockedRef = useRef(false);
   const submitInFlightRef = useRef(false);
   const formHostRef = useRef<HTMLDivElement | null>(null);
@@ -523,6 +524,7 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
     setError(null);
     setSubmitResult(null);
     setClipboardResult(null);
+    setEditResponseVersion(0);
     submittedLockedRef.current = false;
     setSubmittedLocked(false);
     if (!folder) {
@@ -580,14 +582,14 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
       submittedAt: snapshot.history.at(-1)?.submittedAt ?? '',
       warnings: [],
     } : null);
-  }, [loaded?.selectedForm, previewStateKey, selectedHtml]);
+  }, [editResponseVersion, loaded?.selectedForm, previewStateKey, selectedHtml]);
 
   React.useEffect(() => {
     if (loaded?.selectedForm?.format !== 'standard') return undefined;
     const host = formHostRef.current;
     if (!host) return undefined;
     return initializeSingleQuestionMode(host);
-  }, [loaded?.selectedForm?.format, previewStateKey, selectedHtml]);
+  }, [editResponseVersion, loaded?.selectedForm?.format, previewStateKey, selectedHtml]);
 
   React.useEffect(() => {
     const host = formHostRef.current;
@@ -616,6 +618,7 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
     setSubmittedLocked(false);
     setSubmitResult(null);
     setClipboardResult(null);
+    setEditResponseVersion((version) => version + 1);
     if (previewStateKey && typeof window !== 'undefined') {
       startPreviewEdit(window.localStorage, previewStateKey);
     }
@@ -915,6 +918,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
 }) {
   const [status, setStatus] = useState<AggregateSubmitStatus>({ status: 'idle' });
   const [submittedLocked, setSubmittedLocked] = useState(false);
+  const [editResponseVersion, setEditResponseVersion] = useState(0);
   const submittedLockedRef = useRef(false);
   const submitInFlightRef = useRef(false);
   const formHostRef = useRef<HTMLDivElement | null>(null);
@@ -957,7 +961,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
       initializeCompactMoreInfo(host);
       refreshCompactMoreInfoState(host);
     }
-  }, [form, html, storageKey]);
+  }, [editResponseVersion, form, html, storageKey]);
 
   React.useEffect(() => {
     const element = formHostRef.current;
@@ -965,7 +969,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
     if (form.format === 'standard') initializeSingleQuestionMode(element, { urlState: false });
     initializeCompactMoreInfo(element);
     refreshCompactMoreInfoState(element);
-  }, [form, html]);
+  }, [editResponseVersion, form, html]);
 
   const handleDraftChange = () => {
     if (submittedLocked || !storageKey || typeof window === 'undefined') return;
@@ -978,6 +982,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
     submittedLockedRef.current = false;
     setSubmittedLocked(false);
     setStatus({ status: 'idle' });
+    setEditResponseVersion((version) => version + 1);
     if (storageKey && typeof window !== 'undefined') startPreviewEdit(window.localStorage, storageKey);
     const element = formHostRef.current?.querySelector('form');
     if (element) {
@@ -1178,6 +1183,7 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
   const [submitResult, setSubmitResult] = useState<SubmitFormResult | null>(null);
   const [clipboardResult, setClipboardResult] = useState<ClipboardCopyResult | null>(null);
   const [submittedLocked, setSubmittedLocked] = useState(false);
+  const [editResponseVersion, setEditResponseVersion] = useState(0);
   const submittedLockedRef = useRef(false);
   const submitInFlightRef = useRef(false);
   const formHostRef = useRef<HTMLDivElement | null>(null);
@@ -1192,6 +1198,7 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
     setError(null);
     setSubmitResult(null);
     setClipboardResult(null);
+    setEditResponseVersion(0);
     submittedLockedRef.current = false;
     setSubmittedLocked(false);
 
@@ -1293,14 +1300,14 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
     setSubmittedLocked(locked);
     setSubmitButtonsDisabled(form, locked);
     setFormFieldsReadOnly(form, locked);
-  }, [beadDraftStorageKey, loaded?.selected?.selectedForm, selectedHtml]);
+  }, [beadDraftStorageKey, editResponseVersion, loaded?.selected?.selectedForm, selectedHtml]);
 
   React.useEffect(() => {
     if (loaded?.selected?.selectedForm?.format !== 'standard') return undefined;
     const host = formHostRef.current;
     if (!host) return undefined;
     return initializeSingleQuestionMode(host);
-  }, [beadDraftStorageKey, loaded?.selected?.selectedForm?.format, selectedHtml]);
+  }, [beadDraftStorageKey, editResponseVersion, loaded?.selected?.selectedForm?.format, selectedHtml]);
 
   React.useEffect(() => {
     const host = formHostRef.current;
@@ -1329,6 +1336,7 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
     setSubmittedLocked(false);
     setSubmitResult(null);
     setClipboardResult(null);
+    setEditResponseVersion((version) => version + 1);
     if (beadDraftStorageKey && typeof window !== 'undefined') {
       startPreviewEdit(window.localStorage, beadDraftStorageKey);
     }
