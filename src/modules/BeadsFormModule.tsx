@@ -701,6 +701,7 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
             <a href={previewFormUrl({ folder: loaded.folder })}>All forms</a>
           </header>
           <div
+            key={`preview-form-host:${loaded.selectedForm.id}:${editResponseVersion}`}
             ref={formHostRef}
             className="beadsform-form-host"
             aria-hidden={submitting ? true : undefined}
@@ -1063,6 +1064,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
             </div>
           ) : null}
           <div
+            key={`aggregate-form-host:${domPrefix}:${editResponseVersion}`}
             ref={formHostRef}
             className="beadsform-form-host"
             aria-hidden={status.status === 'submitting' ? true : undefined}
@@ -1496,6 +1498,7 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
             </div>
           ) : null}
           <div
+            key={`bead-form-host:${beadDraftStorageKey}:${editResponseVersion}`}
             ref={formHostRef}
             className="beadsform-form-host"
             aria-hidden={submitting ? true : undefined}
