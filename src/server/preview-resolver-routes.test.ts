@@ -4,7 +4,12 @@ import { registerPreviewResolverRoutes } from './preview-resolver-routes';
 import type { PreviewResolveRequest } from './vk-client';
 
 describe('registerPreviewResolverRoutes', () => {
-  const originalSiteOrigin = process.env.SITE_ORIGIN;
+  afterEach(() => {
+    delete process.env.PREVIEW_URL_PUBLIC_BASE_DOMAIN;
+    delete process.env.PREVIEW_URL_DEFAULT_CUSTOMER;
+    vi.restoreAllMocks();
+  });
+
   const routeClient = {
     resolvePreview: vi.fn(),
     getRunConfigs: vi.fn(),
@@ -15,25 +20,19 @@ describe('registerPreviewResolverRoutes', () => {
     getPreviewSlotUrl: vi.fn(),
   };
 
-  afterEach(() => {
-    if (originalSiteOrigin === undefined) {
-      delete process.env.SITE_ORIGIN;
-    } else {
-      process.env.SITE_ORIGIN = originalSiteOrigin;
-    }
-  });
-
   it('proxies named preview resolve payloads to VK', async () => {
     const resolvePreview = vi.fn(async () => ({
       status: 'ready' as const,
       upstream: 'http://127.0.0.1:4567',
       executionProcessId: 'process-1',
+      workspaceId: 'workspace-1',
+      previewSlotId: 'slot-1',
     }));
     const app = new Hono();
     registerPreviewResolverRoutes(app, { vkClient: { resolvePreview } });
 
     const payload: PreviewResolveRequest = {
-      host: '0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev',
+      host: 'web-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev',
       workspaceToken: '0123456789abcdef',
       repoSlug: 'vibekanban',
       slotSlug: 'web',
@@ -52,6 +51,8 @@ describe('registerPreviewResolverRoutes', () => {
       status: 'ready',
       upstream: 'http://127.0.0.1:4567',
       executionProcessId: 'process-1',
+      workspaceId: 'workspace-1',
+      previewSlotId: 'slot-1',
     });
     expect(resolvePreview).toHaveBeenCalledWith(payload);
   });
@@ -84,9 +85,11 @@ describe('registerPreviewResolverRoutes', () => {
   });
 
   it('proxies run config declaration and canonical URL generation routes', async () => {
-    delete process.env.SITE_ORIGIN;
     const client = {
       ...routeClient,
+      getWorkspaceRepos: vi.fn(async () => [
+        { id: 'repo1', name: 'vibe-kanban', display_name: 'Vibe Kanban', target_branch: 'feature/x' },
+      ]),
       getRunConfigs: vi.fn(async () => ({
         run_configs: [],
         preview_slots: [],
@@ -100,14 +103,15 @@ describe('registerPreviewResolverRoutes', () => {
         repoSlug: 'vibekanban',
         slotSlug: 'web',
         customerSlug: 'mickmister',
-        host: '0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev',
-        url: 'https://0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev/',
+        host: 'web-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev',
+        url: 'https://web-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev/',
       })),
     };
     const app = new Hono();
     registerPreviewResolverRoutes(app, { vkClient: client });
 
     await app.request('/internal/preview/workspaces/ws1/run-configs');
+    const reposResponse = await app.request('/internal/preview/workspaces/ws1/repos');
     await app.request('/internal/preview/workspaces/ws1/run-configs', {
       method: 'POST',
       body: JSON.stringify({
@@ -130,159 +134,411 @@ describe('registerPreviewResolverRoutes', () => {
       }),
     });
     const urlResponse = await app.request(
-      '/internal/preview/workspaces/ws1/preview-slots/slot1/url?customerSlug=mickmister',
+      '/internal/preview/workspaces/ws1/preview-slots/slot1/url?customerSlug=mickmister&baseDomain=vibedashboard.dev',
     );
 
     expect(client.getRunConfigs).toHaveBeenCalledWith('ws1');
+    expect(client.getWorkspaceRepos).toHaveBeenCalledWith('ws1');
     expect(client.upsertRunConfig).toHaveBeenCalledWith('ws1', expect.objectContaining({ slug: 'web' }));
     expect(client.upsertPreviewSlot).toHaveBeenCalledWith('ws1', expect.objectContaining({ slot_slug: 'web' }));
     expect(client.getPreviewSlotUrl).toHaveBeenCalledWith('ws1', 'slot1', {
       customerSlug: 'mickmister',
-      baseDomain: undefined,
-      urlScheme: undefined,
+      baseDomain: 'vibedashboard.dev',
     });
     await expect(urlResponse.json()).resolves.toMatchObject({
-      url: 'https://0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev/',
+      url: 'https://web-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev/',
     });
+    await expect(reposResponse.json()).resolves.toEqual([
+      { id: 'repo1', name: 'vibe-kanban', display_name: 'Vibe Kanban', target_branch: 'feature/x' },
+    ]);
   });
 
-  it('uses SITE_ORIGIN host as canonical URL fallback', async () => {
-    process.env.SITE_ORIGIN = 'https://customer.example/app';
+  it('uses configured Preview URL customer/domain defaults when the request omits customer', async () => {
+    process.env.PREVIEW_URL_PUBLIC_BASE_DOMAIN = 'previews.example.test';
+    process.env.PREVIEW_URL_DEFAULT_CUSTOMER = 'sandbox';
     const client = {
-      ...routeClient,
+      resolvePreview: vi.fn(),
       getPreviewSlotUrl: vi.fn(async () => ({
         previewSlotId: 'slot1',
         workspaceToken: '0123456789abcdef',
         repoSlug: 'vibekanban',
         slotSlug: 'web',
-        customerSlug: 'mickmister',
-        host: '0123456789abcdef-vibekanban-web-mickmister.customer.example',
-        url: 'https://0123456789abcdef-vibekanban-web-mickmister.customer.example/',
+        customerSlug: 'sandbox',
+        host: 'web-vibekanban-0123456789abcdef-sandbox.previews.example.test',
+        url: 'https://web-vibekanban-0123456789abcdef-sandbox.previews.example.test/',
+      })),
+    };
+    const app = new Hono();
+    registerPreviewResolverRoutes(app, { vkClient: client });
+
+    const response = await app.request('/internal/preview/workspaces/ws1/preview-slots/slot1/url');
+
+    expect(client.getPreviewSlotUrl).toHaveBeenCalledWith('ws1', 'slot1', {
+      customerSlug: 'sandbox',
+      baseDomain: 'previews.example.test',
+    });
+    await expect(response.json()).resolves.toMatchObject({
+      url: 'https://web-vibekanban-0123456789abcdef-sandbox.previews.example.test/',
+    });
+  });
+
+  it('passes omitted customer through so VK can report missing default validation', async () => {
+    const client = {
+      resolvePreview: vi.fn(),
+      getPreviewSlotUrl: vi.fn(async () => {
+        throw new Error('Preview URL customer is required when PREVIEW_URL_DEFAULT_CUSTOMER is not configured.');
+      }),
+    };
+    const app = new Hono();
+    registerPreviewResolverRoutes(app, { vkClient: client });
+
+    const response = await app.request('/internal/preview/workspaces/ws1/preview-slots/slot1/url');
+
+    expect(client.getPreviewSlotUrl).toHaveBeenCalledWith('ws1', 'slot1', {
+      customerSlug: undefined,
+      baseDomain: undefined,
+    });
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toMatchObject({
+      message: 'Preview URL customer is required when PREVIEW_URL_DEFAULT_CUSTOMER is not configured.',
+    });
+  });
+
+  it('proxies delete routes for preview slots and run configs', async () => {
+    const client = {
+      ...routeClient,
+      deletePreviewSlot: vi.fn(async () => undefined),
+      deleteRunConfig: vi.fn(async () => undefined),
+    };
+    const app = new Hono();
+    registerPreviewResolverRoutes(app, { vkClient: client });
+
+    const slotResponse = await app.request('/internal/preview/workspaces/ws1/preview-slots/slot1', {
+      method: 'DELETE',
+    });
+    const runConfigResponse = await app.request('/internal/preview/workspaces/ws1/run-configs/rc1', {
+      method: 'DELETE',
+    });
+
+    expect(slotResponse.status).toBe(200);
+    expect(runConfigResponse.status).toBe(200);
+    expect(client.deletePreviewSlot).toHaveBeenCalledWith('ws1', 'slot1');
+    expect(client.deleteRunConfig).toHaveBeenCalledWith('ws1', 'rc1');
+  });
+
+  it('rewrites generated Preview URLs to localhost subdomains for local Caddy mode', async () => {
+    const client = {
+      resolvePreview: vi.fn(),
+      getRunConfigs: vi.fn(async () => ({
+        run_configs: [],
+        preview_slots: [],
+        preview_url_parts: [],
+        preview_process_links: [{
+          id: 'link-1', workspace_id: 'ws1', repo_id: 'repo-1', run_config_id: 'config-1',
+          preview_slot_id: 'slot-1', execution_process_id: 'process-1', assigned_port: 4000,
+          status_snapshot: 'ready' as const, started_at: '', updated_at: '',
+        }],
+      })),
+      getPreviewSlotUrl: vi.fn(async () => ({
+        previewSlotId: 'slot1',
+        workspaceToken: '0123456789abcdef',
+        repoSlug: 'vibekanban',
+        slotSlug: 'web',
+        customerSlug: 'preview',
+        host: 'web-vibekanban-0123456789abcdef-preview.localhost',
+        url: 'https://web-vibekanban-0123456789abcdef-preview.localhost/',
       })),
     };
     const app = new Hono();
     registerPreviewResolverRoutes(app, { vkClient: client });
 
     const response = await app.request(
-      '/internal/preview/workspaces/ws1/preview-slots/slot1/url?customerSlug=mickmister',
+      '/internal/preview/workspaces/ws1/preview-slots/slot1/url?customerSlug=preview&baseDomain=localhost&localOrigin=http%3A%2F%2Flocalhost%3A55743',
     );
 
     expect(client.getPreviewSlotUrl).toHaveBeenCalledWith('ws1', 'slot1', {
-      customerSlug: 'mickmister',
-      baseDomain: 'customer.example',
-      urlScheme: 'https',
+      customerSlug: 'preview',
+      baseDomain: 'localhost',
     });
     await expect(response.json()).resolves.toMatchObject({
-      url: 'https://0123456789abcdef-vibekanban-web-mickmister.customer.example/',
+      host: 'web-vibekanban-0123456789abcdef-preview.localhost',
+      url: 'http://web-vibekanban-0123456789abcdef-preview.localhost:55743/',
     });
   });
 
-  it('ignores baseDomain query overrides in favor of SITE_ORIGIN', async () => {
-    process.env.SITE_ORIGIN = 'https://customer.example';
+  it('fetches process logs only for processes linked to the requested workspace', async () => {
     const client = {
-      ...routeClient,
-      getPreviewSlotUrl: vi.fn(async () => ({
-        previewSlotId: 'slot1',
-        workspaceToken: '0123456789abcdef',
-        repoSlug: 'vibekanban',
-        slotSlug: 'web',
-        customerSlug: 'mickmister',
-        host: '0123456789abcdef-vibekanban-web-mickmister.customer.example',
-        url: 'https://0123456789abcdef-vibekanban-web-mickmister.customer.example/',
+      resolvePreview: vi.fn(),
+      getRunConfigs: vi.fn(async () => ({
+        run_configs: [], preview_slots: [], preview_url_parts: [], preview_process_links: [{
+          id: 'link-1', workspace_id: 'ws1', repo_id: 'repo-1', run_config_id: 'config-1',
+          preview_slot_id: 'slot-1', execution_process_id: 'process-1', assigned_port: 4000,
+          status_snapshot: 'ready' as const, started_at: '', updated_at: '',
+        }],
       })),
+      getExecutionProcess: vi.fn(async () => ({
+        id: 'process-1',
+        session_id: 'session-1',
+        status: 'running' as const,
+      })),
+      getSession: vi.fn(async () => ({
+        id: 'session-1',
+        workspace_id: 'ws1',
+        executor: 'CODEX' as const,
+        created_at: '',
+        updated_at: '',
+      })),
+      fetchRawExecutionLogs: vi.fn(async () => [
+        { type: 'STDOUT' as const, content: 'preview ready\n' },
+      ]),
     };
     const app = new Hono();
     registerPreviewResolverRoutes(app, { vkClient: client });
 
     const response = await app.request(
-      '/internal/preview/workspaces/ws1/preview-slots/slot1/url?customerSlug=mickmister&baseDomain=override.example',
+      '/internal/preview/workspaces/ws1/execution-processes/process-1/logs?timeoutMs=25&maxEntries=5',
     );
 
-    expect(client.getPreviewSlotUrl).toHaveBeenCalledWith('ws1', 'slot1', {
-      customerSlug: 'mickmister',
-      baseDomain: 'customer.example',
-      urlScheme: 'https',
+    await expect(response.json()).resolves.toEqual({
+      process_id: 'process-1',
+      logs: [{ type: 'STDOUT', content: 'preview ready\n' }],
     });
+    expect(client.getExecutionProcess).toHaveBeenCalledWith('process-1');
+    expect(client.getSession).toHaveBeenCalledWith('session-1');
+    expect(client.fetchRawExecutionLogs).toHaveBeenCalledWith('process-1', {
+      timeoutMs: 100,
+      maxEntries: 5,
+    });
+  });
+
+  it('stops only processes linked to the requested PreviewServer workspace', async () => {
+    const client = {
+      resolvePreview: vi.fn(),
+      getRunConfigs: vi.fn(async () => ({
+        run_configs: [], preview_slots: [], preview_url_parts: [], preview_process_links: [{
+          id: 'link-1', workspace_id: 'ws1', repo_id: 'repo-1', run_config_id: 'config-1',
+          preview_slot_id: 'slot-1', execution_process_id: 'process-1', assigned_port: 4000,
+          status_snapshot: 'ready' as const, started_at: '', updated_at: '',
+        }],
+      })),
+      getExecutionProcess: vi.fn(async () => ({
+        id: 'process-1',
+        session_id: 'session-1',
+        status: 'running' as const,
+      })),
+      getSession: vi.fn(async () => ({
+        id: 'session-1',
+        workspace_id: 'ws1',
+        executor: 'CODEX' as const,
+        created_at: '',
+        updated_at: '',
+      })),
+      stopExecutionProcess: vi.fn(async () => undefined),
+      stopPreviewProcess: vi.fn(async () => undefined),
+    };
+    const app = new Hono();
+    registerPreviewResolverRoutes(app, { vkClient: client });
+
+    const response = await app.request(
+      '/internal/preview/workspaces/ws1/execution-processes/process-1/stop',
+      { method: 'POST', body: JSON.stringify({ previewSlotId: 'slot-1' }) },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ stopped: true });
+    expect(client.stopPreviewProcess).toHaveBeenCalledWith('ws1', 'process-1', { previewSlotId: 'slot-1' });
+    expect(client.stopExecutionProcess).not.toHaveBeenCalled();
+  });
+
+  it('overlays stopped status when VK list still returns the stale ready preview link after stop', async () => {
+    const staleLink = {
+      id: 'link-1', workspace_id: 'ws1', repo_id: 'repo-1', run_config_id: 'config-1',
+      preview_slot_id: 'slot-1', execution_process_id: 'process-1', assigned_port: 4000,
+      status_snapshot: 'ready' as const, started_at: '', updated_at: '',
+    };
+    const client = {
+      resolvePreview: vi.fn(),
+      getRunConfigs: vi.fn(async () => ({
+        run_configs: [], preview_slots: [], preview_url_parts: [], preview_process_links: [staleLink],
+      })),
+      getExecutionProcess: vi.fn(async () => ({
+        id: 'process-1',
+        session_id: 'session-1',
+        status: 'running' as const,
+      })),
+      getSession: vi.fn(async () => ({
+        id: 'session-1',
+        workspace_id: 'ws1',
+        executor: 'CODEX' as const,
+        created_at: '',
+        updated_at: '',
+      })),
+      stopPreviewProcess: vi.fn(async () => undefined),
+    };
+    const app = new Hono();
+    registerPreviewResolverRoutes(app, { vkClient: client });
+
+    const stopResponse = await app.request(
+      '/internal/preview/workspaces/ws1/execution-processes/process-1/stop',
+      { method: 'POST', body: JSON.stringify({ previewSlotId: 'slot-1' }) },
+    );
+    expect(stopResponse.status).toBe(200);
+
+    const listResponse = await app.request('/internal/preview/workspaces/ws1/run-configs');
+    expect(listResponse.status).toBe(200);
+    await expect(listResponse.json()).resolves.toEqual(expect.objectContaining({
+      preview_process_links: [
+        expect.objectContaining({
+          execution_process_id: 'process-1',
+          preview_slot_id: 'slot-1',
+          status_snapshot: 'stopped',
+        }),
+      ],
+    }));
+  });
+
+  it('does not stop unlinked processes or processes from another workspace', async () => {
+    const unlinkedClient = {
+      resolvePreview: vi.fn(),
+      getRunConfigs: vi.fn(async () => ({
+        run_configs: [], preview_slots: [], preview_url_parts: [], preview_process_links: [],
+      })),
+      getExecutionProcess: vi.fn(),
+      getSession: vi.fn(),
+      stopExecutionProcess: vi.fn(),
+    };
+    const unlinkedApp = new Hono();
+    registerPreviewResolverRoutes(unlinkedApp, { vkClient: unlinkedClient });
+
+    const unlinkedResponse = await unlinkedApp.request(
+      '/internal/preview/workspaces/ws1/execution-processes/process-1/stop',
+      { method: 'POST' },
+    );
+
+    expect(unlinkedResponse.status).toBe(404);
+    expect(unlinkedClient.stopExecutionProcess).not.toHaveBeenCalled();
+
+    const otherWorkspaceClient = {
+      resolvePreview: vi.fn(),
+      getRunConfigs: vi.fn(async () => ({
+        run_configs: [], preview_slots: [], preview_url_parts: [], preview_process_links: [{
+          id: 'link-1', workspace_id: 'ws1', repo_id: 'repo-1', run_config_id: 'config-1',
+          preview_slot_id: 'slot-1', execution_process_id: 'process-1', assigned_port: 4000,
+          status_snapshot: 'ready' as const, started_at: '', updated_at: '',
+        }],
+      })),
+      getExecutionProcess: vi.fn(async () => ({ id: 'process-1', session_id: 'session-1', status: 'running' as const })),
+      getSession: vi.fn(async () => ({ id: 'session-1', workspace_id: 'other-workspace', executor: 'CODEX' as const, created_at: '', updated_at: '' })),
+      stopExecutionProcess: vi.fn(),
+    };
+    const otherWorkspaceApp = new Hono();
+    registerPreviewResolverRoutes(otherWorkspaceApp, { vkClient: otherWorkspaceClient });
+
+    const otherWorkspaceResponse = await otherWorkspaceApp.request(
+      '/internal/preview/workspaces/ws1/execution-processes/process-1/stop',
+      { method: 'POST' },
+    );
+
+    expect(otherWorkspaceResponse.status).toBe(404);
+    expect(otherWorkspaceClient.stopExecutionProcess).not.toHaveBeenCalled();
+  });
+
+  it('does not fetch logs when the process session belongs to another workspace', async () => {
+    const client = {
+      resolvePreview: vi.fn(),
+      getRunConfigs: vi.fn(async () => ({
+        run_configs: [], preview_slots: [], preview_url_parts: [], preview_process_links: [{
+          id: 'link-1', workspace_id: 'ws1', repo_id: 'repo-1', run_config_id: 'config-1',
+          preview_slot_id: 'slot-1', execution_process_id: 'process-1', assigned_port: 4000,
+          status_snapshot: 'ready' as const, started_at: '', updated_at: '',
+        }],
+      })),
+      getExecutionProcess: vi.fn(async () => ({
+        id: 'process-1',
+        session_id: 'session-1',
+        status: 'running' as const,
+      })),
+      getSession: vi.fn(async () => ({
+        id: 'session-1',
+        workspace_id: 'other-workspace',
+        executor: 'CODEX' as const,
+        created_at: '',
+        updated_at: '',
+      })),
+      fetchRawExecutionLogs: vi.fn(),
+    };
+    const app = new Hono();
+    registerPreviewResolverRoutes(app, { vkClient: client });
+
+    const response = await app.request(
+      '/internal/preview/workspaces/ws1/execution-processes/process-1/logs',
+    );
+
+    expect(response.status).toBe(404);
     await expect(response.json()).resolves.toMatchObject({
-      url: 'https://0123456789abcdef-vibekanban-web-mickmister.customer.example/',
+      message: 'No PreviewServer logs found for this workspace process.',
     });
+    expect(client.fetchRawExecutionLogs).not.toHaveBeenCalled();
   });
 
-  it('uses HTTP SITE_ORIGIN scheme and port for canonical URL fallback', async () => {
-    process.env.SITE_ORIGIN = 'http://localhost:3001';
+  it('does not fetch logs for an unlinked process even when its session belongs to the workspace', async () => {
     const client = {
-      ...routeClient,
-      getPreviewSlotUrl: vi.fn(async () => ({
-        previewSlotId: 'slot1',
-        workspaceToken: '0123456789abcdef',
-        repoSlug: 'vibekanban',
-        slotSlug: 'web',
-        customerSlug: 'mickmister',
-        host: '0123456789abcdef-vibekanban-web-mickmister.localhost:3001',
-        url: 'http://0123456789abcdef-vibekanban-web-mickmister.localhost:3001/',
+      resolvePreview: vi.fn(),
+      getRunConfigs: vi.fn(async () => ({
+        run_configs: [], preview_slots: [], preview_url_parts: [], preview_process_links: [],
       })),
+      getExecutionProcess: vi.fn(),
+      getSession: vi.fn(),
+      fetchRawExecutionLogs: vi.fn(),
     };
     const app = new Hono();
     registerPreviewResolverRoutes(app, { vkClient: client });
 
-    await app.request('/internal/preview/workspaces/ws1/preview-slots/slot1/url?customerSlug=mickmister');
+    const response = await app.request('/internal/preview/workspaces/ws1/execution-processes/process-1/logs');
 
-    expect(client.getPreviewSlotUrl).toHaveBeenCalledWith('ws1', 'slot1', {
-      customerSlug: 'mickmister',
-      baseDomain: 'localhost:3001',
-      urlScheme: 'http',
-    });
+    expect(response.status).toBe(404);
+    expect(client.getExecutionProcess).not.toHaveBeenCalled();
+    expect(client.fetchRawExecutionLogs).not.toHaveBeenCalled();
   });
 
-  it('ignores non-HTTP SITE_ORIGIN for canonical URL fallback', async () => {
-    process.env.SITE_ORIGIN = 'ftp://customer.example';
-    const client = {
-      ...routeClient,
-      getPreviewSlotUrl: vi.fn(async () => ({
-        previewSlotId: 'slot1',
-        workspaceToken: '0123456789abcdef',
-        repoSlug: 'vibekanban',
-        slotSlug: 'web',
-        customerSlug: 'mickmister',
-        host: '0123456789abcdef-vibekanban-web-mickmister',
-        url: 'https://0123456789abcdef-vibekanban-web-mickmister/',
-      })),
-    };
-    const app = new Hono();
-    registerPreviewResolverRoutes(app, { vkClient: client });
+  it.each(['completed', 'failed'] as const)(
+    'authorizes %s process logs from a start-returned Preview link after active links disappear',
+    async (status) => {
+      const processId = `process-${status}`;
+      const client = {
+        resolvePreview: vi.fn(),
+        startRunConfig: vi.fn(async () => ({
+          execution_process: { id: processId, session_id: 'session-1', status },
+          preview_process_link: {
+            id: `link-${status}`, workspace_id: 'ws1', repo_id: 'repo-1', run_config_id: 'config-1',
+            execution_process_id: processId, assigned_port: 4000,
+            status_snapshot: status === 'failed' ? 'failed' as const : 'stopped' as const,
+            started_at: '', updated_at: '',
+          },
+          upstream: 'http://127.0.0.1:4000',
+        })),
+        getRunConfigs: vi.fn(async () => ({
+          run_configs: [], preview_slots: [], preview_url_parts: [], preview_process_links: [],
+        })),
+        getExecutionProcess: vi.fn(async () => ({ id: processId, session_id: 'session-1', status })),
+        getSession: vi.fn(async () => ({ id: 'session-1', workspace_id: 'ws1', executor: 'CODEX' as const, created_at: '', updated_at: '' })),
+        fetchRawExecutionLogs: vi.fn(async () => [{
+          type: status === 'failed' ? 'STDERR' as const : 'STDOUT' as const,
+          content: `${status}\n`,
+        }]),
+      };
+      const app = new Hono();
+      registerPreviewResolverRoutes(app, { vkClient: client });
 
-    await app.request('/internal/preview/workspaces/ws1/preview-slots/slot1/url?customerSlug=mickmister');
+      await app.request('/internal/preview/workspaces/ws1/run-configs/config-1/start', { method: 'POST' });
+      const listing = await app.request('/internal/preview/workspaces/ws1/run-configs');
+      await expect(listing.json()).resolves.toMatchObject({
+        preview_process_links: [expect.objectContaining({ execution_process_id: processId })],
+      });
+      const response = await app.request(`/internal/preview/workspaces/ws1/execution-processes/${processId}/logs`);
 
-    expect(client.getPreviewSlotUrl).toHaveBeenCalledWith('ws1', 'slot1', {
-      customerSlug: 'mickmister',
-      baseDomain: undefined,
-      urlScheme: undefined,
-    });
-  });
-
-  it('ignores malformed SITE_ORIGIN for canonical URL fallback', async () => {
-    process.env.SITE_ORIGIN = 'not a url';
-    const client = {
-      ...routeClient,
-      getPreviewSlotUrl: vi.fn(async () => ({
-        previewSlotId: 'slot1',
-        workspaceToken: '0123456789abcdef',
-        repoSlug: 'vibekanban',
-        slotSlug: 'web',
-        customerSlug: 'mickmister',
-        host: '0123456789abcdef-vibekanban-web-mickmister',
-        url: 'https://0123456789abcdef-vibekanban-web-mickmister/',
-      })),
-    };
-    const app = new Hono();
-    registerPreviewResolverRoutes(app, { vkClient: client });
-
-    await app.request('/internal/preview/workspaces/ws1/preview-slots/slot1/url?customerSlug=mickmister');
-
-    expect(client.getPreviewSlotUrl).toHaveBeenCalledWith('ws1', 'slot1', {
-      customerSlug: 'mickmister',
-      baseDomain: undefined,
-      urlScheme: undefined,
-    });
-  });
+      expect(response.status).toBe(200);
+      expect(client.fetchRawExecutionLogs).toHaveBeenCalledWith(processId, { timeoutMs: 1500, maxEntries: 200 });
+    },
+  );
 });
