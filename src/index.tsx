@@ -14,7 +14,9 @@ import {
   BUILT_IN_AGENT_TAB_ID,
   BUILT_IN_FORMS_TAB_ID,
   isEphemeralCraftSurfaceTabId,
+  isRuntimeCraftSurfaceTabId,
   migrateWorkspaceBuiltInTabs,
+  sanitizeRuntimeCraftSurfaceSavedSessionRefs,
 } from "./modules/plugins/vibe-dashboard/craft-surfaces";
 import type {
   WorkspaceState,
@@ -162,6 +164,9 @@ function getSelectedViewIdsForTabGroup(
 ): string[] {
   const tabGroup = workspace.tabGroups.find((entry) => entry.id === tabGroupId);
   if (!tabGroup) return [];
+  if (tabId && isRuntimeCraftSurfaceTabId(tabId)) {
+    return getDefaultViewIdsForTabGroup(workspace, tabGroupId);
+  }
   if (tabId && tabGroup.tabs.some((tab) => tab.id === tabId)) return [tabId];
   if (tabId && tabGroup.workspace?.workspaceId) return [tabId];
   return getDefaultViewIdsForTabGroup(workspace, tabGroupId);
@@ -226,7 +231,7 @@ function createSavedSessionFromSelection({
     selectedViewIds,
   );
 
-  return {
+  return sanitizeSavedSessionForPersistence(workspace, {
     id,
     slug: buildVoyageSlug(trimmedName, id),
     name: trimmedName,
@@ -240,7 +245,7 @@ function createSavedSessionFromSelection({
       [voyageEntry.id]: activeItemId,
     },
     visitedTabGroupIds: [tabGroup.id],
-  };
+  });
 }
 
 function createSavedSessionFromVoyageEntry({
@@ -279,7 +284,7 @@ function createSavedSessionFromVoyageEntry({
       normalizedEntry.viewIds,
     );
 
-  return {
+  return sanitizeSavedSessionForPersistence(workspace, {
     id,
     slug: buildVoyageSlug(trimmedName, id),
     name: trimmedName,
@@ -298,7 +303,7 @@ function createSavedSessionFromVoyageEntry({
       [normalizedEntry.id]: resolvedActiveItemId,
     },
     visitedTabGroupIds: [normalizedEntry.tabGroupId],
-  };
+  });
 }
 
 function addCreateWorkspaceCraftToWorkspace(
@@ -446,8 +451,9 @@ function normalizeVoyageEntryForWorkspace(
 
   const validViewIds = entry.viewIds.filter(
     (viewId) =>
-      tabGroup.tabs.some((tab) => tab.id === viewId) ||
-      Boolean(tabGroup.workspace?.workspaceId),
+      !isRuntimeCraftSurfaceTabId(viewId) &&
+      (tabGroup.tabs.some((tab) => tab.id === viewId) ||
+        Boolean(tabGroup.workspace?.workspaceId)),
   );
   return {
     ...entry,
@@ -455,6 +461,13 @@ function normalizeVoyageEntryForWorkspace(
       ? validViewIds
       : getDefaultViewIdsForTabGroup(workspace, entry.tabGroupId),
   };
+}
+
+function sanitizeSavedSessionForPersistence(
+  workspace: WorkspaceState,
+  session: SavedWorkspaceSession,
+): SavedWorkspaceSession {
+  return sanitizeRuntimeCraftSurfaceSavedSessionRefs({ workspace, session });
 }
 
 function repairSavedSessionForWorkspace(
@@ -487,7 +500,7 @@ function repairSavedSessionForWorkspace(
     activeItemsByVoyageEntryId[entry.id] = activeItemId;
   });
 
-  return {
+  return sanitizeSavedSessionForPersistence(workspace, {
     ...session,
     activeVoyageEntryId,
     voyageEntries,
@@ -497,7 +510,7 @@ function repairSavedSessionForWorkspace(
     visitedTabGroupIds: Array.from(
       new Set(voyageEntries.map((entry) => entry.tabGroupId)),
     ),
-  };
+  });
 }
 
 function repairSavedSessionsForWorkspace(
@@ -1193,6 +1206,10 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           new Set([...target.visitedTabGroupIds, selection!.tabGroupId]),
         );
         target.updatedAt = new Date().toISOString();
+        Object.assign(
+          target,
+          sanitizeSavedSessionForPersistence(workspace, target),
+        );
         savedSession = cloneSavedSession(target);
         return createSavedWorkspaceSessionState(sessions);
       });
@@ -1485,7 +1502,11 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           new Set([...target.visitedTabGroupIds, tabGroup.id]),
         );
         target.updatedAt = now;
-        updatedSession = target;
+        Object.assign(
+          target,
+          sanitizeSavedSessionForPersistence(workspace, target),
+        );
+        updatedSession = cloneSavedSession(target);
         return createSavedWorkspaceSessionState(sessions);
       });
 
@@ -1527,7 +1548,11 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           [entry.id]: activeItemId,
         };
         target.updatedAt = new Date().toISOString();
-        updatedSession = target;
+        Object.assign(
+          target,
+          sanitizeSavedSessionForPersistence(workspace, target),
+        );
+        updatedSession = cloneSavedSession(target);
         return createSavedWorkspaceSessionState(sessions);
       });
       return updatedSession;
@@ -1635,11 +1660,14 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
       savedSessionsState.setState((current) => {
         const sessions =
           getSavedWorkspaceSessions(current).map(cloneSavedSession);
-        const nextSession = cloneSavedSession({
-          ...args,
-          slug: buildVoyageSlug(name, args.id),
-          name,
-        });
+        const nextSession = sanitizeSavedSessionForPersistence(
+          workspaceState.getState(),
+          cloneSavedSession({
+            ...args,
+            slug: buildVoyageSlug(name, args.id),
+            name,
+          }),
+        );
         const existing = sessions.find((session) => session.id === args.id);
         if (existing) {
           Object.assign(existing, {
@@ -1782,6 +1810,10 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           ...target.activeItemsByVoyageEntryId,
           [movedEntry.id]: activeItemId,
         };
+        Object.assign(
+          target,
+          sanitizeSavedSessionForPersistence(workspace, target),
+        );
 
         moveResult = {
           sourceSession: cloneSavedSession(source),
