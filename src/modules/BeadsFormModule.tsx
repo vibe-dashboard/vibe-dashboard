@@ -35,11 +35,12 @@ import { initializeSingleQuestionMode, prehideInactiveSingleQuestionItems } from
 import { initializeCompactMoreInfo, refreshCompactMoreInfoState } from '../lib/beadsFormMoreInfo';
 import { preserveSubmittedFormDom } from '../lib/beadsFormSubmissionUi';
 import {
-  copyNormalizedSubmittedResultJson,
-  normalizedSubmittedResultJson,
-  pendingNormalizedSubmittedResultCopy,
+  copySubmittedResultHandoffXml,
+  pendingSubmittedResultHandoffCopy,
+  submittedResultHandoffXml,
   type ClipboardCopyResult,
 } from '../lib/beadsFormSubmitSuccess';
+import type { BeadsFormSubmissionHandoffMetadata } from '../lib/beadsFormSubmissionHandoff';
 import {
   aggregateFormDomPrefix,
   namespaceAggregateFormHtml,
@@ -434,6 +435,7 @@ function SubmitSuccessSummary({
   title,
   clipboardResult,
   values,
+  handoffMetadata,
   warnings,
   onEdit,
   children,
@@ -441,22 +443,23 @@ function SubmitSuccessSummary({
   title: string;
   clipboardResult?: ClipboardCopyResult | null;
   values: JsonObject;
+  handoffMetadata?: BeadsFormSubmissionHandoffMetadata;
   warnings: string[];
   onEdit: () => void;
   children?: React.ReactNode;
 }) {
-  const manualCopyText = clipboardResult?.text ?? normalizedSubmittedResultJson(values);
+  const manualCopyText = clipboardResult?.text ?? submittedResultHandoffXml(values, handoffMetadata);
   return (
     <section className="beadsform-submit-result" aria-live="polite">
       <h2>{title}</h2>
       <p>Your BeadsForm response was saved and the form is locked to the submitted answers.</p>
       {clipboardResult?.status === 'copied' ? (
-        <p>Copied normalized submitted response JSON to your clipboard.</p>
+        <p>Copied BeadsForm XML handoff to your clipboard.</p>
       ) : !clipboardResult || clipboardResult.status === 'pending' ? (
-        <p>Copying normalized submitted response JSON…</p>
+        <p>Copying BeadsForm XML handoff…</p>
       ) : (
         <div className="beadsform-warning" role="status">
-          <p>{clipboardResult?.warning ?? 'Clipboard copy is unavailable. Use the manual copy field below.'}</p>
+          <p>{clipboardResult?.warning ?? 'Clipboard copy is unavailable. Use the manual XML handoff field below.'}</p>
         </div>
       )}
       {warnings.length > 0 ? (
@@ -467,7 +470,7 @@ function SubmitSuccessSummary({
       ) : null}
       {children}
       <button type="button" onClick={onEdit}>Edit response</button>
-      <h3>Normalized submitted response JSON</h3>
+      <h3>BeadsForm XML handoff</h3>
       <textarea readOnly rows={Math.min(20, Math.max(6, manualCopyText.split('\n').length + 1))} value={manualCopyText} />
     </section>
   );
@@ -679,9 +682,10 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
       });
       submittedLockedRef.current = true;
       setSubmittedLocked(true);
-      setClipboardResult(pendingNormalizedSubmittedResultCopy(result.values));
+      const handoffMetadata = { formId: loaded.selectedForm.id, submittedAt: result.submittedAt };
+      setClipboardResult(pendingSubmittedResultHandoffCopy(result.values, handoffMetadata));
       setSubmitResult(result);
-      void copyNormalizedSubmittedResultJson(navigator.clipboard, result.values).then(setClipboardResult);
+      void copySubmittedResultHandoffXml(navigator.clipboard, result.values, handoffMetadata).then(setClipboardResult);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -695,7 +699,7 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
       {!loaded?.selectedForm ? <header>
         <p className="beadsform-eyebrow">Forms preview</p>
         <h1>Folder forms</h1>
-        <p>Load forms from a local folder, submit them without touching beads, and copy normalized JSON only.</p>
+        <p>Load forms from a local folder, submit them without touching beads, and copy the XML handoff only.</p>
       </header> : null}
       {error ? <p role="alert" className="beadsform-error">{error}</p> : null}
       {loaded && !loaded.selectedForm ? (
@@ -739,6 +743,7 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
           title="Preview response submitted"
           clipboardResult={clipboardResult}
           values={submitResult.values}
+          handoffMetadata={{ formId: submitResult.formId, submittedAt: submitResult.submittedAt }}
           warnings={submitResult.warnings}
           onEdit={handleEditResponse}
         >
@@ -1056,7 +1061,8 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
       });
       submittedLockedRef.current = true;
       setSubmittedLocked(true);
-      const pendingCopy = pendingNormalizedSubmittedResultCopy(result.values);
+      const handoffMetadata = { beadId: item.ref.beadId, formId: form.id };
+      const pendingCopy = pendingSubmittedResultHandoffCopy(result.values, handoffMetadata);
       setStatus({
         status: 'success',
         values: result.values,
@@ -1064,7 +1070,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
         clipboardStatus: pendingCopy.status,
         clipboardText: pendingCopy.text,
       });
-      void copyNormalizedSubmittedResultJson(navigator.clipboard, result.values).then((copyResult) => {
+      void copySubmittedResultHandoffXml(navigator.clipboard, result.values, handoffMetadata).then((copyResult) => {
         setStatus((current) => {
           if (current.status !== 'success') return current;
           return {
@@ -1128,6 +1134,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
             ...(status.clipboardWarning ? { warning: status.clipboardWarning } : {}),
           }}
           values={status.values}
+          handoffMetadata={{ beadId: item.ref.beadId, formId: item.ref.formId }}
           warnings={status.warnings}
           onEdit={handleEditResponse}
         />
@@ -1420,9 +1427,10 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
       });
       submittedLockedRef.current = true;
       setSubmittedLocked(true);
-      setClipboardResult(pendingNormalizedSubmittedResultCopy(result.values));
+      const handoffMetadata = { beadId, formId: loaded.selected.selectedForm.id };
+      setClipboardResult(pendingSubmittedResultHandoffCopy(result.values, handoffMetadata));
       setSubmitResult(result);
-      void copyNormalizedSubmittedResultJson(navigator.clipboard, result.values).then(setClipboardResult);
+      void copySubmittedResultHandoffXml(navigator.clipboard, result.values, handoffMetadata).then(setClipboardResult);
       if (window.parent && window.parent !== window) {
         window.parent.postMessage({ type: 'vk:bead-form-submitted' }, window.location.origin);
       }
@@ -1538,6 +1546,7 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
           title="BeadsForm submitted"
           clipboardResult={clipboardResult}
           values={submitResult.values}
+          handoffMetadata={{ beadId, formId: submitResult.formId }}
           warnings={submitResult.warnings}
           onEdit={handleEditBeadResponse}
         >
