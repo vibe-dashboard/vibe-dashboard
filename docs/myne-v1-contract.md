@@ -190,6 +190,21 @@ protected subtree. They MAY consume validated, host-controlled `@myne` tokens
 so they visually match the active appearance, but package selectors MUST NOT
 hide, spoof, obstruct, reposition over, or disable them.
 
+Those controls MUST consume a dedicated host-derived protected-token subset,
+not arbitrary package tokens that merely pass schema validation. Package colors
+MAY influence that subset only after host accessibility constraints pass.
+Protected foreground/background pairs MUST satisfy the host's defined contrast
+policy, and focus, error, disabled, confirmation, warning, and destructive
+states MUST remain perceptibly distinct without relying on color alone. Opacity,
+minimum operable sizing and visibility, positioning, stacking, pointer and
+keyboard behavior, and interaction state remain host-owned. Package CSS MUST
+NOT select protected controls or redefine protected tokens inside their isolated
+scope. If derivation or validation fails, the host MUST atomically replace the
+entire protected-token subset with known-good host values rather than mixing an
+untested partial package palette with fallback values. Protected controls SHOULD
+remain operable under forced-colors or high-contrast modes and reduced-motion
+preferences where those platform capabilities apply.
+
 Compilation is all-or-nothing. Preview and activation MUST consume the exact
 same compiled stylesheet artifact; preview MUST NOT use a looser parser, policy,
 or transformation. The artifact MUST identify its canonical source digest,
@@ -584,7 +599,9 @@ Deferred beyond this contract task:
 
 ## References
 
-- Local UI injection architecture: `../ui-injection.md`
+- Authoritative repository architecture: this document
+- [Historical implementation plan](./ui-customization-implementation-plan.md)
+- [Historical primitive proof](./skin-view-primitives.md)
 - React Rules of Hooks: <https://react.dev/reference/rules/rules-of-hooks>
 - CSS custom properties: <https://developer.mozilla.org/docs/Web/CSS/CSS_cascading_variables/Using_CSS_custom_properties>
 - CSS cascade layers: <https://developer.mozilla.org/docs/Web/CSS/Reference/At-rules/@layer>

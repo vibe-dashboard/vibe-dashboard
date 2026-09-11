@@ -20,7 +20,9 @@ Related local work:
 - `vkvw-9yay — Design slot-based styling extraction pilot for SpacesOverview`
 - Current branch: `vk/2286-vd-redesign-2`
 - Research branch: `vk/55fd-vd-themes-and-sk`
-- Architecture source: `/var/tmp/vibe-kanban/worktrees/2286-vd-redesign-2/ui-injection.md`
+- [Authoritative portable successor](./myne-v1-contract.md)
+- Historical source note: the original UI-injection handoff was workspace-local
+  and is intentionally not linked as a repository dependency.
 
 ## 1. Objective and non-goals
 
