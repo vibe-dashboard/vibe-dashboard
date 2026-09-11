@@ -1,9 +1,17 @@
-# Whole-App UI Customization Implementation Plan
+# Historical proof: whole-app UI customization implementation plan
 
-> **Planning history.** This document records the architecture that produced
-> the initial two-surface proof. The approved public v1 contract and migration
-> direction now live in `docs/myne-v1-contract.md`. Where terminology or
-> compatibility guidance differs, the `@myne` v1 contract is authoritative.
+> **Do not implement new work from this document.** It preserves the planning
+> history that produced the initial two-surface proof. Statements below written
+> in present tense or using “should” describe that historical proposal and have
+> no current normative force. The approved public v1 contract and migration
+> direction live in `docs/myne-v1-contract.md`; where terminology, selectors,
+> security, or compatibility guidance differs, that contract is authoritative.
+> Do not add new VD-prefixed customization attributes, variables, primitives,
+> layers, or selectors from the examples below.
+
+The remainder of this file is retained verbatim as an archival design record.
+Its present-tense language describes what the proof proposed at the time; it is
+not current guidance or an alternative contract.
 
 Date: 2026-08-31
 

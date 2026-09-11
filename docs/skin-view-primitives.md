@@ -1,18 +1,19 @@
-# Skin-aware view primitives
+# Historical proof: skin-aware view primitives
 
-> **Historical proof documentation.** The current branch implementation still
-> uses the names below, but they are not a published compatibility contract.
-> `docs/myne-v1-contract.md` defines the approved replacement. SpacesOverview
-> and Skin Editor will migrate together, without retaining VD-era DOM/CSS
-> aliases, under `vkvw-8xaj.3 — Adopt semantic HTML and generic class-based
-> @myne skin hooks`.
+> **Do not implement new work from this document.** It records the initial proof
+> architecture only. The names below were never a published compatibility
+> contract. `docs/myne-v1-contract.md` defines the approved replacement.
+> SpacesOverview and Skin Editor will migrate together, without retaining
+> VD-era DOM/CSS aliases, under `vkvw-8xaj.3 — Adopt semantic HTML and generic
+> class-based @myne skin hooks`. Do not add new VD-prefixed primitives,
+> attributes, variables, or selectors.
 
-`data-vd-*` attributes remain the DOM contract that global skins target. The
-authoring model should not require every view file to hand-annotate every
-element, though. Shared skin-aware primitives emit the common semantic hooks so
-views can stay readable while skins keep stable selectors.
+The initial proof used `data-vd-*` attributes as the DOM hooks that global skins
+targeted. Its authoring model avoided requiring every view file to hand-annotate
+every element: shared skin-aware primitives emitted common semantic hooks so
+views remained readable while the proof skins used stable selectors.
 
-## Minimal API
+## Proof API
 
 - `VDHeading`: renders an `h1`-`h4` with `data-vd-text="primary"` by default.
 - `VDText`: renders `span`, `p`, or `div` text with `primary`, `secondary`,
@@ -25,40 +26,38 @@ views can stay readable while skins keep stable selectors.
 - `VDRow`: renders a `div` or native `button` with `data-vd-component="row"`.
 - `VDIcon`: renders an `svg` with a named `data-vd-icon`.
 
-## When inheritance is enough
+## Proof inheritance guidance
 
-Use plain text when the surface or parent component already supplies the right
-foreground through inheritance and the text is not a semantic exception. CI
-should not require every text node to carry `data-vd-text`.
+The proof used plain text when the surface or parent component already supplied
+the right foreground through inheritance and the text was not a semantic
+exception. Its CI did not require every text node to carry `data-vd-text`.
 
-## When an explicit hook is required
+## When the proof used an explicit hook
 
-Use a primitive or explicit `data-vd-*` hook when the element is:
+The proof used a primitive or explicit `data-vd-*` hook when the element was:
 
 - a stable surface, slot, or component boundary that skins should target;
 - primary/secondary/muted text inside a component that sets its own foreground;
 - a status, action tone, badge, icon, or other semantic exception;
 - part of a reusable view-pack contract.
 
-## CI implications
+## Historical CI implications
 
-Milestone 4 checks should enforce outcomes, not annotation count:
+Milestone 4 checks were designed to enforce outcomes, not annotation count:
 
 - ban hardcoded foreground color utilities in skinned view files;
 - keep controller/view boundaries clean;
 - allow primitives and inherited foregrounds to satisfy the semantic contract;
 - avoid requiring blanket `data-vd-text` attributes.
 
-Run the combined local/CI boundary command with:
+The proof's combined local/CI boundary command was:
 
 ```sh
 npm run lint:ui-customization
 ```
 
-That command runs OpenLint's migrated view/controller and customization fence
-presets, then runs the project-owned skinability check for migrated
-SpacesOverview surfaces. The OpenLint policy used by this repo is committed in
-`.github/openlint` so local and CI runs do not depend on a machine-global
-policy directory. CI provisions the OpenLint CLI from the published
-`@mickmister/openlint` npm package, which also brings the ast-grep dependency
-needed by the repo-owned policy.
+That command ran OpenLint's migrated view/controller and customization fence
+presets, then ran the project-owned skinability check for migrated
+SpacesOverview surfaces. The proof's OpenLint policy was committed in
+`.github/openlint`, and CI provisioned the OpenLint CLI from the published
+`@mickmister/openlint` npm package.

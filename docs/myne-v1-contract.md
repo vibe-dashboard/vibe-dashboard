@@ -40,11 +40,18 @@ host composition root
 
 The host owns application state, authorization, data acquisition, persistence,
 navigation, and side effects. A page/container adapts those capabilities into a
-semantic model and actions. A view owns presentation only. A skin changes paint
-and other declared appearance properties. A view pack may replace structure but
-MUST preserve its surface contract and behavior obligations.
+semantic model and actions. A view owns presentation only. A skin may alter only
+validated appearance properties and MUST NOT alter application behavior. A view
+pack MAY alter presentation structure and interaction composition, including
+section order, responsive composition, and the presentation of equivalent
+actions. It MUST NOT alter authorization, domain semantics, action effects,
+required host capabilities, data-integrity rules, or the declared behavioral and
+accessibility obligations of its surface contract.
 
-Application behavior MUST NOT depend on the selected skin or view pack.
+A conforming view pack MUST continue to represent all required actions,
+confirmations, and loading, error, empty, pending, disabled, and unauthorized
+states. It MUST NOT reinterpret domain status or make a required operation
+unavailable merely because its presentation differs.
 
 ## 3. Public vocabulary and namespace
 
@@ -145,27 +152,62 @@ produce actionable diagnostics and MUST NOT partially activate.
 
 User CSS is an intentional v1 authoring feature, but its execution path is not
 the same as trusted source-controlled CSS. Before preview or activation, the
-host MUST parse and validate it and constrain it to the package's `myne-root`.
-String-prefix checks alone are insufficient.
+host MUST compile it under a host-generated package-root scope. The encoded
+scope identifier MUST be opaque, collision-resistant, and bound to the canonical
+package artifact and intended mounted root. It MUST distinguish installations or
+root instances wherever sharing a scope would let one instance style another,
+and it MUST NOT expose an unescaped package ID as selector syntax. Package CSS
+MUST NOT choose or predict another package's scope. Author source does not need
+to know the emitted scope identifier.
+
+Compilation MUST parse CSS into an AST. It MUST validate and rewrite every
+accepted selector under the generated package scope. String prefixing,
+regular-expression-only validation, and selectors that reach document roots,
+unrelated package roots, host-private selectors, browser chrome, or protected
+host UI are insufficient and MUST be rejected.
 
 At minimum, the implementation MUST:
 
-- accept selectors only within the declared `myne-root` scope;
-- reject selectors that escape to the document, host shell, or unrelated roots;
+- enforce a versioned, default-deny policy for selectors, properties, at-rules,
+  resources, fonts, animations, transitions, positioning, stacking, and
+  layout-affecting declarations;
+- enforce objective performance and complexity budgets, including stylesheet
+  size, selector/declaration counts, nesting depth, animation behavior, and
+  expensive visual effects;
 - reject external network loads, `@import`, unsafe URLs, script-capable legacy
   constructs, and style-element breakout content;
-- allow only an explicit property and at-rule policy;
-- constrain asset references to validated package assets;
-- apply the exact same validation to real-time preview and persisted activation;
+- constrain asset references to validated package assets with integrity
+  metadata;
 - avoid HTML interpolation as the style-injection mechanism;
-- retain the last valid appearance when validation or application fails;
-- expose line/column diagnostics where the parser can provide them; and
-- offer a recovery path that disables custom CSS while preserving token data.
+- protect required focus, error, validation, disabled, and pending
+  presentation; and
+- expose actionable line/column diagnostics where the parser can provide them.
+
+Authorization, confirmation, diagnostics, and custom-CSS safe-mode or recovery
+controls MUST remain outside package-authored selector scope wherever practical.
+When separation is impossible, they MUST be rendered in a separately isolated
+protected subtree. They MAY consume validated, host-controlled `@myne` tokens
+so they visually match the active appearance, but package selectors MUST NOT
+hide, spoof, obstruct, reposition over, or disable them.
+
+Compilation is all-or-nothing. Preview and activation MUST consume the exact
+same compiled stylesheet artifact; preview MUST NOT use a looser parser, policy,
+or transformation. The artifact MUST identify its canonical source digest,
+package identity, contract version, policy version, compiler version, and asset
+integrity metadata so the host can reproduce and verify it. A failed compile or
+application MUST leave the last-known-good appearance active.
+
+Safe-mode startup MUST be able to ignore package-authored CSS and restore a
+validated token-only or built-in appearance without evaluating the rejected
+stylesheet. Unverified or irreproducible compiled artifacts MUST NOT activate at
+startup.
 
 Preview MUST be disposable and MUST NOT create a committed revision until the
-user explicitly applies or saves it. The detailed parser, sanitizer, and style
-sheet mechanism are implementation decisions and require dedicated security
-tests before custom CSS writes are enabled.
+user explicitly applies or saves it. `vkvw-8xaj.9 — Implement deterministic
+scoped CSS compiler and protected preview runtime for @myne packages` owns the
+compiler, policy, budgets, protected preview/runtime, safe mode, reproducibility,
+and adversarial tests. Custom CSS preview and persistence remain disabled until
+that bead satisfies these minimum invariants.
 
 ## 6. View packs
 
@@ -196,27 +238,54 @@ does not mean access to private host internals, unregistered capabilities,
 authorization bypasses, raw state supervisors, private RPC clients, or every
 module loaded by the host.
 
-Conceptually:
+The root envelope contract is normative; the concrete module names below are
+illustrative until `vkvw-8xaj.2 — Inject app hooks, data sources, and server
+actions through page and container props` proves and publishes them:
 
 ```ts
 interface AppHooksV1 {
-  readonly version: 1;
-  readonly capabilities: ReadonlySet<AppCapabilityV1>;
-  readonly workspace: WorkspaceHooksV1;
-  readonly navigation: NavigationHooksV1;
-  readonly appearance: AppearanceHooksV1;
-  readonly notifications: NotificationHooksV1;
+  readonly contractVersion: 1;
+  readonly modules: ReadonlyMap<AppHooksModuleId, AppHooksModuleV1>;
 }
+
+interface AppHooksModuleV1 {
+  readonly version: number;
+  readonly availability: AppHooksModuleAvailability;
+}
+
+type AppHooksModuleAvailability =
+  | { readonly available: true }
+  | { readonly available: false; readonly reason: string };
 ```
 
-The exact namespaces are established from actual app needs during
-`vkvw-8xaj.2 — Inject app hooks, data sources, and server actions through page
-and container props`.
+The host MUST keep the root object, module map, and module identities stable for
+the lifetime of a mounted host contract. The object and its public members MUST
+be readonly. A page declares required module IDs and supported module versions
+before mounting. The host MUST reject an incompatible page before render rather
+than allowing required hooks to disappear or fail during render.
 
-The host MUST keep the root object and namespace identities stable for the
-mounted host contract. The object and its public members MUST be readonly.
-Capabilities MUST preserve the authorization and validation behavior of the
-host operations they adapt.
+Required modules MUST be available before mount. If a page declares an optional
+module that it may consume, the host MUST include that key as a stable adapter
+even when the capability is unavailable. Its hooks MUST remain callable in
+normal hook order and return a discriminated unavailable result. Module keys,
+implementations, or availability MUST NOT appear, disappear, or change identity
+during the mounted contract. Containers MUST NOT conditionally call a hook after
+consulting a capability set.
+
+Capability availability states that the host implements a public API; it does
+not grant permission or predict that a particular operation will succeed.
+Authorization and validation MUST be evaluated when each operation executes.
+No module may bypass the host's normal authorization boundary.
+
+Each capability module is independently versioned beneath the root envelope.
+Adding a new optional module or a backward-compatible optional member is
+additive. Removing or renaming a published member, changing required inputs or
+results incompatibly, or changing documented behavior is breaking for that
+module. Changing root identity, discovery, stability, or compatibility semantics
+is breaking for the envelope and requires a new root contract version. Concrete
+module namespaces and members become public only after their interfaces and
+compatibility tests are reviewed under `vkvw-8xaj.2 — Inject app hooks, data
+sources, and server actions through page and container props`.
 
 A high-level page/container MAY invoke `appHooks` hooks. It MUST follow the
 framework's hook-order rules and derive presentation-facing models and actions.
@@ -249,14 +318,29 @@ Within v1:
 - IDs remain stable after publication; and
 - exports are canonical and deterministic.
 
-The current VD-era proof artifacts have not been used or published. They are
-edited in place during the two-surface cutover. There is no legacy DOM, CSS
-variable, public primitive, package, or runtime compatibility contract.
+No current theme, skin, snapshot, or package has been externally used or
+published, and none has an external compatibility commitment. Proof artifacts
+are edited in place during the two-surface cutover rather than migrated at an
+import boundary. There is no legacy DOM, CSS-variable, public-primitive,
+package, or runtime compatibility contract.
 
-After that cutover, migrated source MUST contain no `data-vd-*`, `--vd-*`, or
-public `VD*` primitive references. The migration MUST NOT add aliases or emit
-both old and new contracts. This is a scoped cutover, not a blind
-repository-wide rename.
+After that cutover, enumerated migrated non-test implementation paths and their
+runtime output MUST contain no VD-era customization attributes, CSS variables,
+selectors, schema vocabulary, or public primitive names. The initial enforced
+paths are the skin root/runtime/public exports, shared skin primitives,
+SpacesOverview host and view-pack implementation, Skin Editor host and view
+implementation, their CSS Modules, and their production Storybook stories. The
+migration MUST NOT add aliases or emit both old and new contracts. This is a
+scoped compatibility cutover, not a blind repository-wide ban on unrelated VD
+product terminology.
+
+Clearly marked historical documentation and migration notes MAY name obsolete
+forms. Checker definitions MAY contain the literals they reject. Explicitly
+named negative fixtures and tests MAY contain obsolete input solely to prove it
+is rejected or absent from emitted output. Test-path exemptions MUST be narrow;
+they MUST NOT permit production stories, runtime fixtures, or implementation
+source to emit the old contract. CI MUST combine the enumerated source ban with
+positive DOM/runtime assertions for `myne-*` and `--myne-*` output.
 
 Once an `@myne` package is published or persisted, future incompatible changes
 require an explicit version migration at the package/import boundary. Runtime
@@ -279,10 +363,20 @@ to reproduce the selection, including skin, view-pack and density choices,
 schema versions, metadata, and referenced asset integrity information.
 
 A persisted revision MUST record the canonical snapshot, revision ID, expected
-base revision, parent revision, timestamp, actor/source, and human-readable
-summary. Writes MUST use optimistic concurrency and fail clearly when their base
-revision is stale. Undo creates or selects a new current revision; it MUST NOT
-silently mutate historical records.
+current revision, parent revision, timestamp, actor/source, and human-readable
+summary. Revision history is immutable and append-only. A write with a stale
+expected-current revision MUST fail without partially writing or changing the
+current revision.
+
+Undo, redo where supported, and restore/revert to a selected revision MUST
+append a compensating revision whose snapshot becomes current; they MUST NOT
+edit, delete, reorder, or merely move a mutable pointer over historical records.
+A compensating revision MUST identify its target revision, the current revision
+it supersedes, its parent revision, actor/source, timestamp, reason, and
+resulting canonical snapshot. Physical storage, retention, deduplication,
+compaction, archival, and asset garbage collection remain owned by
+`vkvw-ioxa.1 — Define @myne appearance revision storage, retention, and
+concurrency semantics`.
 
 Git MAY back marketplace review and sharing. It is not the primary live
 appearance-state store.
@@ -377,8 +471,9 @@ The milestone is complete only when:
 
 - both surfaces, shared primitives, root/runtime, CSS Modules, fixtures,
   Storybook stories, tests, documentation, and OpenLint policy use `@myne`;
-- migrated source contains no `data-vd-*`, `--vd-*`, or public `VD*` primitive
-  references;
+- enumerated migrated non-test implementation source and emitted output contain
+  no VD-era customization vocabulary, with only the narrow historical,
+  checker, and explicit negative-test exceptions defined in section 8;
 - semantic/accessibility and behavior tests pass for both surfaces;
 - default and alternate skins and view packs remain materially distinct;
 - scoped CSS preview uses the approved validator or remains disabled;
@@ -433,7 +528,9 @@ Current implementation details, not public guarantees:
 Deferred beyond this contract task:
 
 - implementation of the two-surface rename and `appHooks` migration;
-- the exact scoped-CSS parser, sanitizer, and stylesheet application mechanism;
+- the exact scoped-CSS parser/compiler and stylesheet application mechanism
+  owned by `vkvw-8xaj.9 — Implement deterministic scoped CSS compiler and
+  protected preview runtime for @myne packages`;
 - production Skin Editor persistence and navigation;
 - revision retention, compaction, and asset garbage collection;
 - marketplace repository governance and contribution automation;
@@ -472,6 +569,8 @@ Deferred beyond this contract task:
   lifecycle`
 - `vkvw-8xaj.8 — Add explicitly authorized in-app PR contribution flow for
   @myne packages`
+- `vkvw-8xaj.9 — Implement deterministic scoped CSS compiler and protected
+  preview runtime for @myne packages`
 - `vkvw-ioxa — Add undoable theme and skin change history for UI customization`
 - `vkvw-ioxa.1 — Define @myne appearance revision storage, retention, and
   concurrency semantics`
