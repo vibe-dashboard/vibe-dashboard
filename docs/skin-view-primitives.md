@@ -1,5 +1,12 @@
 # Skin-aware view primitives
 
+> **Historical proof documentation.** The current branch implementation still
+> uses the names below, but they are not a published compatibility contract.
+> `docs/myne-v1-contract.md` defines the approved replacement. SpacesOverview
+> and Skin Editor will migrate together, without retaining VD-era DOM/CSS
+> aliases, under `vkvw-8xaj.3 — Adopt semantic HTML and generic class-based
+> @myne skin hooks`.
+
 `data-vd-*` attributes remain the DOM contract that global skins target. The
 authoring model should not require every view file to hand-annotate every
 element, though. Shared skin-aware primitives emit the common semantic hooks so

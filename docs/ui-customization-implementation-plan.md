@@ -1,5 +1,10 @@
 # Whole-App UI Customization Implementation Plan
 
+> **Planning history.** This document records the architecture that produced
+> the initial two-surface proof. The approved public v1 contract and migration
+> direction now live in `docs/myne-v1-contract.md`. Where terminology or
+> compatibility guidance differs, the `@myne` v1 contract is authoritative.
+
 Date: 2026-08-31
 
 Related local work:
