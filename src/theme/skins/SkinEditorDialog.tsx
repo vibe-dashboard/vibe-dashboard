@@ -29,6 +29,11 @@ import type {
   SkinEditorViewModel,
 } from "./SkinEditorDialog.contracts";
 import { SkinEditorDialogView } from "./SkinEditorDialog.view";
+import {
+  APP_HOOKS_V1_REQUIREMENTS,
+  assertAppHooksV1Compatible,
+  type AppHooksV1,
+} from "../../app-hooks/AppHooks";
 
 export interface SkinEditorDialogProps {
   actions: SkinEditorActions;
@@ -69,6 +74,44 @@ function diagnostic(
 
 function getSavedSkinState(skinState: VDSkinState | undefined): VDSkinState {
   return skinState ?? createDefaultSkinState();
+}
+
+export interface SkinEditorContainerProps {
+  appHooks: AppHooksV1;
+  onClose: () => void;
+  open: boolean;
+}
+
+export function SkinEditorContainer({
+  appHooks,
+  onClose,
+  open,
+}: SkinEditorContainerProps) {
+  assertAppHooksV1Compatible(appHooks, APP_HOOKS_V1_REQUIREMENTS.skinEditor);
+  return (
+    <SkinEditorContainerContent
+      appHooks={appHooks}
+      onClose={onClose}
+      open={open}
+    />
+  );
+}
+
+function SkinEditorContainerContent({
+  appHooks,
+  onClose,
+  open,
+}: SkinEditorContainerProps) {
+  const { actions, skinState } =
+    appHooks.capabilities.appearance.useSkinEditor();
+  return (
+    <SkinEditorDialog
+      actions={actions}
+      onClose={onClose}
+      open={open}
+      skinState={skinState}
+    />
+  );
 }
 
 export function SkinEditorDialog({

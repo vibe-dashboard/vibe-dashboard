@@ -18,7 +18,9 @@ export {
 export { SkinRoot, type SkinRootProps } from "./SkinRoot";
 export { SkinRootView, type SkinRootViewProps } from "./SkinRoot.view";
 export {
+  SkinEditorContainer,
   SkinEditorDialog,
+  type SkinEditorContainerProps,
   type SkinEditorDialogProps,
 } from "./SkinEditorDialog";
 export type {

@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_VD_SKIN_ID,
   SkinEditorDialog,
+  SkinEditorContainer,
   type SkinEditorActions,
   SkinEditorDialogView,
   createDefaultSkinState,
@@ -20,6 +21,10 @@ import {
   type VDSkinImportExportPackage,
   type VDSkinState,
 } from "./index";
+import {
+  createFakeAppHooksV1,
+  unavailableAppearanceHooksV1,
+} from "../../app-hooks/AppHooks";
 
 afterEach(() => {
   cleanup();
@@ -45,6 +50,24 @@ function renderEditor({
 }
 
 describe("SkinEditorDialog controller", () => {
+  it("checks required capabilities before mounting the hook-using container", () => {
+    const useSkinEditor = vi.fn();
+    const appHooks = createFakeAppHooksV1();
+    expect(() => render(React.createElement(SkinEditorContainer, {
+        appHooks: {
+          ...appHooks,
+          capabilities: {
+            ...appHooks.capabilities,
+            appearance: { ...unavailableAppearanceHooksV1, useSkinEditor },
+          },
+        },
+        onClose: vi.fn(),
+        open: true,
+      }),
+    )).toThrow(/myne\.appearance is unavailable/);
+    expect(useSkinEditor).not.toHaveBeenCalled();
+  });
+
   it("renders the migrated skin editor surface with stable semantic slots", () => {
     renderEditor();
 

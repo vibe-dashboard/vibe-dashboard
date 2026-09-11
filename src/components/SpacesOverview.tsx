@@ -1,16 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { WorkspaceState, TabGroup } from "../types";
 import {
-  vkClient,
-  type WorkspaceSummary,
-  type Repo,
-  type RepoWithBranch,
-} from "../lib/vk-client";
+  APP_HOOKS_V1_REQUIREMENTS,
+  assertAppHooksV1Compatible,
+} from "../app-hooks/AppHooks";
 import { SkinRoot } from "../theme/skins";
 import { selectedSpacesOverviewView } from "./spaces-overview/SpacesOverview.selected";
 import type {
   DashboardWorkspace,
   SpacesOverviewProps,
+  SpacesOverviewRepo,
   SpacesOverviewViewActions,
   SpacesOverviewViewModel,
   SpacesOverviewViewProps,
@@ -67,98 +66,17 @@ function getNonSystemTabGroups(workspace: WorkspaceState): TabGroupWithSpace[] {
   return items;
 }
 
-function useVKDashboardData() {
-  const [workspaces, setWorkspaces] = useState<DashboardWorkspace[]>([]);
-  const [repos, setRepos] = useState<Repo[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchData = useCallback(async (isRefresh = false) => {
-    if (!isRefresh) setLoading(true);
-    setError(null);
-
-    try {
-      const [allWorkspaces, summaryResult, reposResult] =
-        await Promise.allSettled([
-          vkClient.getWorkspaces(),
-          vkClient.getWorkspaceSummaries(false),
-          vkClient.getRepos(),
-        ]);
-
-      if (allWorkspaces.status === "rejected") {
-        throw new Error("Failed to load workspaces");
-      }
-
-      const activeWorkspaces = allWorkspaces.value.filter((w) => !w.archived);
-      const summaryMap = new Map<string, WorkspaceSummary>();
-      if (summaryResult.status === "fulfilled") {
-        for (const summary of summaryResult.value.summaries) {
-          summaryMap.set(summary.workspace_id, summary);
-        }
-      }
-
-      const allRepos =
-        reposResult.status === "fulfilled" ? reposResult.value : [];
-      const repoResults = await Promise.allSettled(
-        activeWorkspaces.map((ws) =>
-          vkClient
-            .getWorkspaceRepos(ws.id)
-            .then((repos) => ({ wsId: ws.id, repos })),
-        ),
-      );
-
-      const wsRepoMap = new Map<string, RepoWithBranch[]>();
-      for (const result of repoResults) {
-        if (result.status === "fulfilled") {
-          wsRepoMap.set(result.value.wsId, result.value.repos);
-        }
-      }
-
-      setWorkspaces(
-        activeWorkspaces.map((ws) => {
-          const summary = summaryMap.get(ws.id);
-          return {
-            id: ws.id,
-            name: ws.name || ws.branch,
-            branch: ws.branch,
-            pinned: ws.pinned,
-            created_at: ws.created_at,
-            updated_at: ws.updated_at,
-            task_id: ws.task_id,
-            container_ref: ws.container_ref,
-            files_changed: summary?.files_changed ?? null,
-            lines_added: summary?.lines_added ?? null,
-            lines_removed: summary?.lines_removed ?? null,
-            latest_process_status: summary?.latest_process_status ?? null,
-            latest_process_completed_at:
-              summary?.latest_process_completed_at ?? null,
-            has_pending_approval: summary?.has_pending_approval ?? false,
-            has_running_dev_server: summary?.has_running_dev_server ?? false,
-            has_unseen_turns: summary?.has_unseen_turns ?? false,
-            pr_status: summary?.pr_status ?? null,
-            repos: wsRepoMap.get(ws.id) ?? [],
-          };
-        }),
-      );
-      setRepos(allRepos);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load data");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchData();
-    const interval = setInterval(() => fetchData(true), 30000);
-    return () => clearInterval(interval);
-  }, [fetchData]);
-
-  return { workspaces, repos, loading, error, refetch: fetchData };
+export function SpacesOverview(props: SpacesOverviewProps) {
+  assertAppHooksV1Compatible(
+    props.appHooks,
+    APP_HOOKS_V1_REQUIREMENTS.spacesOverview,
+  );
+  return <SpacesOverviewContainer {...props} />;
 }
 
-export function SpacesOverview(props: SpacesOverviewProps) {
-  const { workspaces, repos, loading, error, refetch } = useVKDashboardData();
+function SpacesOverviewContainer({ appHooks, ...props }: SpacesOverviewProps) {
+  const { workspaces, repos, loading, error, refetch } =
+    appHooks.capabilities.spaces.useSpacesOverview();
   const [stoppingDevServerIds, setStoppingDevServerIds] = useState<Set<string>>(
     new Set(),
   );
@@ -170,7 +88,7 @@ export function SpacesOverview(props: SpacesOverviewProps) {
 
       let clearDelayMs = 5000;
       try {
-        await vkClient.stopWorkspaceExecution(workspaceId);
+        await appHooks.capabilities.spaces.stopWorkspaceExecution(workspaceId);
         setTimeout(() => refetch(true), 1000);
       } catch (err) {
         clearDelayMs = 0;
@@ -185,7 +103,7 @@ export function SpacesOverview(props: SpacesOverviewProps) {
         }, clearDelayMs);
       }
     },
-    [refetch, stoppingDevServerIds],
+    [appHooks, refetch, stoppingDevServerIds],
   );
 
   return (
@@ -335,7 +253,7 @@ export function SpacesOverviewView({
                   });
                 }
                 return seen;
-              }, new Map<string, Repo>())
+              }, new Map<string, SpacesOverviewRepo>())
               .values(),
           );
 

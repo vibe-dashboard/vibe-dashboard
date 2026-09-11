@@ -6,6 +6,7 @@ import type {
   WorkspaceState,
 } from "../../types";
 import type { Repo, RepoWithBranch } from "../../lib/vk-client";
+import type { AppHooksV1 } from "../../app-hooks/AppHooks";
 
 export type SpacesOverviewRepo = Repo;
 export type SpacesOverviewWorkspaceState = WorkspaceState;
@@ -33,6 +34,7 @@ export interface DashboardWorkspace {
 }
 
 export interface SpacesOverviewProps {
+  appHooks: AppHooksV1;
   workspace: WorkspaceState;
   savedSessions: SavedWorkspaceSession[];
   currentSessionId?: string;
@@ -50,7 +52,7 @@ export interface SpacesOverviewProps {
   skinState?: VDSkinState;
 }
 
-export interface SpacesOverviewViewProps extends SpacesOverviewProps {
+export interface SpacesOverviewViewProps extends Omit<SpacesOverviewProps, "appHooks"> {
   workspaces: DashboardWorkspace[];
   repos: Repo[];
   loading: boolean;

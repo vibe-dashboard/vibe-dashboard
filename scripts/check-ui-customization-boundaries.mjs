@@ -127,6 +127,52 @@ const representativePrimitiveFiles = [
 
 const findings = [];
 
+const injectedContainers = [
+  "src/components/SpacesOverview.tsx",
+  "src/theme/skins/SkinEditorDialog.tsx",
+];
+const forbiddenHostImport =
+  /from\s+["'][^"']*(?:vk-client|springboard|useModule|rpc|server-action|navigation)[^"']*["']/i;
+
+for (const filePath of injectedContainers) {
+  const source = readProjectFile(filePath);
+  if (source === null) continue;
+  if (forbiddenHostImport.test(source)) {
+    findings.push({
+      filePath,
+      message: "Migrated container imports a host implementation.",
+      guidance: "Receive the complete AppHooksV1 envelope through props; keep host imports in composition adapters.",
+    });
+  }
+  if (!source.includes("appHooks")) {
+    findings.push({
+      filePath,
+      message: "Migrated container does not expose the AppHooksV1 prop boundary.",
+      guidance: "High-level plugin containers must receive appHooks explicitly through props.",
+    });
+  }
+}
+
+for (const filePath of skinnedViewFiles) {
+  const source = readProjectFile(filePath);
+  if (source === null) continue;
+  if (source.includes("appHooks")) {
+    findings.push({
+      filePath,
+      message: "Presentation view references appHooks.",
+      guidance: "Presentation views receive semantic models and actions only.",
+    });
+  }
+  if (forbiddenHostImport.test(source)) {
+    findings.push({
+      filePath,
+      message: "Presentation view imports a host implementation.",
+      guidance:
+        "Presentation views may import presentation contracts only, never host hooks, stores, clients, RPC, actions, or navigation implementations.",
+    });
+  }
+}
+
 for (const filePath of skinnedViewFiles) {
   const source = readProjectFile(filePath);
   if (source === null) continue;

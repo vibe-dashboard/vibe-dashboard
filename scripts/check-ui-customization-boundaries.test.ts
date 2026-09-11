@@ -10,7 +10,9 @@ const scriptPath = join(projectRoot, "scripts/check-ui-customization-boundaries.
 function writeFixture(root: string, overrides: Record<string, string> = {}) {
   const files: Record<string, string> = {
     "src/components/SpacesOverview.tsx":
-      '<SkinRoot className="h-full w-full" state={skinState}>',
+      'export function SpacesOverview({ appHooks }) { appHooks.capabilities.spaces.useSpacesOverview(); return <SkinRoot className="h-full w-full" state={skinState}>; }',
+    "src/theme/skins/SkinEditorDialog.tsx":
+      'export function SkinEditorContainer({ appHooks }) { appHooks.capabilities.appearance.useSkinEditor(); return <SkinEditorDialog />; }',
     "src/components/spaces-overview/DefaultSpacesOverview.view.tsx": `
       import { VDHeading, VDText } from "../../theme/skins";
       export function DefaultSpacesOverviewLayout() {
@@ -112,6 +114,21 @@ describe("UI customization boundary check", () => {
     expect(result.status).toBe(1);
     expect(result.stdout).toContain('Missing semantic hook "data-vd-surface="');
     expect(result.stdout).toContain('Missing semantic hook "data-vd-slot="');
+  });
+
+  it("fails when migrated containers hide host clients or views receive appHooks", () => {
+    const root = mkdtempSync(join(tmpdir(), "ui-customization-dependencies-"));
+    writeFixture(root, {
+      "src/components/SpacesOverview.tsx":
+        'import { vkClient } from "../lib/vk-client"; export function SpacesOverview() { return <div />; }',
+      "src/theme/skins/SkinEditorDialog.view.tsx":
+        'export function SkinEditorDialogView({ appHooks }) { return <section />; }',
+    });
+
+    const result = spawnSync(process.execPath, [scriptPath, root], { encoding: "utf8" });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain("Migrated container imports a host implementation");
+    expect(result.stdout).toContain("Presentation view references appHooks");
   });
 });
 

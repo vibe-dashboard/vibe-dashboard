@@ -4,6 +4,7 @@ import type { TabGroup, Tab } from '../types';
 import type { WorkspaceState, SavedWorkspaceSession } from '../types';
 import { AppLoadingScreen } from './AppLoadingScreen';
 import { SpacesOverview } from './SpacesOverview';
+import { hostAppHooksV1 } from '../app-hooks/AppHooks.host';
 import { hasSameBaseOrigin } from '../lib/originTrust';
 import { getPluginIframePolicy, getPluginIframePostMessageTargetOrigin, parsePluginInternalUrl } from '../modules/plugins/vibe-dashboard/runtime';
 import { getRegisteredPluginIframePolicy, resolvePluginInternalRouteIframeSrc } from '../modules/plugins/vibe-dashboard/registry';
@@ -1328,6 +1329,7 @@ function StaticTabContent({
       return (
         <div className="flex-1 min-h-0 relative h-full">
           <SpacesOverview
+            appHooks={hostAppHooksV1}
             workspace={workspace}
             savedSessions={savedSessions || []}
             currentSessionId={currentSessionId}
@@ -1543,6 +1545,7 @@ function SingleTabView({
       return (
         <div className="flex-1 min-h-0 relative h-full">
           <SpacesOverview
+            appHooks={hostAppHooksV1}
             workspace={workspace}
             savedSessions={savedSessions || []}
             currentSessionId={currentSessionId}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { SkinEditorDialog } from "./SkinEditorDialog";
+import { SkinEditorContainer } from "./SkinEditorDialog";
 import {
   DEFAULT_VD_SKIN_ID,
   lightStudioSkin,
@@ -10,6 +10,7 @@ import {
   createSkinLabStories,
   type SkinLabOption,
 } from "../../stories/skinLab";
+import { createFakeAppHooksV1 } from "../../app-hooks/AppHooks";
 
 const customStudioSkin = {
   ...lightStudioSkin,
@@ -87,17 +88,21 @@ function SkinEditorStory({
       }
       data-storybook-density={densityPreset}
     >
-      <SkinEditorDialog
-        actions={{
-          saveSkinState: async ({ state: nextState }) => {
-            setState(nextState);
-            console.info("save skin state", nextState);
-            return { ok: true };
+      <SkinEditorContainer
+        appHooks={createFakeAppHooksV1({
+          skinEditorValue: {
+            skinState: state,
+            actions: {
+              saveSkinState: async ({ state: nextState }) => {
+                setState(nextState);
+                console.info("save skin state", nextState);
+                return { ok: true };
+              },
+            },
           },
-        }}
+        })}
         onClose={() => console.info("close skin editor")}
         open
-        skinState={state}
       />
     </div>
   );
