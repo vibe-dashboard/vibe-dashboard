@@ -1172,17 +1172,18 @@ export function IframePanel({
       ) : (
         <EmptyView />
       )}
-      {visibleTabIds.has(BUILT_IN_AGENT_TAB_ID) && (
-        <AgentSessionFooter
-          sessions={agentSession.sessions}
-          selectedSessionId={agentSession.selectedSessionId}
-          loading={agentSession.loading}
-          error={agentSession.error}
-          onSelect={agentSession.selectSession}
-          onRetry={agentSession.reload}
-          style={getAgentFooterStyle(effectiveTabGroup, activePair)}
-        />
-      )}
+      {agentSession.available &&
+        visibleTabIds.has(BUILT_IN_AGENT_TAB_ID) && (
+          <AgentSessionFooter
+            sessions={agentSession.sessions}
+            selectedSessionId={agentSession.selectedSessionId}
+            loading={agentSession.loading}
+            error={agentSession.error}
+            onSelect={agentSession.selectSession}
+            onRetry={agentSession.reload}
+            style={getAgentFooterStyle(effectiveTabGroup, activePair)}
+          />
+        )}
     </div>
   );
 }
@@ -1203,6 +1204,9 @@ function useAgentSession(tabGroup: TabGroup, enabled: boolean) {
     }
   })();
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [sessionsWorkspaceId, setSessionsWorkspaceId] = useState<
+    string | null
+  >(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
     null,
   );
@@ -1215,6 +1219,7 @@ function useAgentSession(tabGroup: TabGroup, enabled: boolean) {
   useEffect(() => {
     if (!(enabled && workspaceId && agentTab)) {
       setSessions([]);
+      setSessionsWorkspaceId(null);
       setSelectedSessionId(null);
       setLoading(false);
       setError(null);
@@ -1229,6 +1234,7 @@ function useAgentSession(tabGroup: TabGroup, enabled: boolean) {
         if (cancelled) return;
         const sortedSessions = sortAgentSessions(nextSessions);
         setSessions(sortedSessions);
+        setSessionsWorkspaceId(workspaceId);
         setSelectedSessionId(
           resolveInitialAgentSessionId(sortedSessions, requestedSessionId),
         );
@@ -1237,6 +1243,7 @@ function useAgentSession(tabGroup: TabGroup, enabled: boolean) {
       () => {
         if (cancelled) return;
         setSessions([]);
+        setSessionsWorkspaceId(null);
         setSelectedSessionId(null);
         setError('Could not load sessions');
         setLoading(false);
@@ -1248,26 +1255,41 @@ function useAgentSession(tabGroup: TabGroup, enabled: boolean) {
   }, [agentTab, enabled, requestedSessionId, reloadKey, workspaceId]);
 
   const effectiveTabGroup = React.useMemo(() => {
-    if (!(agentTab && selectedSessionId)) return tabGroup;
+    const effectiveSessionId =
+      sessionsWorkspaceId === workspaceId
+        ? selectedSessionId
+        : requestedSessionId;
+    if (!(agentTab && effectiveSessionId)) return tabGroup;
     return {
       ...tabGroup,
       tabs: tabGroup.tabs.map((tab) =>
         tab.id === agentTab.id
           ? {
               ...tab,
-              url: buildAgentSessionUrl(tab.url, selectedSessionId),
+              url: buildAgentSessionUrl(tab.url, effectiveSessionId),
             }
           : tab,
       ),
     };
-  }, [agentTab, selectedSessionId, tabGroup]);
+  }, [
+    agentTab,
+    requestedSessionId,
+    selectedSessionId,
+    sessionsWorkspaceId,
+    tabGroup,
+    workspaceId,
+  ]);
 
   return {
     tabGroup: effectiveTabGroup,
-    sessions,
-    selectedSessionId,
-    loading,
+    sessions: sessionsWorkspaceId === workspaceId ? sessions : [],
+    selectedSessionId:
+      sessionsWorkspaceId === workspaceId ? selectedSessionId : null,
+    loading:
+      Boolean(enabled && workspaceId && agentTab) &&
+      (loading || sessionsWorkspaceId !== workspaceId),
     error,
+    available: Boolean(enabled && workspaceId && agentTab),
     selectSession: setSelectedSessionId,
     reload: () => setReloadKey((key) => key + 1),
   };
