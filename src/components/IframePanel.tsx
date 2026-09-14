@@ -18,6 +18,10 @@ import {
 } from '../modules/plugins/vibe-dashboard/craft-surfaces';
 import { vkClient, type Session } from '../lib/vk-client';
 import {
+  AGENT_PANE_FOOTER_HEIGHT_PX,
+  AgentPaneFooter,
+} from './AgentPaneFooter';
+import {
   buildAgentSessionUrl,
   resolveInitialAgentSessionId,
   sortAgentSessions,
@@ -90,7 +94,6 @@ const MAX_RETAINED_IFRAMES = 5;
 export const IFRAME_REVEAL_DELAY_MS = 250;
 export const IFRAME_PORT_PREFIX_REVEAL_DELAY_MS = 1000;
 const IFRAME_ACTIVATION_SHIELD_MS = 1000;
-const AGENT_SESSION_FOOTER_HEIGHT_PX = 40;
 export const IFRAME_VISUAL_READY_TIMEOUT_MS = 5000;
 
 // Preserve iframe store across HMR updates using Vite's HMR API.
@@ -1174,7 +1177,8 @@ export function IframePanel({
       )}
       {agentSession.available &&
         visibleTabIds.has(BUILT_IN_AGENT_TAB_ID) && (
-          <AgentSessionFooter
+          <AgentPaneFooter
+            workspaceId={agentSession.workspaceId}
             sessions={agentSession.sessions}
             selectedSessionId={agentSession.selectedSessionId}
             loading={agentSession.loading}
@@ -1290,6 +1294,7 @@ function useAgentSession(tabGroup: TabGroup, enabled: boolean) {
       (loading || sessionsWorkspaceId !== workspaceId),
     error,
     available: Boolean(enabled && workspaceId && agentTab),
+    workspaceId: workspaceId ?? '',
     selectSession: setSelectedSessionId,
     reload: () => setReloadKey((key) => key + 1),
   };
@@ -1310,65 +1315,6 @@ function getAgentFooterStyle(
     left: `${(before / total) * 100}%`,
     width: `${(width / total) * 100}%`,
   };
-}
-
-function AgentSessionFooter({
-  sessions,
-  selectedSessionId,
-  loading,
-  error,
-  onSelect,
-  onRetry,
-  style,
-}: {
-  sessions: Session[];
-  selectedSessionId: string | null;
-  loading: boolean;
-  error: string | null;
-  onSelect: (sessionId: string) => void;
-  onRetry: () => void;
-  style: React.CSSProperties;
-}) {
-  return (
-    <footer
-      className="absolute bottom-0 z-30 flex h-10 items-center gap-2 border-t border-neutral-800 bg-neutral-950 px-3 text-xs text-neutral-400"
-      style={style}
-      data-testid="agent-session-footer"
-    >
-      <span className="shrink-0 font-medium text-neutral-500">Session</span>
-      {error ? (
-        <>
-          <span className="min-w-0 flex-1 truncate text-red-400">{error}</span>
-          <button
-            type="button"
-            className="rounded px-2 py-1 text-neutral-300 hover:bg-neutral-800 hover:text-white"
-            onClick={onRetry}
-          >
-            Retry
-          </button>
-        </>
-      ) : (
-        <select
-          aria-label="Agent session"
-          className="min-w-0 flex-1 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-200 outline-none focus:border-neutral-500 disabled:cursor-wait disabled:text-neutral-500"
-          disabled={loading || sessions.length === 0}
-          value={selectedSessionId ?? ''}
-          onChange={(event) => onSelect(event.target.value)}
-        >
-          {loading && <option value="">Loading sessions…</option>}
-          {!loading && sessions.length === 0 && (
-            <option value="">No sessions</option>
-          )}
-          {sessions.map((session, index) => (
-            <option key={session.id} value={session.id}>
-              {index === 0 ? 'Latest · ' : ''}
-              {session.executor.replaceAll('_', ' ')} · {session.id.slice(0, 8)}
-            </option>
-          ))}
-        </select>
-      )}
-    </footer>
-  );
 }
 
 function StaticIframePanelContent({
@@ -1646,7 +1592,7 @@ function PersistentIframeLayer({
           top: 0,
           bottom:
             tab.id === BUILT_IN_AGENT_TAB_ID
-              ? AGENT_SESSION_FOOTER_HEIGHT_PX
+              ? AGENT_PANE_FOOTER_HEIGHT_PX
               : 0,
           left: `calc(${(cumulativeFraction * 100).toFixed(6)}% + ${(index * separatorWidth - cumulativeFraction * totalSeparatorWidth).toFixed(3)}px)`,
           width: `calc(${(ratioFraction * 100).toFixed(6)}% - ${(ratioFraction * totalSeparatorWidth).toFixed(3)}px)`,
@@ -1664,7 +1610,7 @@ function PersistentIframeLayer({
       right: 0,
       bottom:
         activeTab.id === BUILT_IN_AGENT_TAB_ID
-          ? AGENT_SESSION_FOOTER_HEIGHT_PX
+          ? AGENT_PANE_FOOTER_HEIGHT_PX
           : 0,
       left: 0,
       visibility: 'visible',
