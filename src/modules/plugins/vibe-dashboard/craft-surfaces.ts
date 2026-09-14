@@ -460,7 +460,7 @@ function getConfiguredVkBaseOrigin(): string | null {
 }
 
 function buildWorkspaceTabUrl(baseOrigin: string, workspaceId: string): string {
-  return `${baseOrigin}/workspaces/${workspaceId}`;
+  return `${baseOrigin}/workspaces/${workspaceId}/vscode?chat_only=true`;
 }
 
 function buildFormsUrl(baseOrigin: string, workspaceId: string, beadId?: string): string {

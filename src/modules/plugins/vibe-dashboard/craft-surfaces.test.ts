@@ -79,7 +79,11 @@ describe("dynamic Craft surfaces", () => {
     expect(
       effective.tabGroups[0]!.tabs.map((tab) => [tab.id, tab.title, tab.url]),
     ).toEqual([
-      ["agent", "Agent", "https://vd.example.test/workspaces/workspace_1"],
+      [
+        "agent",
+        "Agent",
+        "https://vd.example.test/workspaces/workspace_1/vscode?chat_only=true",
+      ],
       [
         "code",
         "Code",
@@ -214,7 +218,11 @@ describe("dynamic Craft surfaces", () => {
     expect(
       effective.tabGroups[0]!.tabs.map((tab) => [tab.id, tab.title, tab.url]),
     ).toEqual([
-      ["agent", "Agent", "http://localhost:3001/workspaces/workspace_1"],
+      [
+        "agent",
+        "Agent",
+        "http://localhost:3001/workspaces/workspace_1/vscode?chat_only=true",
+      ],
       [
         "code",
         "Code",
@@ -252,7 +260,11 @@ describe("dynamic Craft surfaces", () => {
       expect(
         effective.tabGroups[0]!.tabs.map((tab) => [tab.id, tab.title, tab.url]),
       ).toEqual([
-        ["agent", "Agent", "http://localhost:4100/workspaces/workspace_1"],
+        [
+          "agent",
+          "Agent",
+          "http://localhost:4100/workspaces/workspace_1/vscode?chat_only=true",
+        ],
         [
           "code",
           "Code",

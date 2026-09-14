@@ -21,7 +21,8 @@ const manifest: PluginManifest = createPluginManifest({
             {
               key: 'agent',
               title: 'Agent',
-              urlTemplate: '{{origin}}/workspaces/{{workspaceId}}',
+              urlTemplate:
+                '{{origin}}/workspaces/{{workspaceId}}/vscode?chat_only=true',
             },
             {
               key: 'code',

@@ -11,7 +11,7 @@ const factory: TabGroupFactoryContribution = {
     primaryTabKey: 'agent',
     defaultPairTabKeys: ['agent', 'code'],
     tabs: [
-      { key: 'agent', title: 'Agent', urlTemplate: '{{origin}}/workspaces/{{workspaceId}}' },
+      { key: 'agent', title: 'Agent', urlTemplate: '{{origin}}/workspaces/{{workspaceId}}/vscode?chat_only=true' },
       { key: 'code', title: 'Code', urlTemplate: '{{origin}}/?folder={{containerRef}}' },
     ],
   },
@@ -33,7 +33,7 @@ describe('plugin-owned workspace composition', () => {
       primaryTabKey: 'agent',
       pairTabKeys: ['agent', 'code'],
       tabs: [
-        { key: 'agent', title: 'Agent', url: 'https://vd.example.test/workspaces/workspace-1' },
+        { key: 'agent', title: 'Agent', url: 'https://vd.example.test/workspaces/workspace-1/vscode?chat_only=true' },
         { key: 'code', title: 'Code', url: 'https://vd.example.test/?folder=/home/vkuser/repos/plugin-system' },
       ],
     });
