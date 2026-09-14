@@ -2,6 +2,18 @@ import { expect, test, type Locator, type Page } from 'playwright/test';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
+/**
+ * Acceptance plan:
+ * test-plans/branches/d6e2-vd-monaco-editor/test-plan-1.md
+ *
+ * Automated coverage derived from the mocked-sandbox browser workflow:
+ * - TEST_CASE_1A
+ * - TEST_CASE_2A
+ * - TEST_CASE_3A
+ * - TEST_CASE_5A
+ * - TEST_CASE_8A
+ */
+
 type SeedManifest = {
   voyageName: string;
   craftTitle: string;
