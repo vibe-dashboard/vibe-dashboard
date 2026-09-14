@@ -124,7 +124,7 @@ describe("dynamic Craft surfaces", () => {
       effective.tabGroups[0]!.tabs.map((tab) => [tab.id, tab.url]),
     );
     expect(tabsById.get("agent")).toBe(
-      "https://example.com/workspaces/workspace_1",
+      "https://example.com/workspaces/workspace_1/vscode?chat_only=true",
     );
     expect(tabsById.get("code")).toBe(
       "https://example.com/?folder=%2Fhome%2Fvkuser%2Frepos%2Fapp",
@@ -158,7 +158,7 @@ describe("dynamic Craft surfaces", () => {
       effective.tabGroups[0]!.tabs.map((tab) => [tab.id, tab.url]),
     );
     expect(tabsById.get("agent")).toBe(
-      "http://code-vibe:3001/workspaces/workspace_1",
+      "http://code-vibe:3001/workspaces/workspace_1/vscode?chat_only=true",
     );
     expect(tabsById.get("code")).toBe(
       "http://code-vibe:3001/?folder=%2Fhome%2Fvkuser%2Frepos%2Fapp",

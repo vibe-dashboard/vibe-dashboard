@@ -1031,7 +1031,7 @@ export function IframePanel({
   onBeadReferenceClick,
   onBeadFormSubmitted,
 }: IframePanelProps) {
-  const agentSession = useAgentSession(tabGroup);
+  const agentSession = useAgentSession(tabGroup, iframeRenderMode === 'real');
   const effectiveTabGroup = agentSession.tabGroup;
   const activeTab = effectiveTabGroup.tabs.find(
     (t) => t.id === activeItemId
@@ -1186,7 +1186,7 @@ export function IframePanel({
   );
 }
 
-function useAgentSession(tabGroup: TabGroup) {
+function useAgentSession(tabGroup: TabGroup, enabled: boolean) {
   const workspaceId = getBuiltInWorkspaceMetadata(tabGroup)?.workspaceId;
   const agentTab = tabGroup.tabs.find(
     ({ id }) => id === BUILT_IN_AGENT_TAB_ID,
@@ -1205,12 +1205,14 @@ function useAgentSession(tabGroup: TabGroup) {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
     null,
   );
-  const [loading, setLoading] = useState(Boolean(workspaceId && agentTab));
+  const [loading, setLoading] = useState(
+    Boolean(enabled && workspaceId && agentTab),
+  );
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
-    if (!(workspaceId && agentTab)) {
+    if (!(enabled && workspaceId && agentTab)) {
       setSessions([]);
       setSelectedSessionId(null);
       setLoading(false);
@@ -1226,11 +1228,8 @@ function useAgentSession(tabGroup: TabGroup) {
         if (cancelled) return;
         const sortedSessions = sortAgentSessions(nextSessions);
         setSessions(sortedSessions);
-        setSelectedSessionId((current) =>
-          resolveInitialAgentSessionId(
-            sortedSessions,
-            current ?? requestedSessionId,
-          ),
+        setSelectedSessionId(
+          resolveInitialAgentSessionId(sortedSessions, requestedSessionId),
         );
         setLoading(false);
       },
@@ -1245,7 +1244,7 @@ function useAgentSession(tabGroup: TabGroup) {
     return () => {
       cancelled = true;
     };
-  }, [agentTab, requestedSessionId, reloadKey, workspaceId]);
+  }, [agentTab, enabled, requestedSessionId, reloadKey, workspaceId]);
 
   const effectiveTabGroup = React.useMemo(() => {
     if (!(agentTab && selectedSessionId)) return tabGroup;
