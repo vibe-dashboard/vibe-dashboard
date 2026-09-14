@@ -12,6 +12,16 @@ import {
   ReactCraftSurfaceHost,
   type ReactCraftSurfaceTarget,
 } from '../modules/plugins/vibe-dashboard/react-craft-surfaces';
+import {
+  BUILT_IN_AGENT_TAB_ID,
+  getBuiltInWorkspaceMetadata,
+} from '../modules/plugins/vibe-dashboard/craft-surfaces';
+import { vkClient, type Session } from '../lib/vk-client';
+import {
+  buildAgentSessionUrl,
+  resolveInitialAgentSessionId,
+  sortAgentSessions,
+} from '../lib/vkAgentSession';
 
 const INTERNAL_URL_PREFIX = 'internal://';
 const CADDY_PORT = process.env.CADDY_PORT || '';
@@ -1021,10 +1031,12 @@ export function IframePanel({
   onBeadReferenceClick,
   onBeadFormSubmitted,
 }: IframePanelProps) {
-  const activeTab = tabGroup.tabs.find(
+  const agentSession = useAgentSession(tabGroup);
+  const effectiveTabGroup = agentSession.tabGroup;
+  const activeTab = effectiveTabGroup.tabs.find(
     (t) => t.id === activeItemId
   );
-  const activePair = tabGroup.pairs.find(
+  const activePair = effectiveTabGroup.pairs.find(
     (p) => p.id === activeItemId
   );
 
@@ -1038,7 +1050,7 @@ export function IframePanel({
   if (iframeRenderMode !== 'real') {
     return (
       <StaticIframePanelContent
-        tabGroup={tabGroup}
+        tabGroup={effectiveTabGroup}
         activeTab={activeTab}
         activePair={activePair}
         iframeRenderMode={iframeRenderMode}
@@ -1057,15 +1069,15 @@ export function IframePanel({
     );
   }
 
-  const visibleIframeTabs = tabGroup.tabs.filter((tab) => {
+  const visibleIframeTabs = effectiveTabGroup.tabs.filter((tab) => {
     if (!visibleTabIds.has(tab.id)) return false;
-    return getTabRenderTargetForTab(tab, tabGroup).kind === 'iframe';
+    return getTabRenderTargetForTab(tab, effectiveTabGroup).kind === 'iframe';
   });
 
   const visibleRetainedIframeTabs = visibleIframeTabs.map((tab): RetainedIframeTab => ({
     tab,
-    tabGroup,
-    iframeKey: getIframeRetentionKey(tabGroup.id, tab.id),
+    tabGroup: effectiveTabGroup,
+    iframeKey: getIframeRetentionKey(effectiveTabGroup.id, tab.id),
   }));
   const allKnownIframeTabs = workspace?.tabGroups.flatMap((group) =>
     group.tabs
@@ -1077,7 +1089,7 @@ export function IframePanel({
       })),
   );
   const visibleIframeKeys = new Set(visibleRetainedIframeTabs.map((item) => item.iframeKey));
-  const activeIframeKey = activeTab ? getIframeRetentionKey(tabGroup.id, activeTab.id) : null;
+  const activeIframeKey = activeTab ? getIframeRetentionKey(effectiveTabGroup.id, activeTab.id) : null;
   const retainedTabs =
     allKnownIframeTabs?.filter(
       (item) => retainedTabIds.has(item.iframeKey) || visibleIframeKeys.has(item.iframeKey),
@@ -1102,7 +1114,7 @@ export function IframePanel({
 
       const sourceTabId = findTabIdForMessageSource(event.source);
       if (!sourceTabId) return;
-      if (!tabGroup.tabs.some((tab) => tab.id === sourceTabId)) return;
+      if (!effectiveTabGroup.tabs.some((tab) => tab.id === sourceTabId)) return;
 
       if (isBeadReferenceClickMessage(event.data)) {
         void onBeadReferenceClick?.(sourceTabId, event.data.beadId);
@@ -1114,7 +1126,7 @@ export function IframePanel({
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [onBeadFormSubmitted, onBeadReferenceClick, tabGroup.tabs]);
+  }, [effectiveTabGroup.tabs, onBeadFormSubmitted, onBeadReferenceClick]);
 
   return (
     <div className="w-full h-full relative">
@@ -1122,7 +1134,7 @@ export function IframePanel({
         retainedTabs={retainedTabs}
         activeTab={activeTab}
         activePair={activePair}
-        tabGroup={tabGroup}
+        tabGroup={effectiveTabGroup}
         storeVersion={storeVersion}
         loadingState={loadingState}
         activationShieldState={activationShieldState}
@@ -1130,7 +1142,7 @@ export function IframePanel({
       {activePair ? (
         <PairView
           activePair={activePair}
-          tabGroup={tabGroup}
+          tabGroup={effectiveTabGroup}
           loadingState={loadingState}
           errorState={errorState}
           activationShieldState={activationShieldState}
@@ -1140,7 +1152,7 @@ export function IframePanel({
       ) : activeTab ? (
           <SingleTabView
             activeTab={activeTab}
-            tabGroup={tabGroup}
+            tabGroup={effectiveTabGroup}
             activeIframeKey={activeIframeKey ?? activeTab.id}
             loadingState={loadingState}
             errorState={errorState}
@@ -1159,7 +1171,181 @@ export function IframePanel({
       ) : (
         <EmptyView />
       )}
+      {visibleTabIds.has(BUILT_IN_AGENT_TAB_ID) && (
+        <AgentSessionFooter
+          sessions={agentSession.sessions}
+          selectedSessionId={agentSession.selectedSessionId}
+          loading={agentSession.loading}
+          error={agentSession.error}
+          onSelect={agentSession.selectSession}
+          onRetry={agentSession.reload}
+          style={getAgentFooterStyle(effectiveTabGroup, activePair)}
+        />
+      )}
     </div>
+  );
+}
+
+function useAgentSession(tabGroup: TabGroup) {
+  const workspaceId = getBuiltInWorkspaceMetadata(tabGroup)?.workspaceId;
+  const agentTab = tabGroup.tabs.find(
+    ({ id }) => id === BUILT_IN_AGENT_TAB_ID,
+  );
+  const requestedSessionId = (() => {
+    if (!agentTab) return null;
+    try {
+      return new URL(agentTab.url, 'https://workspace.local').searchParams.get(
+        'session_id',
+      );
+    } catch {
+      return null;
+    }
+  })();
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
+    null,
+  );
+  const [loading, setLoading] = useState(Boolean(workspaceId && agentTab));
+  const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    if (!(workspaceId && agentTab)) {
+      setSessions([]);
+      setSelectedSessionId(null);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    void vkClient.getSessions(workspaceId).then(
+      (nextSessions) => {
+        if (cancelled) return;
+        const sortedSessions = sortAgentSessions(nextSessions);
+        setSessions(sortedSessions);
+        setSelectedSessionId((current) =>
+          resolveInitialAgentSessionId(
+            sortedSessions,
+            current ?? requestedSessionId,
+          ),
+        );
+        setLoading(false);
+      },
+      () => {
+        if (cancelled) return;
+        setSessions([]);
+        setSelectedSessionId(null);
+        setError('Could not load sessions');
+        setLoading(false);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [agentTab, requestedSessionId, reloadKey, workspaceId]);
+
+  const effectiveTabGroup = React.useMemo(() => {
+    if (!(agentTab && selectedSessionId)) return tabGroup;
+    return {
+      ...tabGroup,
+      tabs: tabGroup.tabs.map((tab) =>
+        tab.id === agentTab.id
+          ? {
+              ...tab,
+              url: buildAgentSessionUrl(tab.url, selectedSessionId),
+            }
+          : tab,
+      ),
+    };
+  }, [agentTab, selectedSessionId, tabGroup]);
+
+  return {
+    tabGroup: effectiveTabGroup,
+    sessions,
+    selectedSessionId,
+    loading,
+    error,
+    selectSession: setSelectedSessionId,
+    reload: () => setReloadKey((key) => key + 1),
+  };
+}
+
+function getAgentFooterStyle(
+  tabGroup: TabGroup,
+  activePair: { tabIds: string[]; ratios: number[] } | undefined,
+): React.CSSProperties {
+  if (!activePair) return { left: 0, right: 0 };
+  const index = activePair.tabIds.indexOf(BUILT_IN_AGENT_TAB_ID);
+  const total = activePair.ratios.reduce((sum, ratio) => sum + ratio, 0) || 1;
+  const before = activePair.ratios
+    .slice(0, Math.max(index, 0))
+    .reduce((sum, ratio) => sum + ratio, 0);
+  const width = activePair.ratios[index] ?? 0;
+  return {
+    left: `${(before / total) * 100}%`,
+    width: `${(width / total) * 100}%`,
+  };
+}
+
+function AgentSessionFooter({
+  sessions,
+  selectedSessionId,
+  loading,
+  error,
+  onSelect,
+  onRetry,
+  style,
+}: {
+  sessions: Session[];
+  selectedSessionId: string | null;
+  loading: boolean;
+  error: string | null;
+  onSelect: (sessionId: string) => void;
+  onRetry: () => void;
+  style: React.CSSProperties;
+}) {
+  return (
+    <footer
+      className="absolute bottom-0 z-30 flex h-10 items-center gap-2 border-t border-neutral-800 bg-neutral-950 px-3 text-xs text-neutral-400"
+      style={style}
+      data-testid="agent-session-footer"
+    >
+      <span className="shrink-0 font-medium text-neutral-500">Session</span>
+      {error ? (
+        <>
+          <span className="min-w-0 flex-1 truncate text-red-400">{error}</span>
+          <button
+            type="button"
+            className="rounded px-2 py-1 text-neutral-300 hover:bg-neutral-800 hover:text-white"
+            onClick={onRetry}
+          >
+            Retry
+          </button>
+        </>
+      ) : (
+        <select
+          aria-label="Agent session"
+          className="min-w-0 flex-1 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-200 outline-none focus:border-neutral-500 disabled:cursor-wait disabled:text-neutral-500"
+          disabled={loading || sessions.length === 0}
+          value={selectedSessionId ?? ''}
+          onChange={(event) => onSelect(event.target.value)}
+        >
+          {loading && <option value="">Loading sessions…</option>}
+          {!loading && sessions.length === 0 && (
+            <option value="">No sessions</option>
+          )}
+          {sessions.map((session, index) => (
+            <option key={session.id} value={session.id}>
+              {index === 0 ? 'Latest · ' : ''}
+              {session.executor.replaceAll('_', ' ')} · {session.id.slice(0, 8)}
+            </option>
+          ))}
+        </select>
+      )}
+    </footer>
   );
 }
 
