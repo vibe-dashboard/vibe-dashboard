@@ -39,7 +39,9 @@ export function AgentPaneFooter(props: Props) {
     ({ id }) => id === props.selectedSessionId,
   );
   const [message, setMessage] = useState('');
-  const [config, setConfig] = useState<ExecutorConfig>({ executor: 'CODEX' });
+  const [config, setConfig] = useState<ExecutorConfig & { executor: Executor }>({
+    executor: 'CODEX',
+  });
   const [queue, setQueue] = useState<QueueStatus>({ status: 'empty' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -85,7 +87,7 @@ export function AgentPaneFooter(props: Props) {
   }, [props.selectedSessionId, props.workspaceId, session?.executor]);
 
   const persist = useCallback(
-    (nextMessage: string, nextConfig: ExecutorConfig) => {
+    (nextMessage: string, nextConfig: ExecutorConfig & { executor: Executor }) => {
       const id = props.selectedSessionId;
       if (!id) return;
       const value = draft(nextMessage, nextConfig);
@@ -113,7 +115,11 @@ export function AgentPaneFooter(props: Props) {
     [config, persist],
   );
   const changeConfig = useCallback(
-    (patch: Partial<ExecutorConfig>) => {
+    (
+      patch: Partial<Omit<ExecutorConfig, 'executor'>> & {
+        executor?: Executor;
+      },
+    ) => {
       const next = { ...config, ...patch };
       setConfig(next);
       persist(message, next);

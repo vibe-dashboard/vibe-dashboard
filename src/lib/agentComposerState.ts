@@ -22,7 +22,7 @@ export function resolveExecutor(session: Session | undefined): Executor {
 export function normalizeExecutorConfig(
   config: ExecutorConfig | undefined,
   fallbackSession?: Session,
-): ExecutorConfig {
+): ExecutorConfig & { executor: Executor } {
   return {
     ...config,
     executor: SUPPORTED_EXECUTORS.includes(config?.executor as Executor)
@@ -37,7 +37,7 @@ export function createExecutorConfig(input: {
   modelId: string;
   reasoningId: string;
   permissionPolicy: string;
-}): ExecutorConfig {
+}): ExecutorConfig & { executor: Executor } {
   return {
     executor: input.executor,
     variant: input.variant.trim() || null,
