@@ -90,6 +90,7 @@ const MAX_RETAINED_IFRAMES = 5;
 export const IFRAME_REVEAL_DELAY_MS = 250;
 export const IFRAME_PORT_PREFIX_REVEAL_DELAY_MS = 1000;
 const IFRAME_ACTIVATION_SHIELD_MS = 1000;
+const AGENT_SESSION_FOOTER_HEIGHT_PX = 40;
 export const IFRAME_VISUAL_READY_TIMEOUT_MS = 5000;
 
 // Preserve iframe store across HMR updates using Vite's HMR API.
@@ -1621,7 +1622,10 @@ function PersistentIframeLayer({
         layoutStyles.set(getIframeRetentionKey(tabGroup.id, tab.id), {
           position: 'absolute',
           top: 0,
-          bottom: 0,
+          bottom:
+            tab.id === BUILT_IN_AGENT_TAB_ID
+              ? AGENT_SESSION_FOOTER_HEIGHT_PX
+              : 0,
           left: `calc(${(cumulativeFraction * 100).toFixed(6)}% + ${(index * separatorWidth - cumulativeFraction * totalSeparatorWidth).toFixed(3)}px)`,
           width: `calc(${(ratioFraction * 100).toFixed(6)}% - ${(ratioFraction * totalSeparatorWidth).toFixed(3)}px)`,
           visibility: 'visible',
@@ -1634,7 +1638,13 @@ function PersistentIframeLayer({
   } else if (activeTab && getTabRenderTargetForTab(activeTab, tabGroup).kind === 'iframe') {
     layoutStyles.set(getIframeRetentionKey(tabGroup.id, activeTab.id), {
       position: 'absolute',
-      inset: 0,
+      top: 0,
+      right: 0,
+      bottom:
+        activeTab.id === BUILT_IN_AGENT_TAB_ID
+          ? AGENT_SESSION_FOOTER_HEIGHT_PX
+          : 0,
+      left: 0,
       visibility: 'visible',
       pointerEvents: 'auto',
     });
