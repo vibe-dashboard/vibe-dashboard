@@ -92,8 +92,12 @@ describe("portable appearance snapshots", () => {
     [{ ...snapshot(), skin: { ...snapshot().skin, userSkins: [{ ...defaultDarkSkin, id: "user.test", script: "alert(1)" }] } }, "non-canonical-skin"],
     [{ ...snapshot(), assets: [{ ...snapshot().assets[0], integrity: "sha1-deadbeef" }] }, "invalid-asset-integrity"],
     [{ ...snapshot(), assets: [{ ...snapshot().assets[0], path: "../escape.webp" }] }, "invalid-asset-path"],
+    [{ ...snapshot(), assets: [{ ...snapshot().assets[0], path: "assets/active.svg", mediaType: "image/svg+xml" }] }, "invalid-asset-media-type"],
+    [{ ...snapshot(), assets: [{ ...snapshot().assets[0], mediaType: "image/png" }] }, "invalid-asset-media-type"],
     [{ ...snapshot(), surfaces: [...snapshot().surfaces, snapshot().surfaces[0]] }, "duplicate-surface"],
     [{ ...snapshot(), surfaces: snapshot().surfaces.slice(1) }, "missing-surface"],
+    [{ ...snapshot(), surfaces: snapshot().surfaces.map((surface) => surface.surface === "skin-editor" ? { ...surface, slots: surface.slots.slice(1) } : surface) }, "missing-slot"],
+    [{ ...snapshot(), surfaces: snapshot().surfaces.map((surface) => surface.surface === "skin-editor" ? { ...surface, slots: surface.slots.map((slot) => slot.id === "header" ? { ...slot, componentId: "myne.appearance.preview.default" } : slot) } : surface) }, "incompatible-component"],
     [{ ...snapshot(), provenance: { ...snapshot().provenance, generator: "bad\ud800" } }, "invalid-unicode"],
   ])("rejects malformed or incompatible packages (%s)", (candidate, code) => {
     const result = validateAppearanceSnapshot(candidate);

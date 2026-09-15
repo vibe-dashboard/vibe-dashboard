@@ -1,5 +1,6 @@
 import { validateSkinManifest } from "./schema";
 import { BUILT_IN_MYNE_SKINS } from "./builtin";
+import { validateAppearanceSurfaceCompatibility } from "./appearanceCompatibility";
 import type {
   MyneSkinDiagnostic,
   MyneSkinStateV1,
@@ -56,7 +57,10 @@ export interface MyneAppearanceSnapshotV1 {
 const ID_PATTERN = /^[a-z0-9][a-z0-9._-]{1,127}$/;
 const SLOT_ID_PATTERN = /^[a-z][a-zA-Z0-9]{1,63}$/;
 const ASSET_PATH_PATTERN = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))(?![a-z][a-z0-9+.-]*:)[a-zA-Z0-9._/-]+$/;
-const MEDIA_TYPE_PATTERN = /^(?:image\/(?:png|jpeg|webp|gif|svg\+xml)|font\/(?:woff|woff2))$/;
+const MEDIA_TYPE_EXTENSIONS: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  "image/png": ["png"], "image/jpeg": ["jpg", "jpeg"], "image/webp": ["webp"], "image/gif": ["gif"],
+  "font/woff": ["woff"], "font/woff2": ["woff2"],
+});
 const INTEGRITY_PATTERN = /^sha(?:256-[A-Za-z0-9+/]{43}=|384-[A-Za-z0-9+/]{64}|512-[A-Za-z0-9+/]{86}==)$/;
 const RFC3339_UTC_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
 
@@ -240,7 +244,9 @@ function normalizeSnapshot(value: unknown): MyneSkinValidationResult<MyneAppeara
       seenSlots.add(id);
       slots.push({ id, componentId: String(slot.componentId), contractVersion: Number(slot.contractVersion) });
     });
-    surfaces.push({ surface, manifestVersion: 1, layoutId: String(entry.layoutId), ...(typeof entry.viewPackId === "string" ? { viewPackId: entry.viewPackId } : {}), slots: slots.sort((a, b) => a.id.localeCompare(b.id)) });
+    const normalizedSurface: MyneAppearanceSurfaceSnapshotV1 = { surface, manifestVersion: 1, layoutId: String(entry.layoutId), ...(typeof entry.viewPackId === "string" ? { viewPackId: entry.viewPackId } : {}), slots: slots.sort((a, b) => a.id.localeCompare(b.id)) };
+    diagnostics.push(...validateAppearanceSurfaceCompatibility(normalizedSurface).map((item) => ({ ...item, path: `surfaces.${index}${item.path ? `.${item.path}` : ""}` })));
+    surfaces.push(normalizedSurface);
   });
   for (const surface of REQUIRED_SURFACES) {
     if (!seenSurfaces.has(surface)) diagnostics.push(diagnostic("missing-surface", `Required surface \"${surface}\" is missing.`, "surfaces"));
@@ -262,7 +268,9 @@ function normalizeSnapshot(value: unknown): MyneSkinValidationResult<MyneAppeara
     if (!ASSET_PATH_PATTERN.test(path)) diagnostics.push(diagnostic("invalid-asset-path", "Asset path must be relative and traversal-free.", `assets.${index}.path`));
     if (seenAssetPaths.has(path)) diagnostics.push(diagnostic("duplicate-asset-path", `Asset path \"${path}\" is duplicated.`, `assets.${index}.path`));
     seenAssetPaths.add(path);
-    if (typeof entry.mediaType !== "string" || !MEDIA_TYPE_PATTERN.test(entry.mediaType)) diagnostics.push(diagnostic("invalid-asset-media-type", "Asset mediaType is not allowlisted.", `assets.${index}.mediaType`));
+    const extensions = typeof entry.mediaType === "string" ? MEDIA_TYPE_EXTENSIONS[entry.mediaType] : undefined;
+    const extension = path.split(".").pop()?.toLowerCase();
+    if (!extensions || !extension || !extensions.includes(extension)) diagnostics.push(diagnostic("invalid-asset-media-type", "Asset mediaType must be allowlisted, non-executable, and match the file extension.", `assets.${index}.mediaType`));
     if (!Number.isSafeInteger(entry.byteLength) || Number(entry.byteLength) < 0) diagnostics.push(diagnostic("invalid-asset-byte-length", "Asset byteLength must be a non-negative safe integer.", `assets.${index}.byteLength`));
     if (typeof entry.integrity !== "string" || !INTEGRITY_PATTERN.test(entry.integrity)) diagnostics.push(diagnostic("invalid-asset-integrity", "Asset integrity must be an SRI sha256, sha384, or sha512 digest.", `assets.${index}.integrity`));
     assets.push({ path, mediaType: String(entry.mediaType), byteLength: Number(entry.byteLength), integrity: String(entry.integrity) as MyneAppearanceAssetV1["integrity"] });

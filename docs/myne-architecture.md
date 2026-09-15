@@ -54,9 +54,10 @@ one `appHooks` prop to both proof-surface containers, and implements the approve
 runtime-immutable typed AppHooks registry and `myne-*` DOM/token cutover. A
 strict JSON-only portable snapshot v1 validator and canonical serializer now
 cover both proof-surface composition selections, skin state, capabilities,
-provenance, and SRI asset descriptors. It does not yet implement asset-byte
-loading/digest verification, the untrusted package CSS compiler, or the revision
-service.
+provenance, and SRI asset descriptors. The in-memory portable package reader now
+verifies exact asset coverage, byte length, and SHA-256/384/512 integrity before
+exposing defensive byte copies, and the scoped CSS compiler is implemented.
+Production package loading and the revision service remain pending.
 
 The registry replaces the earlier fixed `capabilities.spaces` /
 `capabilities.appearance` proof. Each module has a stable ID and independent
