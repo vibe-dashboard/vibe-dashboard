@@ -1,20 +1,17 @@
 import type { ReactNode } from "react";
-import type { VDSkinRuntimeState } from "./runtime";
+import type { MyneSkinRuntimeState } from "./runtime";
 
 export interface SkinRootViewProps {
   children?: ReactNode;
   className?: string;
-  runtime: VDSkinRuntimeState;
+  runtime: MyneSkinRuntimeState;
 }
 
 export function SkinRootView({ children, className, runtime }: SkinRootViewProps) {
   return (
     <div
-      className={className}
-      data-vd-density={runtime.densityScale}
-      data-vd-skin-id={runtime.skin.id}
-      data-vd-skin-root
-      data-vd-skin-source={runtime.source}
+      className={["myne-theme", className].filter(Boolean).join(" ")}
+      data-myne-skin={runtime.skin.id}
       style={runtime.style}
     >
       {children}

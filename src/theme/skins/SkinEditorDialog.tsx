@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  BUILT_IN_VD_SKINS,
-  DEFAULT_VD_SKIN_ID,
+  BUILT_IN_MYNE_SKINS,
+  DEFAULT_MYNE_SKIN_ID,
 } from "./builtin";
 import {
   EDITABLE_COLOR_TOKEN_KEYS,
@@ -20,16 +20,18 @@ import {
   setGlobalSkin,
 } from "./schema";
 import type {
-  VDSkinDiagnostic,
-  VDSkinManifestV1,
-  VDSkinState,
+  MyneSkinDiagnostic,
+  MyneSkinManifestV1,
+  MyneSkinState,
 } from "./types";
 import type {
   SkinEditorActions,
   SkinEditorColorField,
   SkinEditorViewModel,
 } from "./SkinEditorDialog.contracts";
-import { SkinEditorDialogView } from "./SkinEditorDialog.view";
+import { selectedSkinEditorComposition } from "./SkinEditorDialog.composition";
+
+const SelectedSkinEditorLayout = selectedSkinEditorComposition.layout;
 import {
   APP_HOOKS_V1_REQUIREMENTS,
   assertAppHooksV1Compatible,
@@ -42,7 +44,7 @@ export interface SkinEditorDialogProps {
   actions: SkinEditorActions;
   onClose: () => void;
   open: boolean;
-  skinState?: VDSkinState;
+  skinState?: MyneSkinState;
 }
 
 const COLOR_LABELS: Record<EditableColorTokenKey, string> = {
@@ -57,10 +59,10 @@ const COLOR_LABELS: Record<EditableColorTokenKey, string> = {
   warning: "Warning",
 };
 
-const BUILT_IN_IDS = new Set(BUILT_IN_VD_SKINS.map((skin) => skin.id));
+const BUILT_IN_IDS = new Set(BUILT_IN_MYNE_SKINS.map((skin) => skin.id));
 
-function cloneSkin(skin: VDSkinManifestV1): VDSkinManifestV1 {
-  return JSON.parse(JSON.stringify(skin)) as VDSkinManifestV1;
+function cloneSkin(skin: MyneSkinManifestV1): MyneSkinManifestV1 {
+  return JSON.parse(JSON.stringify(skin)) as MyneSkinManifestV1;
 }
 
 function formatPackageJson(value: unknown): string {
@@ -71,15 +73,15 @@ function diagnostic(
   code: string,
   message: string,
   path?: string,
-): VDSkinDiagnostic {
+): MyneSkinDiagnostic {
   return { severity: "error", code, message, path };
 }
 
-function getSavedSkinState(skinState: VDSkinState | undefined): VDSkinState {
+function getSavedSkinState(skinState: MyneSkinState | undefined): MyneSkinState {
   return skinState ?? createDefaultSkinState();
 }
 
-function toAppearanceSnapshot(state: VDSkinState): AppearanceSnapshotV1 {
+function toAppearanceSnapshot(state: MyneSkinState): AppearanceSnapshotV1 {
   return { schemaVersion: 1, value: state as unknown as ReadonlyJsonValue };
 }
 
@@ -149,11 +151,11 @@ export function SkinEditorDialog({
 }: SkinEditorDialogProps) {
   const savedState = getSavedSkinState(skinState);
   const [selectedSkinId, setSelectedSkinId] = useState(savedState.activeGlobalSkinId);
-  const [draftSkin, setDraftSkin] = useState<VDSkinManifestV1 | null>(null);
+  const [draftSkin, setDraftSkin] = useState<MyneSkinManifestV1 | null>(null);
   const [importText, setImportText] = useState("");
   const [exportText, setExportText] = useState("");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [diagnostics, setDiagnostics] = useState<VDSkinDiagnostic[]>([]);
+  const [diagnostics, setDiagnostics] = useState<MyneSkinDiagnostic[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const operationGenerationRef = useRef(0);
   const nextSaveRequestRef = useRef(0);
@@ -176,14 +178,14 @@ export function SkinEditorDialog({
   }, [externalStateKey]);
 
   const availableSkins = useMemo(
-    () => [...BUILT_IN_VD_SKINS, ...savedState.userSkins],
+    () => [...BUILT_IN_MYNE_SKINS, ...savedState.userSkins],
     [savedState.userSkins],
   );
   const selectedSkin =
     draftSkin ??
     availableSkins.find((skin) => skin.id === selectedSkinId) ??
     availableSkins.find((skin) => skin.id === savedState.activeGlobalSkinId) ??
-    BUILT_IN_VD_SKINS[0]!;
+    BUILT_IN_MYNE_SKINS[0]!;
   const selectedSkinIsBuiltIn = BUILT_IN_IDS.has(selectedSkin.id);
   const draftValidation = draftSkin ? validateSkinEditorDraft(draftSkin) : null;
   const previewState =
@@ -235,7 +237,9 @@ export function SkinEditorDialog({
   if (!open) return null;
 
   return (
-    <SkinEditorDialogView
+    <SelectedSkinEditorLayout
+      components={selectedSkinEditorComposition.components}
+      viewPackId={selectedSkinEditorComposition.viewPackId}
       actions={{
         applySelectedSkin: () => {
           void saveStateFromResult(
@@ -264,7 +268,7 @@ export function SkinEditorDialog({
             ? createEditableSkinFromBase({
                 baseSkin: selectedSkin,
                 existingIds: [
-                  ...BUILT_IN_VD_SKINS.map((skin) => skin.id),
+                  ...BUILT_IN_MYNE_SKINS.map((skin) => skin.id),
                   ...savedState.userSkins.map((skin) => skin.id),
                 ],
               })
@@ -304,7 +308,7 @@ export function SkinEditorDialog({
           void saveStateFromResult(
             setGlobalSkin({
               state: savedState,
-              skinId: DEFAULT_VD_SKIN_ID,
+              skinId: DEFAULT_MYNE_SKIN_ID,
             }).value,
             "Reverted to default skin.",
           );
@@ -365,7 +369,7 @@ export function SkinEditorDialog({
     />
   );
 
-  function updateDraft(mutator: (skin: VDSkinManifestV1) => void) {
+  function updateDraft(mutator: (skin: MyneSkinManifestV1) => void) {
     setDraftSkin((current) => {
       if (!current) return current;
       const next = cloneSkin(current);
@@ -375,7 +379,7 @@ export function SkinEditorDialog({
   }
 
   async function saveStateFromResult(
-    nextState: VDSkinState | undefined,
+    nextState: MyneSkinState | undefined,
     successMessage: string,
     afterSave?: () => void,
   ) {

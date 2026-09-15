@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  BUILT_IN_VD_SKINS,
-  DEFAULT_VD_SKIN_ID,
+  BUILT_IN_MYNE_SKINS,
+  DEFAULT_MYNE_SKIN_ID,
   createDefaultSkinState,
   exportSkinPackage,
   importSkinPackage,
@@ -9,10 +9,10 @@ import {
   resolveGlobalSkin,
   setGlobalSkin,
   validateSkinManifest,
-  type VDSkinManifestV1,
+  type MyneSkinManifestV1,
 } from ".";
 
-function completeSkin(overrides: Partial<VDSkinManifestV1> = {}): VDSkinManifestV1 {
+function completeSkin(overrides: Partial<MyneSkinManifestV1> = {}): MyneSkinManifestV1 {
   return {
     schemaVersion: 1,
     id: "vd-user-calm-graphite",
@@ -354,12 +354,12 @@ describe("VD global skin schema", () => {
     expect(createDefaultSkinState()).toEqual({
       version: 1,
       userSkins: [],
-      activeGlobalSkinId: DEFAULT_VD_SKIN_ID,
+      activeGlobalSkinId: DEFAULT_MYNE_SKIN_ID,
     });
 
     const migrated = migrateSkinState({
       version: 1,
-      userSkins: [completeSkin(), BUILT_IN_VD_SKINS[0]],
+      userSkins: [completeSkin(), BUILT_IN_MYNE_SKINS[0]],
       activeGlobalSkinId: "vd-user-calm-graphite",
       byVoyageId: {
         old: "vd-user-calm-graphite",
@@ -390,7 +390,7 @@ describe("VD global skin schema", () => {
       activeGlobalSkinId: "missing",
     });
 
-    expect(fallback.skin.id).toBe(DEFAULT_VD_SKIN_ID);
+    expect(fallback.skin.id).toBe(DEFAULT_MYNE_SKIN_ID);
   });
 
   it("imports and exports portable skin packages with global active skin state", () => {
@@ -418,10 +418,10 @@ describe("VD global skin schema", () => {
     const imported = importSkinPackage({
       packageVersion: 1,
       skins: [completeSkin()],
-      activeGlobalSkinId: "vd-light-studio",
+      activeGlobalSkinId: "myne-light-studio",
     });
 
-    expect(imported.value?.activeGlobalSkinId).toBe("vd-light-studio");
+    expect(imported.value?.activeGlobalSkinId).toBe("myne-light-studio");
   });
 
   it("rejects package duplicates and reserved built-in skin ids", () => {
@@ -434,7 +434,7 @@ describe("VD global skin schema", () => {
 
     const reservedResult = importSkinPackage({
       packageVersion: 1,
-      skins: [BUILT_IN_VD_SKINS[0]],
+      skins: [BUILT_IN_MYNE_SKINS[0]],
     });
     expect(reservedResult.ok).toBe(false);
     expect(reservedResult.diagnostics[0]?.code).toBe("reserved-skin-id");
@@ -445,7 +445,7 @@ describe("VD global skin schema", () => {
     const state = {
       version: 1 as const,
       userSkins: [custom],
-      activeGlobalSkinId: DEFAULT_VD_SKIN_ID,
+      activeGlobalSkinId: DEFAULT_MYNE_SKIN_ID,
     };
 
     expect(setGlobalSkin({ state, skinId: custom.id }).value).toEqual({

@@ -2,15 +2,15 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_VD_SKIN_ID,
+  DEFAULT_MYNE_SKIN_ID,
   SkinRoot,
   defaultDarkSkin,
   getSkinRuntimeState,
   lightStudioSkin,
-  type VDSkinManifestV1,
+  type MyneSkinManifestV1,
 } from ".";
 
-function completeSkin(overrides: Partial<VDSkinManifestV1> = {}): VDSkinManifestV1 {
+function completeSkin(overrides: Partial<MyneSkinManifestV1> = {}): MyneSkinManifestV1 {
   return {
     schemaVersion: 1,
     id: "vd-user-calm-graphite",
@@ -96,21 +96,21 @@ describe("VD global skin runtime", () => {
 
     expect(runtime.skin.id).toBe(custom.id);
     expect(runtime.source).toBe("global");
-    expect(runtime.style["--vd-color-background"]).toBe("#101014");
-    expect(runtime.style["--vd-font-family"]).toBe(
+    expect(runtime.style["--myne-color-background"]).toBe("#101014");
+    expect(runtime.style["--myne-font-family"]).toBe(
       "Inter, ui-sans-serif, system-ui, sans-serif",
     );
-    expect(runtime.style["--vd-density-scale"]).toBe("compact");
-    expect(runtime.style["--vd-spacing-row"]).toBe("0.5rem");
-    expect(runtime.style["--vd-radius-row"]).toBe("0.5rem");
-    expect(runtime.style["--vd-shadow-panel"]).toBe(
+    expect(runtime.style["--myne-density-scale"]).toBe("compact");
+    expect(runtime.style["--myne-spacing-row"]).toBe("0.5rem");
+    expect(runtime.style["--myne-radius-row"]).toBe("0.5rem");
+    expect(runtime.style["--myne-shadow-panel"]).toBe(
       "0 20px 60px rgb(0 0 0 / 0.35)",
     );
-    expect(runtime.style["--vd-surface-spaces-overview-background"]).toBe(
+    expect(runtime.style["--myne-surface-spaces-overview-background"]).toBe(
       "#101014",
     );
-    expect(runtime.style["--vd-component-row-gap"]).toBe("0.5rem");
-    expect(runtime.style["--vd-slot-workspace-row-radius"]).toBe("0.5rem");
+    expect(runtime.style["--myne-component-row-gap"]).toBe("0.5rem");
+    expect(runtime.style["--myne-slot-workspace-row-radius"]).toBe("0.5rem");
   });
 
   it("resolves active built-in skins through the same global runtime path", () => {
@@ -123,8 +123,8 @@ describe("VD global skin runtime", () => {
     });
 
     expect(runtime.skin.id).toBe(lightStudioSkin.id);
-    expect(runtime.style["--vd-color-background"]).toBe("#f8fafc");
-    expect(runtime.style["--vd-surface-app-shell-background"]).toBe("#f8fafc");
+    expect(runtime.style["--myne-color-background"]).toBe("#f8fafc");
+    expect(runtime.style["--myne-surface-app-shell-background"]).toBe("#f8fafc");
   });
 
   it("falls back to the built-in default when the active global skin is unavailable", () => {
@@ -136,13 +136,13 @@ describe("VD global skin runtime", () => {
       },
     });
 
-    expect(runtime.skin.id).toBe(DEFAULT_VD_SKIN_ID);
+    expect(runtime.skin.id).toBe(DEFAULT_MYNE_SKIN_ID);
     expect(runtime.requestedSkinId).toBe("missing-skin");
     expect(runtime.source).toBe("default");
     expect(runtime.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
       "missing-global-skin",
     );
-    expect(runtime.style["--vd-color-background"]).toBe(
+    expect(runtime.style["--myne-color-background"]).toBe(
       defaultDarkSkin.tokens.colors.background,
     );
   });
@@ -155,7 +155,7 @@ describe("VD global skin runtime", () => {
           state: {
             version: 1,
             userSkins: [],
-            activeGlobalSkinId: DEFAULT_VD_SKIN_ID,
+            activeGlobalSkinId: DEFAULT_MYNE_SKIN_ID,
           },
           className: "app",
         },
@@ -163,9 +163,11 @@ describe("VD global skin runtime", () => {
       ),
     );
 
-    expect(html).toContain("data-vd-skin-root=\"true\"");
-    expect(html).toContain(`data-vd-skin-id="${DEFAULT_VD_SKIN_ID}"`);
-    expect(html).toContain("--vd-color-background:#09090b");
+    expect(html).toContain("class=\"myne-theme app\"");
+    expect(html).toContain(`data-myne-skin="${DEFAULT_MYNE_SKIN_ID}"`);
+    expect(html).toContain("--myne-color-background:#09090b");
+    expect(html).not.toContain("data-vd-");
+    expect(html).not.toContain("--vd-");
     expect(html).not.toContain("<style");
     expect(html).not.toContain("rawCss");
   });
@@ -187,7 +189,7 @@ describe("VD global skin runtime", () => {
       },
     });
 
-    expect(runtime.skin.id).toBe(DEFAULT_VD_SKIN_ID);
+    expect(runtime.skin.id).toBe(DEFAULT_MYNE_SKIN_ID);
     expect(Object.values(runtime.style)).not.toContain("0.5rem; color: red");
   });
 });

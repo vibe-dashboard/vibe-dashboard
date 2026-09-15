@@ -1,25 +1,25 @@
-import { BUILT_IN_VD_SKINS, DEFAULT_VD_SKIN_ID } from "./builtin";
+import { BUILT_IN_MYNE_SKINS, DEFAULT_MYNE_SKIN_ID } from "./builtin";
 import {
-  VD_SKIN_MANIFEST_VERSION,
-  VD_SKIN_STATE_VERSION,
-  type VDSkinAssetKind,
-  type VDSkinComponentId,
-  type VDSkinComponentRecipes,
-  type VDSkinDiagnostic,
-  type VDSkinImportExportPackage,
-  type VDSkinManifestV1,
-  type VDSkinPrimitiveTokens,
-  type VDSkinResolution,
-  type VDSkinSlotId,
-  type VDSkinSlotRecipes,
-  type VDSkinState,
-  type VDSkinStyleRecipe,
-  type VDSkinSurfaceId,
-  type VDSkinSurfaceRecipes,
-  type VDSkinValidationResult,
+  MYNE_SKIN_MANIFEST_VERSION,
+  MYNE_SKIN_STATE_VERSION,
+  type MyneSkinAssetKind,
+  type MyneSkinComponentId,
+  type MyneSkinComponentRecipes,
+  type MyneSkinDiagnostic,
+  type MyneSkinImportExportPackage,
+  type MyneSkinManifestV1,
+  type MyneSkinPrimitiveTokens,
+  type MyneSkinResolution,
+  type MyneSkinSlotId,
+  type MyneSkinSlotRecipes,
+  type MyneSkinState,
+  type MyneSkinStyleRecipe,
+  type MyneSkinSurfaceId,
+  type MyneSkinSurfaceRecipes,
+  type MyneSkinValidationResult,
 } from "./types";
 
-const SURFACE_IDS: VDSkinSurfaceId[] = [
+const SURFACE_IDS: MyneSkinSurfaceId[] = [
   "app-shell",
   "sidebar",
   "voyage-bar",
@@ -30,7 +30,7 @@ const SURFACE_IDS: VDSkinSurfaceId[] = [
   "skin-editor",
 ];
 
-const COMPONENT_IDS: VDSkinComponentId[] = [
+const COMPONENT_IDS: MyneSkinComponentId[] = [
   "button",
   "input",
   "field",
@@ -47,7 +47,7 @@ const COMPONENT_IDS: VDSkinComponentId[] = [
   "error-state",
 ];
 
-const SLOT_IDS: VDSkinSlotId[] = [
+const SLOT_IDS: MyneSkinSlotId[] = [
   "page-header",
   "recent-sessions",
   "starred-craft",
@@ -69,7 +69,7 @@ const SLOT_IDS: VDSkinSlotId[] = [
 const SURFACE_ID_SET = new Set<string>(SURFACE_IDS);
 const COMPONENT_ID_SET = new Set<string>(COMPONENT_IDS);
 const SLOT_ID_SET = new Set<string>(SLOT_IDS);
-const BUILT_IN_SKIN_IDS = new Set(BUILT_IN_VD_SKINS.map((skin) => skin.id));
+const BUILT_IN_SKIN_IDS = new Set(BUILT_IN_MYNE_SKINS.map((skin) => skin.id));
 const ID_PATTERN = /^[a-z0-9][a-z0-9._-]{1,63}$/;
 const TOKEN_KEY_PATTERN = /^[a-z][a-z0-9-]{0,40}$/;
 const SAFE_VARIANT_PATTERN = /^[a-z][a-z0-9-]{0,40}$/;
@@ -84,13 +84,13 @@ const SHADOW_LENGTH_PATTERN =
 const SHADOW_HEX_COLOR_PATTERN = /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 const SHADOW_RGB_COLOR_PATTERN =
   /^rgb\(\s*(?:\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\s+(?:\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\s+(?:\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])(?:\s*\/\s*(?:0|1|0?\.\d+))?\s*\)$/i;
-const ALLOWED_ASSET_EXTENSIONS: Record<VDSkinAssetKind, Set<string>> = {
+const ALLOWED_ASSET_EXTENSIONS: Record<MyneSkinAssetKind, Set<string>> = {
   image: new Set(["png", "jpg", "jpeg", "webp", "gif", "svg"]),
   icon: new Set(["png", "jpg", "jpeg", "webp", "gif", "svg"]),
   font: new Set(["woff", "woff2"]),
 };
 
-function error(code: string, message: string, path?: string): VDSkinDiagnostic {
+function error(code: string, message: string, path?: string): MyneSkinDiagnostic {
   return { severity: "error", code, message, path };
 }
 
@@ -98,18 +98,18 @@ function warning(
   code: string,
   message: string,
   path?: string,
-): VDSkinDiagnostic {
+): MyneSkinDiagnostic {
   return { severity: "warning", code, message, path };
 }
 
 function ok<T>(
   value: T,
-  diagnostics: VDSkinDiagnostic[] = [],
-): VDSkinValidationResult<T> {
+  diagnostics: MyneSkinDiagnostic[] = [],
+): MyneSkinValidationResult<T> {
   return { ok: true, value, diagnostics };
 }
 
-function fail<T>(diagnostics: VDSkinDiagnostic[]): VDSkinValidationResult<T> {
+function fail<T>(diagnostics: MyneSkinDiagnostic[]): MyneSkinValidationResult<T> {
   return { ok: false, diagnostics };
 }
 
@@ -127,7 +127,7 @@ function hasUnsafeCssFragment(value: string): boolean {
 
 function rejectUnsafeCssFragment(
   value: string,
-  diagnostics: VDSkinDiagnostic[],
+  diagnostics: MyneSkinDiagnostic[],
   path: string,
 ): boolean {
   if (!hasUnsafeCssFragment(value)) return false;
@@ -143,7 +143,7 @@ function rejectUnsafeCssFragment(
 
 function normalizeColor(
   value: unknown,
-  diagnostics: VDSkinDiagnostic[],
+  diagnostics: MyneSkinDiagnostic[],
   path: string,
 ): string | undefined {
   const candidate = asString(value);
@@ -157,7 +157,7 @@ function normalizeColor(
 
 function normalizeLength(
   value: unknown,
-  diagnostics: VDSkinDiagnostic[],
+  diagnostics: MyneSkinDiagnostic[],
   path: string,
 ): string | undefined {
   if (value == null) return undefined;
@@ -181,11 +181,11 @@ function normalizeLength(
 
 function normalizeTokenMapValues(
   value: unknown,
-  diagnostics: VDSkinDiagnostic[],
+  diagnostics: MyneSkinDiagnostic[],
   path: string,
   normalizeValue: (
     value: unknown,
-    diagnostics: VDSkinDiagnostic[],
+    diagnostics: MyneSkinDiagnostic[],
     path: string,
   ) => string | undefined,
 ): Record<string, string> | undefined {
@@ -211,7 +211,7 @@ function normalizeTokenMapValues(
 
 function normalizeShadow(
   value: unknown,
-  diagnostics: VDSkinDiagnostic[],
+  diagnostics: MyneSkinDiagnostic[],
   path: string,
 ): string | undefined {
   const candidate = asString(value);
@@ -296,7 +296,7 @@ function isSafeShadowColor(value: string): boolean {
 
 function normalizeFont(
   value: unknown,
-  diagnostics: VDSkinDiagnostic[],
+  diagnostics: MyneSkinDiagnostic[],
   path: string,
 ): string | undefined {
   const candidate = asString(value);
@@ -312,7 +312,7 @@ function normalizeFont(
 
 function validateAssetPath(
   path: string,
-  kind: VDSkinAssetKind,
+  kind: MyneSkinAssetKind,
 ): boolean {
   if (
     path.startsWith("/") ||
@@ -328,8 +328,8 @@ function validateAssetPath(
 
 function normalizeAssets(
   value: unknown,
-  diagnostics: VDSkinDiagnostic[],
-): VDSkinManifestV1["assets"] {
+  diagnostics: MyneSkinDiagnostic[],
+): MyneSkinManifestV1["assets"] {
   if (value == null) return [];
   if (!Array.isArray(value)) {
     diagnostics.push(error("invalid-assets", "assets must be an array.", "assets"));
@@ -346,7 +346,7 @@ function normalizeAssets(
     }
 
     const id = asString(asset.id);
-    const kind = asString(asset.kind) as VDSkinAssetKind | undefined;
+    const kind = asString(asset.kind) as MyneSkinAssetKind | undefined;
     const path = asString(asset.path);
     if (!id || !ID_PATTERN.test(id)) {
       diagnostics.push(
@@ -393,8 +393,8 @@ function normalizeAssets(
 
 function normalizeRawCss(
   value: unknown,
-  diagnostics: VDSkinDiagnostic[],
-): VDSkinManifestV1["rawCss"] {
+  diagnostics: MyneSkinDiagnostic[],
+): MyneSkinManifestV1["rawCss"] {
   if (value == null) return [];
   if (!Array.isArray(value)) {
     diagnostics.push(error("invalid-raw-css", "rawCss must be an array.", "rawCss"));
@@ -445,9 +445,9 @@ function normalizeRawCss(
 
 function normalizeRecipe(
   value: unknown,
-  diagnostics: VDSkinDiagnostic[],
+  diagnostics: MyneSkinDiagnostic[],
   path: string,
-): VDSkinStyleRecipe {
+): MyneSkinStyleRecipe {
   const source = isRecord(value) ? value : {};
   if (value != null && !isRecord(value)) {
     diagnostics.push(error("invalid-style-recipe", "Style recipe must be an object.", path));
@@ -490,17 +490,17 @@ function normalizeRecipe(
 function normalizeRecipeRecord<K extends string>(
   value: unknown,
   allowedIds: Set<string>,
-  diagnostics: VDSkinDiagnostic[],
+  diagnostics: MyneSkinDiagnostic[],
   path: string,
   invalidCode: string,
-): Partial<Record<K, VDSkinStyleRecipe>> {
+): Partial<Record<K, MyneSkinStyleRecipe>> {
   if (value == null) return {};
   if (!isRecord(value)) {
     diagnostics.push(error(`invalid-${path}`, `${path} must be an object.`, path));
     return {};
   }
 
-  const normalized: Partial<Record<K, VDSkinStyleRecipe>> = {};
+  const normalized: Partial<Record<K, MyneSkinStyleRecipe>> = {};
   for (const [id, recipe] of Object.entries(value)) {
     if (!allowedIds.has(id)) {
       diagnostics.push(error(invalidCode, `Unsupported ${path} id "${id}".`, `${path}.${id}`));
@@ -513,8 +513,8 @@ function normalizeRecipeRecord<K extends string>(
 
 function normalizeTokens(
   value: unknown,
-  diagnostics: VDSkinDiagnostic[],
-): VDSkinPrimitiveTokens {
+  diagnostics: MyneSkinDiagnostic[],
+): MyneSkinPrimitiveTokens {
   const source = isRecord(value) ? value : {};
   if (!isRecord(value)) {
     diagnostics.push(error("invalid-tokens", "tokens must be an object.", "tokens"));
@@ -646,12 +646,12 @@ function normalizeTokens(
 
 export function validateSkinManifest(
   value: unknown,
-): VDSkinValidationResult<VDSkinManifestV1> {
-  const diagnostics: VDSkinDiagnostic[] = [];
+): MyneSkinValidationResult<MyneSkinManifestV1> {
+  const diagnostics: MyneSkinDiagnostic[] = [];
   if (!isRecord(value)) {
     return fail([error("invalid-manifest", "Skin manifest must be an object.")]);
   }
-  if (value.schemaVersion !== VD_SKIN_MANIFEST_VERSION) {
+  if (value.schemaVersion !== MYNE_SKIN_MANIFEST_VERSION) {
     diagnostics.push(
       error("unsupported-version", "Skin manifest schemaVersion must be 1.", "schemaVersion"),
     );
@@ -663,7 +663,7 @@ export function validateSkinManifest(
   }
   if (!name) diagnostics.push(error("invalid-name", "Skin name is required.", "name"));
 
-  const manifest: VDSkinManifestV1 = {
+  const manifest: MyneSkinManifestV1 = {
     schemaVersion: 1,
     id: id || "invalid",
     name: name || "Invalid skin",
@@ -672,27 +672,27 @@ export function validateSkinManifest(
       : {}),
     ...(asString(value.author) ? { author: asString(value.author) } : {}),
     tokens: normalizeTokens(value.tokens, diagnostics),
-    surfaces: normalizeRecipeRecord<VDSkinSurfaceId>(
+    surfaces: normalizeRecipeRecord<MyneSkinSurfaceId>(
       value.surfaces,
       SURFACE_ID_SET,
       diagnostics,
       "surfaces",
       "invalid-surface-id",
-    ) as VDSkinSurfaceRecipes,
-    components: normalizeRecipeRecord<VDSkinComponentId>(
+    ) as MyneSkinSurfaceRecipes,
+    components: normalizeRecipeRecord<MyneSkinComponentId>(
       value.components,
       COMPONENT_ID_SET,
       diagnostics,
       "components",
       "invalid-component-id",
-    ) as VDSkinComponentRecipes,
-    slots: normalizeRecipeRecord<VDSkinSlotId>(
+    ) as MyneSkinComponentRecipes,
+    slots: normalizeRecipeRecord<MyneSkinSlotId>(
       value.slots,
       SLOT_ID_SET,
       diagnostics,
       "slots",
       "invalid-slot-id",
-    ) as VDSkinSlotRecipes,
+    ) as MyneSkinSlotRecipes,
     assets: normalizeAssets(value.assets, diagnostics),
     rawCss: normalizeRawCss(value.rawCss, diagnostics),
   };
@@ -703,16 +703,16 @@ export function validateSkinManifest(
   return ok(manifest, diagnostics);
 }
 
-export function createDefaultSkinState(): VDSkinState {
+export function createDefaultSkinState(): MyneSkinState {
   return {
-    version: VD_SKIN_STATE_VERSION,
+    version: MYNE_SKIN_STATE_VERSION,
     userSkins: [],
-    activeGlobalSkinId: DEFAULT_VD_SKIN_ID,
+    activeGlobalSkinId: DEFAULT_MYNE_SKIN_ID,
   };
 }
 
-export function migrateSkinState(value: unknown): VDSkinState {
-  if (!isRecord(value) || value.version !== VD_SKIN_STATE_VERSION) {
+export function migrateSkinState(value: unknown): MyneSkinState {
+  if (!isRecord(value) || value.version !== MYNE_SKIN_STATE_VERSION) {
     return createDefaultSkinState();
   }
 
@@ -722,15 +722,15 @@ export function migrateSkinState(value: unknown): VDSkinState {
         .filter(
           (
             result,
-          ): result is VDSkinValidationResult<VDSkinManifestV1> & {
-            value: VDSkinManifestV1;
+          ): result is MyneSkinValidationResult<MyneSkinManifestV1> & {
+            value: MyneSkinManifestV1;
           } => result.ok && Boolean(result.value),
         )
         .map((result) => result.value)
         .filter((skin) => !BUILT_IN_SKIN_IDS.has(skin.id))
     : [];
   const availableSkinIds = new Set([
-    ...BUILT_IN_VD_SKINS.map((skin) => skin.id),
+    ...BUILT_IN_MYNE_SKINS.map((skin) => skin.id),
     ...userSkins.map((skin) => skin.id),
   ]);
   const activeGlobalSkinId = asString(value.activeGlobalSkinId);
@@ -741,14 +741,14 @@ export function migrateSkinState(value: unknown): VDSkinState {
     activeGlobalSkinId:
       activeGlobalSkinId && availableSkinIds.has(activeGlobalSkinId)
         ? activeGlobalSkinId
-        : DEFAULT_VD_SKIN_ID,
+        : DEFAULT_MYNE_SKIN_ID,
   };
 }
 
-export function resolveGlobalSkin(state: VDSkinState): VDSkinResolution {
+export function resolveGlobalSkin(state: MyneSkinState): MyneSkinResolution {
   const migrated = migrateSkinState(state);
   const availableSkins = new Map([
-    ...BUILT_IN_VD_SKINS.map((skin) => [skin.id, skin] as const),
+    ...BUILT_IN_MYNE_SKINS.map((skin) => [skin.id, skin] as const),
     ...migrated.userSkins.map((skin) => [skin.id, skin] as const),
   ]);
   const requestedSkinId = migrated.activeGlobalSkinId;
@@ -763,7 +763,7 @@ export function resolveGlobalSkin(state: VDSkinState): VDSkinResolution {
   }
 
   return {
-    skin: BUILT_IN_VD_SKINS[0],
+    skin: BUILT_IN_MYNE_SKINS[0],
     requestedSkinId,
     source: "default",
     diagnostics: [
@@ -778,7 +778,7 @@ export function resolveGlobalSkin(state: VDSkinState): VDSkinResolution {
 
 export function importSkinPackage(
   value: unknown,
-): VDSkinValidationResult<VDSkinState> {
+): MyneSkinValidationResult<MyneSkinState> {
   if (!isRecord(value) || value.packageVersion !== 1 || !Array.isArray(value.skins)) {
     return fail([
       error(
@@ -788,7 +788,7 @@ export function importSkinPackage(
     ]);
   }
 
-  const diagnostics: VDSkinDiagnostic[] = [];
+  const diagnostics: MyneSkinDiagnostic[] = [];
   const normalizedSkins = value.skins.map(validateSkinManifest);
   diagnostics.push(...normalizedSkins.flatMap((result) => result.diagnostics));
   if (diagnostics.some((entry) => entry.severity === "error")) {
@@ -813,7 +813,7 @@ export function importSkinPackage(
 
   const importedSkinIds = new Set(userSkins.map((skin) => skin.id));
   const validActiveSkinIds = new Set([
-    ...BUILT_IN_VD_SKINS.map((skin) => skin.id),
+    ...BUILT_IN_MYNE_SKINS.map((skin) => skin.id),
     ...importedSkinIds,
   ]);
   const activeGlobalSkinId = asString(value.activeGlobalSkinId);
@@ -825,13 +825,13 @@ export function importSkinPackage(
       activeGlobalSkinId:
         activeGlobalSkinId && validActiveSkinIds.has(activeGlobalSkinId)
           ? activeGlobalSkinId
-          : DEFAULT_VD_SKIN_ID,
+          : DEFAULT_MYNE_SKIN_ID,
     },
     diagnostics,
   );
 }
 
-export function exportSkinPackage(state: VDSkinState): VDSkinImportExportPackage {
+export function exportSkinPackage(state: MyneSkinState): MyneSkinImportExportPackage {
   const migrated = migrateSkinState(state);
   return {
     packageVersion: 1,
@@ -846,10 +846,10 @@ export function setGlobalSkin({
 }: {
   state: unknown;
   skinId: string;
-}): VDSkinValidationResult<VDSkinState> {
+}): MyneSkinValidationResult<MyneSkinState> {
   const current = migrateSkinState(state);
   const validSkinIds = new Set([
-    ...BUILT_IN_VD_SKINS.map((skin) => skin.id),
+    ...BUILT_IN_MYNE_SKINS.map((skin) => skin.id),
     ...current.userSkins.map((skin) => skin.id),
   ]);
   if (!validSkinIds.has(skinId)) {

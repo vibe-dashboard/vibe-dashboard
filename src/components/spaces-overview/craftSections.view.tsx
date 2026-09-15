@@ -24,19 +24,16 @@ export function TabGroupRow({
   return (
     <button
       onClick={onNavigate}
-      className="w-full flex items-start gap-3 px-4 py-2.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50 hover:border-zinc-600 transition-colors group text-left"
-      data-vd-component="row"
+      className="w-full flex items-start gap-3 px-4 py-2.5 rounded-lg border transition-colors group text-left myne-row"
     >
       <div className="min-w-0 flex-1">
         <span
-          className="text-sm font-medium break-words block"
-          data-vd-text="primary"
+          className="text-sm font-medium break-words block myne-text myne-text--primary"
         >
           {label ?? tg.label}
         </span>
         <span
-          className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs"
-          data-vd-muted
+          className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs myne-text myne-text--muted"
         >
           <span>{space.name}</span>
           <span>
@@ -48,8 +45,7 @@ export function TabGroupRow({
         </span>
       </div>
       <svg
-        className="mt-1 w-3.5 h-3.5 transition-colors shrink-0"
-        data-vd-icon="chevron"
+        className="mt-1 w-3.5 h-3.5 transition-colors shrink-0 myne-icon myne-icon--chevron"
         fill="none"
         stroke="currentColor"
         viewBox="0 0 24 24"
@@ -82,8 +78,8 @@ export function StarredTabGroups({
   if (starred.length === 0) return null;
 
   return (
-    <div className="mb-8" data-vd-slot="starred-craft">
-      <h2 className="text-lg font-semibold mb-3" data-vd-text="primary">
+    <div className="mb-8" data-myne-slot="starred-craft">
+      <h2 className="text-lg font-semibold mb-3 myne-text myne-text--primary">
         Starred
       </h2>
       <div className="space-y-1">
@@ -120,15 +116,14 @@ export function RecentSessionsSection({
   if (sortedSessions.length === 0) return null;
 
   return (
-    <div className="mb-8" data-vd-slot="recent-sessions">
+    <div className="mb-8" data-myne-slot="recent-sessions">
       <div className="flex items-center justify-between mb-3 gap-3">
-        <h2 className="text-lg font-semibold" data-vd-text="primary">
+        <h2 className="text-lg font-semibold myne-text myne-text--primary">
           All Voyages
         </h2>
         <button
           onClick={actions.startNewSession}
-          className="px-3 py-1.5 rounded text-xs font-medium bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 transition-colors"
-          data-vd-component="button"
+          className="px-3 py-1.5 rounded text-xs font-medium border transition-colors myne-button"
         >
           New Voyage
         </button>
@@ -175,8 +170,7 @@ export function RecentSessionsSection({
           return (
             <div
               key={session.id}
-              className="rounded-lg bg-zinc-800/50 border border-zinc-700/50 overflow-hidden"
-              data-vd-component="card"
+              className="rounded-lg border overflow-hidden myne-card"
             >
               <div
                 className="flex flex-col gap-2 px-4 py-2.5 cursor-pointer sm:flex-row sm:items-start"
@@ -194,9 +188,7 @@ export function RecentSessionsSection({
                 <div className="flex min-w-0 flex-1 items-start gap-3">
                   <button
                     type="button"
-                    className="mt-0.5 transition-colors shrink-0"
-                    data-vd-component="button"
-                    data-vd-tone="quiet"
+                    className="mt-0.5 transition-colors shrink-0 myne-button myne-button--quiet"
                     aria-label={isExpanded ? 'Collapse voyage' : 'Expand voyage'}
                     onClick={(event) => {
                       event.stopPropagation();
@@ -224,26 +216,23 @@ export function RecentSessionsSection({
                       onBlur={() => {
                         actions.submitRenameSession(session.id);
                       }}
-                      className="w-full rounded border border-zinc-600 bg-zinc-900 px-2 py-1 text-sm"
-                      data-vd-text="primary"
+                      className="w-full rounded border px-2 py-1 text-sm myne-text myne-text--primary"
                       autoFocus
                     />
                   ) : (
                     <>
                       <span
-                        className="text-sm font-medium break-words block"
-                        data-vd-text="primary"
+                        className="text-sm font-medium break-words block myne-text myne-text--primary"
                       >
                         {sessionName}
                       </span>
                       <span
-                        className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs"
-                        data-vd-muted
+                        className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs myne-text myne-text--muted"
                       >
                         <span>{sessionLocation}</span>
                         <span>{formatRelativeTime(session.updatedAt)}</span>
                         {session.id === currentSessionId && (
-                          <span data-vd-status="accent">
+                          <span className="myne-status--accent">
                             Current
                           </span>
                         )}
@@ -258,9 +247,7 @@ export function RecentSessionsSection({
                       event.stopPropagation();
                       actions.startRenameSession(session.id, sessionName);
                     }}
-                    className="text-xs shrink-0"
-                    data-vd-component="button"
-                    data-vd-tone="quiet"
+                    className="text-xs shrink-0 myne-button myne-button--quiet"
                   >
                     Rename
                   </button>
@@ -275,39 +262,34 @@ export function RecentSessionsSection({
                         actions.deleteSession(session.id);
                       }
                     }}
-                    className="text-xs shrink-0"
-                    data-vd-component="button"
-                    data-vd-tone="danger"
+                    className="text-xs shrink-0 myne-button myne-button--danger"
                   >
                     Delete
                   </button>
                 </div>
               </div>
               {isExpanded && (
-                <div className="border-t border-zinc-700/50 px-4 py-3 space-y-1 bg-zinc-900/40">
+                <div className="border-t px-4 py-3 space-y-1 ">
                   {tabGroups.length > 0 ? (
                     tabGroups.map(({ tabGroup, space: ownerSpace, key }) => (
                       <button
                         key={key}
                         onClick={() => actions.navigateToTabGroup(ownerSpace.id, tabGroup.id)}
-                        className="w-full flex items-start justify-between gap-3 px-3 py-2 rounded bg-zinc-800/70 hover:bg-zinc-700/70 text-left"
-                        data-vd-component="row"
+                        className="w-full flex items-start justify-between gap-3 px-3 py-2 rounded text-left myne-row"
                       >
                         <div className="min-w-0 flex-1">
                           <div
-                            className="text-sm break-words"
-                            data-vd-text="primary"
+                            className="text-sm break-words myne-text myne-text--primary"
                           >
                             {tabGroup.label}
                             {tabGroup.id === session.activeTabGroupId ? (
-                              <span className="ml-2 text-xs" data-vd-status="accent">
+                              <span className="ml-2 text-xs myne-status--accent">
                                 Active
                               </span>
                             ) : null}
                           </div>
                           <div
-                            className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs"
-                            data-vd-muted
+                            className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs myne-text myne-text--muted"
                           >
                             {ownerSpace.name}
                             <span>
@@ -318,7 +300,7 @@ export function RecentSessionsSection({
                       </button>
                     ))
                   ) : (
-                    <div className="text-xs" data-vd-muted>
+                    <div className="text-xs myne-text myne-text--muted">
                       No available craft found for this voyage. Resume will recover it with a fallback craft.
                     </div>
                   )}
@@ -350,8 +332,8 @@ export function RecentlyVisitedTabGroups({
   if (items.length === 0) return null;
 
   return (
-    <div className="mb-8" data-vd-slot="recently-visited-craft">
-      <h2 className="text-lg font-semibold mb-3" data-vd-text="primary">
+    <div className="mb-8" data-myne-slot="recently-visited-craft">
+      <h2 className="text-lg font-semibold mb-3 myne-text myne-text--primary">
         Recently Visited
       </h2>
       <div className="space-y-1">
@@ -393,8 +375,8 @@ export function RecentlyCreatedTabGroups({
   if (items.length === 0) return null;
 
   return (
-    <div className="mb-8" data-vd-slot="recently-created-craft">
-      <h2 className="text-lg font-semibold mb-3" data-vd-text="primary">
+    <div className="mb-8" data-myne-slot="recently-created-craft">
+      <h2 className="text-lg font-semibold mb-3 myne-text myne-text--primary">
         Recently Created
       </h2>
       <div className="space-y-1">
@@ -433,19 +415,19 @@ export function SpacesSection({
   if (spacesWithTabGroups.length === 0) return null;
 
   return (
-    <div data-vd-slot="spaces-list">
-      <h2 className="text-lg font-semibold mb-3" data-vd-text="primary">
+    <div data-myne-slot="spaces-list">
+      <h2 className="text-lg font-semibold mb-3 myne-text myne-text--primary">
         All Spaces
       </h2>
       <div className="space-y-1">
         {spacesWithTabGroups.map(({ space, tabGroups }) => (
-          <div key={space.id} data-vd-component="section">
+          <div key={space.id} className="myne-section">
             {/* Space header row */}
             <div className="flex items-center gap-3 px-4 py-2 mt-3 first:mt-0">
-              <span className="text-sm font-semibold" data-vd-text="secondary">
+              <span className="text-sm font-semibold myne-text myne-text--secondary">
                 {space.name}
               </span>
-              <span className="text-xs" data-vd-muted>
+              <span className="text-xs myne-text myne-text--muted">
                 {tabGroups.length} craft
               </span>
             </div>
@@ -454,19 +436,16 @@ export function SpacesSection({
               <button
                 key={tg.id}
                 onClick={() => onNavigateToTabGroup(space.id, tg.id)}
-                className="w-full flex items-start gap-3 px-4 py-2.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50 hover:border-zinc-600 transition-colors group text-left"
-                data-vd-component="row"
+                className="w-full flex items-start gap-3 px-4 py-2.5 rounded-lg border transition-colors group text-left myne-row"
               >
                 <div className="min-w-0 flex-1">
                   <span
-                    className="text-sm font-medium break-words block"
-                    data-vd-text="primary"
+                    className="text-sm font-medium break-words block myne-text myne-text--primary"
                   >
                     {tabGroupDisplayLabelById.get(tg.id) ?? tg.label}
                   </span>
                   <span
-                    className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs"
-                    data-vd-muted
+                    className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs myne-text myne-text--muted"
                   >
                     <span>
                       {tg.tabs.length} view{tg.tabs.length !== 1 ? "s" : ""}
@@ -479,8 +458,7 @@ export function SpacesSection({
                   </span>
                 </div>
                 <svg
-                  className="mt-1 w-3.5 h-3.5 transition-colors shrink-0"
-                  data-vd-icon="chevron"
+                  className="mt-1 w-3.5 h-3.5 transition-colors shrink-0 myne-icon myne-icon--chevron"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"

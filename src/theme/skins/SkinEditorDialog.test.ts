@@ -12,7 +12,7 @@ import {
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  DEFAULT_VD_SKIN_ID,
+  DEFAULT_MYNE_SKIN_ID,
   SkinEditorDialog,
   SkinEditorContainer,
   type SkinEditorActions,
@@ -20,8 +20,8 @@ import {
   createDefaultSkinState,
   lightStudioSkin,
   type SkinEditorDialogViewProps,
-  type VDSkinImportExportPackage,
-  type VDSkinState,
+  type MyneSkinImportExportPackage,
+  type MyneSkinState,
 } from "./index";
 import {
   createFakeAppHooksV1,
@@ -41,7 +41,7 @@ function renderEditor({
   skinState = createDefaultSkinState(),
 }: {
   onSave?: ReturnType<typeof vi.fn<SkinEditorActions["saveSkinState"]>>;
-  skinState?: VDSkinState;
+  skinState?: MyneSkinState;
 } = {}) {
   render(
     React.createElement(SkinEditorDialog, {
@@ -85,11 +85,11 @@ describe("SkinEditorDialog controller", () => {
     const firstSave = vi.fn<AppearanceModuleV1["saveAppearance"]>(async () => ({ ok: true }));
     const secondSave = vi.fn<AppearanceModuleV1["saveAppearance"]>(async () => ({ ok: true }));
     const defaultState = createDefaultSkinState();
-    const lightState: VDSkinState = {
+    const lightState: MyneSkinState = {
       ...defaultState,
       activeGlobalSkinId: lightStudioSkin.id,
     };
-    const toSnapshot = (state: VDSkinState) => ({
+    const toSnapshot = (state: MyneSkinState) => ({
       schemaVersion: 1 as const,
       value: state as unknown as ReadonlyJsonValue,
     });
@@ -121,7 +121,7 @@ describe("SkinEditorDialog controller", () => {
       expect(within(firstMount.container).getByRole("button", { name: /Light Studio/ }).getAttribute("aria-pressed")).toBe("true");
     });
     expect(within(firstMount.container).queryByText("Unsaved")).toBeNull();
-    expect(within(secondMount.container).getByRole("button", { name: /VD Default Dark/ }).getAttribute("aria-pressed")).toBe("true");
+    expect(within(secondMount.container).getByRole("button", { name: /Myne Default Dark/ }).getAttribute("aria-pressed")).toBe("true");
     expect(secondHost.getAppearanceSnapshot()).toEqual(toSnapshot(defaultState));
     expect(firstHost.appHooks).not.toBe(secondHost.appHooks);
     expect(firstHost.appHooks.modules).toBe(firstRegistry);
@@ -144,13 +144,13 @@ describe("SkinEditorDialog controller", () => {
       const firstSave = vi.fn<AppearanceModuleV1["saveAppearance"]>(() => pending.promise);
       const secondSave = vi.fn<AppearanceModuleV1["saveAppearance"]>(async () => ({ ok: true }));
       const defaultState = createDefaultSkinState();
-      const staleDraftId = "vd-user-vd-default-dark-custom";
-      const lightState: VDSkinState = {
+      const staleDraftId = "vd-user-myne-default-dark-custom";
+      const lightState: MyneSkinState = {
         ...defaultState,
         activeGlobalSkinId: lightStudioSkin.id,
         userSkins: [{ ...lightStudioSkin, id: staleDraftId, name: "Stale draft collision", rawCss: [] }],
       };
-      const toSnapshot = (state: VDSkinState) => ({
+      const toSnapshot = (state: MyneSkinState) => ({
         schemaVersion: 1 as const,
         value: state as unknown as ReadonlyJsonValue,
       });
@@ -190,11 +190,11 @@ describe("SkinEditorDialog controller", () => {
       });
 
       expect(within(firstMount.container).queryByText("Unsaved")).toBeNull();
-      expect(within(firstMount.container).queryByText(/Saved VD Default Dark Custom/)).toBeNull();
+      expect(within(firstMount.container).queryByText(/Saved Myne Default Dark Custom/)).toBeNull();
       expect(within(firstMount.container).queryByText(/stale failure/)).toBeNull();
       expect(within(firstMount.container).getByRole("button", { name: /Light Studio/ }).getAttribute("aria-pressed")).toBe("true");
       expect(within(firstMount.container).getByRole("button", { name: "Apply selected" }).hasAttribute("disabled")).toBe(false);
-      expect(within(secondMount.container).getByRole("button", { name: /VD Default Dark/ }).getAttribute("aria-pressed")).toBe("true");
+      expect(within(secondMount.container).getByRole("button", { name: /Myne Default Dark/ }).getAttribute("aria-pressed")).toBe("true");
       expect(secondSave).not.toHaveBeenCalled();
       expect(firstHost.appHooks).toBe(root);
       expect(root.modules).toBe(registry);
@@ -208,22 +208,22 @@ describe("SkinEditorDialog controller", () => {
     expect(
       screen
         .getByRole("region", { name: "Skin editor" })
-        .getAttribute("data-vd-surface"),
+        .getAttribute("data-myne-surface"),
     ).toBe("skin-editor");
     expect(
-      document.querySelector('[data-vd-slot="skin-editor-library"]'),
+      document.querySelector('[data-myne-slot="skin-editor-library"]'),
     ).toBeTruthy();
     expect(
-      document.querySelector('[data-vd-slot="skin-editor-editor"]'),
+      document.querySelector('[data-myne-slot="skin-editor-editor"]'),
     ).toBeTruthy();
     expect(
-      document.querySelector('[data-vd-slot="skin-editor-preview"]'),
+      document.querySelector('[data-myne-slot="skin-editor-preview"]'),
     ).toBeTruthy();
     expect(
-      document.querySelector('[data-vd-slot="skin-editor-import-export"]'),
+      document.querySelector('[data-myne-slot="skin-editor-import-export"]'),
     ).toBeTruthy();
     expect(
-      document.querySelector('[data-vd-slot="skin-editor-diagnostics"]'),
+      document.querySelector('[data-myne-slot="skin-editor-diagnostics"]'),
     ).toBeTruthy();
   });
 
@@ -231,7 +231,7 @@ describe("SkinEditorDialog controller", () => {
     const { onSave } = renderEditor();
 
     fireEvent.click(screen.getByRole("button", { name: "Create editable copy" }));
-    fireEvent.change(screen.getByDisplayValue("VD Default Dark Custom"), {
+    fireEvent.change(screen.getByDisplayValue("Myne Default Dark Custom"), {
       target: { value: "Neon Flight" },
     });
     fireEvent.change(screen.getByLabelText("Accent color"), {
@@ -240,7 +240,7 @@ describe("SkinEditorDialog controller", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save and apply" }));
 
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
-    const savedState = onSave.mock.calls[0]![0].state as VDSkinState;
+    const savedState = onSave.mock.calls[0]![0].state as MyneSkinState;
     expect(savedState.activeGlobalSkinId).toMatch(/^vd-user-/);
     expect(savedState.userSkins[0]).toMatchObject({
       name: "Neon Flight",
@@ -260,7 +260,7 @@ describe("SkinEditorDialog controller", () => {
     renderEditor({ onSave });
 
     fireEvent.click(screen.getByRole("button", { name: "Create editable copy" }));
-    fireEvent.change(screen.getByDisplayValue("VD Default Dark Custom"), {
+    fireEvent.change(screen.getByDisplayValue("Myne Default Dark Custom"), {
       target: { value: "Neon Flight" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save and apply" }));
@@ -337,12 +337,12 @@ describe("SkinEditorDialog controller", () => {
       name: "Imported Skin",
       rawCss: [],
     };
-    const state: VDSkinState = {
+    const state: MyneSkinState = {
       version: 1,
       activeGlobalSkinId: existingSkin.id,
       userSkins: [existingSkin],
     };
-    const skinPackage: VDSkinImportExportPackage = {
+    const skinPackage: MyneSkinImportExportPackage = {
       packageVersion: 1,
       activeGlobalSkinId: importedSkin.id,
       skins: [importedSkin],
@@ -355,7 +355,7 @@ describe("SkinEditorDialog controller", () => {
     fireEvent.click(screen.getByRole("button", { name: "Import package" }));
 
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
-    const savedState = onSave.mock.calls[0]![0].state as VDSkinState;
+    const savedState = onSave.mock.calls[0]![0].state as MyneSkinState;
     expect(savedState.userSkins.map((skin) => skin.id)).toEqual([
       existingSkin.id,
       importedSkin.id,
@@ -370,7 +370,7 @@ describe("SkinEditorDialog controller", () => {
       name: "Imported Skin",
       rawCss: [],
     };
-    const skinPackage: VDSkinImportExportPackage = {
+    const skinPackage: MyneSkinImportExportPackage = {
       packageVersion: 1,
       activeGlobalSkinId: importedSkin.id,
       skins: [importedSkin],
@@ -418,8 +418,8 @@ describe("SkinEditorDialog controller", () => {
     fireEvent.click(screen.getByRole("button", { name: "Revert to default" }));
 
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
-    const savedState = onSave.mock.calls[0]![0].state as VDSkinState;
-    expect(savedState.activeGlobalSkinId).toBe(DEFAULT_VD_SKIN_ID);
+    const savedState = onSave.mock.calls[0]![0].state as MyneSkinState;
+    expect(savedState.activeGlobalSkinId).toBe(DEFAULT_MYNE_SKIN_ID);
     expect(savedState.userSkins.map((skin) => skin.id)).toEqual([existingSkin.id]);
   });
 });
@@ -484,10 +484,11 @@ describe("SkinEditorDialog view", () => {
       React.createElement(SkinEditorDialogView, props),
     );
 
-    expect(html).toContain("data-vd-skin-root=\"true\"");
-    expect(html).toContain("data-vd-skin-id=\"vd-light-studio\"");
-    expect(html).toContain("data-vd-surface=\"skin-editor\"");
-    expect(html).toContain("data-vd-component=\"button\"");
-    expect(html).toContain("data-vd-text=\"primary\"");
+    expect(html).toContain("data-myne-skin=\"myne-light-studio\"");
+    expect(html).toContain("data-myne-surface=\"skin-editor\"");
+    expect(html).toContain("myne-button");
+    expect(html).toContain("myne-text--primary");
+    expect(html).not.toContain("data-vd-");
+    expect(html).not.toContain("--vd-");
   });
 });

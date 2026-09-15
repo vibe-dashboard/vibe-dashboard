@@ -16,49 +16,58 @@ function writeFixture(root: string, overrides: Record<string, string> = {}) {
     "src/app-hooks/AppHooks.ts":
       'import { useSyncExternalStore } from "react"; export interface AppHooksV1 { readonly contractVersion: 1 }',
     "src/components/spaces-overview/DefaultSpacesOverview.view.tsx": `
-      import { VDHeading, VDText } from "../../theme/skins";
+      import { MyneHeading, MyneText } from "../../theme/skins";
       export function DefaultSpacesOverviewLayout() {
-        return <div data-vd-surface="spaces-overview" data-vd-view-pack="default">
-          <div data-vd-slot="page-header"><VDHeading level={1}>Dashboard</VDHeading></div>
-          <div data-vd-slot="workspace-list"><VDText tone="secondary">Workspaces</VDText></div>
+        return <div data-myne-surface="spaces-overview" data-myne-view-pack="default">
+          <div data-myne-slot="page-header"><MyneHeading level={1}>Dashboard</MyneHeading></div>
+          <div data-myne-slot="workspace-list"><MyneText tone="secondary">Workspaces</MyneText></div>
         </div>;
       }
     `,
     "src/components/spaces-overview/DenseWorkspaceListSection.view.tsx":
-      '<div data-vd-slot="workspace-list"><span data-vd-text="primary">Dense</span></div>',
+      '<div data-myne-slot="workspace-list"><span className="myne-text myne-text--primary">Dense</span></div>',
     "src/components/spaces-overview/RunningDevServersSection.view.tsx":
-      '<div data-vd-slot="running-dev-servers"><span data-vd-status="success">Running</span></div>',
+      '<div data-myne-slot="running-dev-servers"><span className="myne-status--success">Running</span></div>',
     "src/components/spaces-overview/SpacePickerModal.view.tsx":
-      '<div data-vd-slot="space-picker-modal"><button data-vd-component="button">Open</button></div>',
+      '<div data-myne-slot="space-picker-modal"><button className="myne-button">Open</button></div>',
     "src/components/spaces-overview/craftSections.view.tsx": `
-      <div data-vd-slot="recent-sessions"></div>
-      <div data-vd-slot="spaces-list"></div>
+      <div data-myne-slot="recent-sessions"></div>
+      <div data-myne-slot="spaces-list"></div>
     `,
     "src/components/spaces-overview/workspaceList.view.tsx": `
-      import { VDAction, VDRow } from "../../theme/skins";
-      <VDRow><span data-vd-text="primary">Workspace</span></VDRow>
-      <VDAction>Open</VDAction>
+      import { MyneAction, MyneRow } from "../../theme/skins";
+      <MyneRow><span className="myne-text myne-text--primary">Workspace</span></MyneRow>
+      <MyneAction>Open</MyneAction>
     `,
     "src/theme/skins/SkinEditorDialog.view.tsx": `
-      import { VDAction, VDCard, VDHeading, VDText } from "./primitives.view";
+      import { MyneAction, MyneCard, MyneHeading, MyneText } from "./primitives.view";
       export function SkinEditorDialogView() {
-        return <section data-vd-surface="skin-editor">
-          <VDCard data-vd-slot="skin-editor-library"><VDHeading level={2}>Library</VDHeading></VDCard>
-          <VDCard data-vd-slot="skin-editor-editor"><VDText>Editor</VDText></VDCard>
-          <VDCard data-vd-slot="skin-editor-preview"><VDText>Preview</VDText></VDCard>
-          <VDCard data-vd-slot="skin-editor-import-export"><VDAction>Import</VDAction></VDCard>
-          <VDCard data-vd-slot="skin-editor-diagnostics"><VDText status="success">Valid</VDText></VDCard>
+        return <section data-myne-surface="skin-editor">
+          <MyneCard data-myne-slot="skin-editor-library"><MyneHeading level={2}>Library</MyneHeading></MyneCard>
+          <MyneCard data-myne-slot="skin-editor-editor"><MyneText>Editor</MyneText></MyneCard>
+          <MyneCard data-myne-slot="skin-editor-preview"><MyneText>Preview</MyneText></MyneCard>
+          <MyneCard data-myne-slot="skin-editor-import-export"><MyneAction>Import</MyneAction></MyneCard>
+          <MyneCard data-myne-slot="skin-editor-diagnostics"><MyneText status="success">Valid</MyneText></MyneCard>
         </section>;
       }
     `,
+    "src/theme/skins/primitives.view.tsx":
+      'export const MyneText = () => <span className="myne-text myne-text--primary" />;',
+    "src/theme/skins/SkinRoot.view.tsx":
+      'export const SkinRootView = () => <div className="myne-theme" data-myne-skin="default" />;',
+    "src/theme/skins/runtime.ts":
+      'export const variables = { "--myne-color-foreground": "#fff" };',
+    "src/theme/skins/myne.css": `
+      .myne-text--primary {} .myne-text--secondary {} .myne-text--muted {}
+      .myne-status--success {} .myne-status--warning {} .myne-status--danger {} .myne-status--accent {}
+    `,
+    "src/theme/skins/SkinEditorDialog.module.css": ".root {} .surface {}",
+    "src/components/spaces-overview/SpacesOverview.composition.ts":
+      "export const spacesOverviewCompositionRegistry = {}; export const defaultSpacesOverviewManifest = {}; export const denseSpacesOverviewManifest = {};",
+    "src/theme/skins/SkinEditorDialog.composition.tsx":
+      "export const skinEditorCompositionRegistry = {}; export const defaultSkinEditorManifest = {}; export const selectedSkinEditorComposition = {};",
     "src/components/spaces-overview/SpacesOverview.skin.module.css": `
-      .surface :global([data-vd-text="primary"]) { color: var(--vd-surface-spaces-overview-foreground); }
-      .surface :global([data-vd-text="secondary"]) { color: var(--vd-color-muted); }
-      .surface :global([data-vd-muted="true"]) { color: var(--vd-color-muted); }
-      .surface :global([data-vd-status="success"]) { color: var(--vd-color-success); }
-      .surface :global([data-vd-status="warning"]) { color: var(--vd-color-warning); }
-      .surface :global([data-vd-status="danger"]) { color: var(--vd-color-danger); }
-      .surface :global([data-vd-status="accent"]) { color: var(--vd-color-accent); }
+      .surface { min-width: 0; }
     `,
     ...overrides,
   };
@@ -95,10 +104,10 @@ describe("UI customization boundary check", () => {
 
     expect(result.status).toBe(1);
     expect(result.stdout).toContain(
-      "Hardcoded foreground utility \"text-zinc-100\"",
+      "Hardcoded skin-controlled utility \"text-zinc-100\"",
     );
     expect(result.stdout).toContain(
-      "Use skin primitives, semantic data-vd-* hooks, or inherited surface color",
+      "Use myne primitives, registered public classes, or inherited surface color",
     );
   });
 
@@ -114,8 +123,8 @@ describe("UI customization boundary check", () => {
     });
 
     expect(result.status).toBe(1);
-    expect(result.stdout).toContain('Missing semantic hook "data-vd-surface="');
-    expect(result.stdout).toContain('Missing semantic hook "data-vd-slot="');
+    expect(result.stdout).toContain('Missing semantic hook "data-myne-surface="');
+    expect(result.stdout).toContain('Missing semantic hook "data-myne-slot="');
   });
 
   it("fails when migrated containers hide host clients or views receive appHooks", () => {
@@ -142,6 +151,41 @@ describe("UI customization boundary check", () => {
     const result = spawnSync(process.execPath, [scriptPath, root], { encoding: "utf8" });
     expect(result.status).toBe(1);
     expect(result.stdout).toContain("Public AppHooks contract imports an implementation type");
+  });
+
+  it("fails when a migrated surface omits its typed registry or view-pack manifest", () => {
+    const root = mkdtempSync(join(tmpdir(), "ui-customization-composition-"));
+    writeFixture(root, {
+      "src/components/spaces-overview/SpacesOverview.composition.ts":
+        "export const spacesOverviewCompositionRegistry = {};",
+    });
+    const result = spawnSync(process.execPath, [scriptPath, root], { encoding: "utf8" });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain("missing composition registration");
+    expect(result.stdout).toContain("denseSpacesOverviewManifest");
+  });
+
+  it("fails when CSS Modules reach into public selectors", () => {
+    const root = mkdtempSync(join(tmpdir(), "ui-customization-css-module-"));
+    writeFixture(root, {
+      "src/theme/skins/SkinEditorDialog.module.css":
+        ".root :global(.myne-button) { color: red; }",
+    });
+    const result = spawnSync(process.execPath, [scriptPath, root], { encoding: "utf8" });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain("private CSS Module reaches into the public myne selector contract");
+  });
+
+  it("fails for stale public names and non-identity data-myne attributes", () => {
+    const root = mkdtempSync(join(tmpdir(), "ui-customization-vocabulary-"));
+    writeFixture(root, {
+      "src/components/spaces-overview/RunningDevServersSection.view.tsx":
+        '<div data-myne-status="success"><VDText>Running</VDText></div>',
+    });
+    const result = spawnSync(process.execPath, [scriptPath, root], { encoding: "utf8" });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain("Stale VD customization vocabulary");
+    expect(result.stdout).toContain("Variant or component state is encoded as a data-myne attribute");
   });
 });
 

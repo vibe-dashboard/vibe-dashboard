@@ -2,7 +2,11 @@ import type {
   DashboardWorkspace,
   SpacesOverviewRepo,
 } from "./SpacesOverview.contracts";
-import { VDAction, VDBadge, VDText } from "../../theme/skins";
+import {
+  MyneAction,
+  MyneBadge,
+  MyneText,
+} from "../../theme/skins";
 
 export function formatRelativeTime(isoString: string): string {
   const now = Date.now();
@@ -31,44 +35,44 @@ export function StatusBadge({
 }) {
   if (hasPendingApproval) {
     return (
-      <VDBadge
-        className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/15 border border-amber-500/30"
+      <MyneBadge
+        className="px-2 py-0.5 rounded-full text-xs font-medium border "
         status="warning"
       >
         Waiting
-      </VDBadge>
+      </MyneBadge>
     );
   }
 
   switch (status) {
     case "running":
       return (
-        <VDBadge
-          className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/15 border border-green-500/30 flex items-center gap-1"
+        <MyneBadge
+          className="px-2 py-0.5 rounded-full text-xs font-medium border flex items-center gap-1"
           status="success"
         >
-          <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+          <span className="w-1.5 h-1.5 rounded-full animate-pulse" />
           Running
-        </VDBadge>
+        </MyneBadge>
       );
     case "completed":
       return (
-        <VDBadge
-          className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-500/15 border border-blue-500/30"
+        <MyneBadge
+          className="px-2 py-0.5 rounded-full text-xs font-medium border "
           status="accent"
         >
           Done
-        </VDBadge>
+        </MyneBadge>
       );
     case "failed":
     case "killed":
       return (
-        <VDBadge
-          className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/15 border border-red-500/30"
+        <MyneBadge
+          className="px-2 py-0.5 rounded-full text-xs font-medium border "
           status="danger"
         >
           {status === "failed" ? "Failed" : "Killed"}
-        </VDBadge>
+        </MyneBadge>
       );
     default:
       return null;
@@ -81,10 +85,10 @@ export function PRBadge({
   status: "open" | "merged" | "closed" | "unknown";
 }) {
   const styles = {
-    open: "bg-green-500/15 border-green-500/30",
-    merged: "bg-purple-500/15 border-purple-500/30",
-    closed: "bg-red-500/15 border-red-500/30",
-    unknown: "bg-zinc-500/15 border-zinc-500/30",
+    open: "",
+    merged: "",
+    closed: "",
+    unknown: "",
   };
   const tones = {
     open: "success",
@@ -94,12 +98,12 @@ export function PRBadge({
   } as const;
 
   return (
-    <VDBadge
+    <MyneBadge
       className={`px-1.5 py-0.5 rounded text-xs border ${styles[status]}`}
       status={tones[status]}
     >
       PR {status}
-    </VDBadge>
+    </MyneBadge>
   );
 }
 
@@ -113,22 +117,22 @@ export function RepoFilterBar({
   onSelectRepo: (repoId: string | null) => void;
 }) {
   const active =
-    "px-3 py-1 rounded-full text-xs font-medium bg-white/10 border border-white/20";
+    "px-3 py-1 rounded-full text-xs font-medium border ";
   const inactive =
-    "px-3 py-1 rounded-full text-xs font-medium bg-zinc-800 border border-transparent hover:bg-zinc-700 transition-colors";
+    "px-3 py-1 rounded-full text-xs font-medium border border-transparent transition-colors";
 
   return (
     <div className="flex gap-2 overflow-x-auto pb-3 mb-4 scrollbar-none">
-      <VDAction
+      <MyneAction
         className={selectedRepoId === null ? active : inactive}
         tone={selectedRepoId === null ? "accent" : "quiet"}
         onClick={() => onSelectRepo(null)}
         type="button"
       >
         All
-      </VDAction>
+      </MyneAction>
       {repos.map((repo) => (
-        <VDAction
+        <MyneAction
           key={repo.id}
           className={selectedRepoId === repo.id ? active : inactive}
           tone={selectedRepoId === repo.id ? "accent" : "quiet"}
@@ -136,7 +140,7 @@ export function RepoFilterBar({
           type="button"
         >
           {repo.display_name || repo.name}
-        </VDAction>
+        </MyneAction>
       ))}
     </div>
   );
@@ -170,14 +174,13 @@ export function WorkspaceRow({
 
   return (
     <div
-      className="flex flex-col gap-3 px-4 py-3 bg-zinc-800/50 rounded-lg border border-zinc-700/50 hover:border-zinc-600 transition-colors sm:flex-row sm:items-start"
-      data-vd-component="row"
+      className="flex flex-col gap-3 px-4 py-3 rounded-lg border transition-colors sm:flex-row sm:items-start myne-row"
     >
       <div className="flex min-w-0 flex-1 items-start gap-3">
         {/* Unseen dot */}
         <div className="w-2 shrink-0 pt-2">
           {ws.has_unseen_turns && (
-            <span className="block w-2 h-2 rounded-full bg-blue-400" />
+            <span className="block w-2 h-2 rounded-full " />
           )}
         </div>
 
@@ -185,28 +188,27 @@ export function WorkspaceRow({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
             {ws.pinned && (
-              <VDText className="text-xs" status="warning">
+              <MyneText className="text-xs" status="warning">
                 *
-              </VDText>
+              </MyneText>
             )}
-            <VDText
+            <MyneText
               className="min-w-0 text-sm font-medium break-words"
             >
               {ws.name}
-            </VDText>
+            </MyneText>
           </div>
           <div
-            className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs"
-            data-vd-muted
+            className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs myne-text myne-text--muted"
           >
             <span className="font-mono break-all">{ws.branch}</span>
             {ws.repos.map((r) => (
-              <VDBadge
+              <MyneBadge
                 key={r.id}
-                className="rounded bg-zinc-700 px-1.5 py-0.5"
+                className="rounded px-1.5 py-0.5"
               >
                 {r.display_name || r.name}
-              </VDBadge>
+              </MyneBadge>
             ))}
             {hasDiffStats && (
               <>
@@ -214,25 +216,25 @@ export function WorkspaceRow({
                   <span>{ws.files_changed} file{ws.files_changed !== 1 ? "s" : ""}</span>
                 )}
                 {ws.lines_added != null && ws.lines_added > 0 && (
-                  <VDText className="font-mono" status="success">
+                  <MyneText className="font-mono" status="success">
                     +{ws.lines_added}
-                  </VDText>
+                  </MyneText>
                 )}
                 {ws.lines_removed != null && ws.lines_removed > 0 && (
-                  <VDText className="font-mono" status="danger">
+                  <MyneText className="font-mono" status="danger">
                     -{ws.lines_removed}
-                  </VDText>
+                  </MyneText>
                 )}
               </>
             )}
             {showsDevServerControls && (
-              <VDBadge
-                className="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-500/15 px-2 py-0.5 font-medium"
+              <MyneBadge
+                className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-medium"
                 status="accent"
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                <span className="w-1.5 h-1.5 rounded-full animate-pulse" />
                 Dev server
-              </VDBadge>
+              </MyneBadge>
             )}
             {ws.pr_status && ws.pr_status !== "unknown" && (
               <PRBadge status={ws.pr_status} />
@@ -250,37 +252,37 @@ export function WorkspaceRow({
 
       <div className="flex w-full shrink-0 flex-wrap justify-start gap-2 pl-5 sm:w-auto sm:justify-end sm:pl-0">
         {showsDevServerControls && onStopDevServer && (
-          <VDAction
+          <MyneAction
             onClick={onStopDevServer}
             disabled={isStoppingDevServer}
-            className="px-2 py-1 rounded text-xs font-medium bg-red-500/15 border border-red-500/30 hover:bg-red-500/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-2 py-1 rounded text-xs font-medium border transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             tone="danger"
             type="button"
           >
             {isStoppingDevServer ? "Stopping..." : "Stop server"}
-          </VDAction>
+          </MyneAction>
         )}
 
         {tabGroupNav ? (
-          <VDAction
+          <MyneAction
             onClick={tabGroupNav.onNavigate}
             title={`Go to "${tabGroupNav.label}"`}
-            className="px-2 py-1 rounded text-xs font-medium bg-indigo-500/15 border border-indigo-500/30 hover:bg-indigo-500/25 transition-colors"
+            className="px-2 py-1 rounded text-xs font-medium border transition-colors"
             tone="accent"
             type="button"
           >
             Go to craft
-          </VDAction>
+          </MyneAction>
         ) : onOpenInNewTabGroup ? (
-          <VDAction
+          <MyneAction
             onClick={onOpenInNewTabGroup}
             aria-label={`Open ${ws.name}`}
-            className="px-2 py-1 rounded text-xs font-medium bg-zinc-700 border border-zinc-600 hover:bg-zinc-600 transition-colors"
+            className="px-2 py-1 rounded text-xs font-medium border transition-colors"
             tone="quiet"
             type="button"
           >
             Open
-          </VDAction>
+          </MyneAction>
         ) : null}
       </div>
     </div>
@@ -300,28 +302,28 @@ export function Pagination({
 
   return (
     <div className="flex items-center justify-between mt-4">
-      <VDText className="text-xs" tone="muted">
+      <MyneText className="text-xs" tone="muted">
         Page {page + 1} of {totalPages}
-      </VDText>
+      </MyneText>
       <div className="flex gap-2">
-        <VDAction
+        <MyneAction
           disabled={page === 0}
           onClick={() => onPageChange(page - 1)}
-          className="px-3 py-1 rounded text-xs font-medium bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-zinc-800"
+          className="px-3 py-1 rounded text-xs font-medium border transition-colors disabled:opacity-30 disabled:cursor-not-allowed "
           tone="quiet"
           type="button"
         >
           Previous
-        </VDAction>
-        <VDAction
+        </MyneAction>
+        <MyneAction
           disabled={page >= totalPages - 1}
           onClick={() => onPageChange(page + 1)}
-          className="px-3 py-1 rounded text-xs font-medium bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-zinc-800"
+          className="px-3 py-1 rounded text-xs font-medium border transition-colors disabled:opacity-30 disabled:cursor-not-allowed "
           tone="quiet"
           type="button"
         >
           Next
-        </VDAction>
+        </MyneAction>
       </div>
     </div>
   );

@@ -1,16 +1,16 @@
 import type {
-  VDSkinDiagnostic,
-  VDSkinManifestV1,
-  VDSkinState,
+  MyneSkinDiagnostic,
+  MyneSkinManifestV1,
+  MyneSkinState,
 } from "./types";
 
 export interface SkinEditorSaveResult {
-  diagnostics?: VDSkinDiagnostic[];
+  diagnostics?: MyneSkinDiagnostic[];
   ok: boolean;
 }
 
 export interface SkinEditorActions {
-  saveSkinState: (args: { state: VDSkinState }) => Promise<SkinEditorSaveResult>;
+  saveSkinState: (args: { state: MyneSkinState }) => Promise<SkinEditorSaveResult>;
 }
 
 export interface SkinEditorColorField {
@@ -31,16 +31,16 @@ export interface SkinEditorSkinOption {
 export interface SkinEditorViewModel {
   activeGlobalSkinId: string;
   colorFields: SkinEditorColorField[];
-  diagnostics: VDSkinDiagnostic[];
-  draftSkin: VDSkinManifestV1 | null;
+  diagnostics: MyneSkinDiagnostic[];
+  draftSkin: MyneSkinManifestV1 | null;
   exportText: string;
   importText: string;
   isDirty: boolean;
   isEditingCustomSkin: boolean;
   isSaving: boolean;
-  previewState: VDSkinState;
+  previewState: MyneSkinState;
   rawCssStatus: "deferred";
-  selectedSkin: VDSkinManifestV1;
+  selectedSkin: MyneSkinManifestV1;
   selectedSkinIsBuiltIn: boolean;
   skinOptions: SkinEditorSkinOption[];
   statusMessage: string | null;
@@ -65,4 +65,5 @@ export interface SkinEditorViewActions {
 export interface SkinEditorDialogViewProps {
   actions: SkinEditorViewActions;
   model: SkinEditorViewModel;
+  viewPackId?: string;
 }

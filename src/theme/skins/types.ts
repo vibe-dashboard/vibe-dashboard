@@ -1,9 +1,9 @@
-export const VD_SKIN_MANIFEST_VERSION = 1;
-export const VD_SKIN_STATE_VERSION = 1;
+export const MYNE_SKIN_MANIFEST_VERSION = 1;
+export const MYNE_SKIN_STATE_VERSION = 1;
 
-export type VDSkinDiagnosticSeverity = "error" | "warning";
+export type MyneSkinDiagnosticSeverity = "error" | "warning";
 
-export type VDSkinSurfaceId =
+export type MyneSkinSurfaceId =
   | "app-shell"
   | "sidebar"
   | "voyage-bar"
@@ -13,7 +13,7 @@ export type VDSkinSurfaceId =
   | "menu"
   | "skin-editor";
 
-export type VDSkinComponentId =
+export type MyneSkinComponentId =
   | "button"
   | "input"
   | "field"
@@ -29,7 +29,7 @@ export type VDSkinComponentId =
   | "loading-state"
   | "error-state";
 
-export type VDSkinSlotId =
+export type MyneSkinSlotId =
   | "page-header"
   | "recent-sessions"
   | "starred-craft"
@@ -47,16 +47,16 @@ export type VDSkinSlotId =
   | "skin-editor-import-export"
   | "skin-editor-diagnostics";
 
-export type VDSkinAssetKind = "image" | "font" | "icon";
+export type MyneSkinAssetKind = "image" | "font" | "icon";
 
-export interface VDSkinDiagnostic {
-  severity: VDSkinDiagnosticSeverity;
+export interface MyneSkinDiagnostic {
+  severity: MyneSkinDiagnosticSeverity;
   code: string;
   message: string;
   path?: string;
 }
 
-export interface VDSkinColorTokens {
+export interface MyneSkinColorTokens {
   background?: string;
   foreground?: string;
   panel?: string;
@@ -68,7 +68,7 @@ export interface VDSkinColorTokens {
   warning?: string;
 }
 
-export interface VDSkinTypographyTokens {
+export interface MyneSkinTypographyTokens {
   fontFamily?: string;
   monoFontFamily?: string;
   baseSize?: string;
@@ -77,23 +77,23 @@ export interface VDSkinTypographyTokens {
   letterSpacing?: string;
 }
 
-export interface VDSkinDensityTokens {
+export interface MyneSkinDensityTokens {
   scale?: "compact" | "comfortable" | "spacious";
   spaceUnit?: string;
   controlHeight?: string;
   rowHeight?: string;
 }
 
-export interface VDSkinPrimitiveTokens {
-  colors: VDSkinColorTokens;
-  typography: VDSkinTypographyTokens;
-  density: VDSkinDensityTokens;
+export interface MyneSkinPrimitiveTokens {
+  colors: MyneSkinColorTokens;
+  typography: MyneSkinTypographyTokens;
+  density: MyneSkinDensityTokens;
   spacing?: Record<string, string>;
   radii?: Record<string, string>;
   shadows?: Record<string, string>;
 }
 
-export interface VDSkinStyleRecipe {
+export interface MyneSkinStyleRecipe {
   background?: string;
   foreground?: string;
   muted?: string;
@@ -106,67 +106,67 @@ export interface VDSkinStyleRecipe {
   variant?: string;
 }
 
-export type VDSkinSurfaceRecipes = Partial<
-  Record<VDSkinSurfaceId, VDSkinStyleRecipe>
+export type MyneSkinSurfaceRecipes = Partial<
+  Record<MyneSkinSurfaceId, MyneSkinStyleRecipe>
 >;
-export type VDSkinComponentRecipes = Partial<
-  Record<VDSkinComponentId, VDSkinStyleRecipe>
+export type MyneSkinComponentRecipes = Partial<
+  Record<MyneSkinComponentId, MyneSkinStyleRecipe>
 >;
-export type VDSkinSlotRecipes = Partial<Record<VDSkinSlotId, VDSkinStyleRecipe>>;
+export type MyneSkinSlotRecipes = Partial<Record<MyneSkinSlotId, MyneSkinStyleRecipe>>;
 
-export interface VDSkinAssetRef {
+export interface MyneSkinAssetRef {
   id: string;
-  kind: VDSkinAssetKind;
+  kind: MyneSkinAssetKind;
   path: string;
   description?: string;
 }
 
-export interface VDSkinRawCssBlock {
+export interface MyneSkinRawCssBlock {
   id: string;
   css: string;
 }
 
-export interface VDSkinManifestV1 {
+export interface MyneSkinManifestV1 {
   schemaVersion: 1;
   id: string;
   name: string;
   description?: string;
   author?: string;
-  tokens: VDSkinPrimitiveTokens;
-  surfaces: VDSkinSurfaceRecipes;
-  components: VDSkinComponentRecipes;
-  slots: VDSkinSlotRecipes;
-  assets: VDSkinAssetRef[];
-  rawCss: VDSkinRawCssBlock[];
+  tokens: MyneSkinPrimitiveTokens;
+  surfaces: MyneSkinSurfaceRecipes;
+  components: MyneSkinComponentRecipes;
+  slots: MyneSkinSlotRecipes;
+  assets: MyneSkinAssetRef[];
+  rawCss: MyneSkinRawCssBlock[];
 }
 
-export type VDSkinManifest = VDSkinManifestV1;
+export type MyneSkinManifest = MyneSkinManifestV1;
 
-export interface VDSkinStateV1 {
+export interface MyneSkinStateV1 {
   version: 1;
-  userSkins: VDSkinManifestV1[];
+  userSkins: MyneSkinManifestV1[];
   activeGlobalSkinId: string;
 }
 
-export type VDSkinState = VDSkinStateV1;
+export type MyneSkinState = MyneSkinStateV1;
 
-export interface VDSkinImportExportPackageV1 {
+export interface MyneSkinImportExportPackageV1 {
   packageVersion: 1;
-  skins: VDSkinManifestV1[];
+  skins: MyneSkinManifestV1[];
   activeGlobalSkinId?: string;
 }
 
-export type VDSkinImportExportPackage = VDSkinImportExportPackageV1;
+export type MyneSkinImportExportPackage = MyneSkinImportExportPackageV1;
 
-export interface VDSkinValidationResult<T> {
+export interface MyneSkinValidationResult<T> {
   ok: boolean;
   value?: T;
-  diagnostics: VDSkinDiagnostic[];
+  diagnostics: MyneSkinDiagnostic[];
 }
 
-export interface VDSkinResolution {
-  skin: VDSkinManifestV1;
+export interface MyneSkinResolution {
+  skin: MyneSkinManifestV1;
   requestedSkinId: string;
   source: "global" | "default";
-  diagnostics: VDSkinDiagnostic[];
+  diagnostics: MyneSkinDiagnostic[];
 }

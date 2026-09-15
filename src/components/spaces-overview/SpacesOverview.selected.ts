@@ -1,13 +1,18 @@
-import {
-  defaultSpacesOverviewUI,
-  DefaultSpacesOverviewLayout,
-} from "./DefaultSpacesOverview.view";
 import type { SpacesOverviewPresentation } from "./SpacesOverview.contracts";
+import {
+  defaultSpacesOverviewManifest,
+  resolveSpacesOverviewComposition,
+} from "./SpacesOverview.composition";
 
-export const selectedSpacesOverviewUI = defaultSpacesOverviewUI;
+const selectedComposition = resolveSpacesOverviewComposition(
+  defaultSpacesOverviewManifest,
+);
+export const selectedSpacesOverviewUI = selectedComposition.ui;
 
 export const selectedSpacesOverviewView: SpacesOverviewPresentation = (props) =>
-  DefaultSpacesOverviewLayout({
+  createElement(selectedComposition.layout, {
     ...props,
     ui: selectedSpacesOverviewUI,
+    viewPackId: selectedComposition.viewPackId,
   });
+import { createElement } from "react";

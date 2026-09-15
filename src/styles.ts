@@ -3,4 +3,4 @@
 
 // Tailwind CSS and app styles
 import './styles.css';
-
+import './theme/skins/myne.css';

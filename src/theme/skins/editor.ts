@@ -1,4 +1,4 @@
-import { BUILT_IN_VD_SKINS, DEFAULT_VD_SKIN_ID } from "./builtin";
+import { BUILT_IN_MYNE_SKINS, DEFAULT_MYNE_SKIN_ID } from "./builtin";
 import {
   createDefaultSkinState,
   migrateSkinState,
@@ -6,11 +6,11 @@ import {
   validateSkinManifest,
 } from "./schema";
 import type {
-  VDSkinDiagnostic,
-  VDSkinImportExportPackage,
-  VDSkinManifestV1,
-  VDSkinState,
-  VDSkinValidationResult,
+  MyneSkinDiagnostic,
+  MyneSkinImportExportPackage,
+  MyneSkinManifestV1,
+  MyneSkinState,
+  MyneSkinValidationResult,
 } from "./types";
 
 export const EDITABLE_COLOR_TOKEN_KEYS = [
@@ -27,7 +27,7 @@ export const EDITABLE_COLOR_TOKEN_KEYS = [
 
 export type EditableColorTokenKey = (typeof EDITABLE_COLOR_TOKEN_KEYS)[number];
 
-const BUILT_IN_SKIN_IDS = new Set(BUILT_IN_VD_SKINS.map((skin) => skin.id));
+const BUILT_IN_SKIN_IDS = new Set(BUILT_IN_MYNE_SKINS.map((skin) => skin.id));
 const COLOR_SWATCH_FALLBACK = "#000000";
 const HEX_COLOR_SWATCH_PATTERN =
   /^#(?<short>[0-9a-f]{3})$|^#(?<long>[0-9a-f]{6})(?:[0-9a-f]{2})?$/i;
@@ -36,24 +36,24 @@ function diagnostic(
   code: string,
   message: string,
   path?: string,
-  severity: VDSkinDiagnostic["severity"] = "error",
-): VDSkinDiagnostic {
+  severity: MyneSkinDiagnostic["severity"] = "error",
+): MyneSkinDiagnostic {
   return { severity, code, message, path };
 }
 
 function ok<T>(
   value: T,
-  diagnostics: VDSkinDiagnostic[] = [],
-): VDSkinValidationResult<T> {
+  diagnostics: MyneSkinDiagnostic[] = [],
+): MyneSkinValidationResult<T> {
   return { ok: true, value, diagnostics };
 }
 
-function fail<T>(diagnostics: VDSkinDiagnostic[]): VDSkinValidationResult<T> {
+function fail<T>(diagnostics: MyneSkinDiagnostic[]): MyneSkinValidationResult<T> {
   return { ok: false, diagnostics };
 }
 
-function deepCloneSkin(skin: VDSkinManifestV1): VDSkinManifestV1 {
-  return JSON.parse(JSON.stringify(skin)) as VDSkinManifestV1;
+function deepCloneSkin(skin: MyneSkinManifestV1): MyneSkinManifestV1 {
+  return JSON.parse(JSON.stringify(skin)) as MyneSkinManifestV1;
 }
 
 export function createUserSkinId(
@@ -120,10 +120,10 @@ export function createEditableSkinFromBase({
   name,
   existingIds = [],
 }: {
-  baseSkin: VDSkinManifestV1;
+  baseSkin: MyneSkinManifestV1;
   name?: string;
   existingIds?: Iterable<string>;
-}): VDSkinManifestV1 {
+}): MyneSkinManifestV1 {
   const skin = deepCloneSkin(baseSkin);
   const nextName = name?.trim() || `${baseSkin.name} Custom`;
 
@@ -138,7 +138,7 @@ export function createEditableSkinFromBase({
 
 export function validateSkinEditorDraft(
   draftSkin: unknown,
-): VDSkinValidationResult<VDSkinManifestV1> {
+): MyneSkinValidationResult<MyneSkinManifestV1> {
   const result = validateSkinManifest(draftSkin);
   if (!result.ok || !result.value) return result;
   if (BUILT_IN_SKIN_IDS.has(result.value.id)) {
@@ -157,8 +157,8 @@ export function validateSkinEditorDraft(
 
 export function createSkinEditorPreviewState(
   currentState: unknown,
-  draftSkin: VDSkinManifestV1,
-): VDSkinState {
+  draftSkin: MyneSkinManifestV1,
+): MyneSkinState {
   const state = migrateSkinState(currentState || createDefaultSkinState());
   const userSkins = [
     ...state.userSkins.filter((skin) => skin.id !== draftSkin.id),
@@ -178,12 +178,12 @@ export function upsertUserSkinAndSetGlobal({
 }: {
   state: unknown;
   skin: unknown;
-}): VDSkinValidationResult<VDSkinState> {
+}): MyneSkinValidationResult<MyneSkinState> {
   const draft = validateSkinEditorDraft(skin);
   if (!draft.ok || !draft.value) return fail(draft.diagnostics);
 
   const current = migrateSkinState(state || createDefaultSkinState());
-  const nextState: VDSkinState = {
+  const nextState: MyneSkinState = {
     version: 1,
     userSkins: [
       ...current.userSkins.filter((entry) => entry.id !== draft.value!.id),
@@ -196,8 +196,8 @@ export function upsertUserSkinAndSetGlobal({
 }
 
 export function buildSingleSkinExportPackage(
-  skin: VDSkinManifestV1,
-): VDSkinImportExportPackage {
+  skin: MyneSkinManifestV1,
+): MyneSkinImportExportPackage {
   return {
     packageVersion: 1,
     skins: [skin],
@@ -207,8 +207,8 @@ export function buildSingleSkinExportPackage(
 
 export function mergeImportedSkinState(
   currentState: unknown,
-  importedState: VDSkinState,
-): VDSkinState {
+  importedState: MyneSkinState,
+): MyneSkinState {
   const current = migrateSkinState(currentState || createDefaultSkinState());
   const importedIds = new Set(importedState.userSkins.map((skin) => skin.id));
   const userSkins = [
@@ -216,7 +216,7 @@ export function mergeImportedSkinState(
     ...importedState.userSkins,
   ];
   const validIds = new Set([
-    ...BUILT_IN_VD_SKINS.map((skin) => skin.id),
+    ...BUILT_IN_MYNE_SKINS.map((skin) => skin.id),
     ...userSkins.map((skin) => skin.id),
   ]);
 
@@ -235,6 +235,6 @@ export function setActiveGlobalSkinFromEditor({
 }: {
   state: unknown;
   skinId: string;
-}): VDSkinValidationResult<VDSkinState> {
+}): MyneSkinValidationResult<MyneSkinState> {
   return setGlobalSkin({ state, skinId });
 }

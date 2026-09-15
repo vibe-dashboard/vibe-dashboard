@@ -25,37 +25,40 @@ export function SpacePickerModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-      data-vd-slot="space-picker-modal"
+      className="fixed inset-0 z-50 flex items-center justify-center "
+      data-myne-slot="space-picker-modal"
+      role="presentation"
       onClick={() => {
         if (!isPending) onClose();
       }}
     >
       <div
-        className="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl w-full max-w-sm mx-4"
-        data-vd-component="dialog"
+        aria-labelledby="myne-space-picker-title"
+        aria-modal="true"
+        className="border rounded-xl shadow-2xl w-full max-w-sm mx-4 myne-dialog"
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
       >
         <div className="px-5 pt-5 pb-3">
-          <h3 className="text-sm font-semibold" data-vd-text="primary">
+          <h3
+            className="text-sm font-semibold myne-text myne-text--primary"
+            id="myne-space-picker-title"
+          >
             Open craft in space
           </h3>
-          <p className="mt-1 truncate text-xs" data-vd-muted>
+          <p className="mt-1 truncate text-xs myne-text myne-text--muted">
             {targetWorkspace.name}
           </p>
         </div>
         {actionError && (
           <div
             role="alert"
-            className="mx-5 mb-3 rounded-md border border-red-500/40 bg-red-500/10 p-3 text-xs"
-            data-vd-status="danger"
+            className="mx-5 mb-3 rounded-md border p-3 text-xs myne-status--danger"
           >
             <div>{actionError}</div>
             {onRetry && (
               <button
-                className="mt-2 rounded border border-red-400/50 px-2 py-1 font-medium transition-colors hover:bg-red-500/20"
-                data-vd-component="button"
-                data-vd-tone="danger"
+                className="mt-2 rounded border px-2 py-1 font-medium transition-colors myne-button myne-button--danger"
                 onClick={onRetry}
               >
                 Retry
@@ -66,8 +69,7 @@ export function SpacePickerModal({
         <div className="px-3 pb-3 max-h-64 overflow-y-auto">
           {spaces.length === 0 ? (
             <p
-              className="px-2 py-4 text-center text-xs"
-              data-vd-muted
+              className="px-2 py-4 text-center text-xs myne-text myne-text--muted"
             >
               No spaces available. Create a space first.
             </p>
@@ -78,18 +80,17 @@ export function SpacePickerModal({
                   key={space.id}
                   onClick={() => onSelect(space.id)}
                   disabled={isPending}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-zinc-800 transition-colors text-left disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
-                  data-vd-component="row"
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-left disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent myne-row"
                 >
-                  <span className="text-sm" data-vd-text="primary">
+                  <span className="text-sm myne-text myne-text--primary">
                     {space.name}
                   </span>
                   {pendingSpaceId === space.id && (
-                    <span className="text-xs" data-vd-status="accent">
+                    <span className="text-xs myne-status--accent">
                       Opening…
                     </span>
                   )}
-                  <span className="ml-auto text-xs" data-vd-muted>
+                  <span className="ml-auto text-xs myne-text myne-text--muted">
                     {
                       ws.tabGroups.filter((tg) =>
                         space.tabGroupIds.includes(tg.id),
@@ -102,13 +103,11 @@ export function SpacePickerModal({
             </div>
           )}
         </div>
-        <div className="px-5 pb-4 pt-2 border-t border-zinc-800">
+        <div className="px-5 pb-4 pt-2 border-t ">
           <button
             onClick={onClose}
             disabled={isPending}
-            className="w-full px-3 py-1.5 rounded text-xs font-medium bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 transition-colors disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-zinc-800"
-            data-vd-component="button"
-            data-vd-tone="quiet"
+            className="w-full px-3 py-1.5 rounded text-xs font-medium border transition-colors disabled:cursor-not-allowed disabled:opacity-60 myne-button myne-button--quiet"
           >
             Cancel
           </button>

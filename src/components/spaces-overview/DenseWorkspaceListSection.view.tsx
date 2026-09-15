@@ -20,19 +20,18 @@ export function DenseWorkspaceListSection({
 
   return (
     <div
-      className="mb-10 rounded-xl border border-zinc-800 bg-zinc-950/30"
-      data-vd-slot="workspace-list"
+      className="mb-10 rounded-xl border "
+      data-myne-slot="workspace-list"
     >
-      <div className="flex flex-col gap-3 border-b border-zinc-800 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2
-            className="text-sm font-semibold uppercase tracking-[0.16em]"
-            data-vd-text="primary"
+            className="text-sm font-semibold uppercase tracking-[0.16em] myne-text myne-text--primary"
           >
             VK Workspaces
           </h2>
           {!loading && sortedWorkspaces.length > 0 && (
-            <p className="mt-1 text-xs" data-vd-muted>
+            <p className="mt-1 text-xs myne-text myne-text--muted">
               {sortedWorkspaces.length} workspace
               {sortedWorkspaces.length !== 1 ? "s" : ""}
               {selectedRepoId ? " in this repository" : ""}
@@ -41,13 +40,11 @@ export function DenseWorkspaceListSection({
         </div>
         <div className="flex flex-wrap gap-2">
           <button
-            className={
+            className={`myne-button rounded-full border px-3 py-1 text-xs font-medium ${
               selectedRepoId === null
-                ? "rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-medium"
-                : "rounded-full border border-zinc-800 bg-zinc-900 px-3 py-1 text-xs font-medium"
-            }
-            data-vd-component="button"
-            data-vd-tone={selectedRepoId === null ? "accent" : "quiet"}
+                ? "myne-button--accent"
+                : "myne-button--quiet"
+            }`}
             onClick={() => actions.selectRepo(null)}
           >
             All
@@ -55,13 +52,11 @@ export function DenseWorkspaceListSection({
           {model.effectiveRepos.map((repo) => (
             <button
               key={repo.id}
-              className={
+              className={`myne-button rounded-full border px-3 py-1 text-xs font-medium ${
                 selectedRepoId === repo.id
-                  ? "rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-medium"
-                  : "rounded-full border border-zinc-800 bg-zinc-900 px-3 py-1 text-xs font-medium"
-              }
-              data-vd-component="button"
-              data-vd-tone={selectedRepoId === repo.id ? "accent" : "quiet"}
+                  ? "myne-button--accent"
+                  : "myne-button--quiet"
+              }`}
               onClick={() => actions.selectRepo(repo.id)}
             >
               {repo.display_name || repo.name}
@@ -71,28 +66,20 @@ export function DenseWorkspaceListSection({
       </div>
 
       {loading ? (
-        <div
-          className="px-4 py-8 text-center text-sm"
-          data-vd-muted
-          data-vd-component="loading-state"
-        >
+          <div className="myne-state myne-state--loading myne-text myne-text--muted px-4 py-8 text-center text-sm">
           Loading workspaces…
         </div>
       ) : error ? (
-        <div className="px-4 py-8 text-center" data-vd-component="error-state">
-          <p className="text-sm" data-vd-text="secondary">
+        <div className="px-4 py-8 text-center myne-state myne-state--error">
+          <p className="text-sm myne-text myne-text--secondary">
             {error}
           </p>
-          <p className="mt-1 text-xs" data-vd-muted>
+          <p className="mt-1 text-xs myne-text myne-text--muted">
             VK backend may not be running
           </p>
         </div>
       ) : sortedWorkspaces.length === 0 ? (
-        <div
-          className="px-4 py-8 text-center text-sm"
-          data-vd-muted
-          data-vd-component="empty-state"
-        >
+          <div className="myne-state myne-state--empty myne-text myne-text--muted px-4 py-8 text-center text-sm">
           {selectedRepoId
             ? "No workspaces for this repository"
             : "No active workspaces"}
@@ -107,37 +94,34 @@ export function DenseWorkspaceListSection({
               return (
                 <div
                   key={workspace.id}
-                  className="grid gap-3 px-4 py-2.5 text-xs sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto] sm:items-center"
-                  data-vd-component="row"
+                  className="grid gap-3 px-4 py-2.5 text-xs sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto] sm:items-center myne-row"
                 >
                   <div className="min-w-0">
                     <div className="flex min-w-0 items-center gap-2">
                       {workspace.has_unseen_turns && (
-                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400" />
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full " />
                       )}
                       {workspace.pinned && (
-                        <span className="shrink-0" data-vd-status="warning">
+                        <span className="shrink-0 myne-status--warning">
                           *
                         </span>
                       )}
-                      <span className="truncate font-medium" data-vd-text="primary">
+                      <span className="truncate font-medium myne-text myne-text--primary">
                         {workspace.name}
                       </span>
                     </div>
-                    <div className="mt-1 truncate font-mono" data-vd-muted>
+                    <div className="mt-1 truncate font-mono myne-text myne-text--muted">
                       {workspace.branch}
                     </div>
                   </div>
 
                   <div
-                    className="flex min-w-0 flex-wrap items-center gap-2"
-                    data-vd-muted
+                    className="flex min-w-0 flex-wrap items-center gap-2 myne-text myne-text--muted"
                   >
                     {workspace.repos.slice(0, 2).map((repo) => (
                       <span
                         key={repo.id}
-                        className="rounded bg-zinc-800 px-1.5 py-0.5"
-                        data-vd-component="badge"
+                        className="rounded px-1.5 py-0.5 myne-badge"
                       >
                         {repo.display_name || repo.name}
                       </span>
@@ -148,8 +132,7 @@ export function DenseWorkspaceListSection({
                     {workspace.lines_added != null &&
                       workspace.lines_added > 0 && (
                         <span
-                          className="font-mono"
-                          data-vd-status="success"
+                          className="font-mono myne-status--success"
                         >
                           +{workspace.lines_added}
                         </span>
@@ -157,8 +140,7 @@ export function DenseWorkspaceListSection({
                     {workspace.lines_removed != null &&
                       workspace.lines_removed > 0 && (
                         <span
-                          className="font-mono"
-                          data-vd-status="danger"
+                          className="font-mono myne-status--danger"
                         >
                           -{workspace.lines_removed}
                         </span>
@@ -173,11 +155,9 @@ export function DenseWorkspaceListSection({
 
                   <div className="flex flex-wrap gap-2 sm:justify-end">
                     {canStop && (
-                      <button
-                        className="rounded border border-red-500/30 bg-red-500/10 px-2 py-1 font-medium disabled:cursor-not-allowed disabled:opacity-50"
-                        disabled={isStopping}
-                        data-vd-component="button"
-                        data-vd-tone="danger"
+                        <button
+                          className="myne-button myne-button--danger rounded border px-2 py-1 font-medium disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={isStopping}
                         onClick={() => actions.stopDevServer(workspace.id)}
                       >
                         {isStopping ? "Stopping…" : "Stop"}
@@ -185,9 +165,7 @@ export function DenseWorkspaceListSection({
                     )}
                     {nav ? (
                       <button
-                        className="rounded border border-indigo-500/30 bg-indigo-500/10 px-2 py-1 font-medium"
-                        data-vd-component="button"
-                        data-vd-tone="accent"
+                        className="rounded border px-2 py-1 font-medium myne-button myne-button--accent"
                         title={`Go to "${nav.label}"`}
                         onClick={() =>
                           actions.navigateToTabGroup(
@@ -199,11 +177,9 @@ export function DenseWorkspaceListSection({
                         Craft
                       </button>
                     ) : canOpenWorkspaceInSpace ? (
-                      <button
-                        className="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 font-medium"
-                        aria-label={`Open ${workspace.name}`}
-                        data-vd-component="button"
-                        data-vd-tone="quiet"
+                        <button
+                          className="myne-button myne-button--quiet rounded border px-2 py-1 font-medium"
+                          aria-label={`Open ${workspace.name}`}
                         onClick={() =>
                           actions.openSpacePickerForWorkspace(workspace)
                         }

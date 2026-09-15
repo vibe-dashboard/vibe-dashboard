@@ -1,7 +1,7 @@
 export {
   AGENT_EDITABLE_SKIN_PACKAGE_DIR,
-  BUILT_IN_VD_SKINS,
-  DEFAULT_VD_SKIN_ID,
+  BUILT_IN_MYNE_SKINS,
+  DEFAULT_MYNE_SKIN_ID,
   defaultDarkSkin,
   highContrastTerminalSkin,
   lightStudioSkin,
@@ -36,17 +36,17 @@ export {
   SkinEditorDialogView,
 } from "./SkinEditorDialog.view";
 export {
-  VDAction,
-  VDBadge,
-  VDCard,
-  VDHeading,
-  VDIcon,
-  VDRow,
-  VDText,
-  type VDActionTone,
-  type VDIconName,
-  type VDSemanticStatus,
-  type VDSemanticTextTone,
+  MyneAction,
+  MyneBadge,
+  MyneCard,
+  MyneHeading,
+  MyneIcon,
+  MyneRow,
+  MyneText,
+  type MyneActionTone,
+  type MyneIconName,
+  type MyneStatus,
+  type MyneTextTone,
 } from "./primitives.view";
 export {
   EDITABLE_COLOR_TOKEN_KEYS,
@@ -63,9 +63,9 @@ export {
 } from "./editor";
 export {
   getSkinRuntimeState,
-  type VDSkinCSSVariableName,
-  type VDSkinRuntimeOptions,
-  type VDSkinRuntimeState,
-  type VDSkinStyleVariables,
+  type MyneCSSVariableName,
+  type MyneSkinRuntimeOptions,
+  type MyneSkinRuntimeState,
+  type MyneStyleVariables,
 } from "./runtime";
 export * from "./types";

@@ -6,10 +6,10 @@ import {
   type SpacesOverviewViewProps,
 } from './SpacesOverview';
 import {
-  DEFAULT_VD_SKIN_ID,
+  DEFAULT_MYNE_SKIN_ID,
   lightStudioSkin,
   highContrastTerminalSkin,
-  type VDSkinState,
+  type MyneSkinState,
 } from '../theme/skins';
 import {
   storybookRepos,
@@ -110,8 +110,8 @@ const unlinkedWorkspace: DashboardWorkspace = {
 const populatedWorkspaces = [...dashboardWorkspaces, unlinkedWorkspace];
 
 function createStorySkinState(
-  activeGlobalSkinId: VDSkinState['activeGlobalSkinId'],
-): VDSkinState {
+  activeGlobalSkinId: MyneSkinState['activeGlobalSkinId'],
+): MyneSkinState {
   return {
     version: 1,
     userSkins: [],
@@ -119,8 +119,8 @@ function createStorySkinState(
   };
 }
 
-const skinStateByPreset: Record<SpacesOverviewSkinPreset, VDSkinState> = {
-  default: createStorySkinState(DEFAULT_VD_SKIN_ID),
+const skinStateByPreset: Record<SpacesOverviewSkinPreset, MyneSkinState> = {
+  default: createStorySkinState(DEFAULT_MYNE_SKIN_ID),
   'high-contrast-terminal': createStorySkinState(highContrastTerminalSkin.id),
   'light-studio': createStorySkinState(lightStudioSkin.id),
 };

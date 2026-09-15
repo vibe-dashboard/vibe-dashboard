@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import type { VDSkinState } from "../../theme/skins";
+import type { MyneSkinState } from "../../theme/skins";
 import type {
   SavedWorkspaceSession,
   TabGroup,
@@ -49,7 +49,7 @@ export interface SpacesOverviewProps {
     containerRef: string,
     spaceId: string,
   ) => void | Promise<void>;
-  skinState?: VDSkinState;
+  skinState?: MyneSkinState;
 }
 
 export interface SpacesOverviewViewProps extends Omit<SpacesOverviewProps, "appHooks"> {

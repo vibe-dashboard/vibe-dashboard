@@ -29,7 +29,7 @@ const hardcodedTextColorUtility =
   /\b(?:hover:|group-hover:|disabled:hover:)?text-(?:white|black|zinc|slate|gray|neutral|stone|red|green|amber|yellow|blue|cyan|indigo|violet|purple|primary)-[^\s"`']+/g;
 
 const broadSlotHeadingSelector =
-  /\.surface\s+:global\(\[data-vd-slot\]\s+h[1-3]\)/;
+  /\.surface\s+:global\(\[data-myne-slot\]\s+h[1-3]\)/;
 
 const sharedPrimitiveImport =
   /from\s+["']\.\.\/\.\.\/theme\/skins["']/;
@@ -98,18 +98,16 @@ describe("SpacesOverview skin customization seam", () => {
   it("wraps the surface in SkinRoot and exposes semantic surface and slot attributes", () => {
     const html = renderSpacesOverview();
 
-    expect(html).toContain("data-vd-skin-root=\"true\"");
-    expect(html).toMatch(
-      /<div class="[^"]*\bh-full\b[^"]*\bw-full\b" data-vd-density=/,
-    );
-    expect(html).toContain("data-vd-surface=\"spaces-overview\"");
-    expect(html).toContain("data-vd-slot=\"page-header\"");
-    expect(html).toContain("data-vd-slot=\"recent-sessions\"");
-    expect(html).toContain("data-vd-slot=\"workspace-list\"");
-    expect(html).toContain("data-vd-slot=\"spaces-list\"");
-    expect(html).toContain("data-vd-component=\"row\"");
-    expect(html).toContain("data-vd-text=\"primary\"");
-    expect(html).toContain("data-vd-text=\"secondary\"");
+    expect(html).toContain("class=\"myne-theme h-full w-full\"");
+    expect(html).toContain("data-myne-surface=\"spaces-overview\"");
+    expect(html).toContain("data-myne-slot=\"page-header\"");
+    expect(html).toContain("data-myne-slot=\"recent-sessions\"");
+    expect(html).toContain("data-myne-slot=\"workspace-list\"");
+    expect(html).toContain("data-myne-slot=\"spaces-list\"");
+    expect(html).toContain("myne-row");
+    expect(html).toContain("myne-text--primary");
+    expect(html).toContain("myne-text--secondary");
+    expect(html).not.toContain("data-vd-");
   });
 
   it("keeps SpacesOverview foreground colors controlled by semantic skin hooks", () => {
@@ -127,13 +125,13 @@ describe("SpacesOverview skin customization seam", () => {
 
   it("does not let broad slot heading selectors override semantic primary text", () => {
     const source = readFileSync(
-      "src/components/spaces-overview/SpacesOverview.skin.module.css",
+      "src/theme/skins/myne.css",
       "utf8",
     );
 
     expect(source).not.toMatch(broadSlotHeadingSelector);
-    expect(source).toContain('[data-vd-text="primary"]');
-    expect(source).toContain("--vd-surface-spaces-overview-foreground");
+    expect(source).toContain(".myne-text--primary");
+    expect(source).toContain("--myne-color-foreground");
   });
 
   it("uses shared skin primitives instead of only hand-authored attributes", () => {
@@ -147,8 +145,8 @@ describe("SpacesOverview skin customization seam", () => {
         sharedPrimitiveImport.test(source),
       ),
     ).toBe(true);
-    expect(representativeViewSources.join("\n")).toContain("VDHeading");
-    expect(representativeViewSources.join("\n")).toContain("VDAction");
+    expect(representativeViewSources.join("\n")).toContain("MyneHeading");
+    expect(representativeViewSources.join("\n")).toContain("MyneAction");
   });
 
   it("can materially change SpacesOverview through an alternate global skin without changing the controller", () => {
@@ -160,9 +158,9 @@ describe("SpacesOverview skin customization seam", () => {
       },
     });
 
-    expect(html).toContain(`data-vd-skin-id="${lightStudioSkin.id}"`);
-    expect(html).toContain("--vd-color-background:#f8fafc");
-    expect(html).toContain("--vd-surface-spaces-overview-background:#f8fafc");
+    expect(html).toContain(`data-myne-skin="${lightStudioSkin.id}"`);
+    expect(html).toContain("--myne-color-background:#f8fafc");
+    expect(html).toContain("--myne-surface-spaces-overview-background:#f8fafc");
   });
 
   it("can swap the SpacesOverview view pack independently of skin selection", () => {
@@ -175,8 +173,8 @@ describe("SpacesOverview skin customization seam", () => {
       },
     });
 
-    expect(html).toContain(`data-vd-skin-id="${lightStudioSkin.id}"`);
-    expect(html).toContain("data-vd-view-pack=\"dense-workspace-list\"");
+    expect(html).toContain(`data-myne-skin="${lightStudioSkin.id}"`);
+    expect(html).toContain("data-myne-view-pack=\"dense-workspace-list\"");
     expect(html).toContain("VK Workspaces");
   });
 });

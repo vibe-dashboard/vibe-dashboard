@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import { SkinRootView } from "./SkinRoot.view";
-import { getSkinRuntimeState, type VDSkinRuntimeOptions } from "./runtime";
+import { getSkinRuntimeState, type MyneSkinRuntimeOptions } from "./runtime";
 
-export interface SkinRootProps extends VDSkinRuntimeOptions {
+export interface SkinRootProps extends MyneSkinRuntimeOptions {
   children?: ReactNode;
   className?: string;
 }

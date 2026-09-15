@@ -1,13 +1,13 @@
-import type { VDSkinManifestV1 } from "./types";
+import type { MyneSkinManifestV1 } from "./types";
 
-export const DEFAULT_VD_SKIN_ID = "vd-default-dark";
-export const AGENT_EDITABLE_SKIN_PACKAGE_DIR = ".vibe-dashboard/skins";
+export const DEFAULT_MYNE_SKIN_ID = "myne-default-dark";
+export const AGENT_EDITABLE_SKIN_PACKAGE_DIR = ".myne/skins";
 
-export const defaultDarkSkin: VDSkinManifestV1 = {
+export const defaultDarkSkin: MyneSkinManifestV1 = {
   schemaVersion: 1,
-  id: DEFAULT_VD_SKIN_ID,
-  name: "VD Default Dark",
-  description: "Compatibility skin matching the existing dark VD shell.",
+  id: DEFAULT_MYNE_SKIN_ID,
+  name: "Myne Default Dark",
+  description: "Compatibility skin matching the existing dark application shell.",
   author: "Vibe Dashboard",
   tokens: {
     colors: {
@@ -122,10 +122,10 @@ export const defaultDarkSkin: VDSkinManifestV1 = {
   rawCss: [],
 };
 
-export const lightStudioSkin: VDSkinManifestV1 = {
+export const lightStudioSkin: MyneSkinManifestV1 = {
   ...defaultDarkSkin,
-  id: "vd-light-studio",
-  name: "VD Light Studio",
+  id: "myne-light-studio",
+  name: "Myne Light Studio",
   description: "Bright starter skin for checking shell contrast beyond dark mode.",
   tokens: {
     ...defaultDarkSkin.tokens,
@@ -203,10 +203,10 @@ export const lightStudioSkin: VDSkinManifestV1 = {
   },
 };
 
-export const highContrastTerminalSkin: VDSkinManifestV1 = {
+export const highContrastTerminalSkin: MyneSkinManifestV1 = {
   ...defaultDarkSkin,
-  id: "vd-high-contrast-terminal",
-  name: "VD High Contrast Terminal",
+  id: "myne-high-contrast-terminal",
+  name: "Myne High Contrast Terminal",
   description: "High-contrast starter skin for dense agent/operator workflows.",
   tokens: {
     ...defaultDarkSkin.tokens,
@@ -295,7 +295,7 @@ export const highContrastTerminalSkin: VDSkinManifestV1 = {
   },
 };
 
-export const BUILT_IN_VD_SKINS = [
+export const BUILT_IN_MYNE_SKINS = [
   defaultDarkSkin,
   lightStudioSkin,
   highContrastTerminalSkin,

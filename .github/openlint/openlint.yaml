@@ -51,6 +51,22 @@ packs:
       - no-ui-class-prefixes
 
 presets:
+  myne-view-boundaries:
+    description: Keep trusted presentation views hook-free and intrinsic JSX out of non-view modules.
+    integrations:
+      - tsx-no-intrinsic-jsx-outside-view
+      - tsx-no-hooks-in-view
+    packs:
+      - tsx-view-boundary
+  myne-skinability:
+    description: Enforce local JSX skinability syntax; repository conformance owns cross-file outcomes.
+    integrations:
+      - tsx-no-intrinsic-jsx-outside-view
+      - tsx-no-hooks-in-view
+      - jsx-attribute-ban
+      - jsx-attribute-prefix-ban
+    packs:
+      - ui-customization-fences
   tsx-view-boundary:
     description: Enforce separation between TSX view files and non-view TSX components.
     integrations:

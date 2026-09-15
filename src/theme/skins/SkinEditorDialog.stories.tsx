@@ -2,9 +2,9 @@ import { useEffect, useMemo } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { SkinEditorContainer } from "./SkinEditorDialog";
 import {
-  DEFAULT_VD_SKIN_ID,
+  DEFAULT_MYNE_SKIN_ID,
   lightStudioSkin,
-  type VDSkinState,
+  type MyneSkinState,
 } from "./index";
 import {
   createSkinLabStories,
@@ -49,23 +49,23 @@ type SkinEditorDensityPreset = "desktop" | "mobile";
 type SkinEditorStatePreset = "default-global" | "custom-active";
 type SkinEditorStoryArgs = {
   densityPreset: SkinEditorDensityPreset;
-  initialState: VDSkinState;
+  initialState: MyneSkinState;
   statePreset: SkinEditorStatePreset;
 };
 
-const defaultGlobalSkinState: VDSkinState = {
+const defaultGlobalSkinState: MyneSkinState = {
   version: 1,
-  activeGlobalSkinId: DEFAULT_VD_SKIN_ID,
+  activeGlobalSkinId: DEFAULT_MYNE_SKIN_ID,
   userSkins: [],
 };
 
-const customSkinActiveState: VDSkinState = {
+const customSkinActiveState: MyneSkinState = {
   version: 1,
   activeGlobalSkinId: customStudioSkin.id,
   userSkins: [customStudioSkin],
 };
 
-const skinEditorStateByPreset: Record<SkinEditorStatePreset, VDSkinState> = {
+const skinEditorStateByPreset: Record<SkinEditorStatePreset, MyneSkinState> = {
   "custom-active": customSkinActiveState,
   "default-global": defaultGlobalSkinState,
 };

@@ -6,31 +6,33 @@ import type {
   SVGAttributes,
 } from "react";
 
-export type VDSemanticTextTone = "primary" | "secondary" | "muted";
-export type VDSemanticStatus =
+export type MyneTextTone = "primary" | "secondary" | "muted";
+export type MyneStatus =
   | "accent"
   | "danger"
   | "secondary"
   | "success"
   | "warning";
-export type VDActionTone = "accent" | "danger" | "quiet";
-export type VDIconName = "chevron";
+export type MyneActionTone = "accent" | "danger" | "quiet";
+export type MyneIconName = "chevron";
 
-interface VDTextProps extends HTMLAttributes<HTMLElement> {
+interface MyneTextProps extends HTMLAttributes<HTMLElement> {
   as?: "div" | "p" | "span";
   children?: ReactNode;
-  status?: VDSemanticStatus;
-  tone?: VDSemanticTextTone;
+  status?: MyneStatus;
+  tone?: MyneTextTone;
 }
 
-export function VDText({
+export function MyneText({
   as = "span",
   children,
   status,
   tone = "primary",
+  className,
   ...props
-}: VDTextProps) {
-  const semanticProps = getTextSemanticProps({ status, tone });
+}: MyneTextProps) {
+  const semanticClassName = status ? `myne-status--${status}` : `myne-text--${tone}`;
+  const semanticProps = { className: joinClasses("myne-text", semanticClassName, className) };
 
   if (as === "div") {
     return (
@@ -55,19 +57,20 @@ export function VDText({
   );
 }
 
-interface VDHeadingProps extends HTMLAttributes<HTMLHeadingElement> {
+interface MyneHeadingProps extends HTMLAttributes<HTMLHeadingElement> {
   children?: ReactNode;
   level: 1 | 2 | 3 | 4;
-  tone?: Exclude<VDSemanticTextTone, "muted">;
+  tone?: Exclude<MyneTextTone, "muted">;
 }
 
-export function VDHeading({
+export function MyneHeading({
   children,
   level,
   tone = "primary",
+  className,
   ...props
-}: VDHeadingProps) {
-  const semanticProps = { "data-vd-text": tone };
+}: MyneHeadingProps) {
+  const semanticProps = { className: joinClasses("myne-heading", `myne-text--${tone}`, className) };
 
   if (level === 1) {
     return (
@@ -100,88 +103,73 @@ export function VDHeading({
   );
 }
 
-interface VDActionProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  tone?: VDActionTone;
+interface MyneActionProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  tone?: MyneActionTone;
 }
 
-export function VDAction({ tone, type, ...props }: VDActionProps) {
+export function MyneAction({ className, tone, type, ...props }: MyneActionProps) {
   return (
     <button
       {...props}
-      data-vd-component="button"
-      data-vd-tone={tone}
+      className={joinClasses("myne-button", tone && `myne-button--${tone}`, className)}
       type={type ?? "button"}
     />
   );
 }
 
-interface VDBadgeProps extends HTMLAttributes<HTMLSpanElement> {
-  status?: VDSemanticStatus;
+interface MyneBadgeProps extends HTMLAttributes<HTMLSpanElement> {
+  status?: MyneStatus;
 }
 
-export function VDBadge({ status, ...props }: VDBadgeProps) {
-  return <span {...props} data-vd-component="badge" data-vd-status={status} />;
+export function MyneBadge({ className, status, ...props }: MyneBadgeProps) {
+  return <span {...props} className={joinClasses("myne-badge", status && `myne-status--${status}`, className)} />;
 }
 
-type VDCardProps = HTMLAttributes<HTMLDivElement>;
+type MyneCardProps = HTMLAttributes<HTMLDivElement>;
 
-export function VDCard(props: VDCardProps) {
-  return <div {...props} data-vd-component="card" />;
+export function MyneCard({ className, ...props }: MyneCardProps) {
+  return <div {...props} className={joinClasses("myne-card", className)} />;
 }
 
-type VDDivRowProps = HTMLAttributes<HTMLDivElement> & { as?: "div" };
-type VDButtonRowProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+type MyneDivRowProps = HTMLAttributes<HTMLDivElement> & { as?: "div" };
+type MyneButtonRowProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   as: "button";
 };
-type VDRowProps = VDDivRowProps | VDButtonRowProps;
+type MyneRowProps = MyneDivRowProps | MyneButtonRowProps;
 
-export function VDRow(props: VDDivRowProps): ReactElement;
-export function VDRow(props: VDButtonRowProps): ReactElement;
-export function VDRow(props: VDRowProps): ReactElement {
+export function MyneRow(props: MyneDivRowProps): ReactElement;
+export function MyneRow(props: MyneButtonRowProps): ReactElement;
+export function MyneRow(props: MyneRowProps): ReactElement {
   if (props.as === "button") {
-    const { as: _as, type, ...buttonProps } = props;
+    const { as: _as, className, type, ...buttonProps } = props;
 
     return (
       <button
         {...buttonProps}
-        data-vd-component="row"
+        className={joinClasses("myne-row", className)}
         type={type ?? "button"}
       />
     );
   }
 
-  const { as: _as, ...divProps } = props;
+  const { as: _as, className, ...divProps } = props;
 
-  return <div {...divProps} data-vd-component="row" />;
+  return <div {...divProps} className={joinClasses("myne-row", className)} />;
 }
 
-interface VDIconProps extends SVGAttributes<SVGSVGElement> {
+interface MyneIconProps extends SVGAttributes<SVGSVGElement> {
   children?: ReactNode;
-  name: VDIconName;
+  name: MyneIconName;
 }
 
-export function VDIcon({ children, name, ...props }: VDIconProps) {
+export function MyneIcon({ children, className, name, ...props }: MyneIconProps) {
   return (
-    <svg {...props} data-vd-icon={name}>
+    <svg {...props} className={joinClasses("myne-icon", `myne-icon--${name}`, className)}>
       {children}
     </svg>
   );
 }
 
-function getTextSemanticProps({
-  status,
-  tone,
-}: {
-  status: VDSemanticStatus | undefined;
-  tone: VDSemanticTextTone;
-}) {
-  if (status) {
-    return { "data-vd-status": status };
-  }
-
-  if (tone === "muted") {
-    return { "data-vd-muted": true };
-  }
-
-  return { "data-vd-text": tone };
+function joinClasses(...classes: Array<string | false | null | undefined>): string {
+  return classes.filter(Boolean).join(" ");
 }

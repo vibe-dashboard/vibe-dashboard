@@ -5,116 +5,131 @@ import { resolve } from "node:path";
 
 const projectRoot = resolve(process.argv[2] ?? process.cwd());
 
-const skinnedViewFiles = [
-  "src/components/spaces-overview/DefaultSpacesOverview.view.tsx",
-  "src/components/spaces-overview/DenseWorkspaceListSection.view.tsx",
-  "src/components/spaces-overview/RunningDevServersSection.view.tsx",
-  "src/components/spaces-overview/SpacePickerModal.view.tsx",
-  "src/components/spaces-overview/craftSections.view.tsx",
-  "src/components/spaces-overview/workspaceList.view.tsx",
-  "src/theme/skins/SkinEditorDialog.view.tsx",
+const migratedSurfaces = [
+  {
+    id: "spaces-overview",
+    composition: "src/components/spaces-overview/SpacesOverview.composition.ts",
+    compositionMarkers: ["spacesOverviewCompositionRegistry", "defaultSpacesOverviewManifest", "denseSpacesOverviewManifest"],
+    views: [
+      "src/components/spaces-overview/DefaultSpacesOverview.view.tsx",
+      "src/components/spaces-overview/DenseWorkspaceListSection.view.tsx",
+      "src/components/spaces-overview/RunningDevServersSection.view.tsx",
+      "src/components/spaces-overview/SpacePickerModal.view.tsx",
+      "src/components/spaces-overview/craftSections.view.tsx",
+      "src/components/spaces-overview/workspaceList.view.tsx",
+    ],
+    styles: ["src/components/spaces-overview/SpacesOverview.skin.module.css"],
+  },
+  {
+    id: "skin-editor",
+    composition: "src/theme/skins/SkinEditorDialog.composition.tsx",
+    compositionMarkers: ["skinEditorCompositionRegistry", "defaultSkinEditorManifest", "selectedSkinEditorComposition"],
+    views: ["src/theme/skins/SkinEditorDialog.view.tsx"],
+    styles: ["src/theme/skins/SkinEditorDialog.module.css"],
+  },
 ];
+const skinnedViewFiles = migratedSurfaces.flatMap((surface) => surface.views);
 
-const hardcodedTextColorUtility =
-  /\b(?:hover:|group-hover:|disabled:hover:)?text-(?:white|black|zinc|slate|gray|neutral|stone|red|green|amber|yellow|blue|cyan|indigo|violet|purple|pink|primary)-[^\s"`']+/g;
+const hardcodedSkinColorUtility =
+  /\b(?:hover:|group-hover:|disabled:hover:)?(?:text|bg|border)-(?:white|black|zinc|slate|gray|neutral|stone|red|green|amber|yellow|blue|cyan|indigo|violet|purple|pink|primary)(?:-[^\s"`']+)?/g;
 
 const requiredHooks = [
   {
     filePath: "src/components/spaces-overview/DefaultSpacesOverview.view.tsx",
-    hook: 'data-vd-surface=',
+    hook: 'data-myne-surface=',
     rationale: "SpacesOverview needs a stable surface hook for global skin targeting.",
   },
   {
     filePath: "src/components/spaces-overview/DefaultSpacesOverview.view.tsx",
-    hook: 'data-vd-view-pack=',
+    hook: 'data-myne-view-pack=',
     rationale: "View-pack variants need a stable identifier for proofs and targeted styling.",
   },
   {
     filePath: "src/components/spaces-overview/DefaultSpacesOverview.view.tsx",
-    hook: 'data-vd-slot="page-header"',
+    hook: 'data-myne-slot="page-header"',
     rationale: "The page header is part of the stable SpacesOverview skin contract.",
   },
   {
     filePath: "src/components/spaces-overview/DefaultSpacesOverview.view.tsx",
-    hook: 'data-vd-slot="workspace-list"',
+    hook: 'data-myne-slot="workspace-list"',
     rationale: "The workspace list is part of the stable SpacesOverview skin contract.",
   },
   {
     filePath: "src/components/spaces-overview/craftSections.view.tsx",
-    hook: 'data-vd-slot="recent-sessions"',
+    hook: 'data-myne-slot="recent-sessions"',
     rationale: "Recent sessions are part of the stable SpacesOverview skin contract.",
   },
   {
     filePath: "src/components/spaces-overview/craftSections.view.tsx",
-    hook: 'data-vd-slot="spaces-list"',
+    hook: 'data-myne-slot="spaces-list"',
     rationale: "Spaces list is part of the stable SpacesOverview skin contract.",
   },
   {
     filePath: "src/theme/skins/SkinEditorDialog.view.tsx",
-    hook: 'data-vd-surface="skin-editor"',
+    hook: 'data-myne-surface="skin-editor"',
     rationale: "Skin Editor needs a stable surface hook for global skin targeting.",
   },
   {
     filePath: "src/theme/skins/SkinEditorDialog.view.tsx",
-    hook: 'data-vd-slot="skin-editor-library"',
+    hook: 'data-myne-slot="skin-editor-library"',
     rationale: "Skin Editor library is part of the stable Skin Editor skin contract.",
   },
   {
     filePath: "src/theme/skins/SkinEditorDialog.view.tsx",
-    hook: 'data-vd-slot="skin-editor-editor"',
+    hook: 'data-myne-slot="skin-editor-editor"',
     rationale: "Skin Editor token editor is part of the stable Skin Editor skin contract.",
   },
   {
     filePath: "src/theme/skins/SkinEditorDialog.view.tsx",
-    hook: 'data-vd-slot="skin-editor-preview"',
+    hook: 'data-myne-slot="skin-editor-preview"',
     rationale: "Skin Editor preview is part of the stable Skin Editor skin contract.",
   },
   {
     filePath: "src/theme/skins/SkinEditorDialog.view.tsx",
-    hook: 'data-vd-slot="skin-editor-import-export"',
+    hook: 'data-myne-slot="skin-editor-import-export"',
     rationale: "Skin Editor import/export is part of the stable Skin Editor skin contract.",
   },
   {
     filePath: "src/theme/skins/SkinEditorDialog.view.tsx",
-    hook: 'data-vd-slot="skin-editor-diagnostics"',
+    hook: 'data-myne-slot="skin-editor-diagnostics"',
     rationale: "Skin Editor diagnostics are part of the stable Skin Editor skin contract.",
   },
 ];
 
 const requiredSkinSelectors = [
   {
-    filePath: "src/components/spaces-overview/SpacesOverview.skin.module.css",
-    hook: '[data-vd-text="primary"]',
+    filePath: "src/theme/skins/myne.css",
+    hook: '.myne-text--primary',
     rationale: "Primary text must resolve through skin-controlled foreground tokens.",
   },
   {
-    filePath: "src/components/spaces-overview/SpacesOverview.skin.module.css",
-    hook: '[data-vd-text="secondary"]',
+    filePath: "src/theme/skins/myne.css",
+    hook: '.myne-text--secondary',
     rationale: "Secondary text must resolve through skin-controlled foreground tokens.",
   },
   {
-    filePath: "src/components/spaces-overview/SpacesOverview.skin.module.css",
-    hook: '[data-vd-muted',
+    filePath: "src/theme/skins/myne.css",
+    hook: '.myne-text--muted',
     rationale: "Muted text must resolve through skin-controlled foreground tokens.",
   },
   {
-    filePath: "src/components/spaces-overview/SpacesOverview.skin.module.css",
-    hook: '[data-vd-status="success"]',
+    filePath: "src/theme/skins/myne.css",
+    hook: '.myne-status--success',
     rationale: "Status foreground colors must remain skin-controlled.",
   },
   {
-    filePath: "src/components/spaces-overview/SpacesOverview.skin.module.css",
-    hook: '[data-vd-status="warning"]',
+    filePath: "src/theme/skins/myne.css",
+    hook: '.myne-status--warning',
     rationale: "Status foreground colors must remain skin-controlled.",
   },
   {
-    filePath: "src/components/spaces-overview/SpacesOverview.skin.module.css",
-    hook: '[data-vd-status="danger"]',
+    filePath: "src/theme/skins/myne.css",
+    hook: '.myne-status--danger',
     rationale: "Status foreground colors must remain skin-controlled.",
   },
   {
-    filePath: "src/components/spaces-overview/SpacesOverview.skin.module.css",
-    hook: '[data-vd-status="accent"]',
+    filePath: "src/theme/skins/myne.css",
+    hook: '.myne-status--accent',
     rationale: "Accent foreground colors must remain skin-controlled.",
   },
 ];
@@ -126,6 +141,54 @@ const representativePrimitiveFiles = [
 ];
 
 const findings = [];
+
+for (const surface of migratedSurfaces) {
+  const composition = readProjectFile(surface.composition);
+  if (composition === null) continue;
+  for (const marker of surface.compositionMarkers) {
+    if (!composition.includes(marker)) findings.push({
+      filePath: surface.composition,
+      message: `Surface ${surface.id} is missing composition registration "${marker}".`,
+      guidance: "Register layouts, compatible slot components, and view packs in the typed surface manifest.",
+    });
+  }
+}
+
+const migratedRuntimeFiles = [
+  ...skinnedViewFiles,
+  "src/theme/skins/primitives.view.tsx",
+  "src/theme/skins/SkinRoot.view.tsx",
+  "src/theme/skins/runtime.ts",
+  "src/theme/skins/myne.css",
+  "src/components/spaces-overview/SpacesOverview.skin.module.css",
+  "src/theme/skins/SkinEditorDialog.module.css",
+];
+for (const filePath of migratedRuntimeFiles) {
+  const source = readProjectFile(filePath);
+  if (source && /(?:data-vd-|--vd-|\bVD(?:Action|Badge|Card|Heading|Icon|Row|Text|Skin)|\bVD_SKIN\b|DEFAULT_VD_SKIN|BUILT_IN_VD_SKINS)/.test(source)) findings.push({
+    filePath,
+    message: "Stale VD customization vocabulary remains in a migrated runtime path.",
+    guidance: "Use registered myne classes, exact data-myne identities, and --myne-* runtime properties.",
+  });
+}
+
+for (const filePath of migratedSurfaces.flatMap((surface) => surface.styles)) {
+  const source = readProjectFile(filePath);
+  if (source && /:global|\.myne-|\[data-myne-/.test(source)) findings.push({
+    filePath,
+    message: "A private CSS Module reaches into the public myne selector contract.",
+    guidance: "Keep public myne classes and exact identity selectors in myne.css; CSS Modules may style only their local root classes.",
+  });
+}
+
+for (const filePath of skinnedViewFiles) {
+  const source = readProjectFile(filePath);
+  if (source && /data-myne-(?:component|text|muted|status|tone|icon)=?/.test(source)) findings.push({
+    filePath,
+    message: "Variant or component state is encoded as a data-myne attribute.",
+    guidance: "Reserve data-myne for exact surface, slot, skin, and view-pack identities; use registered classes and native/ARIA state.",
+  });
+}
 
 const injectedContainers = [
   "src/components/SpacesOverview.tsx",
@@ -190,12 +253,12 @@ for (const filePath of skinnedViewFiles) {
   const source = readProjectFile(filePath);
   if (source === null) continue;
 
-  for (const match of source.matchAll(hardcodedTextColorUtility)) {
+  for (const match of source.matchAll(hardcodedSkinColorUtility)) {
     findings.push({
       filePath,
-      message: `Hardcoded foreground utility "${match[0]}" found in a migrated skinned view.`,
+      message: `Hardcoded skin-controlled utility "${match[0]}" found in a migrated skinned view.`,
       guidance:
-        "Use skin primitives, semantic data-vd-* hooks, or inherited surface color instead of hardcoded foreground color classes.",
+        "Use myne primitives, registered public classes, or inherited surface color instead of hardcoded foreground color classes.",
     });
   }
 }
@@ -222,7 +285,7 @@ for (const filePath of representativePrimitiveFiles) {
       filePath,
       message: "Missing shared skin primitive import.",
       guidance:
-        "Use framework-first skin-aware primitives where they fit; do not rely only on manual data-vd attribute sprinkling.",
+        "Use framework-first myne primitives where they fit; reserve data-myne attributes for exact identities.",
     });
   }
 }

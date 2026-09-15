@@ -16,17 +16,17 @@ import { SpacePickerModal } from "./SpacePickerModal.view";
 import { Pagination, RepoFilterBar, WorkspaceRow } from "./workspaceList.view";
 import { createSpacesOverviewUI } from "./SpacesOverview.ui";
 import styles from "./SpacesOverview.skin.module.css";
-import { VDHeading, VDText } from "../../theme/skins";
+import { MyneHeading, MyneText } from "../../theme/skins";
 
 export function DefaultPageHeader(_props: SpacesOverviewComponentProps) {
   return (
-    <div className="mb-6" data-vd-slot="page-header">
-      <VDHeading className="text-2xl font-bold" level={1}>
+    <div className="mb-6" data-myne-slot="page-header">
+      <MyneHeading className="text-2xl font-bold" level={1}>
         Dashboard
-      </VDHeading>
-      <VDText as="p" className="mt-1 text-sm" tone="muted">
+      </MyneHeading>
+      <MyneText as="p" className="mt-1 text-sm" tone="muted">
         Workspace activity feed
-      </VDText>
+      </MyneText>
     </div>
   );
 }
@@ -123,16 +123,16 @@ export function DefaultWorkspaceListSection({
   } = model;
 
   return (
-    <div className="mb-10" data-vd-slot="workspace-list">
+    <div className="mb-10" data-myne-slot="workspace-list">
       <div className="flex items-center justify-between mb-3">
-        <VDHeading className="text-lg font-semibold" level={2}>
+        <MyneHeading className="text-lg font-semibold" level={2}>
           VK Workspaces
-        </VDHeading>
+        </MyneHeading>
         {!loading && sortedWorkspaces.length > 0 && (
-          <VDText className="text-xs" tone="muted">
+          <MyneText className="text-xs" tone="muted">
             {sortedWorkspaces.length} workspace
             {sortedWorkspaces.length !== 1 ? "s" : ""}
-          </VDText>
+          </MyneText>
         )}
       </div>
 
@@ -144,27 +144,26 @@ export function DefaultWorkspaceListSection({
 
       {loading ? (
         <div
-          className="flex items-center justify-center py-12"
-          data-vd-component="loading-state"
+          className="flex items-center justify-center py-12 myne-state myne-state--loading"
         >
-          <div className="w-6 h-6 border-2 border-zinc-600 border-t-zinc-300 rounded-full animate-spin" />
+          <div className="w-6 h-6 border-2 border-t-zinc-300 rounded-full animate-spin" />
         </div>
       ) : error ? (
-        <div className="py-8 text-center" data-vd-component="error-state">
-          <VDText as="p" className="text-sm" tone="secondary">
+        <div className="py-8 text-center myne-state myne-state--error">
+          <MyneText as="p" className="text-sm" tone="secondary">
             {error}
-          </VDText>
-          <VDText as="p" className="mt-1 text-xs" tone="muted">
+          </MyneText>
+          <MyneText as="p" className="mt-1 text-xs" tone="muted">
             VK backend may not be running
-          </VDText>
+          </MyneText>
         </div>
       ) : sortedWorkspaces.length === 0 ? (
-        <div className="py-8 text-center" data-vd-component="empty-state">
-          <VDText as="p" className="text-sm" tone="muted">
+        <div className="py-8 text-center myne-state myne-state--empty">
+          <MyneText as="p" className="text-sm" tone="muted">
             {selectedRepoId
               ? "No workspaces for this repository"
               : "No active workspaces"}
-          </VDText>
+          </MyneText>
         </div>
       ) : (
         <>
@@ -219,7 +218,7 @@ export function DefaultSpacesSection({
 
   return (
     <>
-      <div className="my-8 border-t border-zinc-800" />
+      <div className="my-8 border-t " />
       <SpacesSection
         spacesWithTabGroups={model.spacesWithTabGroups}
         onNavigateToTabGroup={actions.navigateToTabGroup}
@@ -282,7 +281,7 @@ export function DefaultSpacesOverviewLayout({
   model,
   actions,
   ui,
-  viewPackId = "default",
+  viewPackId = "myne.spaces.view-pack.default",
 }: {
   model: SpacesOverviewViewModel;
   actions: SpacesOverviewViewActions;
@@ -290,10 +289,10 @@ export function DefaultSpacesOverviewLayout({
   viewPackId?: string;
 }) {
   return (
-    <div
+    <main
       className={`${styles.surface} h-full w-full overflow-auto p-6 md:p-8`}
-      data-vd-surface="spaces-overview"
-      data-vd-view-pack={viewPackId}
+      data-myne-surface="spaces-overview"
+      data-myne-view-pack={viewPackId}
     >
       <div className="max-w-4xl mx-auto">
         <ui.PageHeader model={model} actions={actions} />
@@ -306,7 +305,7 @@ export function DefaultSpacesOverviewLayout({
         <ui.SpacesSection model={model} actions={actions} />
       </div>
       <ui.SpacePickerModal model={model} actions={actions} />
-    </div>
+    </main>
   );
 }
 

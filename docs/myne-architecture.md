@@ -26,10 +26,11 @@ flowchart LR
     CP --> CC[page container]
     CA --> CC
     CC --> CM[model + actions]
-    CM --> CS[source-selected React layout]
-    CS --> CU[typed UI component map]
-    CU --> CD[semantic-ish DOM + data-vd-*]
-    CD --> CK[--vd-* runtime + CSS Module]
+    CM --> CX[typed composition manifest]
+    CX --> CS[registered React layout]
+    CS --> CU[registered slot components]
+    CU --> CD[semantic HTML + myne-* / sparse data-myne identities]
+    CD --> CK[--myne-* runtime + five cascade layers]
   end
   subgraph T[APPROVED TARGET]
     TH[host composition root] --> TA[stable AppHooksV1 typed module registry]
@@ -47,11 +48,12 @@ flowchart LR
   C -. migration, not compatibility aliasing .-> T
 ```
 
-The current proof separates the SpacesOverview layout from its components,
-passes one `appHooks` prop to both proof-surface containers, and implements the
-approved runtime-immutable typed AppHooks registry. It does not yet implement
-the target React layout/component registries, composition-manifest validation,
-package loader, revision service, or `myne-*` DOM cutover.
+The current proof separates trusted layouts from registered components on both
+proof surfaces, resolves typed versioned manifests and view-pack presets, passes
+one `appHooks` prop to both proof-surface containers, and implements the approved
+runtime-immutable typed AppHooks registry and `myne-*` DOM/token cutover. It does
+not yet implement the untrusted package CSS compiler, package loader, or revision
+service.
 
 The registry replaces the earlier fixed `capabilities.spaces` /
 `capabilities.appearance` proof. Each module has a stable ID and independent
@@ -162,7 +164,7 @@ sequenceDiagram
   V->>S: SpacesOverviewViewModel + named actions
   S->>L: selected UI pack
   L->>U: render required component slots
-  U->>D: semantic elements + current data-vd-* hooks
+  U->>D: semantic elements + myne-* classes + exact data-myne identities
 ```
 
 `SpacesOverview` checks compatibility before rendering the hook-using child.
@@ -176,18 +178,21 @@ Its name does not make it a presentation-only view.
 
 The current composition seam is concrete:
 
+- [`SpacesOverview.composition.ts`](../src/components/spaces-overview/SpacesOverview.composition.ts)
+  owns the typed manifest, layout/component registry, compatibility checks, and
+  default/dense view-pack presets.
 - [`SpacesOverviewUIPack`](../src/components/spaces-overview/SpacesOverview.contracts.ts)
-  is a typed React component map.
+  is the layout-facing typed React component map produced by the resolver.
 - [`DefaultSpacesOverviewLayout`](../src/components/spaces-overview/DefaultSpacesOverview.view.tsx)
   orders those components.
 - [`selectedSpacesOverviewView`](../src/components/spaces-overview/SpacesOverview.selected.ts)
   is explicit source selection.
-- [`denseWorkspaceListSpacesOverviewUI`](../src/components/spaces-overview/SpacesOverview.alternates.ts)
-  proves one swappable component slot.
+- `denseSpacesOverviewManifest` proves a compatible per-slot override without
+  coupling the view pack to a skin.
 - [`createSkinLabStories`](../src/stories/skinLab.ts) builds deterministic
   Storybook matrices. It is not a production registry.
 
-The target replaces selection-by-import conventions with validated manifest
+The proof now replaces selection-by-import conventions with validated manifest
 IDs over reviewed layout/component registrations. Workspace loading, filtering,
 pagination, navigation, picker behavior, pending states, and failures remain
 container-owned semantics across every compatible renderer.
@@ -262,10 +267,10 @@ flowchart TB
   Package -. selector reach rejected .-> Protected
 ```
 
-Current proof output uses `data-vd-*`, `VD*` primitives, and `--vd-*`; target
-output uses semantic elements plus coarse `myne-*` classes and `--myne-*`
-variables. CSS Module names and Tailwind utilities remain private implementation
-details in both cases.
+Current proof output uses semantic elements, namespaced `myne-*` base/modifier
+classes, sparse exact `data-myne-surface`/`slot`/`skin`/`view-pack` identities,
+and compiled `--myne-*` variables. CSS Module names and layout-only Tailwind
+utilities remain private implementation details.
 
 Package CSS is parsed, default-denied, rewritten below an opaque generated root,
 and compiled all-or-nothing. Preview and activation consume the identical

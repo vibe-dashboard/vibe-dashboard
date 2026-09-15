@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_VD_SKIN_ID,
+  DEFAULT_MYNE_SKIN_ID,
   buildSingleSkinExportPackage,
   createDefaultSkinState,
   createEditableSkinFromBase,
@@ -12,9 +12,9 @@ import {
   upsertUserSkinAndSetGlobal,
   validateSkinEditorDraft,
 } from "./index";
-import type { VDSkinManifestV1 } from "./types";
+import type { MyneSkinManifestV1 } from "./types";
 
-function editableSkin(id = "vd-user-neon-flight"): VDSkinManifestV1 {
+function editableSkin(id = "vd-user-neon-flight"): MyneSkinManifestV1 {
   return {
     ...lightStudioSkin,
     id,
@@ -39,14 +39,14 @@ describe("skin editor state model", () => {
     const draft = createEditableSkinFromBase({
       baseSkin: lightStudioSkin,
       name: "Neon Flight",
-      existingIds: [DEFAULT_VD_SKIN_ID, lightStudioSkin.id],
+      existingIds: [DEFAULT_MYNE_SKIN_ID, lightStudioSkin.id],
     });
     draft.tokens.colors.accent = "#22d3ee";
 
     const previewState = createSkinEditorPreviewState(stored, draft);
 
     expect(stored.userSkins).toEqual([]);
-    expect(stored.activeGlobalSkinId).toBe(DEFAULT_VD_SKIN_ID);
+    expect(stored.activeGlobalSkinId).toBe(DEFAULT_MYNE_SKIN_ID);
     expect(previewState.userSkins).toHaveLength(1);
     expect(previewState.activeGlobalSkinId).toBe(draft.id);
   });

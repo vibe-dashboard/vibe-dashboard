@@ -1,0 +1,19 @@
+@layer myne.reset, myne.tokens, myne.components, myne.skin, myne.candidate;
+@layer myne.reset { .myne-theme { color: var(--myne-color-foreground); background: var(--myne-color-background); } .myne-button { font: inherit; } }
+@layer myne.tokens { .myne-theme { --myne-color-background: #09090b; --myne-color-foreground: #f4f4f5; --myne-color-panel: #18181b; --myne-color-muted: #a1a1aa; --myne-color-accent: #60a5fa; --myne-color-border: #27272a; --myne-color-danger: #f87171; --myne-color-success: #4ade80; --myne-color-warning: #fbbf24; } }
+@layer myne.components {
+  .myne-text--primary, .myne-heading { color: var(--myne-color-foreground); }
+  .myne-text--secondary { color: var(--myne-component-row-foreground, var(--myne-color-foreground)); }
+  .myne-text--muted { color: var(--myne-color-muted); }
+  .myne-status--accent { color: var(--myne-color-accent); } .myne-status--danger { color: var(--myne-color-danger); } .myne-status--success { color: var(--myne-color-success); } .myne-status--warning { color: var(--myne-color-warning); }
+  .myne-card, .myne-row, .myne-dialog, .myne-section { background: var(--myne-component-card-background, var(--myne-color-panel)); border-color: var(--myne-component-card-border, var(--myne-color-border)); border-radius: var(--myne-component-card-radius, .75rem); color: var(--myne-component-card-foreground, var(--myne-color-foreground)); }
+  .myne-button { background: var(--myne-component-button-background, var(--myne-color-panel)); border-color: var(--myne-component-button-border, var(--myne-color-border)); border-radius: var(--myne-component-button-radius, .5rem); color: var(--myne-component-button-foreground, var(--myne-color-foreground)); min-height: var(--myne-control-height, 2.25rem); }
+  .myne-button--accent { color: var(--myne-color-accent); } .myne-button--danger { color: var(--myne-color-danger); } .myne-button--quiet { color: var(--myne-color-muted); min-height: auto; }
+  .myne-badge { background: var(--myne-component-badge-background, var(--myne-color-panel)); border-color: var(--myne-component-badge-border, var(--myne-color-border)); border-radius: var(--myne-component-badge-radius, 999px); }
+  .myne-icon { color: var(--myne-color-muted); }
+  .myne-state--error { color: var(--myne-color-danger); }
+  .myne-button:focus-visible, .myne-row:focus-visible, .myne-theme input:focus-visible, .myne-theme textarea:focus-visible { outline: 2px solid var(--myne-color-accent); outline-offset: 2px; }
+}
+@layer myne.skin {}
+/* Candidate previews replace this complete final layer; they never append aliases. */
+@layer myne.candidate {}
