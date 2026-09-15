@@ -193,7 +193,9 @@ function nodeClient() {
   if (typeof createNodeBeadsClient !== 'function') {
     throw new Error('Beads client is only available on the node side of the BeadsForm module');
   }
-  return createNodeBeadsClient();
+  return createNodeBeadsClient({
+    notifySession: (sessionId, message) => vkClient().sendFollowUp(sessionId, message),
+  });
 }
 
 function vkClient() {
@@ -1698,14 +1700,14 @@ springboard.registerModule(
         return {
           beadId: input.beadId,
           formId: input.formId,
-          values: input.values,
+          values: result.values,
           submittedAt: result.submittedAt,
           submittedBy: result.submittedBy,
           prettySummary: result.prettySummary,
           agentMessage: buildAgentResultMessage({
             beadId: input.beadId,
             form,
-            values: input.values,
+            values: result.values,
             submittedAt: result.submittedAt,
             submittedBy: result.submittedBy,
           }),

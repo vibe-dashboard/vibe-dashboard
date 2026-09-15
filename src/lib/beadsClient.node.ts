@@ -16,10 +16,12 @@ import {
   selectBeadsForm,
   withBeadsFormsSummary,
   validateSubmittedValues,
+  normalizeSubmittedValues,
   type BeadLike,
   type BeadsFormDefinition,
   type JsonObject,
 } from './beadsFormCore.ts';
+import { buildBeadsFormSessionNotification, isValidBeadsFormSessionId } from './beadsFormSessionNotification.ts';
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_VD_BEADS_DIRECTORY = '/var/lib/vd/beads';
@@ -36,6 +38,7 @@ export type BeadsClientOptions = {
   now?: () => Date;
   actor?: string;
   reviewLabel?: string;
+  notifySession?: (sessionId: string, message: string) => Promise<unknown>;
 };
 
 export type SubmitBeadsFormInput = {
@@ -106,6 +109,7 @@ export class BeadsClient {
   private readonly now: () => Date;
   private readonly actor: string;
   private readonly reviewLabel: string;
+  private readonly notifySession?: (sessionId: string, message: string) => Promise<unknown>;
 
   constructor(options: BeadsClientOptions = {}) {
     this.bdPath = options.bdPath ?? 'bd';
@@ -113,6 +117,7 @@ export class BeadsClient {
     this.now = options.now ?? (() => new Date());
     this.actor = options.actor ?? 'user';
     this.reviewLabel = options.reviewLabel ?? 'needs-agent-review';
+    this.notifySession = options.notifySession;
   }
 
   async readBead(dir: string, beadId: string): Promise<BeadLike> {
@@ -408,32 +413,46 @@ export class BeadsClient {
     const form = selectBeadsForm(bead.metadata, input.formId);
     if (!form) throw new Error(`Form not found: ${input.formId}`);
 
-    const validationErrors = validateSubmittedValues(form, input.values);
+    const values = normalizeSubmittedValues(form, input.values);
+    const validationErrors = validateSubmittedValues(form, values);
     if (validationErrors.length > 0) throw new Error(validationErrors.join('\n'));
 
-    const prettySummary = buildPrettySummary(form, input.values);
+    const prettySummary = buildPrettySummary(form, values);
     const submittedAt = this.now().toISOString();
     const submittedBy = this.actor;
     const metadata = withBeadsFormsSummary(appendBeadsFormResponse(bead.metadata, form.id, {
       submittedBy,
       submittedAt,
-      values: input.values,
+      values,
       prettySummary,
     }));
 
     await this.updateMetadata(input.dir, input.beadId, metadata);
     const warnings: string[] = [];
-    try {
-      await this.addLabel(input.dir, input.beadId, this.reviewLabel);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      warnings.push(`Form response was saved, but adding label "${this.reviewLabel}" failed: ${message}`);
+    const sessionId = isObject(bead.metadata) ? bead.metadata.VK_SESSION_ID : undefined;
+    if (isValidBeadsFormSessionId(sessionId)) {
+      try {
+        if (!this.notifySession) throw new Error('creating-session notification service is unavailable');
+        await this.notifySession(sessionId, buildBeadsFormSessionNotification({
+          beadId: input.beadId,
+          form,
+          values,
+          submittedAt,
+          submittedBy,
+        }));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        warnings.push(`Form response was saved, but notifying its creating session failed: ${message}; do not submit again.`);
+        await this.addReviewLabelFallback(input.dir, input.beadId, warnings);
+      }
+    } else {
+      await this.addReviewLabelFallback(input.dir, input.beadId, warnings);
     }
 
     return {
       beadId: input.beadId,
       formId: input.formId,
-      values: input.values,
+      values,
       submittedAt,
       submittedBy,
       prettySummary,
@@ -441,6 +460,15 @@ export class BeadsClient {
       reviewLabel: this.reviewLabel,
       warnings,
     };
+  }
+
+  private async addReviewLabelFallback(dir: string, beadId: string, warnings: string[]): Promise<void> {
+    try {
+      await this.addLabel(dir, beadId, this.reviewLabel);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      warnings.push(`Form response was saved, but adding label "${this.reviewLabel}" failed: ${message}`);
+    }
   }
 
   async updateMetadata(dir: string, beadId: string, metadata: JsonObject): Promise<void> {
