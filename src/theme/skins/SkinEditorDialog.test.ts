@@ -55,6 +55,16 @@ function renderEditor({
   return { onSave };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
+}
+
 describe("SkinEditorDialog controller", () => {
   it("checks required capabilities before mounting the hook-using container", () => {
     const useSkinEditor = vi.fn();
@@ -126,6 +136,71 @@ describe("SkinEditorDialog controller", () => {
     });
     expect(secondSave).not.toHaveBeenCalled();
   });
+
+  it.each(["resolve", "reject"] as const)(
+    "invalidates an in-flight save when a host snapshot changes before stale %s",
+    async (settlement) => {
+      const pending = deferred<{ ok: true }>();
+      const firstSave = vi.fn<AppearanceModuleV1["saveAppearance"]>(() => pending.promise);
+      const secondSave = vi.fn<AppearanceModuleV1["saveAppearance"]>(async () => ({ ok: true }));
+      const defaultState = createDefaultSkinState();
+      const staleDraftId = "vd-user-vd-default-dark-custom";
+      const lightState: VDSkinState = {
+        ...defaultState,
+        activeGlobalSkinId: lightStudioSkin.id,
+        userSkins: [{ ...lightStudioSkin, id: staleDraftId, name: "Stale draft collision", rawCss: [] }],
+      };
+      const toSnapshot = (state: VDSkinState) => ({
+        schemaVersion: 1 as const,
+        value: state as unknown as ReadonlyJsonValue,
+      });
+      const firstHost = createFakeAppHooksV1Host({
+        appearanceSnapshot: toSnapshot(defaultState), saveAppearance: firstSave,
+      });
+      const secondHost = createFakeAppHooksV1Host({
+        appearanceSnapshot: toSnapshot(defaultState), saveAppearance: secondSave,
+      });
+      const root = firstHost.appHooks;
+      const registry = root.modules;
+      const module = registry.get("myne.appearance");
+      const firstMount = render(React.createElement(SkinEditorContainer, {
+        appHooks: root, onClose: vi.fn(), open: true,
+      }));
+      const secondMount = render(React.createElement(SkinEditorContainer, {
+        appHooks: secondHost.appHooks, onClose: vi.fn(), open: true,
+      }));
+
+      fireEvent.click(within(firstMount.container).getByRole("button", { name: "Create editable copy" }));
+      fireEvent.click(within(firstMount.container).getByRole("button", { name: "Save and apply" }));
+      await waitFor(() => expect(firstSave).toHaveBeenCalledTimes(1));
+      const saveButton = within(firstMount.container).getByRole("button", { name: "Save and apply" });
+      expect(saveButton.hasAttribute("disabled")).toBe(true);
+      fireEvent.click(saveButton);
+      expect(firstSave).toHaveBeenCalledTimes(1);
+
+      act(() => firstHost.setAppearanceSnapshot(toSnapshot(lightState)));
+      await waitFor(() => expect(
+        within(firstMount.container).getByRole("button", { name: /Light Studio/ }).getAttribute("aria-pressed"),
+      ).toBe("true"));
+
+      await act(async () => {
+        if (settlement === "resolve") pending.resolve({ ok: true });
+        else pending.reject(new Error("stale failure"));
+        await pending.promise.catch(() => undefined);
+      });
+
+      expect(within(firstMount.container).queryByText("Unsaved")).toBeNull();
+      expect(within(firstMount.container).queryByText(/Saved VD Default Dark Custom/)).toBeNull();
+      expect(within(firstMount.container).queryByText(/stale failure/)).toBeNull();
+      expect(within(firstMount.container).getByRole("button", { name: /Light Studio/ }).getAttribute("aria-pressed")).toBe("true");
+      expect(within(firstMount.container).getByRole("button", { name: "Apply selected" }).hasAttribute("disabled")).toBe(false);
+      expect(within(secondMount.container).getByRole("button", { name: /VD Default Dark/ }).getAttribute("aria-pressed")).toBe("true");
+      expect(secondSave).not.toHaveBeenCalled();
+      expect(firstHost.appHooks).toBe(root);
+      expect(root.modules).toBe(registry);
+      expect(registry.get("myne.appearance")).toBe(module);
+    },
+  );
 
   it("renders the migrated skin editor surface with stable semantic slots", () => {
     renderEditor();

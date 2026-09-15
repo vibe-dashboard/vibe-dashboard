@@ -58,6 +58,54 @@ describe("AppHooksV1", () => {
     expect(() => assertAppHooksV1Compatible(unsupported, APP_HOOKS_V1_REQUIREMENTS.spacesOverview)).toThrow(/version 1.*received 2/);
   });
 
+  it("accepts additive optional discovery IDs while validating the known v1 registry", () => {
+    const { appHooks } = createFakeAppHooksV1Host();
+    const spaces = appHooks.modules.get("myne.spaces");
+    const appearance = appHooks.modules.get("myne.appearance");
+    const future = { id: "myne.future-optional", version: 1, availability: { available: true } };
+    const modules = new Map<string, unknown>([
+      [spaces.id, spaces],
+      [appearance.id, appearance],
+      [future.id, future],
+    ]);
+    const newerAppHooks = {
+      contractVersion: 1,
+      modules: {
+        get: (id: "myne.spaces" | "myne.appearance") => modules.get(id),
+        has: (id: string) => modules.has(id),
+        ids: () => [...modules.keys()],
+      },
+    } as unknown as AppHooksV1;
+
+    expect(() => assertAppHooksV1Compatible(newerAppHooks, APP_HOOKS_V1_REQUIREMENTS.spacesOverview)).not.toThrow();
+    expect(newerAppHooks.modules.ids()).toEqual([
+      "myne.spaces",
+      "myne.appearance",
+      "myne.future-optional",
+    ]);
+    if (false) {
+      // @ts-expect-error Older consumers cannot call modules unknown to AppHooksModuleMapV1.
+      newerAppHooks.modules.get("myne.future-optional");
+    }
+  });
+
+  it("rejects duplicate discovery IDs and missing known IDs in newer registries", () => {
+    const { appHooks } = createFakeAppHooksV1Host();
+    const malformed = (ids: readonly string[], has: (id: string) => boolean) => ({
+      contractVersion: 1,
+      modules: { get: appHooks.modules.get, has, ids: () => ids },
+    }) as unknown as AppHooksV1;
+
+    expect(() => assertAppHooksV1Compatible(
+      malformed(["myne.spaces", "myne.appearance", "myne.future-optional", "myne.future-optional"], () => true),
+      APP_HOOKS_V1_REQUIREMENTS.spacesOverview,
+    )).toThrow(/malformed.*duplicated/i);
+    expect(() => assertAppHooksV1Compatible(
+      malformed(["myne.spaces", "myne.future-optional"], (id) => id !== "myne.appearance"),
+      APP_HOOKS_V1_REQUIREMENTS.spacesOverview,
+    )).toThrow(/malformed.*myne\.appearance/i);
+  });
+
   it("keeps optional unavailable modules hook-safe", () => {
     const appHooks = createAppHooksV1([]);
     expect(() => assertAppHooksV1Compatible(appHooks, [{ id: "myne.appearance", version: 1, required: false }])).not.toThrow();

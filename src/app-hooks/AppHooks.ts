@@ -99,8 +99,8 @@ export type AppHooksModuleV1 = AppHooksModuleMapV1[AppHooksModuleId];
 
 export interface AppHooksModuleRegistryV1 {
   get<K extends AppHooksModuleId>(id: K): AppHooksModuleMapV1[K];
-  has(id: AppHooksModuleId): boolean;
-  ids(): readonly AppHooksModuleId[];
+  has(id: string): boolean;
+  ids(): readonly string[];
 }
 
 export interface AppHooksV1 {
@@ -182,8 +182,8 @@ export function assertAppHooksV1Compatible(
     if (!listedIds.includes(id)) throw new Error(`Malformed AppHooksV1 envelope: published module ${id} is missing from discovery`);
     if (appHooks.modules.get(id).id !== id) throw new Error(`Malformed AppHooksV1 envelope: registry key ${id} resolves to a different module`);
   }
-  if (listedIds.length !== PUBLISHED_MODULE_IDS.length || new Set(listedIds).size !== listedIds.length) {
-    throw new Error("Malformed AppHooksV1 envelope: published module ID list is incomplete or duplicated");
+  if (new Set(listedIds).size !== listedIds.length) {
+    throw new Error("Malformed AppHooksV1 envelope: discovery module IDs are duplicated");
   }
   for (const requirement of requirements) {
     const module = appHooks.modules.get(requirement.id);

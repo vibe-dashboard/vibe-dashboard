@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BUILT_IN_VD_SKINS,
   DEFAULT_VD_SKIN_ID,
@@ -155,12 +155,17 @@ export function SkinEditorDialog({
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<VDSkinDiagnostic[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const operationGenerationRef = useRef(0);
+  const nextSaveRequestRef = useRef(0);
+  const activeSaveRef = useRef<{ generation: number; request: number } | null>(null);
   const externalStateKey = useMemo(
     () => JSON.stringify(skinState ?? null),
     [skinState],
   );
 
   useEffect(() => {
+    operationGenerationRef.current += 1;
+    activeSaveRef.current = null;
     setSelectedSkinId(savedState.activeGlobalSkinId);
     setDraftSkin(null);
     setImportText("");
@@ -381,9 +386,23 @@ export function SkinEditorDialog({
       return;
     }
 
+    // Saves are serialized per mounted editor. A host snapshot replacement
+    // invalidates the active token and permits a save against the new snapshot.
+    if (activeSaveRef.current) return;
+    const operation = {
+      generation: operationGenerationRef.current,
+      request: ++nextSaveRequestRef.current,
+    };
+    activeSaveRef.current = operation;
+    const isCurrentOperation = () =>
+      activeSaveRef.current?.generation === operation.generation
+      && activeSaveRef.current.request === operation.request
+      && operationGenerationRef.current === operation.generation;
+
     setIsSaving(true);
     try {
       const result = await actions.saveSkinState({ state: nextState });
+      if (!isCurrentOperation()) return;
       setDiagnostics(result.diagnostics ?? []);
       if (result.ok) {
         afterSave?.();
@@ -392,6 +411,7 @@ export function SkinEditorDialog({
         setStatusMessage(null);
       }
     } catch (error) {
+      if (!isCurrentOperation()) return;
       setDiagnostics([
         diagnostic(
           "save-failed",
@@ -401,7 +421,10 @@ export function SkinEditorDialog({
       ]);
       setStatusMessage(null);
     } finally {
-      setIsSaving(false);
+      if (isCurrentOperation()) {
+        activeSaveRef.current = null;
+        setIsSaving(false);
+      }
     }
   }
 }

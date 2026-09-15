@@ -58,7 +58,10 @@ The registry replaces the earlier fixed `capabilities.spaces` /
 version. The complete envelope always contains every published module ID;
 omitted implementations resolve to stable unavailable adapters, while an
 externally constructed registry missing even an optional published ID is
-malformed. Required incompatibility fails before a hook consumer mounts.
+malformed. Discovery IDs must be unique, but additive IDs unknown to an older
+consumer remain discoverable and do not make its root-v1 contract incompatible;
+typed lookup remains limited to that consumer's known module map. Required
+incompatibility fails before a hook consumer mounts.
 Unavailable hooks remain callable in normal hook order and return stable
 `{ available: false, reason }` results; available hooks return
 `{ available: true, value }`.
@@ -199,6 +202,10 @@ snapshot into the proof skin schema, and passes only editor actions/state to
 When the stable host replaces that snapshot, the controller reconciles its
 local selection to the new active skin and clears draft, import/export,
 diagnostic, status, and pending-save state rather than retaining a stale preset.
+That replacement also invalidates any in-flight save: its later resolution,
+rejection, cleanup, and success callback are ignored. Each mounted editor
+serializes saves while its current request is pending; replacement permits a
+new-generation save without allowing the older request to mutate UI state.
 
 ```mermaid
 sequenceDiagram
