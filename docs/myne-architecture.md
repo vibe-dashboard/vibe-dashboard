@@ -308,9 +308,13 @@ classes, sparse exact `data-myne-surface`/`slot`/`skin`/`view-pack` identities,
 and compiled `--myne-*` variables. CSS Module names and layout-only Tailwind
 utilities remain private implementation details.
 
-Package CSS is parsed, default-denied, rewritten below an opaque generated root,
-and compiled all-or-nothing. Preview and activation consume the identical
-artifact. Authorization, confirmation, diagnostics, safe-mode, and recovery
+The current [`scopedCss.ts`](../src/theme/skins/scopedCss.ts) compiler parses
+package CSS to an AST, applies the versioned default-deny policy, rewrites it
+below an opaque generated root, and compiles all-or-nothing. Its runtime consumes
+the identical branded artifact for preview and activation and preserves a
+last-known-good artifact or startup safe mode. Production package-loader and
+revision-service wiring remain pending, so the existing manifest importer still
+rejects non-empty raw CSS. Authorization, confirmation, diagnostics, safe-mode, and recovery
 controls remain outside package selector scope or in a separately isolated
 subtree. They can visually match through a host-derived token subset that
 passes accessibility checks; arbitrary package selectors or tokens cannot hide,

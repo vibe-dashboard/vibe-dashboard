@@ -14,7 +14,16 @@
   .myne-state, .myne-state--loading, .myne-state--empty { color: inherit; } .myne-state--error { color: var(--myne-color-danger); }
   .myne-preview-frame { background: var(--myne-color-background); color: var(--myne-color-foreground); }
   .myne-button:focus-visible, .myne-row:focus-visible, .myne-theme input:focus-visible, .myne-theme textarea:focus-visible { outline: 2px solid var(--myne-color-accent); outline-offset: 2px; }
+  .myne-protected-appearance-controls { isolation: isolate; position: relative; z-index: 1; pointer-events: auto; visibility: visible; opacity: 1; min-height: 2.75rem; background: var(--myne-protected-background, #09090b); color: var(--myne-protected-foreground, #f4f4f5); }
+  .myne-protected-appearance-controls:focus-visible { outline: var(--myne-protected-focus-width, 3px) solid var(--myne-protected-focus, #60a5fa); outline-offset: 2px; }
+  .myne-protected-appearance-controls[data-myne-protected-status="error"] { border: 2px dashed var(--myne-protected-danger, #f87171); text-decoration: underline; }
+  .myne-protected-appearance-controls[data-myne-protected-status="destructive"] { border: 4px double var(--myne-protected-danger, #f87171); font-weight: 800; }
+  .myne-protected-appearance-controls[data-myne-protected-status="warning"] { border: 2px dotted var(--myne-protected-warning, #fbbf24); text-decoration: double underline; }
+  .myne-protected-appearance-controls[data-myne-protected-status="confirmation"] { border: 2px solid var(--myne-protected-success, #4ade80); font-weight: 700; }
+  .myne-protected-appearance-controls[data-myne-protected-status="disabled"] { background-image: var(--myne-protected-disabled-pattern); cursor: not-allowed; }
 }
 @layer myne.skin {}
 /* Candidate previews replace this complete final layer; they never append aliases. */
 @layer myne.candidate {}
+@media (forced-colors: active) { .myne-protected-appearance-controls { border: 2px solid CanvasText; forced-color-adjust: auto; } .myne-protected-appearance-controls:focus-visible { outline: 3px solid Highlight; } }
+@media (prefers-reduced-motion: reduce) { .myne-protected-appearance-controls { animation: none; scroll-behavior: auto; transition-duration: 0ms; } }

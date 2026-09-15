@@ -70,3 +70,5 @@ export {
 } from "./runtime";
 export * from "./types";
 export * from "./appearanceSnapshot";
+export * from "./scopedCss";
+export * from "./ProtectedAppearanceBoundary.view";
