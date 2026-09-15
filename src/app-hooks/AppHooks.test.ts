@@ -1,9 +1,12 @@
+// @vitest-environment jsdom
+import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import {
   APP_HOOKS_V1_REQUIREMENTS,
   assertAppHooksV1Compatible,
   createAppHooksV1,
   createFakeAppHooksV1Host,
+  type AppHooksV1,
   unavailableAppearanceHooksV1,
   unavailableSpacesHooksV1,
 } from "./AppHooks";
@@ -28,9 +31,24 @@ describe("AppHooksV1", () => {
   });
 
   it("rejects unavailable, missing, or unsupported modules before mounting", () => {
-    const unavailable = createAppHooksV1([unavailableSpacesHooksV1, unavailableAppearanceHooksV1]);
+    const unavailable = createAppHooksV1([]);
+    expect(unavailable.modules.ids()).toEqual(["myne.spaces", "myne.appearance"]);
+    expect(unavailable.modules.get("myne.spaces")).toBe(unavailableSpacesHooksV1);
+    expect(unavailable.modules.get("myne.appearance")).toBe(unavailableAppearanceHooksV1);
     expect(() => assertAppHooksV1Compatible(unavailable, APP_HOOKS_V1_REQUIREMENTS.spacesOverview)).toThrow(/myne\.spaces.*unavailable/);
-    expect(() => assertAppHooksV1Compatible(createAppHooksV1([unavailableAppearanceHooksV1]), APP_HOOKS_V1_REQUIREMENTS.spacesOverview)).toThrow(/myne\.spaces.*missing/);
+
+    const malformed = {
+      contractVersion: 1,
+      modules: {
+        get: (id: "myne.spaces" | "myne.appearance") => {
+          if (id === "myne.appearance") return unavailableAppearanceHooksV1;
+          throw new Error("missing");
+        },
+        has: (id: "myne.spaces" | "myne.appearance") => id === "myne.appearance",
+        ids: () => ["myne.appearance"] as const,
+      },
+    } as AppHooksV1;
+    expect(() => assertAppHooksV1Compatible(malformed, [{ id: "myne.spaces", version: 1, required: false }])).toThrow(/malformed.*myne\.spaces/i);
 
     const { appHooks } = createFakeAppHooksV1Host();
     const unsupported = createAppHooksV1([
@@ -41,10 +59,18 @@ describe("AppHooksV1", () => {
   });
 
   it("keeps optional unavailable modules hook-safe", () => {
-    const appHooks = createAppHooksV1([unavailableAppearanceHooksV1]);
+    const appHooks = createAppHooksV1([]);
     expect(() => assertAppHooksV1Compatible(appHooks, [{ id: "myne.appearance", version: 1, required: false }])).not.toThrow();
-    expect(unavailableAppearanceHooksV1.useSkinEditor()).toBe(unavailableAppearanceHooksV1.useSkinEditor());
-    expect(unavailableSpacesHooksV1.useSpacesOverview()).toBe(unavailableSpacesHooksV1.useSpacesOverview());
+    const rendered = renderHook(() => ({
+      appearance: unavailableAppearanceHooksV1.useSkinEditor(),
+      spaces: unavailableSpacesHooksV1.useSpacesOverview(),
+    }));
+    const { appearance: appearanceResult, spaces: spacesResult } = rendered.result.current;
+    rendered.rerender();
+    expect(rendered.result.current.appearance).toBe(appearanceResult);
+    expect(rendered.result.current.spaces).toBe(spacesResult);
+    expect(appearanceResult).toEqual({ available: false, reason: "Host does not provide appearance editing." });
+    expect(spacesResult).toEqual({ available: false, reason: "Host does not provide spaces." });
   });
 
   it("preserves fake host identities while publishing current external-store state", async () => {
@@ -69,9 +95,17 @@ describe("AppHooksV1", () => {
   it("lets mounted consumers observe fake-host updates without replacing identities", () => {
     const host = createFakeAppHooksV1Host();
     const appearance = host.appHooks.modules.get("myne.appearance");
-    const rendered = renderHook(() => appearance.useSkinEditor());
+    const spaces = host.appHooks.modules.get("myne.spaces");
+    const rendered = renderHook(() => ({
+      appearance: appearance.useSkinEditor(),
+      spaces: spaces.useSpacesOverview(),
+    }));
     act(() => host.setAppearanceSnapshot({ schemaVersion: 1, value: { activeGlobalSkinId: "changed" } }));
-    expect(rendered.result.current.snapshot?.value).toEqual({ activeGlobalSkinId: "changed" });
+    expect(rendered.result.current.appearance).toEqual({
+      available: true,
+      value: { snapshot: { schemaVersion: 1, value: { activeGlobalSkinId: "changed" } } },
+    });
+    expect(rendered.result.current.spaces.available).toBe(true);
     expect(host.appHooks.modules.get("myne.appearance")).toBe(appearance);
   });
 
@@ -88,5 +122,3 @@ describe("AppHooksV1", () => {
     expect(stop).toHaveBeenCalledWith("workspace-1");
   });
 });
-// @vitest-environment jsdom
-import { act, renderHook } from "@testing-library/react";

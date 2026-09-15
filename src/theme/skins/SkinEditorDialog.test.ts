@@ -2,10 +2,12 @@
 import React from "react";
 import {
   cleanup,
+  act,
   fireEvent,
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -23,7 +25,10 @@ import {
 } from "./index";
 import {
   createFakeAppHooksV1,
+  createFakeAppHooksV1Host,
   createAppHooksV1,
+  type AppearanceModuleV1,
+  type ReadonlyJsonValue,
   unavailableAppearanceHooksV1,
 } from "../../app-hooks/AppHooks";
 
@@ -64,6 +69,62 @@ describe("SkinEditorDialog controller", () => {
       }),
     )).toThrow(/myne\.appearance is unavailable/);
     expect(useSkinEditor).not.toHaveBeenCalled();
+  });
+
+  it("reconciles controller state when stable fake hosts replace story presets and isolates mounts", async () => {
+    const firstSave = vi.fn<AppearanceModuleV1["saveAppearance"]>(async () => ({ ok: true }));
+    const secondSave = vi.fn<AppearanceModuleV1["saveAppearance"]>(async () => ({ ok: true }));
+    const defaultState = createDefaultSkinState();
+    const lightState: VDSkinState = {
+      ...defaultState,
+      activeGlobalSkinId: lightStudioSkin.id,
+    };
+    const toSnapshot = (state: VDSkinState) => ({
+      schemaVersion: 1 as const,
+      value: state as unknown as ReadonlyJsonValue,
+    });
+    const firstHost = createFakeAppHooksV1Host({
+      appearanceSnapshot: toSnapshot(defaultState),
+      saveAppearance: firstSave,
+    });
+    const secondHost = createFakeAppHooksV1Host({
+      appearanceSnapshot: toSnapshot(defaultState),
+      saveAppearance: secondSave,
+    });
+    const firstRegistry = firstHost.appHooks.modules;
+    const firstAppearance = firstRegistry.get("myne.appearance");
+    const firstUseSkinEditor = firstAppearance.useSkinEditor;
+    const firstSaveAppearance = firstAppearance.saveAppearance;
+    const firstMount = render(React.createElement(SkinEditorContainer, {
+      appHooks: firstHost.appHooks, onClose: vi.fn(), open: true,
+    }));
+    const secondMount = render(React.createElement(SkinEditorContainer, {
+      appHooks: secondHost.appHooks, onClose: vi.fn(), open: true,
+    }));
+
+    fireEvent.click(within(firstMount.container).getByRole("button", { name: "Create editable copy" }));
+    expect(within(firstMount.container).getByText("Unsaved")).toBeTruthy();
+
+    act(() => firstHost.setAppearanceSnapshot(toSnapshot(lightState)));
+
+    await waitFor(() => {
+      expect(within(firstMount.container).getByRole("button", { name: /Light Studio/ }).getAttribute("aria-pressed")).toBe("true");
+    });
+    expect(within(firstMount.container).queryByText("Unsaved")).toBeNull();
+    expect(within(secondMount.container).getByRole("button", { name: /VD Default Dark/ }).getAttribute("aria-pressed")).toBe("true");
+    expect(secondHost.getAppearanceSnapshot()).toEqual(toSnapshot(defaultState));
+    expect(firstHost.appHooks).not.toBe(secondHost.appHooks);
+    expect(firstHost.appHooks.modules).toBe(firstRegistry);
+    expect(firstHost.appHooks.modules.get("myne.appearance")).toBe(firstAppearance);
+    expect(firstAppearance.useSkinEditor).toBe(firstUseSkinEditor);
+    expect(firstAppearance.saveAppearance).toBe(firstSaveAppearance);
+
+    fireEvent.click(within(firstMount.container).getByRole("button", { name: "Apply selected" }));
+    await waitFor(() => expect(firstSave).toHaveBeenCalledTimes(1));
+    expect(firstSave.mock.calls[0]?.[0].snapshot.value).toMatchObject({
+      activeGlobalSkinId: lightStudioSkin.id,
+    });
+    expect(secondSave).not.toHaveBeenCalled();
   });
 
   it("renders the migrated skin editor surface with stable semantic slots", () => {

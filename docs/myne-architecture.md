@@ -55,8 +55,13 @@ package loader, revision service, or `myne-*` DOM cutover.
 
 The registry replaces the earlier fixed `capabilities.spaces` /
 `capabilities.appearance` proof. Each module has a stable ID and independent
-version. Required incompatibility fails before a hook consumer mounts; an
-optional unavailable module remains present as a stable, hook-safe adapter.
+version. The complete envelope always contains every published module ID;
+omitted implementations resolve to stable unavailable adapters, while an
+externally constructed registry missing even an optional published ID is
+malformed. Required incompatibility fails before a hook consumer mounts.
+Unavailable hooks remain callable in normal hook order and return stable
+`{ available: false, reason }` results; available hooks return
+`{ available: true, value }`.
 
 ## 2. Artifact vocabulary
 
@@ -147,7 +152,7 @@ sequenceDiagram
   I->>C: appHooks + workspace/session/navigation props
   C->>A: assert myne.spaces v1 compatibility
   C->>A: modules.get(myne.spaces).useSpacesOverview()
-  A-->>C: readonly workspace/repo DTOs + load state
+  A-->>C: discriminated available result with readonly DTOs + load state
   C->>C: translate public DTOs to proof models
   C->>V: host props + translated data + operations
   V->>V: own filters, pages, picker, pending/error state
@@ -191,6 +196,9 @@ The current controller is
 unconditionally consumes `myne.appearance`, translates the portable appearance
 snapshot into the proof skin schema, and passes only editor actions/state to
 [`SkinEditorDialogView`](../src/theme/skins/SkinEditorDialog.view.tsx).
+When the stable host replaces that snapshot, the controller reconciles its
+local selection to the new active skin and clears draft, import/export,
+diagnostic, status, and pending-save state rather than retaining a stale preset.
 
 ```mermaid
 sequenceDiagram

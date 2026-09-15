@@ -43,6 +43,10 @@ export interface SpacesStateV1 {
   readonly refetch: (isRefresh?: boolean) => Promise<void>;
 }
 
+export type ModuleHookResult<T> =
+  | { readonly available: true; readonly value: T }
+  | { readonly available: false; readonly reason: string };
+
 export type ReadonlyJsonValue =
   | null | boolean | number | string
   | readonly ReadonlyJsonValue[]
@@ -73,7 +77,7 @@ export interface SpacesModuleV1 {
   readonly id: "myne.spaces";
   readonly version: number;
   readonly availability: CapabilityAvailability;
-  readonly useSpacesOverview: () => SpacesStateV1;
+  readonly useSpacesOverview: () => ModuleHookResult<SpacesStateV1>;
   readonly stopWorkspaceExecution: (workspaceId: string) => Promise<void>;
 }
 
@@ -81,7 +85,7 @@ export interface AppearanceModuleV1 {
   readonly id: "myne.appearance";
   readonly version: number;
   readonly availability: CapabilityAvailability;
-  readonly useSkinEditor: () => AppearanceStateV1;
+  readonly useSkinEditor: () => ModuleHookResult<AppearanceStateV1>;
   readonly saveAppearance: (args: { readonly snapshot: AppearanceSnapshotV1 }) => Promise<AppearanceSaveResultDTO>;
 }
 
@@ -115,32 +119,45 @@ export const APP_HOOKS_V1_REQUIREMENTS = {
   spacesOverview: [{ id: "myne.spaces", version: 1, required: true }],
 } as const satisfies Record<string, readonly AppHooksCapabilityRequirement[]>;
 
-const EMPTY_SPACES_VALUE: SpacesStateV1 = Object.freeze({
-  workspaces: Object.freeze([]), repos: Object.freeze([]), loading: false,
-  error: "Spaces capability is unavailable.", refetch: async () => undefined,
+const UNAVAILABLE_SPACES_RESULT: ModuleHookResult<SpacesStateV1> = Object.freeze({
+  available: false,
+  reason: "Host does not provide spaces.",
 });
-const EMPTY_APPEARANCE_VALUE: AppearanceStateV1 = Object.freeze({});
+const UNAVAILABLE_APPEARANCE_RESULT: ModuleHookResult<AppearanceStateV1> = Object.freeze({
+  available: false,
+  reason: "Host does not provide appearance editing.",
+});
 
 export const unavailableSpacesHooksV1: SpacesModuleV1 = Object.freeze({
   id: "myne.spaces", version: 1,
   availability: Object.freeze({ available: false, reason: "Host does not provide spaces." }),
-  useSpacesOverview: () => EMPTY_SPACES_VALUE,
+  useSpacesOverview: () => UNAVAILABLE_SPACES_RESULT,
   stopWorkspaceExecution: async () => { throw new Error("myne.spaces is unavailable"); },
 });
 
 export const unavailableAppearanceHooksV1: AppearanceModuleV1 = Object.freeze({
   id: "myne.appearance", version: 1,
   availability: Object.freeze({ available: false, reason: "Host does not provide appearance editing." }),
-  useSkinEditor: () => EMPTY_APPEARANCE_VALUE,
+  useSkinEditor: () => UNAVAILABLE_APPEARANCE_RESULT,
   saveAppearance: async () => ({ ok: false }),
 });
 
+const PUBLISHED_MODULE_DEFAULTS: AppHooksModuleMapV1 = Object.freeze({
+  "myne.spaces": unavailableSpacesHooksV1,
+  "myne.appearance": unavailableAppearanceHooksV1,
+});
+const PUBLISHED_MODULE_IDS = Object.freeze(Object.keys(PUBLISHED_MODULE_DEFAULTS) as AppHooksModuleId[]);
+
 export function createAppHooksV1(modules: readonly AppHooksModuleV1[]): AppHooksV1 {
-  const moduleMap = new Map<AppHooksModuleId, AppHooksModuleV1>();
+  const suppliedModules = new Map<AppHooksModuleId, AppHooksModuleV1>();
   for (const module of modules) {
-    if (moduleMap.has(module.id)) throw new Error(`Duplicate AppHooksV1 module ${module.id}`);
+    if (suppliedModules.has(module.id)) throw new Error(`Duplicate AppHooksV1 module ${module.id}`);
     Object.freeze(module.availability);
-    moduleMap.set(module.id, Object.freeze(module));
+    suppliedModules.set(module.id, Object.freeze(module));
+  }
+  const moduleMap = new Map<AppHooksModuleId, AppHooksModuleV1>();
+  for (const id of PUBLISHED_MODULE_IDS) {
+    moduleMap.set(id, suppliedModules.get(id) ?? PUBLISHED_MODULE_DEFAULTS[id]);
   }
   const registry: AppHooksModuleRegistryV1 = Object.freeze({
     get<K extends AppHooksModuleId>(id: K): AppHooksModuleMapV1[K] {
@@ -159,11 +176,16 @@ export function assertAppHooksV1Compatible(
   requirements: readonly AppHooksCapabilityRequirement[],
 ): void {
   if (appHooks.contractVersion !== 1) throw new Error(`AppHooksV1 requires contract version 1; received ${appHooks.contractVersion}`);
+  const listedIds = appHooks.modules.ids();
+  for (const id of PUBLISHED_MODULE_IDS) {
+    if (!appHooks.modules.has(id)) throw new Error(`Malformed AppHooksV1 envelope: published module ${id} is missing`);
+    if (!listedIds.includes(id)) throw new Error(`Malformed AppHooksV1 envelope: published module ${id} is missing from discovery`);
+    if (appHooks.modules.get(id).id !== id) throw new Error(`Malformed AppHooksV1 envelope: registry key ${id} resolves to a different module`);
+  }
+  if (listedIds.length !== PUBLISHED_MODULE_IDS.length || new Set(listedIds).size !== listedIds.length) {
+    throw new Error("Malformed AppHooksV1 envelope: published module ID list is incomplete or duplicated");
+  }
   for (const requirement of requirements) {
-    if (!appHooks.modules.has(requirement.id)) {
-      if (requirement.required) throw new Error(`Required AppHooksV1 module ${requirement.id} is missing`);
-      continue;
-    }
     const module = appHooks.modules.get(requirement.id);
     if (module.version !== requirement.version) throw new Error(`${requirement.id} requires version ${requirement.version}; received ${module.version}`);
     if (requirement.required && !module.availability.available) throw new Error(`${requirement.id} is unavailable: ${module.availability.reason}`);
@@ -200,8 +222,14 @@ export function createFakeAppHooksV1Host(options: {
     refetch: async () => undefined, ...options.spacesValue,
   });
   const appearanceStore = createExternalStore<AppearanceStateV1>({ snapshot: options.appearanceSnapshot });
-  const useSpacesOverview = () => useSyncExternalStore(spacesStore.subscribe, spacesStore.getSnapshot, spacesStore.getSnapshot);
-  const useSkinEditor = () => useSyncExternalStore(appearanceStore.subscribe, appearanceStore.getSnapshot, appearanceStore.getSnapshot);
+  const useSpacesOverview = (): ModuleHookResult<SpacesStateV1> => ({
+    available: true,
+    value: useSyncExternalStore(spacesStore.subscribe, spacesStore.getSnapshot, spacesStore.getSnapshot),
+  });
+  const useSkinEditor = (): ModuleHookResult<AppearanceStateV1> => ({
+    available: true,
+    value: useSyncExternalStore(appearanceStore.subscribe, appearanceStore.getSnapshot, appearanceStore.getSnapshot),
+  });
   const spaces: SpacesModuleV1 = Object.freeze({
     id: "myne.spaces", version: 1, availability: Object.freeze({ available: true }), useSpacesOverview,
     stopWorkspaceExecution: async (workspaceId: string) => {

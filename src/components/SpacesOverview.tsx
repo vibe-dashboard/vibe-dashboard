@@ -76,8 +76,12 @@ export function SpacesOverview(props: SpacesOverviewProps) {
 
 function SpacesOverviewContainer({ appHooks, ...props }: SpacesOverviewProps) {
   const spacesModule = appHooks.modules.get("myne.spaces");
+  const spacesResult = spacesModule.useSpacesOverview();
+  if (!spacesResult.available) {
+    throw new Error(`myne.spaces hook is unavailable: ${spacesResult.reason}`);
+  }
   const { workspaces: workspaceDTOs, repos: repoDTOs, loading, error, refetch } =
-    spacesModule.useSpacesOverview();
+    spacesResult.value;
   const workspaces: DashboardWorkspace[] = useMemo(() => workspaceDTOs.map((workspace) => ({
     id: workspace.id,
     name: workspace.name,

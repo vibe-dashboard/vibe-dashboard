@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   BUILT_IN_VD_SKINS,
   DEFAULT_VD_SKIN_ID,
@@ -110,8 +110,17 @@ function SkinEditorContainerContent({
   open,
 }: SkinEditorContainerProps) {
   const appearanceModule = appHooks.modules.get("myne.appearance");
-  const { snapshot } = appearanceModule.useSkinEditor();
-  const skinState = snapshot ? migrateSkinState(snapshot.value) : undefined;
+  const appearanceResult = appearanceModule.useSkinEditor();
+  const snapshot = appearanceResult.available
+    ? appearanceResult.value.snapshot
+    : undefined;
+  const skinState = useMemo(
+    () => snapshot ? migrateSkinState(snapshot.value) : undefined,
+    [snapshot],
+  );
+  if (!appearanceResult.available) {
+    throw new Error(`myne.appearance hook is unavailable: ${appearanceResult.reason}`);
+  }
   return (
     <SkinEditorDialog
       actions={{
@@ -146,6 +155,20 @@ export function SkinEditorDialog({
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<VDSkinDiagnostic[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const externalStateKey = useMemo(
+    () => JSON.stringify(skinState ?? null),
+    [skinState],
+  );
+
+  useEffect(() => {
+    setSelectedSkinId(savedState.activeGlobalSkinId);
+    setDraftSkin(null);
+    setImportText("");
+    setExportText("");
+    setStatusMessage(null);
+    setDiagnostics([]);
+    setIsSaving(false);
+  }, [externalStateKey]);
 
   const availableSkins = useMemo(
     () => [...BUILT_IN_VD_SKINS, ...savedState.userSkins],

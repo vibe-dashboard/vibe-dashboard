@@ -67,10 +67,14 @@ function useHostSpacesOverview(): SpacesStateV1 {
   return { workspaces, repos, loading, error, refetch };
 }
 
+function useHostSpacesModule() {
+  return { available: true as const, value: useHostSpacesOverview() };
+}
+
 export const hostAppHooksV1 = createAppHooksV1([
   Object.freeze({
       id: "myne.spaces", version: 1, availability: Object.freeze({ available: true }),
-      useSpacesOverview: useHostSpacesOverview,
+      useSpacesOverview: useHostSpacesModule,
       stopWorkspaceExecution: async (workspaceId: string) => {
         if (!workspaceId.trim()) throw new Error("workspaceId must be non-empty");
         await vkClient.stopWorkspaceExecution(workspaceId);
