@@ -230,6 +230,33 @@ A view pack is a replaceable presentation implementation for a declared surface
 contract. It receives only semantic model, actions, appearance context, and
 injected presentation primitives. It MUST NOT import host application APIs.
 
+React composition has four separate artifacts. A **layout** owns structural
+ordering and placement but receives content only through the surface's typed
+composition slots. A **component implementation** renders one typed semantic
+role. A **composition manifest** binds registered layout and component IDs to
+every required slot and is validated before render. A **view-pack preset** is a
+named, shareable selection of one compatible composition manifest plus allowed
+appearance defaults; it is not itself a component registry or an authority to
+execute host behavior.
+
+Trusted in-process React layouts and components MUST be registered by reviewed
+host source code. Manifests and presets refer to those registrations by stable
+IDs and MUST NOT carry source text, module specifiers, dynamic import URLs, or
+JavaScript. Production resolution MUST be explicit and deterministic; v1 does
+not scan packages or execute a manifest-selected module at runtime.
+
+A surface contract MUST define its slot IDs, the props accepted by each slot,
+which slots are required, and the semantic and accessibility obligations of
+each slot. Layouts MUST render every required slot exactly as allowed by that
+contract. Component implementations MUST accept only their declared semantic
+model and actions. Layout, component, manifest, and preset compatibility are
+checked independently so replacing one does not silently reinterpret another.
+
+Typed composition slots are React replacement points. Public CSS slots are
+stable semantic DOM regions. They are distinct contracts: a composition slot
+MAY emit one corresponding CSS slot, but code MUST NOT infer component identity
+or authorization from a CSS selector.
+
 A view-pack declaration MUST identify:
 
 - contract and package schema versions;
@@ -238,6 +265,12 @@ A view-pack declaration MUST identify:
 - supported states and density modes;
 - accessibility obligations; and
 - stable state fixtures used for preview and conformance.
+
+It MUST also identify its layout registration, complete typed slot bindings,
+component registrations, and the independently versioned surface contract each
+binding implements. Unknown registrations, missing required slots, duplicate
+bindings, unsupported versions, or incompatible surface IDs MUST fail before
+any selected renderer mounts.
 
 A host MUST reject a view pack whose required contract version or capabilities
 are unavailable. Skin and view-pack selection are independent: changing either
@@ -253,14 +286,20 @@ does not mean access to private host internals, unregistered capabilities,
 authorization bypasses, raw state supervisors, private RPC clients, or every
 module loaded by the host.
 
-The root envelope contract is normative; the concrete module names below are
-illustrative until `vkvw-8xaj.2 — Inject app hooks, data sources, and server
-actions through page and container props` proves and publishes them:
+The root envelope and immutable typed-registry behavior are normative. Concrete
+module names become public when their independently versioned interfaces are
+reviewed and published:
 
 ```ts
 interface AppHooksV1 {
   readonly contractVersion: 1;
-  readonly modules: ReadonlyMap<AppHooksModuleId, AppHooksModuleV1>;
+  readonly modules: AppHooksModuleRegistryV1;
+}
+
+interface AppHooksModuleRegistryV1 {
+  get<K extends AppHooksModuleId>(id: K): AppHooksModuleMapV1[K];
+  has(id: AppHooksModuleId): boolean;
+  ids(): readonly AppHooksModuleId[];
 }
 
 interface AppHooksModuleV1 {
@@ -273,11 +312,13 @@ type AppHooksModuleAvailability =
   | { readonly available: false; readonly reason: string };
 ```
 
-The host MUST keep the root object, module map, and module identities stable for
-the lifetime of a mounted host contract. The object and its public members MUST
-be readonly. A page declares required module IDs and supported module versions
-before mounting. The host MUST reject an incompatible page before render rather
-than allowing required hooks to disappear or fail during render.
+The registry MUST expose no mutation operations, and its private backing store
+MUST NOT be reachable through the public contract. The host MUST keep the root,
+registry, module, hook, and action identities stable for the lifetime of a
+mounted host contract. The object and its public members MUST be readonly. A
+page declares required module IDs and supported module versions before mounting.
+The host MUST reject an incompatible page before render rather than allowing
+required hooks to disappear or fail during render.
 
 Required modules MUST be available before mount. If a page declares an optional
 module that it may consume, the host MUST include that key as a stable adapter
@@ -299,8 +340,12 @@ results incompatibly, or changing documented behavior is breaking for that
 module. Changing root identity, discovery, stability, or compatibility semantics
 is breaking for the envelope and requires a new root contract version. Concrete
 module namespaces and members become public only after their interfaces and
-compatibility tests are reviewed under `vkvw-8xaj.2 — Inject app hooks, data
-sources, and server actions through page and container props`.
+compatibility tests are reviewed. Public module DTOs MUST be narrow, readonly,
+and owned by the app-hooks contract; they MUST NOT expose host clients,
+proof-surface types, mutable collections, Springboard state supervisors, stores,
+RPC envelopes, or implementation-era skin types. Host adapters translate
+internal data into public DTOs, and containers translate DTOs into presentation
+models.
 
 A high-level page/container MAY invoke `appHooks` hooks. It MUST follow the
 framework's hook-order rules and derive presentation-facing models and actions.
