@@ -69,3 +69,4 @@ export {
   type MyneStyleVariables,
 } from "./runtime";
 export * from "./types";
+export * from "./appearanceSnapshot";

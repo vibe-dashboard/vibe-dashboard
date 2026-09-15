@@ -51,8 +51,11 @@ flowchart LR
 The current proof separates trusted layouts from registered components on both
 proof surfaces, resolves typed versioned manifests and view-pack presets, passes
 one `appHooks` prop to both proof-surface containers, and implements the approved
-runtime-immutable typed AppHooks registry and `myne-*` DOM/token cutover. It does
-not yet implement the untrusted package CSS compiler, package loader, or revision
+runtime-immutable typed AppHooks registry and `myne-*` DOM/token cutover. A
+strict JSON-only portable snapshot v1 validator and canonical serializer now
+cover both proof-surface composition selections, skin state, capabilities,
+provenance, and SRI asset descriptors. It does not yet implement asset-byte
+loading/digest verification, the untrusted package CSS compiler, or the revision
 service.
 
 The registry replaces the earlier fixed `capabilities.spaces` /
@@ -247,7 +250,11 @@ sequenceDiagram
 [`editor.ts`](../src/theme/skins/editor.ts) implements current draft helpers;
 [`schema.ts`](../src/theme/skins/schema.ts) validates proof manifests and
 import/export packages; [`runtime.ts`](../src/theme/skins/runtime.ts) projects
-the current proof tokens. Production `hostAppHooksV1` still supplies an
+the current proof tokens. [`appearanceSnapshot.ts`](../src/theme/skins/appearanceSnapshot.ts)
+validates and canonically serializes the portable full-appearance snapshot; the
+normative persistence semantics are recorded in
+[`myne-appearance-revisions.md`](./myne-appearance-revisions.md). Production
+`hostAppHooksV1` still supplies an
 unavailable appearance adapter, so Storybook/test persistence is not evidence
 of a production settings or revision service. Raw CSS remains deferred and must
 not preview or persist before the protected compiler work is complete.
