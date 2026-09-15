@@ -17,8 +17,9 @@ import { Pagination, RepoFilterBar, WorkspaceRow } from "./workspaceList.view";
 import { createSpacesOverviewUI } from "./SpacesOverview.ui";
 import styles from "./SpacesOverview.skin.module.css";
 import { MyneHeading, MyneText } from "../../theme/skins";
+import type { SpacesOverviewSlotProps } from "./SpacesOverview.slots";
 
-export function DefaultPageHeader(_props: SpacesOverviewComponentProps) {
+export function DefaultPageHeader(_props: SpacesOverviewSlotProps<"pageHeader">) {
   return (
     <div className="mb-6" data-myne-slot="page-header">
       <MyneHeading className="text-2xl font-bold" level={1}>
@@ -34,14 +35,14 @@ export function DefaultPageHeader(_props: SpacesOverviewComponentProps) {
 export function DefaultRecentSessionsSection({
   model,
   actions,
-}: SpacesOverviewComponentProps) {
+}: SpacesOverviewSlotProps<"recentSessions">) {
   return <RecentSessionsSection model={model} actions={actions} />;
 }
 
 export function DefaultStarredCraftSection({
   model,
   actions,
-}: SpacesOverviewComponentProps) {
+}: SpacesOverviewSlotProps<"starredCraft">) {
   return (
     <StarredTabGroups
       items={model.starredTabGroups}
@@ -54,7 +55,7 @@ export function DefaultStarredCraftSection({
 export function DefaultRunningDevServersSection({
   model,
   actions,
-}: SpacesOverviewComponentProps) {
+}: SpacesOverviewSlotProps<"runningDevServers">) {
   return (
     <RunningDevServersSection
       workspaces={model.workspaces}
@@ -75,7 +76,7 @@ export function DefaultRunningDevServersSection({
 export function DefaultRecentlyVisitedCraftSection({
   model,
   actions,
-}: SpacesOverviewComponentProps) {
+}: SpacesOverviewSlotProps<"recentlyVisitedCraft">) {
   return (
     <RecentlyVisitedTabGroups
       items={model.recentlyVisited.items}
@@ -91,7 +92,7 @@ export function DefaultRecentlyVisitedCraftSection({
 export function DefaultRecentlyCreatedCraftSection({
   model,
   actions,
-}: SpacesOverviewComponentProps) {
+}: SpacesOverviewSlotProps<"recentlyCreatedCraft">) {
   return (
     <RecentlyCreatedTabGroups
       items={model.recentlyCreated.items}
@@ -107,7 +108,7 @@ export function DefaultRecentlyCreatedCraftSection({
 export function DefaultWorkspaceListSection({
   model,
   actions,
-}: SpacesOverviewComponentProps) {
+}: SpacesOverviewSlotProps<"workspaceList">) {
   const {
     effectiveRepos,
     loading,
@@ -146,7 +147,7 @@ export function DefaultWorkspaceListSection({
         <div
           className="flex items-center justify-center py-12 myne-state myne-state--loading"
         >
-          <div className="w-6 h-6 border-2 border-t-zinc-300 rounded-full animate-spin" />
+          <div className="w-6 h-6 border-2 border-t-current rounded-full animate-spin" />
         </div>
       ) : error ? (
         <div className="py-8 text-center myne-state myne-state--error">
@@ -213,7 +214,7 @@ export function DefaultWorkspaceListSection({
 export function DefaultSpacesSection({
   model,
   actions,
-}: SpacesOverviewComponentProps) {
+}: SpacesOverviewSlotProps<"spaces">) {
   if (!model.hasSpaces) return null;
 
   return (
@@ -231,7 +232,7 @@ export function DefaultSpacesSection({
 export function DefaultSpacePickerModal({
   model,
   actions,
-}: SpacesOverviewComponentProps) {
+}: SpacesOverviewSlotProps<"spacePicker">) {
   const {
     workspace,
     spacePickerTarget,

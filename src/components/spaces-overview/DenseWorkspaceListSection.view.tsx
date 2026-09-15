@@ -1,10 +1,10 @@
-import type { SpacesOverviewComponentProps } from "./SpacesOverview.contracts";
+import type { SpacesOverviewSlotProps } from "./SpacesOverview.slots";
 import { formatRelativeTime, Pagination } from "./workspaceList.view";
 
 export function DenseWorkspaceListSection({
   model,
   actions,
-}: SpacesOverviewComponentProps) {
+}: SpacesOverviewSlotProps<"workspaceList">) {
   const {
     loading,
     error,
@@ -102,7 +102,7 @@ export function DenseWorkspaceListSection({
                         <span className="h-1.5 w-1.5 shrink-0 rounded-full " />
                       )}
                       {workspace.pinned && (
-                        <span className="shrink-0 myne-status--warning">
+                        <span className="shrink-0 myne-status myne-status--warning">
                           *
                         </span>
                       )}
@@ -132,7 +132,7 @@ export function DenseWorkspaceListSection({
                     {workspace.lines_added != null &&
                       workspace.lines_added > 0 && (
                         <span
-                          className="font-mono myne-status--success"
+                          className="font-mono myne-status myne-status--success"
                         >
                           +{workspace.lines_added}
                         </span>
@@ -140,7 +140,7 @@ export function DenseWorkspaceListSection({
                     {workspace.lines_removed != null &&
                       workspace.lines_removed > 0 && (
                         <span
-                          className="font-mono myne-status--danger"
+                          className="font-mono myne-status myne-status--danger"
                         >
                           -{workspace.lines_removed}
                         </span>

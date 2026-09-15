@@ -8,6 +8,7 @@ const projectRoot = resolve(process.argv[2] ?? process.cwd());
 const migratedSurfaces = [
   {
     id: "spaces-overview",
+    openLintTarget: "src/components/spaces-overview",
     composition: "src/components/spaces-overview/SpacesOverview.composition.ts",
     compositionMarkers: ["spacesOverviewCompositionRegistry", "defaultSpacesOverviewManifest", "denseSpacesOverviewManifest"],
     views: [
@@ -19,19 +20,30 @@ const migratedSurfaces = [
       "src/components/spaces-overview/workspaceList.view.tsx",
     ],
     styles: ["src/components/spaces-overview/SpacesOverview.skin.module.css"],
+    evidence: [
+      "src/components/SpacesOverview.stories.tsx",
+      "src/components/spaces-overview/SpacesOverview.composition.test.ts",
+      "src/components/spaces-overview/SpacesOverview.skin.test.ts",
+    ],
   },
   {
     id: "skin-editor",
+    openLintTarget: "src/theme/skins/SkinEditorDialog.view.tsx",
     composition: "src/theme/skins/SkinEditorDialog.composition.tsx",
     compositionMarkers: ["skinEditorCompositionRegistry", "defaultSkinEditorManifest", "selectedSkinEditorComposition"],
     views: ["src/theme/skins/SkinEditorDialog.view.tsx"],
     styles: ["src/theme/skins/SkinEditorDialog.module.css"],
+    evidence: [
+      "src/theme/skins/SkinEditorDialog.stories.tsx",
+      "src/theme/skins/SkinEditorDialog.composition.test.ts",
+      "src/theme/skins/SkinEditorDialog.test.ts",
+    ],
   },
 ];
 const skinnedViewFiles = migratedSurfaces.flatMap((surface) => surface.views);
 
 const hardcodedSkinColorUtility =
-  /\b(?:hover:|group-hover:|disabled:hover:)?(?:text|bg|border)-(?:white|black|zinc|slate|gray|neutral|stone|red|green|amber|yellow|blue|cyan|indigo|violet|purple|pink|primary)(?:-[^\s"`']+)?/g;
+  /\b(?:hover:|group-hover:|disabled:hover:)?(?:text|bg|border(?:-[trblxy])?)-(?:white|black|zinc|slate|gray|neutral|stone|red|green|amber|yellow|blue|cyan|indigo|violet|purple|pink|primary)(?:-[^\s"`']+)?/g;
 
 const requiredHooks = [
   {
@@ -139,8 +151,34 @@ const representativePrimitiveFiles = [
   "src/components/spaces-overview/workspaceList.view.tsx",
   "src/theme/skins/SkinEditorDialog.view.tsx",
 ];
+const publicClassDefinitions = [
+  "myne-button",
+  "myne-card",
+  "myne-row",
+  "myne-state",
+  "myne-status",
+  "myne-text--primary",
+];
+const emittedTokenAssignments = [
+  "--myne-color-background",
+  "--myne-color-foreground",
+  "--myne-color-accent",
+  "--myne-color-danger",
+];
 
 const findings = [];
+const packageSource = readProjectFile("package.json");
+if (packageSource !== null) {
+  const scripts = JSON.parse(packageSource).scripts ?? {};
+  const openLintCommand = scripts["lint:ui-fences:migrated"] ?? "";
+  for (const surface of migratedSurfaces) {
+    if (!openLintCommand.includes(surface.openLintTarget)) findings.push({
+      filePath: "package.json",
+      message: `Migrated surface "${surface.id}" is not covered by the deterministic OpenLint target list.`,
+      guidance: `Add ${surface.openLintTarget} to lint:ui-fences:migrated.`,
+    });
+  }
+}
 
 for (const surface of migratedSurfaces) {
   const composition = readProjectFile(surface.composition);
@@ -150,6 +188,40 @@ for (const surface of migratedSurfaces) {
       filePath: surface.composition,
       message: `Surface ${surface.id} is missing composition registration "${marker}".`,
       guidance: "Register layouts, compatible slot components, and view packs in the typed surface manifest.",
+    });
+  }
+  const identifiers = [...new Set([...composition.matchAll(/["'](myne\.[a-zA-Z0-9._-]+)["']/g)].map((match) => match[1]))];
+  const normalizedIdentifiers = new Map();
+  for (const identifier of identifiers) {
+    const normalized = identifier.toLowerCase().replaceAll("_", "-");
+    const existing = normalizedIdentifiers.get(normalized);
+    if (existing && existing !== identifier) findings.push({
+      filePath: surface.composition,
+      message: `Public identifiers "${existing}" and "${identifier}" normalize to the same value.`,
+      guidance: "Canonical registered identifiers must remain unique after lowercase and separator normalization.",
+    });
+    normalizedIdentifiers.set(normalized, identifier);
+  }
+  for (const evidenceFile of surface.evidence) readProjectFile(evidenceFile);
+}
+
+const publicCss = readProjectFile("src/theme/skins/myne.css");
+if (publicCss !== null) {
+  for (const className of publicClassDefinitions) {
+    if (!publicCss.includes(`.${className}`)) findings.push({
+      filePath: "src/theme/skins/myne.css",
+      message: `Registered public class "${className}" has no emitted selector.`,
+      guidance: "Every canonical public class needs a positive emitted-output assertion in the shared public layer.",
+    });
+  }
+}
+const runtimeSource = readProjectFile("src/theme/skins/runtime.ts");
+if (runtimeSource !== null) {
+  for (const token of emittedTokenAssignments) {
+    if (!runtimeSource.includes(`setVariable(style, "${token}"`)) findings.push({
+      filePath: "src/theme/skins/runtime.ts",
+      message: `Registered runtime token "${token}" has no emitted assignment.`,
+      guidance: "Compile canonical typed tokens to their exact --myne-* runtime properties.",
     });
   }
 }

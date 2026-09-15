@@ -1,11 +1,10 @@
 import type { KeyboardEvent } from "react";
 import type {
   SpacesOverviewTabGroup,
-  SpacesOverviewViewActions,
-  SpacesOverviewViewModel,
   SpacesOverviewWorkspaceState,
   TabGroupWithSpace,
 } from "./SpacesOverview.contracts";
+import type { SpacesOverviewSlotProps } from "./SpacesOverview.slots";
 import { formatRelativeTime, Pagination } from "./workspaceList.view";
 
 export function TabGroupRow({
@@ -100,10 +99,7 @@ export function StarredTabGroups({
 export function RecentSessionsSection({
   model,
   actions,
-}: {
-  model: SpacesOverviewViewModel;
-  actions: SpacesOverviewViewActions;
-}) {
+}: SpacesOverviewSlotProps<"recentSessions">) {
   const {
     workspace,
     currentSessionId,
@@ -232,7 +228,7 @@ export function RecentSessionsSection({
                         <span>{sessionLocation}</span>
                         <span>{formatRelativeTime(session.updatedAt)}</span>
                         {session.id === currentSessionId && (
-                          <span className="myne-status--accent">
+                          <span className="myne-status myne-status--accent">
                             Current
                           </span>
                         )}
@@ -283,7 +279,7 @@ export function RecentSessionsSection({
                           >
                             {tabGroup.label}
                             {tabGroup.id === session.activeTabGroupId ? (
-                              <span className="ml-2 text-xs myne-status--accent">
+                              <span className="ml-2 text-xs myne-status myne-status--accent">
                                 Active
                               </span>
                             ) : null}

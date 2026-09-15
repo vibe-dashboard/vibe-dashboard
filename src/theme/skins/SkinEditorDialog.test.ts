@@ -23,6 +23,7 @@ import {
   type MyneSkinImportExportPackage,
   type MyneSkinState,
 } from "./index";
+import { selectedSkinEditorComposition } from "./SkinEditorDialog.composition";
 import {
   createFakeAppHooksV1,
   createFakeAppHooksV1Host,
@@ -481,7 +482,10 @@ describe("SkinEditorDialog view", () => {
     };
 
     const html = renderToStaticMarkup(
-      React.createElement(SkinEditorDialogView, props),
+      React.createElement(SkinEditorDialogView, {
+        ...props,
+        components: selectedSkinEditorComposition.components,
+      }),
     );
 
     expect(html).toContain("data-myne-skin=\"myne-light-studio\"");

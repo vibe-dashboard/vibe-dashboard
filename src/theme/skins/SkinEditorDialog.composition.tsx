@@ -1,15 +1,32 @@
-import type { ComponentType } from "react";
+import { createElement, type ComponentType } from "react";
 import {
   createCompositionRegistry,
   resolveComposition,
   type CompositionManifest,
 } from "../../myne/composition";
 import type { SkinEditorDialogViewProps } from "./SkinEditorDialog.contracts";
-import { SkinEditorDialogView } from "./SkinEditorDialog.view";
+import { projectSkinEditorSlotProps, skinEditorSlotContracts, skinEditorSlots, type SkinEditorSlot, type SkinEditorSlotProps } from "./SkinEditorDialog.slots";
+import {
+  DefaultSkinEditorDiagnostics,
+  DefaultSkinEditorHeader,
+  DefaultSkinEditorImportExport,
+  DefaultSkinEditorLibrary,
+  DefaultSkinEditorPreview,
+  DefaultSkinEditorTokenEditor,
+  CompactSkinEditorDiagnostics,
+  SkinEditorDialogView,
+} from "./SkinEditorDialog.view";
 
-export type SkinEditorSlot = "editor";
+export { projectSkinEditorSlotProps, skinEditorSlotContracts, skinEditorSlots } from "./SkinEditorDialog.slots";
 export type SkinEditorLayoutId = "myne.appearance.layout.dialog";
-export type SkinEditorComponentId = "myne.appearance.editor.default";
+export type SkinEditorComponentId =
+  | "myne.appearance.header.default"
+  | "myne.appearance.library.default"
+  | "myne.appearance.token-editor.default"
+  | "myne.appearance.preview.default"
+  | "myne.appearance.import-export.default"
+  | "myne.appearance.diagnostics.default"
+  | "myne.appearance.diagnostics.compact";
 export interface SkinEditorLayoutProps extends SkinEditorDialogViewProps {
   readonly components: Readonly<Record<SkinEditorSlot, ComponentType<SkinEditorDialogViewProps>>>;
   readonly viewPackId?: string;
@@ -26,19 +43,27 @@ export function SkinEditorDialogLayout({
   actions,
   viewPackId,
 }: SkinEditorLayoutProps) {
-  const Editor = components.editor;
-  return <Editor model={model} actions={actions} viewPackId={viewPackId} />;
+  return <SkinEditorDialogView model={model} actions={actions} components={components} viewPackId={viewPackId} />;
 }
+
+const registered = <S extends SkinEditorSlot>(slot: S, renderer: ComponentType<SkinEditorSlotProps<S>>) => ({
+  contractVersion: skinEditorSlotContracts[slot].version,
+  component: (props: SkinEditorDialogViewProps) =>
+    createElement(renderer, projectSkinEditorSlotProps(slot, props)),
+});
 
 export const skinEditorCompositionRegistry = createCompositionRegistry({
   surface: "skin-editor",
   version: 1,
   layouts: { "myne.appearance.layout.dialog": SkinEditorDialogLayout },
   components: {
-    "myne.appearance.editor.default": {
-      contractVersion: 1,
-      component: SkinEditorDialogView,
-    },
+    "myne.appearance.header.default": registered("header", DefaultSkinEditorHeader),
+    "myne.appearance.library.default": registered("library", DefaultSkinEditorLibrary),
+    "myne.appearance.token-editor.default": registered("tokenEditor", DefaultSkinEditorTokenEditor),
+    "myne.appearance.preview.default": registered("preview", DefaultSkinEditorPreview),
+    "myne.appearance.import-export.default": registered("importExport", DefaultSkinEditorImportExport),
+    "myne.appearance.diagnostics.default": registered("diagnostics", DefaultSkinEditorDiagnostics),
+    "myne.appearance.diagnostics.compact": registered("diagnostics", CompactSkinEditorDiagnostics),
   },
 });
 
@@ -48,10 +73,21 @@ export const defaultSkinEditorManifest: SkinEditorCompositionManifest = {
   layout: "myne.appearance.layout.dialog",
   viewPackId: "myne.appearance.view-pack.default",
   slots: {
-    editor: {
-      component: "myne.appearance.editor.default",
-      contractVersion: 1,
-    },
+    header: { component: "myne.appearance.header.default", contractVersion: 1 },
+    library: { component: "myne.appearance.library.default", contractVersion: 1 },
+    tokenEditor: { component: "myne.appearance.token-editor.default", contractVersion: 1 },
+    preview: { component: "myne.appearance.preview.default", contractVersion: 1 },
+    importExport: { component: "myne.appearance.import-export.default", contractVersion: 1 },
+    diagnostics: { component: "myne.appearance.diagnostics.default", contractVersion: 1 },
+  },
+};
+
+export const compactDiagnosticsSkinEditorManifest: SkinEditorCompositionManifest = {
+  ...defaultSkinEditorManifest,
+  viewPackId: "myne.appearance.view-pack.compact-diagnostics",
+  slots: {
+    ...defaultSkinEditorManifest.slots,
+    diagnostics: { component: "myne.appearance.diagnostics.compact", contractVersion: 1 },
   },
 };
 
@@ -59,3 +95,10 @@ export const selectedSkinEditorComposition = resolveComposition(
   skinEditorCompositionRegistry,
   defaultSkinEditorManifest,
 );
+
+export function resolveSkinEditorComposition(
+  manifest: SkinEditorCompositionManifest,
+  overrides: Partial<Record<SkinEditorSlot, SkinEditorComponentId>> = {},
+) {
+  return resolveComposition(skinEditorCompositionRegistry, manifest, overrides);
+}

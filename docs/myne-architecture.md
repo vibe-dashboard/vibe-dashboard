@@ -183,6 +183,9 @@ The current composition seam is concrete:
   default/dense view-pack presets.
 - [`SpacesOverviewUIPack`](../src/components/spaces-overview/SpacesOverview.contracts.ts)
   is the layout-facing typed React component map produced by the resolver.
+- [`SpacesOverview.slots.ts`](../src/components/spaces-overview/SpacesOverview.slots.ts)
+  independently versions each real semantic region and projects only that
+  region's model and action keys before a registered renderer is invoked.
 - [`DefaultSpacesOverviewLayout`](../src/components/spaces-overview/DefaultSpacesOverview.view.tsx)
   orders those components.
 - [`selectedSpacesOverviewView`](../src/components/spaces-overview/SpacesOverview.selected.ts)
@@ -240,6 +243,16 @@ the current proof tokens. Production `hostAppHooksV1` still supplies an
 unavailable appearance adapter, so Storybook/test persistence is not evidence
 of a production settings or revision service. Raw CSS remains deferred and must
 not preview or persist before the protected compiler work is complete.
+
+The current Skin Editor composition proof is
+[`SkinEditorDialog.composition.tsx`](../src/theme/skins/SkinEditorDialog.composition.tsx).
+Its declarative view packs bind a registered dialog layout to six meaningful,
+independently swappable regions: header, library, token editor, preview,
+import/export, and diagnostics. Each region has its own versioned projection of
+[`SkinEditorViewModel` and `SkinEditorViewActions`](../src/theme/skins/SkinEditorDialog.contracts.ts);
+the registry adapter constructs those projections, so a renderer is not passed
+surface-wide props or `AppHooksV1`. The compact-diagnostics preset demonstrates
+a compatible one-region override while remaining independent of the active skin.
 
 The target keeps working draft, preview snapshot, and committed revision
 separate. History is append-only: undo, redo, restore, and agent writes create
@@ -324,7 +337,9 @@ Springboard supervisors, stores, or private RPC clients.
 | Spaces container/controller | `SpacesOverview`, `SpacesOverviewView` | [`SpacesOverview.tsx`](../src/components/SpacesOverview.tsx) |
 | Spaces model/actions/UI pack | `SpacesOverviewViewModel`, `SpacesOverviewViewActions`, `SpacesOverviewUIPack` | [`SpacesOverview.contracts.ts`](../src/components/spaces-overview/SpacesOverview.contracts.ts) |
 | Spaces layout/selection | `DefaultSpacesOverviewLayout`, `selectedSpacesOverviewView` | [`DefaultSpacesOverview.view.tsx`](../src/components/spaces-overview/DefaultSpacesOverview.view.tsx), [`SpacesOverview.selected.ts`](../src/components/spaces-overview/SpacesOverview.selected.ts) |
+| Spaces slot contracts/projections | `spacesOverviewSlotContracts`, `projectSpacesOverviewSlotProps` | [`SpacesOverview.slots.ts`](../src/components/spaces-overview/SpacesOverview.slots.ts) |
 | Skin controller/view contract | `SkinEditorDialog`, `SkinEditorViewModel`, `SkinEditorViewActions` | [`SkinEditorDialog.tsx`](../src/theme/skins/SkinEditorDialog.tsx), [`SkinEditorDialog.contracts.ts`](../src/theme/skins/SkinEditorDialog.contracts.ts) |
+| Skin layout/slot composition | `SkinEditorDialogLayout`, `skinEditorSlotContracts`, `projectSkinEditorSlotProps` | [`SkinEditorDialog.composition.tsx`](../src/theme/skins/SkinEditorDialog.composition.tsx) |
 | Skin validation/runtime | `validateSkinManifest`, `getSkinRuntimeState` | [`schema.ts`](../src/theme/skins/schema.ts), [`runtime.ts`](../src/theme/skins/runtime.ts) |
 | Storybook matrix | `createSkinLabStories` | [`skinLab.ts`](../src/stories/skinLab.ts) |
 

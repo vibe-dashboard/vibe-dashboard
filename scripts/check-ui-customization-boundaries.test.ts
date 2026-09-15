@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -9,6 +9,7 @@ const scriptPath = join(projectRoot, "scripts/check-ui-customization-boundaries.
 
 function writeFixture(root: string, overrides: Record<string, string> = {}) {
   const files: Record<string, string> = {
+    "package.json": JSON.stringify({ scripts: { "lint:ui-fences:migrated": "ol check src/components/spaces-overview src/theme/skins/SkinEditorDialog.view.tsx" } }),
     "src/components/SpacesOverview.tsx":
       'export function SpacesOverview({ appHooks }) { appHooks.modules.get("myne.spaces").useSpacesOverview(); return <SkinRoot className="h-full w-full" state={skinState}>; }',
     "src/theme/skins/SkinEditorDialog.tsx":
@@ -56,9 +57,10 @@ function writeFixture(root: string, overrides: Record<string, string> = {}) {
     "src/theme/skins/SkinRoot.view.tsx":
       'export const SkinRootView = () => <div className="myne-theme" data-myne-skin="default" />;',
     "src/theme/skins/runtime.ts":
-      'export const variables = { "--myne-color-foreground": "#fff" };',
+      'setVariable(style, "--myne-color-background", "#000"); setVariable(style, "--myne-color-foreground", "#fff"); setVariable(style, "--myne-color-accent", "#00f"); setVariable(style, "--myne-color-danger", "#f00");',
     "src/theme/skins/myne.css": `
       .myne-text--primary {} .myne-text--secondary {} .myne-text--muted {}
+      .myne-button {} .myne-card {} .myne-row {} .myne-state {} .myne-status {}
       .myne-status--success {} .myne-status--warning {} .myne-status--danger {} .myne-status--accent {}
     `,
     "src/theme/skins/SkinEditorDialog.module.css": ".root {} .surface {}",
@@ -69,6 +71,12 @@ function writeFixture(root: string, overrides: Record<string, string> = {}) {
     "src/components/spaces-overview/SpacesOverview.skin.module.css": `
       .surface { min-width: 0; }
     `,
+    "src/components/SpacesOverview.stories.tsx": "export const Default = {};",
+    "src/components/spaces-overview/SpacesOverview.composition.test.ts": "export {};",
+    "src/components/spaces-overview/SpacesOverview.skin.test.ts": "export {};",
+    "src/theme/skins/SkinEditorDialog.stories.tsx": "export const Default = {};",
+    "src/theme/skins/SkinEditorDialog.composition.test.ts": "export {};",
+    "src/theme/skins/SkinEditorDialog.test.ts": "export {};",
     ...overrides,
   };
 
@@ -165,6 +173,50 @@ describe("UI customization boundary check", () => {
     expect(result.stdout).toContain("denseSpacesOverviewManifest");
   });
 
+  it("fails when distinct public identifiers collide after normalization", () => {
+    const root = mkdtempSync(join(tmpdir(), "ui-customization-identifiers-"));
+    writeFixture(root, {
+      "src/components/spaces-overview/SpacesOverview.composition.ts":
+        'export const spacesOverviewCompositionRegistry = { "myne.spaces.foo_bar": 1, "myne.spaces.foo-bar": 2 }; export const defaultSpacesOverviewManifest = {}; export const denseSpacesOverviewManifest = {};',
+    });
+    const result = spawnSync(process.execPath, [scriptPath, root], { encoding: "utf8" });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain("normalize to the same value");
+  });
+
+  it("fails when a migrated surface is absent from deterministic OpenLint coverage", () => {
+    const root = mkdtempSync(join(tmpdir(), "ui-customization-openlint-"));
+    writeFixture(root, {
+      "package.json": JSON.stringify({ scripts: { "lint:ui-fences:migrated": "ol check src/components/spaces-overview" } }),
+    });
+    const result = spawnSync(process.execPath, [scriptPath, root], { encoding: "utf8" });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain('Migrated surface "skin-editor" is not covered');
+  });
+
+  it("fails when canonical classes or typed tokens lack positive emitted output", () => {
+    const root = mkdtempSync(join(tmpdir(), "ui-customization-output-"));
+    writeFixture(root, {
+      "src/theme/skins/myne.css": ".myne-text--primary {} .myne-text--secondary {} .myne-text--muted {} .myne-status--success {} .myne-status--warning {} .myne-status--danger {} .myne-status--accent {}",
+      "src/theme/skins/runtime.ts": 'setVariable(style, "--myne-color-foreground", "#fff");',
+    });
+    const result = spawnSync(process.execPath, [scriptPath, root], { encoding: "utf8" });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain('Registered public class "myne-button" has no emitted selector');
+    expect(result.stdout).toContain('Registered runtime token "--myne-color-accent" has no emitted assignment');
+  });
+
+  it("fails when required story, accessibility, or compatibility evidence is missing", () => {
+    const root = mkdtempSync(join(tmpdir(), "ui-customization-evidence-"));
+    writeFixture(root);
+    const missingEvidence = join(root, "src/theme/skins/SkinEditorDialog.composition.test.ts");
+    rmSync(missingEvidence);
+    const check = spawnSync(process.execPath, [scriptPath, root], { encoding: "utf8" });
+    expect(check.status).toBe(1);
+    expect(check.stdout).toContain("Expected migrated UI customization target is missing");
+    expect(check.stdout).toContain("SkinEditorDialog.composition.test.ts");
+  });
+
   it("fails when CSS Modules reach into public selectors", () => {
     const root = mkdtempSync(join(tmpdir(), "ui-customization-css-module-"));
     writeFixture(root, {
@@ -198,6 +250,8 @@ describe("CI UI customization wiring", () => {
     expect(policy).toContain("openlint/no-intrinsic-jsx-outside-view");
     expect(policy).toContain("openlint/no-hooks-in-view");
     expect(policy).toContain("jsx/attribute-ban(attribute=style)");
+    expect(policy).toContain("myne-local-contracts:");
+    expect(policy).toContain("node scripts/openlint-myne-local.mjs");
   });
 
   it("exposes one local npm command for OpenLint fences and skinability checks", () => {

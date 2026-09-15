@@ -1,31 +1,35 @@
-import type { ComponentType } from "react";
+import { createElement, type ComponentType } from "react";
 import { createCompositionRegistry, resolveComposition, type CompositionManifest } from "../../myne/composition";
 import type { SpacesOverviewComponentProps, SpacesOverviewUIPack, SpacesOverviewViewActions, SpacesOverviewViewModel } from "./SpacesOverview.contracts";
 import { DefaultPageHeader, DefaultRecentSessionsSection, DefaultRecentlyCreatedCraftSection, DefaultRecentlyVisitedCraftSection, DefaultRunningDevServersSection, DefaultSpacePickerModal, DefaultSpacesOverviewLayout, DefaultSpacesSection, DefaultStarredCraftSection, DefaultWorkspaceListSection } from "./DefaultSpacesOverview.view";
 import { DenseWorkspaceListSection } from "./DenseWorkspaceListSection.view";
+import { projectSpacesOverviewSlotProps, spacesOverviewSlotContracts, spacesOverviewSlots, type SpacesOverviewSlot, type SpacesOverviewSlotProps } from "./SpacesOverview.slots";
 
-export const spacesOverviewSlots = ["pageHeader", "recentSessions", "starredCraft", "runningDevServers", "recentlyVisitedCraft", "recentlyCreatedCraft", "workspaceList", "spaces", "spacePicker"] as const;
-export type SpacesOverviewSlot = (typeof spacesOverviewSlots)[number];
+export { projectSpacesOverviewSlotProps, spacesOverviewSlots } from "./SpacesOverview.slots";
 export type SpacesOverviewLayoutId = "myne.spaces.layout.default";
 export type SpacesOverviewComponentId = "myne.spaces.page-header.default" | "myne.spaces.recent-sessions.default" | "myne.spaces.starred-craft.default" | "myne.spaces.running-dev-servers.default" | "myne.spaces.recently-visited.default" | "myne.spaces.recently-created.default" | "myne.spaces.workspace-list.default" | "myne.spaces.workspace-list.dense" | "myne.spaces.spaces.default" | "myne.spaces.space-picker.default";
 export interface SpacesOverviewLayoutProps { readonly model: SpacesOverviewViewModel; readonly actions: SpacesOverviewViewActions; readonly ui: SpacesOverviewUIPack; readonly viewPackId?: string; }
 export type SpacesOverviewCompositionManifest = CompositionManifest<SpacesOverviewSlot, SpacesOverviewLayoutId, SpacesOverviewComponentId>;
 
-const registered = (component: ComponentType<SpacesOverviewComponentProps>) => ({ contractVersion: 1, component });
+const registered = <S extends SpacesOverviewSlot>(slot: S, renderer: ComponentType<SpacesOverviewSlotProps<S>>) => ({
+  contractVersion: spacesOverviewSlotContracts[slot].version,
+  component: (props: SpacesOverviewComponentProps) =>
+    createElement(renderer, projectSpacesOverviewSlotProps(slot, props)),
+});
 export const spacesOverviewCompositionRegistry = createCompositionRegistry({
   surface: "spaces-overview", version: 1,
   layouts: { "myne.spaces.layout.default": DefaultSpacesOverviewLayout },
   components: {
-    "myne.spaces.page-header.default": registered(DefaultPageHeader),
-    "myne.spaces.recent-sessions.default": registered(DefaultRecentSessionsSection),
-    "myne.spaces.starred-craft.default": registered(DefaultStarredCraftSection),
-    "myne.spaces.running-dev-servers.default": registered(DefaultRunningDevServersSection),
-    "myne.spaces.recently-visited.default": registered(DefaultRecentlyVisitedCraftSection),
-    "myne.spaces.recently-created.default": registered(DefaultRecentlyCreatedCraftSection),
-    "myne.spaces.workspace-list.default": registered(DefaultWorkspaceListSection),
-    "myne.spaces.workspace-list.dense": registered(DenseWorkspaceListSection),
-    "myne.spaces.spaces.default": registered(DefaultSpacesSection),
-    "myne.spaces.space-picker.default": registered(DefaultSpacePickerModal),
+    "myne.spaces.page-header.default": registered("pageHeader", DefaultPageHeader),
+    "myne.spaces.recent-sessions.default": registered("recentSessions", DefaultRecentSessionsSection),
+    "myne.spaces.starred-craft.default": registered("starredCraft", DefaultStarredCraftSection),
+    "myne.spaces.running-dev-servers.default": registered("runningDevServers", DefaultRunningDevServersSection),
+    "myne.spaces.recently-visited.default": registered("recentlyVisitedCraft", DefaultRecentlyVisitedCraftSection),
+    "myne.spaces.recently-created.default": registered("recentlyCreatedCraft", DefaultRecentlyCreatedCraftSection),
+    "myne.spaces.workspace-list.default": registered("workspaceList", DefaultWorkspaceListSection),
+    "myne.spaces.workspace-list.dense": registered("workspaceList", DenseWorkspaceListSection),
+    "myne.spaces.spaces.default": registered("spaces", DefaultSpacesSection),
+    "myne.spaces.space-picker.default": registered("spacePicker", DefaultSpacePickerModal),
   },
 });
 

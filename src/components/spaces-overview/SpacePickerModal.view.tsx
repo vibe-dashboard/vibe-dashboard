@@ -53,7 +53,7 @@ export function SpacePickerModal({
         {actionError && (
           <div
             role="alert"
-            className="mx-5 mb-3 rounded-md border p-3 text-xs myne-status--danger"
+            className="mx-5 mb-3 rounded-md border p-3 text-xs myne-status myne-status--danger"
           >
             <div>{actionError}</div>
             {onRetry && (
@@ -86,7 +86,7 @@ export function SpacePickerModal({
                     {space.name}
                   </span>
                   {pendingSpaceId === space.id && (
-                    <span className="text-xs myne-status--accent">
+                    <span className="text-xs myne-status myne-status--accent">
                       Opening…
                     </span>
                   )}

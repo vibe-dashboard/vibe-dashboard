@@ -4,6 +4,10 @@ repo_local:
   enabled: false
 
 rules:
+  myne/local-contracts:
+    description: Enforce syntax-local @myne trust, selector, token, and semantic-state boundaries.
+    integration: myne-local-contracts
+    native_rule: local-contracts
   jsx/attribute-ban:
     description: Ban an explicitly named JSX attribute in JSX/TSX files.
     integration: jsx-attribute-ban
@@ -65,6 +69,7 @@ presets:
       - tsx-no-hooks-in-view
       - jsx-attribute-ban
       - jsx-attribute-prefix-ban
+      - myne-local-contracts
     packs:
       - ui-customization-fences
   tsx-view-boundary:
@@ -85,6 +90,52 @@ presets:
       - ui-customization-fences
 
 integrations:
+  myne-local-contracts:
+    enabled: true
+    required: true
+    run_by_default: false
+    rules:
+      - myne/local-contracts
+    spec:
+      id: myne-local-contracts
+      schema_version: 1
+      kind: shell
+      adapter: generic-json
+      rule_support: all
+      availability:
+        command: node
+      inputs:
+        paths: target_or_changed_files
+      shell:
+        cwd: target_root
+        timeout_secs: 60
+        command: |
+          node scripts/openlint-myne-local.mjs {{target_or_changed_files}}
+      output:
+        parser: json_diagnostics
+        source: stdout
+        diagnostics:
+          items: $[*]
+          rule_id:
+            path: $.ruleId
+            default: myne/local-contracts
+          message:
+            path: $.message
+            default: Local @myne contract violation.
+          severity:
+            path: $.severity
+            default: error
+          file:
+            path: $.file
+            default: ""
+          line:
+            path: $.range.start.line
+            add: 1
+          column:
+            path: $.range.start.column
+            add: 1
+          help:
+            path: $.note
   tsx-no-intrinsic-jsx-outside-view:
     enabled: true
     required: true
