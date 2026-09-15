@@ -75,8 +75,35 @@ export function SpacesOverview(props: SpacesOverviewProps) {
 }
 
 function SpacesOverviewContainer({ appHooks, ...props }: SpacesOverviewProps) {
-  const { workspaces, repos, loading, error, refetch } =
-    appHooks.capabilities.spaces.useSpacesOverview();
+  const spacesModule = appHooks.modules.get("myne.spaces");
+  const { workspaces: workspaceDTOs, repos: repoDTOs, loading, error, refetch } =
+    spacesModule.useSpacesOverview();
+  const workspaces: DashboardWorkspace[] = useMemo(() => workspaceDTOs.map((workspace) => ({
+    id: workspace.id,
+    name: workspace.name,
+    branch: workspace.branch,
+    pinned: workspace.pinned,
+    created_at: workspace.createdAt,
+    updated_at: workspace.updatedAt,
+    task_id: workspace.taskId,
+    container_ref: workspace.containerRef,
+    files_changed: workspace.filesChanged,
+    lines_added: workspace.linesAdded,
+    lines_removed: workspace.linesRemoved,
+    latest_process_status: workspace.latestProcessStatus,
+    latest_process_completed_at: workspace.latestProcessCompletedAt,
+    has_pending_approval: workspace.hasPendingApproval,
+    has_running_dev_server: workspace.hasRunningDevServer,
+    has_unseen_turns: workspace.hasUnseenTurns,
+    pr_status: workspace.pullRequestStatus,
+    repos: workspace.repos.map((repo) => ({
+      id: repo.id, name: repo.name, display_name: repo.displayName,
+      target_branch: repo.targetBranch,
+    })),
+  })), [workspaceDTOs]);
+  const repos: SpacesOverviewRepo[] = useMemo(() => repoDTOs.map((repo) => ({
+    id: repo.id, name: repo.name, display_name: repo.displayName,
+  })), [repoDTOs]);
   const [stoppingDevServerIds, setStoppingDevServerIds] = useState<Set<string>>(
     new Set(),
   );
@@ -88,7 +115,7 @@ function SpacesOverviewContainer({ appHooks, ...props }: SpacesOverviewProps) {
 
       let clearDelayMs = 5000;
       try {
-        await appHooks.capabilities.spaces.stopWorkspaceExecution(workspaceId);
+        await spacesModule.stopWorkspaceExecution(workspaceId);
         setTimeout(() => refetch(true), 1000);
       } catch (err) {
         clearDelayMs = 0;
@@ -103,7 +130,7 @@ function SpacesOverviewContainer({ appHooks, ...props }: SpacesOverviewProps) {
         }, clearDelayMs);
       }
     },
-    [appHooks, refetch, stoppingDevServerIds],
+    [refetch, spacesModule, stoppingDevServerIds],
   );
 
   return (

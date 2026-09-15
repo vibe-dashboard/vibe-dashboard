@@ -16,6 +16,7 @@ import {
 import {
   createDefaultSkinState,
   importSkinPackage,
+  migrateSkinState,
   setGlobalSkin,
 } from "./schema";
 import type {
@@ -32,7 +33,9 @@ import { SkinEditorDialogView } from "./SkinEditorDialog.view";
 import {
   APP_HOOKS_V1_REQUIREMENTS,
   assertAppHooksV1Compatible,
+  type AppearanceSnapshotV1,
   type AppHooksV1,
+  type ReadonlyJsonValue,
 } from "../../app-hooks/AppHooks";
 
 export interface SkinEditorDialogProps {
@@ -76,6 +79,10 @@ function getSavedSkinState(skinState: VDSkinState | undefined): VDSkinState {
   return skinState ?? createDefaultSkinState();
 }
 
+function toAppearanceSnapshot(state: VDSkinState): AppearanceSnapshotV1 {
+  return { schemaVersion: 1, value: state as unknown as ReadonlyJsonValue };
+}
+
 export interface SkinEditorContainerProps {
   appHooks: AppHooksV1;
   onClose: () => void;
@@ -102,11 +109,22 @@ function SkinEditorContainerContent({
   onClose,
   open,
 }: SkinEditorContainerProps) {
-  const { actions, skinState } =
-    appHooks.capabilities.appearance.useSkinEditor();
+  const appearanceModule = appHooks.modules.get("myne.appearance");
+  const { snapshot } = appearanceModule.useSkinEditor();
+  const skinState = snapshot ? migrateSkinState(snapshot.value) : undefined;
   return (
     <SkinEditorDialog
-      actions={actions}
+      actions={{
+        saveSkinState: async ({ state }) => {
+          const result = await appearanceModule.saveAppearance({
+            snapshot: toAppearanceSnapshot(state),
+          });
+          return {
+            ok: result.ok,
+            diagnostics: result.diagnostics?.map((item) => ({ ...item })),
+          };
+        },
+      }}
       onClose={onClose}
       open={open}
       skinState={skinState}

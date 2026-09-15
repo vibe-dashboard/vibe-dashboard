@@ -10,9 +10,11 @@ const scriptPath = join(projectRoot, "scripts/check-ui-customization-boundaries.
 function writeFixture(root: string, overrides: Record<string, string> = {}) {
   const files: Record<string, string> = {
     "src/components/SpacesOverview.tsx":
-      'export function SpacesOverview({ appHooks }) { appHooks.capabilities.spaces.useSpacesOverview(); return <SkinRoot className="h-full w-full" state={skinState}>; }',
+      'export function SpacesOverview({ appHooks }) { appHooks.modules.get("myne.spaces").useSpacesOverview(); return <SkinRoot className="h-full w-full" state={skinState}>; }',
     "src/theme/skins/SkinEditorDialog.tsx":
-      'export function SkinEditorContainer({ appHooks }) { appHooks.capabilities.appearance.useSkinEditor(); return <SkinEditorDialog />; }',
+      'export function SkinEditorContainer({ appHooks }) { appHooks.modules.get("myne.appearance").useSkinEditor(); return <SkinEditorDialog />; }',
+    "src/app-hooks/AppHooks.ts":
+      'import { useSyncExternalStore } from "react"; export interface AppHooksV1 { readonly contractVersion: 1 }',
     "src/components/spaces-overview/DefaultSpacesOverview.view.tsx": `
       import { VDHeading, VDText } from "../../theme/skins";
       export function DefaultSpacesOverviewLayout() {
@@ -129,6 +131,17 @@ describe("UI customization boundary check", () => {
     expect(result.status).toBe(1);
     expect(result.stdout).toContain("Migrated container imports a host implementation");
     expect(result.stdout).toContain("Presentation view references appHooks");
+  });
+
+  it("fails when the public AppHooks contract imports host or proof-surface types", () => {
+    const root = mkdtempSync(join(tmpdir(), "ui-customization-app-hooks-"));
+    writeFixture(root, {
+      "src/app-hooks/AppHooks.ts":
+        'import type { DashboardWorkspace } from "../components/spaces-overview/SpacesOverview.contracts"; export interface AppHooksV1 {}',
+    });
+    const result = spawnSync(process.execPath, [scriptPath, root], { encoding: "utf8" });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain("Public AppHooks contract imports an implementation type");
   });
 });
 

@@ -133,6 +133,19 @@ const injectedContainers = [
 ];
 const forbiddenHostImport =
   /from\s+["'][^"']*(?:vk-client|springboard|useModule|rpc|server-action|navigation)[^"']*["']/i;
+const forbiddenPublicContractImport =
+  /from\s+["'][^"']*(?:components|theme\/skins|vk-client|springboard|useModule|rpc|store|server-action|navigation)[^"']*["']/i;
+
+for (const filePath of ["src/app-hooks/AppHooks.ts"]) {
+  const source = readProjectFile(filePath);
+  if (source !== null && forbiddenPublicContractImport.test(source)) {
+    findings.push({
+      filePath,
+      message: "Public AppHooks contract imports an implementation type.",
+      guidance: "Define narrow readonly semantic DTOs in the public app-hooks boundary and translate in host adapters and containers.",
+    });
+  }
+}
 
 for (const filePath of injectedContainers) {
   const source = readProjectFile(filePath);

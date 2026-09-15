@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { SkinEditorContainer } from "./SkinEditorDialog";
 import {
@@ -10,7 +10,11 @@ import {
   createSkinLabStories,
   type SkinLabOption,
 } from "../../stories/skinLab";
-import { createFakeAppHooksV1 } from "../../app-hooks/AppHooks";
+import {
+  createFakeAppHooksV1Host,
+  type FakeAppHooksV1Host,
+  type ReadonlyJsonValue,
+} from "../../app-hooks/AppHooks";
 
 const customStudioSkin = {
   ...lightStudioSkin,
@@ -73,11 +77,28 @@ function SkinEditorStory({
 }: SkinEditorStoryArgs) {
   const selectedInitialState =
     skinEditorStateByPreset[statePreset] ?? initialState;
-  const [state, setState] = useState(selectedInitialState);
+  const fakeHost = useMemo(() => {
+    let host!: FakeAppHooksV1Host;
+    host = createFakeAppHooksV1Host({
+      appearanceSnapshot: {
+        schemaVersion: 1,
+        value: selectedInitialState as unknown as ReadonlyJsonValue,
+      },
+      saveAppearance: async ({ snapshot }) => {
+        host.setAppearanceSnapshot(snapshot);
+        console.info("save skin state", snapshot.value);
+        return { ok: true };
+      },
+    });
+    return host;
+  }, []);
 
   useEffect(() => {
-    setState(selectedInitialState);
-  }, [selectedInitialState]);
+    fakeHost.setAppearanceSnapshot({
+      schemaVersion: 1,
+      value: selectedInitialState as unknown as ReadonlyJsonValue,
+    });
+  }, [fakeHost, selectedInitialState]);
 
   return (
     <div
@@ -89,18 +110,7 @@ function SkinEditorStory({
       data-storybook-density={densityPreset}
     >
       <SkinEditorContainer
-        appHooks={createFakeAppHooksV1({
-          skinEditorValue: {
-            skinState: state,
-            actions: {
-              saveSkinState: async ({ state: nextState }) => {
-                setState(nextState);
-                console.info("save skin state", nextState);
-                return { ok: true };
-              },
-            },
-          },
-        })}
+        appHooks={fakeHost.appHooks}
         onClose={() => console.info("close skin editor")}
         open
       />

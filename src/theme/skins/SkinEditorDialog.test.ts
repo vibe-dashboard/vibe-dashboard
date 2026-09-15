@@ -23,6 +23,7 @@ import {
 } from "./index";
 import {
   createFakeAppHooksV1,
+  createAppHooksV1,
   unavailableAppearanceHooksV1,
 } from "../../app-hooks/AppHooks";
 
@@ -54,13 +55,10 @@ describe("SkinEditorDialog controller", () => {
     const useSkinEditor = vi.fn();
     const appHooks = createFakeAppHooksV1();
     expect(() => render(React.createElement(SkinEditorContainer, {
-        appHooks: {
-          ...appHooks,
-          capabilities: {
-            ...appHooks.capabilities,
-            appearance: { ...unavailableAppearanceHooksV1, useSkinEditor },
-          },
-        },
+        appHooks: createAppHooksV1([
+          appHooks.modules.get("myne.spaces"),
+          { ...unavailableAppearanceHooksV1, useSkinEditor },
+        ]),
         onClose: vi.fn(),
         open: true,
       }),

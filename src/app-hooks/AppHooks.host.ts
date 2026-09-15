@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
-import { vkClient, type Repo, type RepoWithBranch, type WorkspaceSummary } from "../lib/vk-client";
-import type { DashboardWorkspace } from "../components/spaces-overview/SpacesOverview.contracts";
+import { vkClient, type RepoWithBranch, type WorkspaceSummary } from "../lib/vk-client";
 import {
+  createAppHooksV1,
   unavailableAppearanceHooksV1,
-  type AppHooksV1,
-  type SpacesOverviewHookValue,
+  type SpacesRepoDTO,
+  type SpacesStateV1,
+  type SpacesWorkspaceDTO,
 } from "./AppHooks";
 
-function useHostSpacesOverview(): SpacesOverviewHookValue {
-  const [workspaces, setWorkspaces] = useState<DashboardWorkspace[]>([]);
-  const [repos, setRepos] = useState<Repo[]>([]);
+function useHostSpacesOverview(): SpacesStateV1 {
+  const [workspaces, setWorkspaces] = useState<readonly SpacesWorkspaceDTO[]>([]);
+  const [repos, setRepos] = useState<readonly SpacesRepoDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const refetch = useCallback(async (isRefresh = false) => {
@@ -35,19 +36,25 @@ function useHostSpacesOverview(): SpacesOverviewHookValue {
         const summary = summaries.get(workspace.id);
         return {
           id: workspace.id, name: workspace.name || workspace.branch, branch: workspace.branch,
-          pinned: workspace.pinned, created_at: workspace.created_at, updated_at: workspace.updated_at,
-          task_id: workspace.task_id, container_ref: workspace.container_ref,
-          files_changed: summary?.files_changed ?? null, lines_added: summary?.lines_added ?? null,
-          lines_removed: summary?.lines_removed ?? null,
-          latest_process_status: summary?.latest_process_status ?? null,
-          latest_process_completed_at: summary?.latest_process_completed_at ?? null,
-          has_pending_approval: summary?.has_pending_approval ?? false,
-          has_running_dev_server: summary?.has_running_dev_server ?? false,
-          has_unseen_turns: summary?.has_unseen_turns ?? false,
-          pr_status: summary?.pr_status ?? null, repos: repoMap.get(workspace.id) ?? [],
+          pinned: workspace.pinned, createdAt: workspace.created_at, updatedAt: workspace.updated_at,
+          taskId: workspace.task_id, containerRef: workspace.container_ref,
+          filesChanged: summary?.files_changed ?? null, linesAdded: summary?.lines_added ?? null,
+          linesRemoved: summary?.lines_removed ?? null,
+          latestProcessStatus: summary?.latest_process_status ?? null,
+          latestProcessCompletedAt: summary?.latest_process_completed_at ?? null,
+          hasPendingApproval: summary?.has_pending_approval ?? false,
+          hasRunningDevServer: summary?.has_running_dev_server ?? false,
+          hasUnseenTurns: summary?.has_unseen_turns ?? false,
+          pullRequestStatus: summary?.pr_status ?? null,
+          repos: (repoMap.get(workspace.id) ?? []).map((repo) => ({
+            id: repo.id, name: repo.name, displayName: repo.display_name,
+            targetBranch: repo.target_branch,
+          })),
         };
       }));
-      setRepos(reposResult.status === "fulfilled" ? reposResult.value : []);
+      setRepos(reposResult.status === "fulfilled" ? reposResult.value.map((repo) => ({
+        id: repo.id, name: repo.name, displayName: repo.display_name,
+      })) : []);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Failed to load data");
     } finally { setLoading(false); }
@@ -60,17 +67,14 @@ function useHostSpacesOverview(): SpacesOverviewHookValue {
   return { workspaces, repos, loading, error, refetch };
 }
 
-export const hostAppHooksV1: AppHooksV1 = Object.freeze({
-  contractVersion: 1,
-  capabilities: Object.freeze({
-    spaces: Object.freeze({
+export const hostAppHooksV1 = createAppHooksV1([
+  Object.freeze({
       id: "myne.spaces", version: 1, availability: Object.freeze({ available: true }),
       useSpacesOverview: useHostSpacesOverview,
       stopWorkspaceExecution: async (workspaceId: string) => {
         if (!workspaceId.trim()) throw new Error("workspaceId must be non-empty");
         await vkClient.stopWorkspaceExecution(workspaceId);
       },
-    }),
-    appearance: unavailableAppearanceHooksV1,
   }),
-});
+  unavailableAppearanceHooksV1,
+]);
