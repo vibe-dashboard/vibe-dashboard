@@ -2,7 +2,7 @@
 @layer myne.reset { .myne-theme { color: var(--myne-color-foreground); background: var(--myne-color-background); } .myne-button { font: inherit; } }
 @layer myne.tokens { .myne-theme { --myne-color-background: #09090b; --myne-color-foreground: #f4f4f5; --myne-color-panel: #18181b; --myne-color-muted: #a1a1aa; --myne-color-accent: #60a5fa; --myne-color-border: #27272a; --myne-color-danger: #f87171; --myne-color-success: #4ade80; --myne-color-warning: #fbbf24; } }
 @layer myne.components {
-  .myne-text--primary, .myne-heading { color: var(--myne-color-foreground); }
+  .myne-text { color: inherit; } .myne-text--primary, .myne-heading { color: var(--myne-color-foreground); }
   .myne-text--secondary { color: var(--myne-component-row-foreground, var(--myne-color-foreground)); }
   .myne-text--muted { color: var(--myne-color-muted); }
   .myne-status { color: inherit; } .myne-status--accent { color: var(--myne-color-accent); } .myne-status--danger { color: var(--myne-color-danger); } .myne-status--success { color: var(--myne-color-success); } .myne-status--warning { color: var(--myne-color-warning); }
@@ -12,6 +12,7 @@
   .myne-badge { background: var(--myne-component-badge-background, var(--myne-color-panel)); border-color: var(--myne-component-badge-border, var(--myne-color-border)); border-radius: var(--myne-component-badge-radius, 999px); }
   .myne-icon { color: var(--myne-color-muted); } .myne-icon--chevron { color: inherit; }
   .myne-state, .myne-state--loading, .myne-state--empty { color: inherit; } .myne-state--error { color: var(--myne-color-danger); }
+  .myne-preview-frame { background: var(--myne-color-background); color: var(--myne-color-foreground); }
   .myne-button:focus-visible, .myne-row:focus-visible, .myne-theme input:focus-visible, .myne-theme textarea:focus-visible { outline: 2px solid var(--myne-color-accent); outline-offset: 2px; }
 }
 @layer myne.skin {}

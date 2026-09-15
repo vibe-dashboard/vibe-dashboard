@@ -17,3 +17,4 @@ files:
   - "**/*.tsx"
 ignores:
   - "**/*.view.tsx"
+  - "**/*.stories.tsx"

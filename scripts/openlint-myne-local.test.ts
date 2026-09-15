@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -9,6 +9,7 @@ const checker = join(process.cwd(), "scripts/openlint-myne-local.mjs");
 function diagnostics(fileName: string, source: string) {
   const root = mkdtempSync(join(tmpdir(), "myne-openlint-"));
   const file = join(root, fileName);
+  mkdirSync(join(file, ".."), { recursive: true });
   writeFileSync(file, source);
   return JSON.parse(execFileSync(process.execPath, [checker, file], { encoding: "utf8" })) as Array<{ ruleId: string; message: string }>;
 }
@@ -36,8 +37,12 @@ describe("myne OpenLint local policy", () => {
     expect(diagnostics(fileName, source).some((item) => item.message.includes(message))).toBe(true);
   });
 
-  it("allowlists explicit tests and historical documentation", () => {
-    expect(diagnostics("negative.test.tsx", '<div data-vd-slot="negative" className="bg-red-500" />')).toEqual([]);
-    expect(diagnostics("migration.md", "Historical data-vd-slot and --vd-color.")).toEqual([]);
+  it("does not blanket-exempt arbitrary test files", () => {
+    expect(diagnostics("src/arbitrary.test.tsx", '<div data-vd-slot="negative" className="bg-red-500" />')).not.toEqual([]);
+  });
+
+  it("allowlists only explicit negative/checker and historical paths", () => {
+    expect(diagnostics("scripts/openlint-myne-local.test.ts", 'const fixture = `<div data-vd-slot="negative" className="bg-red-500" />`;')).toEqual([]);
+    expect(diagnostics("docs/myne-architecture.md", "Historical data-vd-slot and --vd-color.")).toEqual([]);
   });
 });

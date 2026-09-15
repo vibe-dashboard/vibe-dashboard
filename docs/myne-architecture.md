@@ -200,6 +200,14 @@ IDs over reviewed layout/component registrations. Workspace loading, filtering,
 pagination, navigation, picker behavior, pending states, and failures remain
 container-owned semantics across every compatible renderer.
 
+The shared resolver treats the registry's required-slot inventory as
+authoritative. Every registration declares its slot identity and independent
+contract version. Before any renderer is returned, resolution rejects missing
+or extra slots, manifest/key identity mismatches, unknown components or
+override keys, cross-slot substitutions, and version mismatches. Surface APIs
+also narrow override IDs by slot, while runtime validation protects untyped
+package input.
+
 ## 5. Skin Editor vertical slice
 
 The current controller is
@@ -253,6 +261,14 @@ import/export, and diagnostics. Each region has its own versioned projection of
 the registry adapter constructs those projections, so a renderer is not passed
 surface-wide props or `AppHooksV1`. The compact-diagnostics preset demonstrates
 a compatible one-region override while remaining independent of the active skin.
+
+The current conformance inventory is centralized in
+[`myne-contract-inventory.mjs`](../scripts/myne-contract-inventory.mjs). It
+enumerates migrated files and stories, every required semantic slot, canonical
+public class and runtime token, evidence markers, deterministic OpenLint
+targets, and the narrow explicit negative/historical fixture exceptions. Both
+production proof stories are linted; their preview framing uses the token-backed
+`myne-preview-frame` class rather than a hardcoded palette utility.
 
 The target keeps working draft, preview snapshot, and committed revision
 separate. History is append-only: undo, redo, restore, and agent writes create

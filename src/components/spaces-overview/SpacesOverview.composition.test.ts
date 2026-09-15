@@ -71,4 +71,15 @@ describe("SpacesOverview composition contract", () => {
     );
     expect(JSON.stringify(denseSpacesOverviewManifest)).not.toContain("skin");
   });
+
+  it("rejects incomplete manifests and same-version cross-slot overrides", () => {
+    const { pageHeader: _missing, ...incomplete } = defaultSpacesOverviewManifest.slots;
+    expect(() => resolveSpacesOverviewComposition({
+      ...defaultSpacesOverviewManifest,
+      slots: incomplete,
+    } as never)).toThrow(/missing required slot pageHeader/);
+    expect(() => resolveSpacesOverviewComposition(defaultSpacesOverviewManifest, {
+      pageHeader: "myne.spaces.workspace-list.default",
+    } as never)).toThrow(/registered for workspaceList.*not pageHeader/);
+  });
 });

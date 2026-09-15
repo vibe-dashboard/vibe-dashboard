@@ -68,4 +68,17 @@ describe("Skin Editor composition contract", () => {
     expect("close" in projected.actions).toBe(false);
     expect("previewState" in projected.model).toBe(false);
   });
+
+  it("rejects extra slots and same-version cross-region substitutions", () => {
+    expect(() => resolveSkinEditorComposition({
+      ...defaultSkinEditorManifest,
+      slots: {
+        ...defaultSkinEditorManifest.slots,
+        unknown: { slot: "unknown", component: "myne.appearance.header.default", contractVersion: 1 },
+      },
+    } as never)).toThrow(/unknown slot unknown/);
+    expect(() => resolveSkinEditorComposition(defaultSkinEditorManifest, {
+      library: "myne.appearance.header.default",
+    } as never)).toThrow(/registered for header.*not library/);
+  });
 });

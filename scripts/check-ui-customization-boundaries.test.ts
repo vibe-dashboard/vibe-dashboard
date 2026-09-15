@@ -3,13 +3,14 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { migratedSurfaces, publicMyneClasses, runtimeMyneTokens } from "./myne-contract-inventory.mjs";
 
 const projectRoot = process.cwd();
 const scriptPath = join(projectRoot, "scripts/check-ui-customization-boundaries.mjs");
 
 function writeFixture(root: string, overrides: Record<string, string> = {}) {
   const files: Record<string, string> = {
-    "package.json": JSON.stringify({ scripts: { "lint:ui-fences:migrated": "ol check src/components/spaces-overview src/theme/skins/SkinEditorDialog.view.tsx" } }),
+    "package.json": JSON.stringify({ scripts: { "lint:ui-fences:migrated": "ol check src/components/spaces-overview src/components/SpacesOverview.stories.tsx src/theme/skins/SkinEditorDialog.view.tsx src/theme/skins/SkinEditorDialog.stories.tsx" } }),
     "src/components/SpacesOverview.tsx":
       'export function SpacesOverview({ appHooks }) { appHooks.modules.get("myne.spaces").useSpacesOverview(); return <SkinRoot className="h-full w-full" state={skinState}>; }',
     "src/theme/skins/SkinEditorDialog.tsx":
@@ -33,6 +34,9 @@ function writeFixture(root: string, overrides: Record<string, string> = {}) {
       '<div data-myne-slot="space-picker-modal"><button className="myne-button">Open</button></div>',
     "src/components/spaces-overview/craftSections.view.tsx": `
       <div data-myne-slot="recent-sessions"></div>
+      <div data-myne-slot="starred-craft"></div>
+      <div data-myne-slot="recently-visited-craft"></div>
+      <div data-myne-slot="recently-created-craft"></div>
       <div data-myne-slot="spaces-list"></div>
     `,
     "src/components/spaces-overview/workspaceList.view.tsx": `
@@ -43,7 +47,8 @@ function writeFixture(root: string, overrides: Record<string, string> = {}) {
     "src/theme/skins/SkinEditorDialog.view.tsx": `
       import { MyneAction, MyneCard, MyneHeading, MyneText } from "./primitives.view";
       export function SkinEditorDialogView() {
-        return <section data-myne-surface="skin-editor">
+        return <section data-myne-surface="skin-editor" data-myne-view-pack="default">
+          <header data-myne-slot="skin-editor-header"><MyneHeading level={1}>Editor</MyneHeading></header>
           <MyneCard data-myne-slot="skin-editor-library"><MyneHeading level={2}>Library</MyneHeading></MyneCard>
           <MyneCard data-myne-slot="skin-editor-editor"><MyneText>Editor</MyneText></MyneCard>
           <MyneCard data-myne-slot="skin-editor-preview"><MyneText>Preview</MyneText></MyneCard>
@@ -57,26 +62,22 @@ function writeFixture(root: string, overrides: Record<string, string> = {}) {
     "src/theme/skins/SkinRoot.view.tsx":
       'export const SkinRootView = () => <div className="myne-theme" data-myne-skin="default" />;',
     "src/theme/skins/runtime.ts":
-      'setVariable(style, "--myne-color-background", "#000"); setVariable(style, "--myne-color-foreground", "#fff"); setVariable(style, "--myne-color-accent", "#00f"); setVariable(style, "--myne-color-danger", "#f00");',
-    "src/theme/skins/myne.css": `
-      .myne-text--primary {} .myne-text--secondary {} .myne-text--muted {}
-      .myne-button {} .myne-card {} .myne-row {} .myne-state {} .myne-status {}
-      .myne-status--success {} .myne-status--warning {} .myne-status--danger {} .myne-status--accent {}
-    `,
+      runtimeMyneTokens.map(([, marker]) => `${marker}, value);`).join(" "),
+    "src/theme/skins/myne.css": publicMyneClasses.map((className) => `.${className} {}`).join(" "),
     "src/theme/skins/SkinEditorDialog.module.css": ".root {} .surface {}",
     "src/components/spaces-overview/SpacesOverview.composition.ts":
-      "export const spacesOverviewCompositionRegistry = {}; export const defaultSpacesOverviewManifest = {}; export const denseSpacesOverviewManifest = {};",
+      "export const spacesOverviewCompositionRegistry = { requiredSlots: spacesOverviewSlots }; export const defaultSpacesOverviewManifest = {}; export const denseSpacesOverviewManifest = {};",
     "src/theme/skins/SkinEditorDialog.composition.tsx":
-      "export const skinEditorCompositionRegistry = {}; export const defaultSkinEditorManifest = {}; export const selectedSkinEditorComposition = {};",
+      "export const skinEditorCompositionRegistry = { requiredSlots: skinEditorSlots }; export const defaultSkinEditorManifest = {}; export const selectedSkinEditorComposition = {};",
     "src/components/spaces-overview/SpacesOverview.skin.module.css": `
       .surface { min-width: 0; }
     `,
-    "src/components/SpacesOverview.stories.tsx": "export const Default = {};",
-    "src/components/spaces-overview/SpacesOverview.composition.test.ts": "export {};",
-    "src/components/spaces-overview/SpacesOverview.skin.test.ts": "export {};",
-    "src/theme/skins/SkinEditorDialog.stories.tsx": "export const Default = {};",
-    "src/theme/skins/SkinEditorDialog.composition.test.ts": "export {};",
-    "src/theme/skins/SkinEditorDialog.test.ts": "export {};",
+    "src/components/SpacesOverview.stories.tsx": "createSkinLabStories(); SpacesOverviewSkinLabStory();",
+    "src/components/spaces-overview/SpacesOverview.composition.test.ts": 'it("rejects incomplete manifests"); it("swaps only compatible slots");',
+    "src/components/spaces-overview/SpacesOverview.skin.test.ts": 'it("semantic surface and slot attributes"); it("view pack independently");',
+    "src/theme/skins/SkinEditorDialog.stories.tsx": "createSkinLabStories(); SkinEditorStory();",
+    "src/theme/skins/SkinEditorDialog.composition.test.ts": 'it("rejects extra slots"); it("compatible regional override");',
+    "src/theme/skins/SkinEditorDialog.test.ts": 'it("stable semantic slots"); getByRole(); const x = "aria-pressed";',
     ...overrides,
   };
 
@@ -135,6 +136,19 @@ describe("UI customization boundary check", () => {
     expect(result.stdout).toContain('Missing semantic hook "data-myne-slot="');
   });
 
+  it.each(migratedSurfaces.flatMap((surface) => surface.slots))(
+    "fails when required slot %s / %s is individually missing",
+    (relativePath, slot) => {
+      const root = mkdtempSync(join(tmpdir(), "ui-customization-slot-"));
+      writeFixture(root);
+      const path = join(root, relativePath);
+      writeFileSync(path, readFileSync(path, "utf8").replace(`data-myne-slot="${slot}"`, "data-removed-slot"));
+      const result = spawnSync(process.execPath, [scriptPath, root], { encoding: "utf8" });
+      expect(result.status).toBe(1);
+      expect(result.stdout).toContain(`data-myne-slot="${slot}"`);
+    },
+  );
+
   it("fails when migrated containers hide host clients or views receive appHooks", () => {
     const root = mkdtempSync(join(tmpdir(), "ui-customization-dependencies-"));
     writeFixture(root, {
@@ -191,8 +205,20 @@ describe("UI customization boundary check", () => {
     });
     const result = spawnSync(process.execPath, [scriptPath, root], { encoding: "utf8" });
     expect(result.status).toBe(1);
-    expect(result.stdout).toContain('Migrated surface "skin-editor" is not covered');
+    expect(result.stdout).toContain("Migrated target");
   });
+
+  it.each(migratedSurfaces.flatMap((surface) => surface.openLintTargets))(
+    "fails when migrated target %s is individually uncovered",
+    (target) => {
+      const root = mkdtempSync(join(tmpdir(), "ui-customization-target-"));
+      const allTargets = migratedSurfaces.flatMap((surface) => surface.openLintTargets).filter((candidate) => candidate !== target);
+      writeFixture(root, { "package.json": JSON.stringify({ scripts: { "lint:ui-fences:migrated": `ol check ${allTargets.join(" ")}` } }) });
+      const result = spawnSync(process.execPath, [scriptPath, root], { encoding: "utf8" });
+      expect(result.status).toBe(1);
+      expect(result.stdout).toContain(`Migrated target "${target}"`);
+    },
+  );
 
   it("fails when canonical classes or typed tokens lack positive emitted output", () => {
     const root = mkdtempSync(join(tmpdir(), "ui-customization-output-"));
@@ -206,6 +232,26 @@ describe("UI customization boundary check", () => {
     expect(result.stdout).toContain('Registered runtime token "--myne-color-accent" has no emitted assignment');
   });
 
+  it.each(publicMyneClasses)("fails when canonical class %s is individually missing", (className) => {
+    const root = mkdtempSync(join(tmpdir(), "ui-customization-class-"));
+    writeFixture(root);
+    const path = join(root, "src/theme/skins/myne.css");
+    writeFileSync(path, readFileSync(path, "utf8").replace(`.${className} {}`, ""));
+    const result = spawnSync(process.execPath, [scriptPath, root], { encoding: "utf8" });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain(`Registered public class "${className}"`);
+  });
+
+  it.each(runtimeMyneTokens)("fails when canonical token %s is individually missing", (token, marker) => {
+    const root = mkdtempSync(join(tmpdir(), "ui-customization-token-"));
+    writeFixture(root);
+    const path = join(root, "src/theme/skins/runtime.ts");
+    writeFileSync(path, readFileSync(path, "utf8").replace(marker, "removedTokenMarker"));
+    const result = spawnSync(process.execPath, [scriptPath, root], { encoding: "utf8" });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain(`Registered runtime token "${token}"`);
+  });
+
   it("fails when required story, accessibility, or compatibility evidence is missing", () => {
     const root = mkdtempSync(join(tmpdir(), "ui-customization-evidence-"));
     writeFixture(root);
@@ -216,6 +262,30 @@ describe("UI customization boundary check", () => {
     expect(check.stdout).toContain("Expected migrated UI customization target is missing");
     expect(check.stdout).toContain("SkinEditorDialog.composition.test.ts");
   });
+
+  it.each(migratedSurfaces.flatMap((surface) => surface.evidence))(
+    "fails when required evidence %s is empty or irrelevant",
+    (relativePath) => {
+      const root = mkdtempSync(join(tmpdir(), "ui-customization-empty-evidence-"));
+      writeFixture(root, { [relativePath]: "export const irrelevant = true;" });
+      const result = spawnSync(process.execPath, [scriptPath, root], { encoding: "utf8" });
+      expect(result.status).toBe(1);
+      expect(result.stdout).toContain("Required evidence is missing assertion marker");
+      expect(result.stdout).toContain(relativePath);
+    },
+  );
+
+  it.each(migratedSurfaces.flatMap((surface) => surface.evidence.filter(([file]) => file.endsWith(".stories.tsx")).map(([file]) => file)))(
+    "fails for stale identities and hardcoded skin values in production story %s",
+    (storyPath) => {
+      const root = mkdtempSync(join(tmpdir(), "ui-customization-story-"));
+      writeFixture(root, { [storyPath]: 'createSkinLabStories(); SkinEditorStory(); SpacesOverviewSkinLabStory(); const id = "vd-user-stale"; <div className="bg-zinc-950" />;' });
+      const result = spawnSync(process.execPath, [scriptPath, root], { encoding: "utf8" });
+      expect(result.status).toBe(1);
+      expect(result.stdout).toContain("Stale VD customization vocabulary");
+      expect(result.stdout).toContain("Hardcoded skin-controlled utility");
+    },
+  );
 
   it("fails when CSS Modules reach into public selectors", () => {
     const root = mkdtempSync(join(tmpdir(), "ui-customization-css-module-"));

@@ -2,111 +2,14 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { explicitLintExemptPaths, migratedRuntimeFiles, migratedSurfaces, publicMyneClasses, runtimeMyneTokens } from "./myne-contract-inventory.mjs";
 
 const projectRoot = resolve(process.argv[2] ?? process.cwd());
 
-const migratedSurfaces = [
-  {
-    id: "spaces-overview",
-    openLintTarget: "src/components/spaces-overview",
-    composition: "src/components/spaces-overview/SpacesOverview.composition.ts",
-    compositionMarkers: ["spacesOverviewCompositionRegistry", "defaultSpacesOverviewManifest", "denseSpacesOverviewManifest"],
-    views: [
-      "src/components/spaces-overview/DefaultSpacesOverview.view.tsx",
-      "src/components/spaces-overview/DenseWorkspaceListSection.view.tsx",
-      "src/components/spaces-overview/RunningDevServersSection.view.tsx",
-      "src/components/spaces-overview/SpacePickerModal.view.tsx",
-      "src/components/spaces-overview/craftSections.view.tsx",
-      "src/components/spaces-overview/workspaceList.view.tsx",
-    ],
-    styles: ["src/components/spaces-overview/SpacesOverview.skin.module.css"],
-    evidence: [
-      "src/components/SpacesOverview.stories.tsx",
-      "src/components/spaces-overview/SpacesOverview.composition.test.ts",
-      "src/components/spaces-overview/SpacesOverview.skin.test.ts",
-    ],
-  },
-  {
-    id: "skin-editor",
-    openLintTarget: "src/theme/skins/SkinEditorDialog.view.tsx",
-    composition: "src/theme/skins/SkinEditorDialog.composition.tsx",
-    compositionMarkers: ["skinEditorCompositionRegistry", "defaultSkinEditorManifest", "selectedSkinEditorComposition"],
-    views: ["src/theme/skins/SkinEditorDialog.view.tsx"],
-    styles: ["src/theme/skins/SkinEditorDialog.module.css"],
-    evidence: [
-      "src/theme/skins/SkinEditorDialog.stories.tsx",
-      "src/theme/skins/SkinEditorDialog.composition.test.ts",
-      "src/theme/skins/SkinEditorDialog.test.ts",
-    ],
-  },
-];
 const skinnedViewFiles = migratedSurfaces.flatMap((surface) => surface.views);
 
 const hardcodedSkinColorUtility =
   /\b(?:hover:|group-hover:|disabled:hover:)?(?:text|bg|border(?:-[trblxy])?)-(?:white|black|zinc|slate|gray|neutral|stone|red|green|amber|yellow|blue|cyan|indigo|violet|purple|pink|primary)(?:-[^\s"`']+)?/g;
-
-const requiredHooks = [
-  {
-    filePath: "src/components/spaces-overview/DefaultSpacesOverview.view.tsx",
-    hook: 'data-myne-surface=',
-    rationale: "SpacesOverview needs a stable surface hook for global skin targeting.",
-  },
-  {
-    filePath: "src/components/spaces-overview/DefaultSpacesOverview.view.tsx",
-    hook: 'data-myne-view-pack=',
-    rationale: "View-pack variants need a stable identifier for proofs and targeted styling.",
-  },
-  {
-    filePath: "src/components/spaces-overview/DefaultSpacesOverview.view.tsx",
-    hook: 'data-myne-slot="page-header"',
-    rationale: "The page header is part of the stable SpacesOverview skin contract.",
-  },
-  {
-    filePath: "src/components/spaces-overview/DefaultSpacesOverview.view.tsx",
-    hook: 'data-myne-slot="workspace-list"',
-    rationale: "The workspace list is part of the stable SpacesOverview skin contract.",
-  },
-  {
-    filePath: "src/components/spaces-overview/craftSections.view.tsx",
-    hook: 'data-myne-slot="recent-sessions"',
-    rationale: "Recent sessions are part of the stable SpacesOverview skin contract.",
-  },
-  {
-    filePath: "src/components/spaces-overview/craftSections.view.tsx",
-    hook: 'data-myne-slot="spaces-list"',
-    rationale: "Spaces list is part of the stable SpacesOverview skin contract.",
-  },
-  {
-    filePath: "src/theme/skins/SkinEditorDialog.view.tsx",
-    hook: 'data-myne-surface="skin-editor"',
-    rationale: "Skin Editor needs a stable surface hook for global skin targeting.",
-  },
-  {
-    filePath: "src/theme/skins/SkinEditorDialog.view.tsx",
-    hook: 'data-myne-slot="skin-editor-library"',
-    rationale: "Skin Editor library is part of the stable Skin Editor skin contract.",
-  },
-  {
-    filePath: "src/theme/skins/SkinEditorDialog.view.tsx",
-    hook: 'data-myne-slot="skin-editor-editor"',
-    rationale: "Skin Editor token editor is part of the stable Skin Editor skin contract.",
-  },
-  {
-    filePath: "src/theme/skins/SkinEditorDialog.view.tsx",
-    hook: 'data-myne-slot="skin-editor-preview"',
-    rationale: "Skin Editor preview is part of the stable Skin Editor skin contract.",
-  },
-  {
-    filePath: "src/theme/skins/SkinEditorDialog.view.tsx",
-    hook: 'data-myne-slot="skin-editor-import-export"',
-    rationale: "Skin Editor import/export is part of the stable Skin Editor skin contract.",
-  },
-  {
-    filePath: "src/theme/skins/SkinEditorDialog.view.tsx",
-    hook: 'data-myne-slot="skin-editor-diagnostics"',
-    rationale: "Skin Editor diagnostics are part of the stable Skin Editor skin contract.",
-  },
-];
 
 const requiredSkinSelectors = [
   {
@@ -151,20 +54,6 @@ const representativePrimitiveFiles = [
   "src/components/spaces-overview/workspaceList.view.tsx",
   "src/theme/skins/SkinEditorDialog.view.tsx",
 ];
-const publicClassDefinitions = [
-  "myne-button",
-  "myne-card",
-  "myne-row",
-  "myne-state",
-  "myne-status",
-  "myne-text--primary",
-];
-const emittedTokenAssignments = [
-  "--myne-color-background",
-  "--myne-color-foreground",
-  "--myne-color-accent",
-  "--myne-color-danger",
-];
 
 const findings = [];
 const packageSource = readProjectFile("package.json");
@@ -172,10 +61,10 @@ if (packageSource !== null) {
   const scripts = JSON.parse(packageSource).scripts ?? {};
   const openLintCommand = scripts["lint:ui-fences:migrated"] ?? "";
   for (const surface of migratedSurfaces) {
-    if (!openLintCommand.includes(surface.openLintTarget)) findings.push({
+    for (const target of surface.openLintTargets) if (!openLintCommand.includes(target)) findings.push({
       filePath: "package.json",
-      message: `Migrated surface "${surface.id}" is not covered by the deterministic OpenLint target list.`,
-      guidance: `Add ${surface.openLintTarget} to lint:ui-fences:migrated.`,
+      message: `Migrated target "${target}" for surface "${surface.id}" is not covered by the deterministic OpenLint target list.`,
+      guidance: `Add ${target} to lint:ui-fences:migrated.`,
     });
   }
 }
@@ -202,13 +91,22 @@ for (const surface of migratedSurfaces) {
     });
     normalizedIdentifiers.set(normalized, identifier);
   }
-  for (const evidenceFile of surface.evidence) readProjectFile(evidenceFile);
+  for (const [evidenceFile, markers] of surface.evidence) {
+    const evidence = readProjectFile(evidenceFile);
+    if (evidence === null) continue;
+    for (const marker of markers) if (!evidence.includes(marker)) findings.push({
+      filePath: evidenceFile,
+      message: `Required evidence is missing assertion marker "${marker}".`,
+      guidance: "Keep named composition, accessibility, semantic, and Storybook evidence substantive rather than existence-only.",
+    });
+  }
 }
 
 const publicCss = readProjectFile("src/theme/skins/myne.css");
 if (publicCss !== null) {
-  for (const className of publicClassDefinitions) {
-    if (!publicCss.includes(`.${className}`)) findings.push({
+  const emittedCss = publicCss.replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const className of publicMyneClasses) {
+    if (!new RegExp(`\\.${className.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![a-z0-9-])`).test(emittedCss)) findings.push({
       filePath: "src/theme/skins/myne.css",
       message: `Registered public class "${className}" has no emitted selector.`,
       guidance: "Every canonical public class needs a positive emitted-output assertion in the shared public layer.",
@@ -217,8 +115,9 @@ if (publicCss !== null) {
 }
 const runtimeSource = readProjectFile("src/theme/skins/runtime.ts");
 if (runtimeSource !== null) {
-  for (const token of emittedTokenAssignments) {
-    if (!runtimeSource.includes(`setVariable(style, "${token}"`)) findings.push({
+  const executableRuntimeSource = runtimeSource.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, "");
+  for (const [token, marker] of runtimeMyneTokens) {
+    if (!executableRuntimeSource.includes(marker)) findings.push({
       filePath: "src/theme/skins/runtime.ts",
       message: `Registered runtime token "${token}" has no emitted assignment.`,
       guidance: "Compile canonical typed tokens to their exact --myne-* runtime properties.",
@@ -226,18 +125,10 @@ if (runtimeSource !== null) {
   }
 }
 
-const migratedRuntimeFiles = [
-  ...skinnedViewFiles,
-  "src/theme/skins/primitives.view.tsx",
-  "src/theme/skins/SkinRoot.view.tsx",
-  "src/theme/skins/runtime.ts",
-  "src/theme/skins/myne.css",
-  "src/components/spaces-overview/SpacesOverview.skin.module.css",
-  "src/theme/skins/SkinEditorDialog.module.css",
-];
 for (const filePath of migratedRuntimeFiles) {
+  if (explicitLintExemptPaths.includes(filePath)) continue;
   const source = readProjectFile(filePath);
-  if (source && /(?:data-vd-|--vd-|\bVD(?:Action|Badge|Card|Heading|Icon|Row|Text|Skin)|\bVD_SKIN\b|DEFAULT_VD_SKIN|BUILT_IN_VD_SKINS)/.test(source)) findings.push({
+  if (source && /(?:data-vd-|--vd-|\bvd-user-|\bVD(?:Action|Badge|Card|Heading|Icon|Row|Text|Skin)|\bVD_SKIN\b|DEFAULT_VD_SKIN|BUILT_IN_VD_SKINS)/.test(source)) findings.push({
     filePath,
     message: "Stale VD customization vocabulary remains in a migrated runtime path.",
     guidance: "Use registered myne classes, exact data-myne identities, and --myne-* runtime properties.",
@@ -321,7 +212,8 @@ for (const filePath of skinnedViewFiles) {
   }
 }
 
-for (const filePath of skinnedViewFiles) {
+for (const filePath of migratedRuntimeFiles.filter((filePath) => /\.[jt]sx$/.test(filePath))) {
+  if (explicitLintExemptPaths.includes(filePath)) continue;
   const source = readProjectFile(filePath);
   if (source === null) continue;
 
@@ -335,7 +227,11 @@ for (const filePath of skinnedViewFiles) {
   }
 }
 
-for (const requirement of [...requiredHooks, ...requiredSkinSelectors]) {
+const requiredIdentityHooks = migratedSurfaces.flatMap((surface) => [
+  ...surface.identities.map(([filePath, hook]) => ({ filePath, hook, rationale: `${surface.id} requires the exact registered identity ${hook}.` })),
+  ...surface.slots.map(([filePath, slot]) => ({ filePath, hook: `data-myne-slot="${slot}"`, rationale: `${surface.id} requires the public semantic slot ${slot}.` })),
+]);
+for (const requirement of [...requiredIdentityHooks, ...requiredSkinSelectors]) {
   const source = readProjectFile(requirement.filePath);
   if (source === null) continue;
 

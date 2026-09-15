@@ -18,7 +18,7 @@ import {
 
 const customStudioSkin = {
   ...lightStudioSkin,
-  id: "vd-user-cyan-studio",
+  id: "myne-user-cyan-studio",
   name: "Cyan Studio",
   author: "Storybook",
   tokens: {
@@ -104,8 +104,8 @@ function SkinEditorStory({
     <div
       className={
         densityPreset === "mobile"
-          ? "mx-auto min-h-screen w-[390px] max-w-full bg-zinc-950 p-3"
-          : "h-screen bg-zinc-950 p-6"
+          ? "mx-auto min-h-screen w-[390px] max-w-full p-3 myne-preview-frame"
+          : "h-screen p-6 myne-preview-frame"
       }
       data-storybook-density={densityPreset}
     >

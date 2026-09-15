@@ -25,7 +25,7 @@
     "lint:tsx-view-boundary:changed": "ol check --changed --preset tsx-view-boundary --target .",
     "lint:tsx-view-boundary:last-commit": "ol check --last-commit --preset tsx-view-boundary --target .",
     "lint:ui-fences": "ol check --preset ui-customization-fences",
-    "lint:ui-fences:migrated": "OPENLINT_POLICY_DIR=.github/openlint npx --yes --package @mickmister/openlint@0.1.0 ol check --preset myne-skinability src/app-hooks/AppHooks.ts src/components/spaces-overview src/theme/skins/SkinEditorDialog.tsx src/theme/skins/SkinEditorDialog.view.tsx",
+    "lint:ui-fences:migrated": "OPENLINT_POLICY_DIR=.github/openlint npx --yes --package @mickmister/openlint@0.1.0 ol check --preset myne-skinability src/app-hooks/AppHooks.ts src/components/spaces-overview src/components/SpacesOverview.stories.tsx src/theme/skins/SkinEditorDialog.tsx src/theme/skins/SkinEditorDialog.view.tsx src/theme/skins/SkinEditorDialog.stories.tsx",
     "lint:ui-fences:changed": "ol check --changed --preset ui-customization-fences --target .",
     "lint:ui-fences:last-commit": "ol check --last-commit --preset ui-customization-fences --target .",
     "lint:skinability": "node scripts/check-ui-customization-boundaries.mjs",

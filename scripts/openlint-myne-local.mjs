@@ -2,8 +2,9 @@
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, extname, resolve } from "node:path";
+import { explicitLintExemptPaths } from "./myne-contract-inventory.mjs";
 
-const supportedExtensions = new Set([".css", ".jsx", ".ts", ".tsx"]);
+const supportedExtensions = new Set([".css", ".jsx", ".md", ".ts", ".tsx"]);
 const identityAttributes = new Set([
   "data-myne-skin",
   "data-myne-slot",
@@ -31,7 +32,7 @@ function collectFiles(path) {
 }
 
 function isAllowlisted(file) {
-  return /(?:^|\/)(?:[^/]+\.)?(?:test|spec)\.[cm]?[jt]sx?$/.test(file) || file.endsWith(".md");
+  return explicitLintExemptPaths.some((path) => file.replaceAll("\\", "/").endsWith(`/${path}`));
 }
 
 function addFinding(file, source, index, ruleId, message, note) {
@@ -59,8 +60,9 @@ function inspect(file) {
   const isView = file.endsWith(".view.tsx") || file.endsWith(".view.jsx");
   const fileName = basename(file);
   const isApprovedContainer = fileName === "SpacesOverview.tsx" || fileName === "SkinEditorDialog.tsx";
+  const isProductionStory = file.endsWith(".stories.tsx") || file.endsWith(".stories.jsx");
 
-  if (file.endsWith(".tsx") && !isView && !isApprovedContainer && !file.endsWith(".composition.tsx")) {
+  if (file.endsWith(".tsx") && !isView && !isApprovedContainer && !isProductionStory && !file.endsWith(".composition.tsx")) {
     reportMatches(
       file,
       source,
@@ -71,11 +73,12 @@ function inspect(file) {
     );
   }
 
-  if (!isView && !isApprovedContainer && !file.endsWith(".contracts.ts") && fileName !== "AppHooks.ts" && /\bappHooks\b/.test(source)) {
+  const appHooksConsumption = /\bappHooks\.modules\b|function\s+\w*\s*\(\s*\{[^}]*\bappHooks\b/.exec(source);
+  if (!isView && !isApprovedContainer && !isProductionStory && !file.endsWith(".contracts.ts") && fileName !== "AppHooks.ts" && appHooksConsumption) {
     addFinding(
       file,
       source,
-      source.indexOf("appHooks"),
+      appHooksConsumption.index,
       "myne/app-hooks-only-in-approved-container",
       "appHooks may only be consumed by an approved container.",
       "Project the required semantic model and named actions at the page/container boundary.",
@@ -123,7 +126,7 @@ function inspect(file) {
   reportMatches(
     file,
     source,
-    /(?:data-vd-|--vd-|\bVD(?:Action|Badge|Card|Heading|Icon|Row|Text|Skin)\b)/g,
+    /(?:data-vd-|--vd-|\bvd-user-|\bVD(?:Action|Badge|Card|Heading|Icon|Row|Text|Skin)\b)/g,
     "myne/no-vd-vocabulary",
     () => "VD-era public customization vocabulary is forbidden in migrated runtime files.",
     "Use registered myne classes, exact data-myne identities, and --myne-* properties.",
