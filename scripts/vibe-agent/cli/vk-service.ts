@@ -307,8 +307,41 @@ export interface ApiResponse<T> {
   message?: string | null;
 }
 
+export interface AppearanceRevisionDto {
+  revisionId: string;
+  parentRevisionId?: string;
+  targetRevisionId?: string;
+  snapshot: string;
+  actor: { id: string; kind: string };
+  source: string;
+  committedAt: string;
+  summary: string;
+}
+export interface AppearanceHistoryDto { head?: AppearanceRevisionDto; revisions: AppearanceRevisionDto[] }
+
 // Service class
 export class VKService {
+  private async parseDirectJson<T>(response: Response, action: string): Promise<T> {
+    const text = await response.text();
+    if (!response.ok) throw new Error(`Failed to ${action}: ${text.trim() || `HTTP ${response.status}`}`);
+    try { return JSON.parse(text) as T; }
+    catch { throw new Error(`Failed to ${action}: invalid JSON response`); }
+  }
+
+  async inspectAppearance(): Promise<AppearanceHistoryDto> {
+    return this.parseDirectJson(await fetch(config.endpoints.appearance), 'inspect appearance');
+  }
+  async getAppearanceSnapshot(revisionId: string): Promise<{ revisionId: string; snapshot: string }> {
+    return this.parseDirectJson(await fetch(config.endpoints.appearanceSnapshot(revisionId)), 'fetch appearance snapshot');
+  }
+  async diffAppearance(from: string, to: string): Promise<unknown> {
+    return this.parseDirectJson(await fetch(config.endpoints.appearanceDiff(from, to)), 'diff appearance');
+  }
+  async commandAppearance(command: Record<string, unknown>): Promise<{ ok: true; revision: AppearanceRevisionDto }> {
+    return this.parseDirectJson(await fetch(config.endpoints.appearanceCommands, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(command),
+    }), 'mutate appearance');
+  }
   private getPromptFromProcess(process: ExecutionProcess): string | null {
     return process.executor_action?.typ?.prompt || null;
   }

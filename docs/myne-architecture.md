@@ -285,8 +285,10 @@ CLI, import, and marketplace writes traverse canonical validation, authorization
 atomic store compare-and-swap, and expected-head concurrency. They create
 compensating revisions rather than rewriting history. The in-memory conformance
 store proves restart, corruption, persistence-failure, and concurrent-client
-semantics; production host storage, app entry points, and CLI transport remain
-pending.
+semantics. The node host now persists the aggregate with atomic replacement and
+exposes one validated command shape to the app and `vk appearance`
+inspect/snapshot/diff/restore/undo/revert/redo commands. Production Skin Editor
+entry points and activation/recovery UI remain pending.
 
 ## 6. Styling cascade and protected UI
 

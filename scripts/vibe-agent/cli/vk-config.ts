@@ -1,5 +1,6 @@
 // Vibe Kanban API Configuration
 const BASE_URL = process.env.VIBE_API_URL || process.env.VK_API_URL || 'http://localhost:3007';
+const DASHBOARD_BASE_URL = process.env.VK_DASHBOARD_URL || BASE_URL;
 const WS_BASE_URL = BASE_URL.replace('http', 'ws');
 
 export const config = {
@@ -42,6 +43,10 @@ export const config = {
     session: (sessionId: string) => `${BASE_URL}/api/sessions/${sessionId}`,
     createSession: `${BASE_URL}/api/sessions`,
     sessionFollowUp: (sessionId: string) => `${BASE_URL}/api/sessions/${sessionId}/follow-up`,
+    appearance: `${DASHBOARD_BASE_URL}/dashboard/api/appearance`,
+    appearanceSnapshot: (revisionId: string) => `${DASHBOARD_BASE_URL}/dashboard/api/appearance/revisions/${encodeURIComponent(revisionId)}/snapshot`,
+    appearanceDiff: (from: string, to: string) => `${DASHBOARD_BASE_URL}/dashboard/api/appearance/diff?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    appearanceCommands: `${DASHBOARD_BASE_URL}/dashboard/api/appearance/commands`,
   },
 
   // WebSocket endpoints

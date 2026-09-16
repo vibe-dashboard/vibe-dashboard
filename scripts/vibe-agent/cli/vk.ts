@@ -142,6 +142,10 @@ async function main() {
         await commandSummary(flags);
         break;
 
+      case 'appearance':
+        await commandAppearance(positional, flags);
+        break;
+
       case 'help':
       case '--help':
       case '-h':
@@ -1117,6 +1121,40 @@ async function commandSummary(flags: FlagMap) {
   }
 }
 
+async function commandAppearance(positional: string[], flags: FlagMap) {
+  const subcommand = positional[0] ?? 'inspect';
+  const history = await service.inspectAppearance();
+  const head = history.head;
+  if (!head) throw new Error('Appearance history has no current revision.');
+  if (subcommand === 'inspect') {
+    console.log(JSON.stringify(history, null, 2));
+    return;
+  }
+  if (subcommand === 'snapshot') {
+    const result = await service.getAppearanceSnapshot(positional[1] ?? head.revisionId);
+    console.log(result.snapshot);
+    return;
+  }
+  if (subcommand === 'diff') {
+    const from = positional[1]; const to = positional[2] ?? head.revisionId;
+    if (!from) throw new Error('Usage: vk appearance diff <from-revision> [to-revision]');
+    console.log(JSON.stringify(await service.diffAppearance(from, to), null, 2));
+    return;
+  }
+  if (!['restore', 'undo', 'revert', 'redo'].includes(subcommand)) throw new Error(`Unknown appearance command: ${subcommand}`);
+  if (!boolFlag(flags, 'yes', false)) throw new Error('Appearance history mutations require explicit --yes confirmation.');
+  const targetRevisionId = positional[1];
+  if (subcommand !== 'undo' && !targetRevisionId) throw new Error(`Usage: vk appearance ${subcommand} <revision-id> --yes`);
+  const result = await service.commandAppearance({
+    type: subcommand,
+    expectedCurrentRevisionId: getFlagString(flags, 'expected') ?? head.revisionId,
+    ...(targetRevisionId ? { targetRevisionId } : {}),
+    actor: { id: process.env.USER || 'vk-cli', kind: 'cli' },
+    summary: getFlagString(flags, 'summary') ?? `${subcommand} via vk CLI`,
+  });
+  console.log(JSON.stringify(result, null, 2));
+}
+
 function printHelp() {
   console.log('Vibe Kanban CLI');
   console.log('================');
@@ -1135,6 +1173,9 @@ function printHelp() {
   console.log('  processes <session-id>                     List execution processes');
   console.log('  fetch <process-id> [--all] [--json]        Fetch conversation logs');
   console.log('  summary --workspace <workspace-id>         Show latest messages per session');
+  console.log('  appearance inspect                         Inspect immutable appearance history');
+  console.log('  appearance snapshot [revision-id]          Print a canonical appearance snapshot');
+  console.log('  appearance diff <from> [to]                Diff two appearance revisions');
   console.log('');
   console.log('Action Commands:');
   console.log('  dev-script set <repo-id> "<script>"        Update repo dev server script');
@@ -1153,6 +1194,7 @@ function printHelp() {
   console.log('  create-workspace --message "prompt" --repo <repo[:branch]>   Create and start workspace');
   console.log('  workspace create-from-pr --repo <repo> --remote <remote> --pr <n>  Create workspace from PR');
   console.log('  send <session-id> "<prompt>"               Send message to session');
+  console.log('  appearance restore|undo|revert|redo ... --yes  Append a compensating appearance revision');
   console.log('');
   console.log('Options:');
   console.log('  --all                 Show all entry types in conversation');

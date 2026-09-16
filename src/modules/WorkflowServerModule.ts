@@ -7,13 +7,19 @@ import { registerWorkflowRoutes } from '../server/workflow-routes';
 import { registerPluginAssetRoutes } from '../server/plugin-asset-routes';
 import { registerPluginAdminRoutes } from '../server/plugin-admin-routes';
 import { registerPreviewResolverRoutes } from '../server/preview-resolver-routes';
+import { registerAppearanceRoutes } from '../server/appearance-routes';
+import { FileAppearanceRevisionStore } from '../server/appearance-revision-store.node';
+import { AppearanceRevisionService } from '../theme/skins/appearanceRevisions';
+import { createDefaultAppearanceSnapshot } from '../theme/skins/defaultAppearanceSnapshot';
 import { workflowRegistry } from '../workflows/registry';
 import type { CachedRepoAlias } from '../workflows/github-ci';
 
 const execFileAsync = promisify(execFile);
 const reposRoot = process.env.VK_REPOS_ROOT || join(process.env.HOME || '/home/vkuser', 'repos');
 const pluginInstallRoot = process.env.VD_PLUGIN_INSTALL_ROOT || join(process.cwd(), 'plugins');
+const appearanceHistoryPath = process.env.VK_APPEARANCE_HISTORY_PATH || join(process.env.HOME || '/home/vkuser', '.config', 'vibe-kanban', 'appearance-history.json');
 let cachedGitRepos: CachedRepoAlias[] | null = null;
+let appearanceService: Promise<AppearanceRevisionService> | undefined;
 
 serverRegistry.registerServerModule((api) => {
   registerWorkflowRoutes(api.hono, {
@@ -27,6 +33,13 @@ serverRegistry.registerServerModule((api) => {
   registerPluginAssetRoutes(api.hono, { installRoot: pluginInstallRoot });
   registerPluginAdminRoutes(api.hono);
   registerPreviewResolverRoutes(api.hono);
+  registerAppearanceRoutes(api.hono, {
+    getService: () => appearanceService ??= AppearanceRevisionService.open({
+      store: new FileAppearanceRevisionStore(appearanceHistoryPath),
+      genesisSnapshot: createDefaultAppearanceSnapshot(),
+      authorize: ({ actor, source }) => actor.kind === source || source === 'undo' || source === 'redo' || source === 'revert' || source === 'restore',
+    }),
+  });
 });
 
 async function getCachedGitRepos(): Promise<CachedRepoAlias[]> {
