@@ -5,6 +5,7 @@ import {
   type FlagMap,
 } from './vk.js';
 import { VKService, type AppearanceHistoryDto, type AppearanceRevisionDto } from './vk-service.js';
+import { Hono } from 'hono';
 
 const revision = (revisionId: string, parentRevisionId?: string): AppearanceRevisionDto => ({
   revisionId,
@@ -148,4 +149,34 @@ describe('vk appearance commands', () => {
     await expect(run(['restore'], { yes: true })).rejects.toThrow('appearance restore');
     await expect(run(['unknown'])).rejects.toThrow('Unknown appearance command');
   });
+
+  it('conforms through VKService, authenticated Hono routes, and the real revision path', async () => {
+    const dynamicImport = (path: string): Promise<any> => import(/* @vite-ignore */ path);
+    const revisions = await dynamicImport('../../../src/theme/skins/appearanceRevisions.ts');
+    const defaults = await dynamicImport('../../../src/theme/skins/defaultAppearanceSnapshot.ts');
+    const authentication = await dynamicImport('../../../src/server/appearance-auth.node.ts');
+    const routes = await dynamicImport('../../../src/server/appearance-routes.ts');
+    vi.stubEnv('VK_APPEARANCE_CLI_TOKEN', 'route-cli-token-0123456789');
+    const revisionService = await revisions.AppearanceRevisionService.open({ store: new revisions.MemoryAppearanceRevisionStore(), genesisSnapshot: defaults.createDefaultAppearanceSnapshot() });
+    const genesis = revisionService.inspect().head;
+    const changed = JSON.parse(genesis.snapshot); changed.provenance.generator = 'route-backed-cli';
+    const seeded = await revisionService.apply({ expectedCurrentRevisionId: genesis.revisionId, snapshot: JSON.stringify(changed), actor: { id: 'seed', kind: 'user' }, source: 'user', summary: 'seed' });
+    expect(seeded.ok).toBe(true);
+    const app = new Hono();
+    routes.registerAppearanceRoutes(app, { getService: async () => revisionService, authenticateMutation: authentication.createAppearanceMutationAuthenticator({ browserOrigin: 'http://localhost', cliToken: 'route-cli-token-0123456789' }) });
+    vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => app.request(String(input), init));
+    const actual = new VKService(); const output: string[] = [];
+    const run = (args: string[], flags: FlagMap = {}) => commandAppearance(args, flags, actual, value => output.push(value));
+    await run(['inspect']); expect(JSON.parse(output.pop()!)).toMatchObject({ retention: { mode: 'retain-all' } });
+    await run(['snapshot', genesis.revisionId]); expect(output.pop()).toBe(genesis.snapshot);
+    await run(['diff', genesis.revisionId]); expect(JSON.parse(output.pop()!)).toHaveProperty('changes');
+    await expect(run(['restore', genesis.revisionId])).rejects.toThrow('explicit --yes confirmation');
+    await expect(run(['undo'], { yes: true, expected: 'stale' })).rejects.toMatchObject({ code: 'stale-revision', status: 409 });
+    await run(['undo'], { yes: true }); let head = revisionService.inspect().head;
+    await run(['redo', seeded.revision.revisionId], { yes: true, expected: head.revisionId }); head = revisionService.inspect().head;
+    await run(['revert', head.revisionId], { yes: true, expected: head.revisionId }); head = revisionService.inspect().head;
+    await run(['restore', genesis.revisionId], { yes: true, expected: head.revisionId });
+    expect(revisionService.inspect().revisions.every((item: any) => item.actor.kind === 'system' || item.actor.id === 'seed' || item.actor.id === 'local-cli')).toBe(true);
+  });
+
 });

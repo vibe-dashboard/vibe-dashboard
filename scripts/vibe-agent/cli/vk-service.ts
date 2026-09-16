@@ -319,23 +319,40 @@ export interface AppearanceRevisionDto {
 }
 export interface AppearanceHistoryDto { head?: AppearanceRevisionDto; revisions: AppearanceRevisionDto[] }
 
+export class VKAppearanceServiceError extends Error {
+  constructor(
+    message: string,
+    readonly code: string,
+    readonly status: number,
+    readonly details?: unknown,
+  ) { super(message); this.name = 'VKAppearanceServiceError'; }
+}
+
 // Service class
 export class VKService {
   private async parseDirectJson<T>(response: Response, action: string): Promise<T> {
     const text = await response.text();
-    if (!response.ok) throw new Error(`Failed to ${action}: ${text.trim() || `HTTP ${response.status}`}`);
+    if (!response.ok) {
+      let details: unknown;
+      try { details = JSON.parse(text); } catch { details = undefined; }
+      const record = details && typeof details === 'object' ? details as Record<string, unknown> : undefined;
+      const diagnostic = record?.diagnostic && typeof record.diagnostic === 'object' ? record.diagnostic as Record<string, unknown> : undefined;
+      const code = typeof diagnostic?.code === 'string' ? diagnostic.code : typeof record?.error === 'string' ? record.error : 'appearance-request-failed';
+      const explanation = typeof diagnostic?.message === 'string' ? diagnostic.message : text.trim() || `HTTP ${response.status}`;
+      throw new VKAppearanceServiceError(`Failed to ${action}: ${explanation}`, code, response.status, details);
+    }
     try { return JSON.parse(text) as T; }
     catch { throw new Error(`Failed to ${action}: invalid JSON response`); }
   }
 
   async inspectAppearance(): Promise<AppearanceHistoryDto> {
-    return this.parseDirectJson(await fetch(config.endpoints.appearance), 'inspect appearance');
+    return this.parseDirectJson(await this.appearanceFetch(config.endpoints.appearance), 'inspect appearance');
   }
   async getAppearanceSnapshot(revisionId: string): Promise<{ revisionId: string; snapshot: string }> {
-    return this.parseDirectJson(await fetch(config.endpoints.appearanceSnapshot(revisionId)), 'fetch appearance snapshot');
+    return this.parseDirectJson(await this.appearanceFetch(config.endpoints.appearanceSnapshot(revisionId)), 'fetch appearance snapshot');
   }
   async diffAppearance(from: string, to: string): Promise<unknown> {
-    return this.parseDirectJson(await fetch(config.endpoints.appearanceDiff(from, to)), 'diff appearance');
+    return this.parseDirectJson(await this.appearanceFetch(config.endpoints.appearanceDiff(from, to)), 'diff appearance');
   }
   async commandAppearance(command: Record<string, unknown>): Promise<{ ok: true; revision: AppearanceRevisionDto }> {
     const cliToken = process.env.VK_APPEARANCE_CLI_TOKEN;
@@ -345,6 +362,12 @@ export class VKService {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cliToken}` },
       body: JSON.stringify(command),
     }), 'mutate appearance');
+  }
+
+  private appearanceFetch(url: string): Promise<Response> {
+    const cliToken = process.env.VK_APPEARANCE_CLI_TOKEN;
+    if (!cliToken) throw new Error('appearance CLI authentication required; set VK_APPEARANCE_CLI_TOKEN from the host');
+    return fetch(url, { headers: { Accept: 'application/json', Authorization: `Bearer ${cliToken}` } });
   }
   private getPromptFromProcess(process: ExecutionProcess): string | null {
     return process.executor_action?.typ?.prompt || null;

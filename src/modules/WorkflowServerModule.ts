@@ -8,7 +8,7 @@ import { registerPluginAssetRoutes } from '../server/plugin-asset-routes';
 import { registerPluginAdminRoutes } from '../server/plugin-admin-routes';
 import { registerPreviewResolverRoutes } from '../server/preview-resolver-routes';
 import { registerAppearanceRoutes } from '../server/appearance-routes';
-import { createAppearanceMutationAuthenticator } from '../server/appearance-auth.node';
+import { createAppearanceMutationAuthenticator, createAppearanceReadAuthenticator } from '../server/appearance-auth.node';
 import { FileAppearanceRevisionStore } from '../server/appearance-revision-store.node';
 import { AppearanceRevisionService } from '../theme/skins/appearanceRevisions';
 import { createDefaultAppearanceSnapshot } from '../theme/skins/defaultAppearanceSnapshot';
@@ -39,6 +39,14 @@ async function openAppearanceService(): Promise<AppearanceRevisionService> {
 }
 
 serverRegistry.registerServerModule((api) => {
+  const authenticateAppearance = createAppearanceMutationAuthenticator({
+    browserOrigin: appearanceBrowserOrigin,
+    cliToken: process.env.VK_APPEARANCE_CLI_TOKEN,
+  });
+  const authenticateAppearanceRead = createAppearanceReadAuthenticator({
+    browserOrigin: appearanceBrowserOrigin,
+    cliToken: process.env.VK_APPEARANCE_CLI_TOKEN,
+  });
   registerWorkflowRoutes(api.hono, {
     registry: workflowRegistry,
     repoAliasCache: {
@@ -52,10 +60,10 @@ serverRegistry.registerServerModule((api) => {
   registerPreviewResolverRoutes(api.hono);
   registerAppearanceRoutes(api.hono, {
     getService: () => appearanceService ??= openAppearanceService(),
-    authenticateMutation: createAppearanceMutationAuthenticator({
-      browserOrigin: appearanceBrowserOrigin,
-      cliToken: process.env.VK_APPEARANCE_CLI_TOKEN,
-    }),
+    authenticateMutation: authenticateAppearance,
+    authenticateRead: authenticateAppearanceRead,
+    allowRead: (_context, principal) => process.env.VK_APPEARANCE_READ_DISABLED !== 'true'
+      && (principal.actor.id === 'local-user' || principal.actor.id === 'local-cli'),
     // Current deployments are single-user. The node host, not request JSON,
     // establishes these local principals; read-only mode revokes mutations at
     // command execution without changing future authenticated-host semantics.

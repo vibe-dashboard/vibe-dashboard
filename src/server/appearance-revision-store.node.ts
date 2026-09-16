@@ -36,7 +36,19 @@ export async function acquireAppearanceFileLock(path: string, options: { timeout
       try {
         const age = Date.now() - (await stat(lock)).mtimeMs;
         const status = await lockOwnerStatus(lock);
-        if (status === "dead" || (status === "unknown" && age > (options.staleMs ?? LOCK_STALE_MS))) { await rm(lock, { recursive: true, force: true }); continue; }
+        if (status === "dead" || (status === "unknown" && age > (options.staleMs ?? LOCK_STALE_MS))) {
+          const retired = `${lock}.retired.${process.pid}.${crypto.randomUUID()}`;
+          try {
+            // Rename is the ownership transfer: exactly one reclaimer can move
+            // this inode. Never recursively delete a path that may already be a
+            // replacement owner's lock.
+            await rename(lock, retired);
+            await rm(retired, { recursive: true, force: true });
+          } catch (reclaimError) {
+            if ((reclaimError as NodeJS.ErrnoException).code !== "ENOENT") throw reclaimError;
+          }
+          continue;
+        }
       } catch (statError) { if ((statError as NodeJS.ErrnoException).code === "ENOENT") continue; throw statError; }
       if (Date.now() >= deadline) throw new Error("appearance-history-lock-timeout");
       await new Promise((resolve) => setTimeout(resolve, 10 + Math.floor(Math.random() * 20)));

@@ -47,13 +47,14 @@ describe("Skin Editor composition contract", () => {
   });
 
   it("projects each real region without leaking surface-wide state or actions", () => {
-    expect(Object.values(skinEditorSlotContracts).map(({ version }) => version)).toEqual([1, 1, 1, 1, 1, 1]);
+    expect(Object.values(skinEditorSlotContracts).map(({ version }) => version)).toEqual([1, 2, 2, 1, 2, 1]);
     const surface = {
-      model: { skinOptions: [], selectedSkinIsBuiltIn: true, isSaving: false, isDirty: false },
+      model: { skinOptions: [], selectedSkinIsBuiltIn: true, isSaving: false, isDirty: false, isCandidateReady: true },
       actions: { selectSkin: () => undefined, close: () => undefined },
     } as never;
     const projected = projectSkinEditorSlotProps("library", surface);
     expect(Object.keys(projected.model).sort()).toEqual([
+      "isCandidateReady",
       "isDirty",
       "isSaving",
       "selectedSkinIsBuiltIn",

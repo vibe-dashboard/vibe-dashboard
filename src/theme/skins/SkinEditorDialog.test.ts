@@ -67,6 +67,31 @@ function deferred<T>() {
 }
 
 describe("SkinEditorDialog controller", () => {
+  it("gates confirmation on the exact delayed candidate that was rendered", async () => {
+    const pending = deferred<Awaited<ReturnType<NonNullable<SkinEditorActions["compileSkinState"]>>>>();
+    const save = vi.fn<SkinEditorActions["saveSkinState"]>(async () => ({ ok: true }));
+    render(React.createElement(SkinEditorDialog, {
+      actions: { compileSkinState: () => pending.promise, saveSkinState: save },
+      onClose: vi.fn(), open: true, skinState: createDefaultSkinState(),
+    }));
+    const apply = screen.getByRole("button", { name: "Apply selected" });
+    expect(apply.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(apply);
+    expect(save).not.toHaveBeenCalled();
+    await act(async () => pending.resolve({ ok: true, sourceDigest: "sha256-visible", artifact: { scope: "myne-visible", cssText: ".visible{color:red}", digest: "sha256-artifact" } }));
+    await waitFor(() => expect(apply.hasAttribute("disabled")).toBe(false));
+    expect(document.querySelector("style")?.textContent).toContain(".visible{color:red}");
+    fireEvent.click(apply);
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0]?.[0].candidate).toEqual({
+      sourceDigest: "sha256-visible",
+      artifactDigest: "sha256-artifact",
+      artifact: { scope: "myne-visible", cssText: ".visible{color:red}", digest: "sha256-artifact" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create editable copy" }));
+    expect(screen.getByRole("button", { name: "Save and apply" }).hasAttribute("disabled")).toBe(true);
+  });
+
   it("checks required capabilities before mounting the hook-using container", () => {
     const useSkinEditor = vi.fn();
     const appHooks = createFakeAppHooksV1();
@@ -130,7 +155,9 @@ describe("SkinEditorDialog controller", () => {
     expect(firstAppearance.useSkinEditor).toBe(firstUseSkinEditor);
     expect(firstAppearance.saveAppearance).toBe(firstSaveAppearance);
 
-    fireEvent.click(within(firstMount.container).getByRole("button", { name: "Apply selected" }));
+    const applyButton = within(firstMount.container).getByRole("button", { name: "Apply selected" });
+    await waitFor(() => expect(applyButton.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(applyButton);
     await waitFor(() => expect(firstSave).toHaveBeenCalledTimes(1));
     expect(firstSave.mock.calls[0]?.[0].snapshot.value).toMatchObject({
       activeGlobalSkinId: lightStudioSkin.id,
@@ -172,7 +199,9 @@ describe("SkinEditorDialog controller", () => {
       }));
 
       fireEvent.click(within(firstMount.container).getByRole("button", { name: "Create editable copy" }));
-      fireEvent.click(within(firstMount.container).getByRole("button", { name: "Save and apply" }));
+      const readySaveButton = within(firstMount.container).getByRole("button", { name: "Save and apply" });
+      await waitFor(() => expect(readySaveButton.hasAttribute("disabled")).toBe(false));
+      fireEvent.click(readySaveButton);
       await waitFor(() => expect(firstSave).toHaveBeenCalledTimes(1));
       const saveButton = within(firstMount.container).getByRole("button", { name: "Save and apply" });
       expect(saveButton.hasAttribute("disabled")).toBe(true);
@@ -459,7 +488,8 @@ describe("SkinEditorDialog view", () => {
         importText: "",
         isDirty: false,
         isEditingCustomSkin: false,
-        isSaving: false,
+      isSaving: false,
+      isCandidateReady: true,
         previewState: {
           version: 1,
           activeGlobalSkinId: lightStudioSkin.id,

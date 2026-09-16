@@ -9,10 +9,10 @@ export type SkinEditorSlot = (typeof skinEditorSlots)[number];
 
 export const skinEditorSlotContracts = {
   header: { version: 1, model: [], actions: ["close"] },
-  library: { version: 1, model: ["skinOptions", "selectedSkinIsBuiltIn", "isSaving", "isDirty"], actions: ["selectSkin", "forkSelectedSkin", "applySelectedSkin", "revertToDefaultSkin"] },
-  tokenEditor: { version: 1, model: ["isEditingCustomSkin", "isDirty", "draftSkin", "selectedSkin", "colorFields", "isSaving"], actions: ["updateDraftName", "updateDraftAuthor", "updateDraftDescription", "updateColorToken", "saveDraftSkin", "exportSelectedSkin"] },
+  library: { version: 2, model: ["skinOptions", "selectedSkinIsBuiltIn", "isSaving", "isDirty", "isCandidateReady"], actions: ["selectSkin", "forkSelectedSkin", "applySelectedSkin", "revertToDefaultSkin"] },
+  tokenEditor: { version: 2, model: ["isEditingCustomSkin", "isDirty", "draftSkin", "selectedSkin", "colorFields", "isSaving", "isCandidateReady"], actions: ["updateDraftName", "updateDraftAuthor", "updateDraftDescription", "updateColorToken", "saveDraftSkin", "exportSelectedSkin"] },
   preview: { version: 1, model: ["draftSkin", "selectedSkin"], actions: [] },
-  importExport: { version: 1, model: ["importText", "exportText", "isSaving"], actions: ["updateImportText", "importPackage"] },
+  importExport: { version: 2, model: ["importText", "exportText", "isSaving", "isCandidateReady"], actions: ["updateImportText", "importPackage"] },
   diagnostics: { version: 1, model: ["diagnostics", "rawCssStatus", "statusMessage"], actions: [] },
 } as const satisfies Record<SkinEditorSlot, { version: number; model: readonly (keyof SkinEditorViewModel)[]; actions: readonly (keyof SkinEditorViewActions)[] }>;
 

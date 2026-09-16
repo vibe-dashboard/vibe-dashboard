@@ -44,6 +44,11 @@ The host owns an append-only revision log. A revision record MUST contain:
 - an optional bounded, plain-text summary and the policy/compiler artifact
   versions required to reproduce activation.
 
+The current v1 stream is `myne.appearance.global`, owned by the authenticated
+local user. Every revision repeats that stream and owner identity and binds the
+validated candidate source digest, artifact digest (or `null` for token-only
+appearance), compiler version, and policy version into its immutable hash.
+
 Committed records and referenced canonical bytes MUST be immutable. Editing or
 deleting history in place is forbidden. Domain appearance state belongs to the
 host revision service; editor selection, open panels, and unsaved drafts are
@@ -102,6 +107,14 @@ untrusted text. Agent writes require an explicit capability grant and traverse
 the same preview, confirmation, concurrency, validation, and audit gates as user
 writes.
 
+The current v1 retention policy is deliberately narrower and lossless:
+`retain-all`, an unbounded undo window, and disabled asset GC. The service and
+CLI report this policy rather than implying that data was compacted. Its
+checkpoint operation creates a verifiable **audit marker**, not compaction: it
+retains every revision and records the boundary snapshot/digest, covered
+creation range, source counts, and all revision/asset retention roots. Actual
+history deletion and asset sweeping require a future policy version.
+
 ## 6. App/CLI parity and recovery
 
 App and CLI MUST expose the same service semantics for inspect, canonical
@@ -110,8 +123,12 @@ uses stable result/diagnostic codes; human output may add explanation. Neither
 client may directly write persistence or activate an unvalidated artifact.
 
 Preview and activation reference the identical validated compiled artifact by
-digest. Activation is atomic: on compile, persistence, load, or health-check
-failure the host retains the previous head and last-known-good artifact. Safe
+digest. The command service recompiles and validates the binding before CAS,
+then commits the snapshot and compiler/policy activation metadata in the same
+immutable revision. The browser publishes the already rendered retained
+artifact only after the response echoes that binding; it does not recompile
+after confirmation. Compile, validation, or persistence failure retains the
+previous head and last-known-good artifact. Safe
 mode ignores user appearance while preserving history for inspect/export and
 recovery. Recovery actions are themselves authorized, concurrency-checked, and
 audited.

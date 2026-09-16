@@ -68,6 +68,41 @@ describe("file appearance revision store", () => {
     expect(() => JSON.parse(persisted)).not.toThrow();
   });
 
+  it("refreshes long-lived readers before reads and lets a stale service retry from the winning head", async () => {
+    const root = await mkdtemp(join(tmpdir(), "myne-appearance-refresh-")); roots.push(root);
+    const path = join(root, "history.json");
+    const first = await AppearanceRevisionService.open({ store: new FileAppearanceRevisionStore(path), genesisSnapshot: createDefaultAppearanceSnapshot() });
+    const stale = await AppearanceRevisionService.open({ store: new FileAppearanceRevisionStore(path), genesisSnapshot: createDefaultAppearanceSnapshot() });
+    const genesis = first.inspect().head!;
+    const changed = JSON.parse(genesis.snapshot); changed.provenance.generator = "external-winner";
+    const won = await first.apply({ expectedCurrentRevisionId: genesis.revisionId, snapshot: JSON.stringify(changed), actor: { id: "one", kind: "cli" }, source: "cli", summary: "winner" });
+    expect(won.ok).toBe(true);
+    const refreshed = await stale.inspectFresh();
+    expect(refreshed.head?.revisionId).toBe(first.inspect().head?.revisionId);
+    const retrySnapshot = JSON.parse(refreshed.head!.snapshot); retrySnapshot.provenance.generator = "retry";
+    const retried = await stale.apply({ expectedCurrentRevisionId: refreshed.head!.revisionId, snapshot: JSON.stringify(retrySnapshot), actor: { id: "two", kind: "cli" }, source: "cli", summary: "retry" });
+    expect(retried.ok).toBe(true);
+    expect((await first.inspectFresh()).head?.revisionId).toBe(stale.inspect().head?.revisionId);
+  });
+
+  it("allows exactly one concurrent reclaimer to replace a dead-owner lock", async () => {
+    const root = await mkdtemp(join(tmpdir(), "myne-appearance-reclaim-")); roots.push(root);
+    const path = join(root, "history.json");
+    const store = new FileAppearanceRevisionStore(path);
+    const service = await AppearanceRevisionService.open({ store, genesisSnapshot: createDefaultAppearanceSnapshot() });
+    const head = service.inspect().head!;
+    await mkdir(`${path}.lock`); await writeFile(join(`${path}.lock`, "owner"), "99999999:dead\n");
+    // Both reclaimers contend through the same atomic rename protocol. The
+    // payload is deliberately minimal because CAS winner selection is the
+    // behavior under test, not aggregate validation in the raw store.
+    const current = await store.load() as Record<string, unknown>;
+    const workers = ["reclaimer-one", "reclaimer-two"].map((id) => new Promise<string>((resolve, reject) => {
+      const child = spawn(process.execPath, ["--experimental-strip-types", join(process.cwd(), "src/server/fixtures/appearance-cas-child.mjs"), path, head.revisionId, JSON.stringify({ ...current, headRevisionId: id })]);
+      let output = ""; child.stdout.on("data", (chunk) => { output += chunk; }); child.once("error", reject); child.once("exit", (code) => code === 0 ? resolve(output) : reject(new Error(`reclaimer exited ${code}`)));
+    }));
+    expect((await Promise.all(workers)).sort()).toEqual(["saved", "stale"]);
+  });
+
   it("recovers the last-known-good aggregate after corrupt primary storage", async () => {
     const root = await mkdtemp(join(tmpdir(), "myne-appearance-recovery-")); roots.push(root);
     const path = join(root, "history.json");

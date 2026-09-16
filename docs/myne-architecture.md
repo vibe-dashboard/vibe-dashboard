@@ -296,6 +296,14 @@ mutations from a host-issued bearer credential on the same command endpoint.
 Browser bodies cannot claim CLI/import/agent actor identity; import provenance is
 a browser operation type. A future multi-user host must replace that resolver
 with its authenticated principal without changing command-service semantics.
+Private inspect, snapshot, and diff routes traverse the same principal resolver
+and a separate read-authorization decision. Long-lived services refresh and
+strictly validate the persisted winner before reads and mutations; filesystem
+lock reclamation transfers a dead lock by atomic rename rather than deleting a
+possibly replaced lock. Revisions bind stream/owner and activation
+compiler/policy metadata. The reported v1 retention policy is retain-all with
+asset GC disabled; checkpoints are verifiable audit markers with boundary
+snapshot/digest, audit range/summary, and retained roots, not compaction.
 
 ## 6. Styling cascade and protected UI
 
@@ -328,9 +336,11 @@ below an opaque generated root, and compiles all-or-nothing. Its runtime consume
 the identical branded artifact for preview and activation and preserves a
 last-known-good artifact or startup safe mode. The production appearance host
 compiles active custom CSS into a disposable candidate before confirmation,
-renders that candidate CSS in the preview root, submits a source/artifact digest
-binding, and the server recompiles/verifies the same binding before atomic
-persistence plus activation. Source changes invalidate the candidate; rejected
+renders that candidate CSS in the preview root, disables confirmation until the
+retained handle is current, and submits that exact handle without recompiling
+after confirmation. The server recompiles/verifies its source/artifact binding
+before a CAS revision records the snapshot plus compiler/policy activation
+metadata. Source changes immediately invalidate the handle; rejected
 or stale candidates leave active and persisted state untouched. Startup load
 compiles again, exposes the same deterministic artifact digest to
 preview/activation roots, and falls back to its last-known-good projection in

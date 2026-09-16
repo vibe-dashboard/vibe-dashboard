@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { AppearanceRevisionService, MemoryAppearanceRevisionStore } from "../theme/skins/appearanceRevisions";
 import { createDefaultAppearanceSnapshot } from "../theme/skins/defaultAppearanceSnapshot";
 import { compileAppearanceSnapshotCandidate } from "../theme/skins/appearanceCandidate";
-import { createAppearanceMutationAuthenticator } from "./appearance-auth.node";
+import { createAppearanceMutationAuthenticator, createAppearanceReadAuthenticator } from "./appearance-auth.node";
 import { registerAppearanceRoutes } from "./appearance-routes";
 
 const browserHeaders = { "Content-Type": "application/json", Origin: "http://localhost", "X-VK-Appearance-CSRF": "1" };
@@ -18,6 +18,7 @@ async function fixture() {
   registerAppearanceRoutes(app, {
     getService: async () => service,
     authenticateMutation: createAppearanceMutationAuthenticator({ browserOrigin: "http://localhost", cliToken: "test-cli-token-0123456789" }),
+    authenticateRead: createAppearanceReadAuthenticator({ browserOrigin: "http://localhost", cliToken: "test-cli-token-0123456789" }),
   });
   return { app, service };
 }
@@ -29,10 +30,29 @@ async function candidateFor(snapshot: string) {
 }
 
 describe("appearance history API", () => {
+  it("authenticates and separately authorizes every private read", async () => {
+    const { app } = await fixture();
+    for (const path of ["/dashboard/api/appearance", "/dashboard/api/appearance/revisions/missing/snapshot", "/dashboard/api/appearance/diff?from=x&to=y"]) {
+      expect((await app.request(path)).status).toBe(403);
+      expect((await app.request(path, { headers: { ...browserHeaders, Origin: "https://evil.example" } })).status).toBe(403);
+      expect((await app.request(path, { headers: { ...cliHeaders, Authorization: "Bearer invalid" } })).status).toBe(403);
+    }
+    const deniedService = await AppearanceRevisionService.open({ store: new MemoryAppearanceRevisionStore(), genesisSnapshot: createDefaultAppearanceSnapshot() });
+    const denied = new Hono();
+    registerAppearanceRoutes(denied, {
+      getService: async () => deniedService,
+      authenticateMutation: createAppearanceMutationAuthenticator({ browserOrigin: "http://localhost", cliToken: "test-cli-token-0123456789" }),
+      allowRead: () => false,
+    });
+    expect((await denied.request("/dashboard/api/appearance", { headers: browserHeaders })).status).toBe(403);
+    expect((await app.request("/dashboard/api/appearance", { headers: cliHeaders })).status).toBe(200);
+    expect((await app.request("/dashboard/api/appearance", { headers: { "X-VK-Appearance-CSRF": "1", "Sec-Fetch-Site": "same-origin" } })).status).toBe(200);
+  });
+
   it("uses one command service for inspect, snapshot, mutation, diff, and undo", async () => {
     const { app, service } = await fixture();
     const genesis = service.inspect().head!;
-    const inspect = await app.request("/dashboard/api/appearance");
+    const inspect = await app.request("/dashboard/api/appearance", { headers: browserHeaders });
     expect(inspect.status).toBe(200);
     expect((await inspect.json()).head.revisionId).toBe(genesis.revisionId);
 
@@ -44,8 +64,8 @@ describe("appearance history API", () => {
     });
     expect(apply.status).toBe(201);
     const applied = await apply.json();
-    expect(applied.revision).toMatchObject({ actor: { id: "local-user", kind: "user" }, source: "user" });
-    const diff = await app.request(`/dashboard/api/appearance/diff?from=${genesis.revisionId}&to=${applied.revision.revisionId}`);
+    expect(applied.revision).toMatchObject({ actor: { id: "local-user", kind: "user" }, source: "user", activation: { compilerVersion: 1, policyVersion: 1, sourceDigest: expect.stringMatching(/^sha256-/) } });
+    const diff = await app.request(`/dashboard/api/appearance/diff?from=${genesis.revisionId}&to=${applied.revision.revisionId}`, { headers: browserHeaders });
     expect(diff.status).toBe(200);
     expect((await diff.json()).changes).toContainEqual(expect.objectContaining({ path: "provenance.generator" }));
 

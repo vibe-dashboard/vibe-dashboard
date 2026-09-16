@@ -14,9 +14,15 @@ export interface SkinEditorCandidateResult extends SkinEditorSaveResult {
   artifact?: { readonly scope: string; readonly cssText: string; readonly digest: string };
 }
 
+export interface SkinEditorCandidateHandle {
+  readonly sourceDigest: string;
+  readonly artifactDigest: string | null;
+  readonly artifact?: { readonly scope: string; readonly cssText: string; readonly digest: string };
+}
+
 export interface SkinEditorActions {
   compileSkinState?: (args: { state: MyneSkinState }) => Promise<SkinEditorCandidateResult>;
-  saveSkinState: (args: { state: MyneSkinState; source?: "user" | "import" }) => Promise<SkinEditorSaveResult>;
+  saveSkinState: (args: { state: MyneSkinState; source?: "user" | "import"; candidate: SkinEditorCandidateHandle }) => Promise<SkinEditorSaveResult>;
 }
 
 export interface SkinEditorColorField {
@@ -44,6 +50,7 @@ export interface SkinEditorViewModel {
   isDirty: boolean;
   isEditingCustomSkin: boolean;
   isSaving: boolean;
+  isCandidateReady: boolean;
   previewArtifact?: { readonly scope: string; readonly cssText: string; readonly digest: string };
   previewState: MyneSkinState;
   rawCssStatus: "compiler-protected";

@@ -84,10 +84,10 @@ export const defaultSkinEditorManifest: SkinEditorCompositionManifest = {
   viewPackId: "myne.appearance.view-pack.default",
   slots: {
     header: { slot: "header", component: "myne.appearance.header.default", contractVersion: 1 },
-    library: { slot: "library", component: "myne.appearance.library.default", contractVersion: 1 },
-    tokenEditor: { slot: "tokenEditor", component: "myne.appearance.token-editor.default", contractVersion: 1 },
+    library: { slot: "library", component: "myne.appearance.library.default", contractVersion: 2 },
+    tokenEditor: { slot: "tokenEditor", component: "myne.appearance.token-editor.default", contractVersion: 2 },
     preview: { slot: "preview", component: "myne.appearance.preview.default", contractVersion: 1 },
-    importExport: { slot: "importExport", component: "myne.appearance.import-export.default", contractVersion: 1 },
+    importExport: { slot: "importExport", component: "myne.appearance.import-export.default", contractVersion: 2 },
     diagnostics: { slot: "diagnostics", component: "myne.appearance.diagnostics.default", contractVersion: 1 },
   },
 };

@@ -34,3 +34,22 @@ export function createAppearanceMutationAuthenticator(options: {
     return { channel: "browser", actor: { id: "local-user", kind: "user" } };
   };
 }
+
+export function createAppearanceReadAuthenticator(options: {
+  readonly browserOrigin: string;
+  readonly cliToken?: string;
+}): (context: Context) => AppearanceMutationPrincipal | undefined {
+  const mutation = createAppearanceMutationAuthenticator(options);
+  const browserOrigin = new URL(options.browserOrigin).origin;
+  return (context) => {
+    const authorization = context.req.header("Authorization");
+    if (authorization !== undefined) return mutation(context);
+    const origin = context.req.header("Origin");
+    const fetchSite = context.req.header("Sec-Fetch-Site");
+    if (context.req.header("X-VK-Appearance-CSRF") !== "1"
+      || (origin !== undefined && origin !== browserOrigin)
+      || (fetchSite !== undefined && fetchSite !== "same-origin")
+      || (origin === undefined && fetchSite !== "same-origin")) return undefined;
+    return { channel: "browser", actor: { id: "local-user", kind: "user" } };
+  };
+}

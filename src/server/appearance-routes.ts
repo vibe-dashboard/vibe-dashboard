@@ -12,6 +12,8 @@ import type { AppearanceMutationPrincipal } from "./appearance-auth.node";
 interface AppearanceRouteOptions {
   getService: () => Promise<AppearanceRevisionService>;
   authenticateMutation: (context: Context) => AppearanceMutationPrincipal | undefined | Promise<AppearanceMutationPrincipal | undefined>;
+  authenticateRead?: (context: Context) => AppearanceMutationPrincipal | undefined | Promise<AppearanceMutationPrincipal | undefined>;
+  allowRead?: (context: Context, principal: AppearanceMutationPrincipal) => boolean | Promise<boolean>;
   allowMutation?: (context: Context, trusted: { actor: AppearanceActor; source: "user" | "cli" | "import" }) => boolean | Promise<boolean>;
 }
 type JsonRecord = Record<string, unknown>;
@@ -29,14 +31,23 @@ function commandStatus(code: string): 400 | 403 | 404 | 409 | 503 {
 }
 
 export function registerAppearanceRoutes(app: Hono, options: AppearanceRouteOptions): void {
-  app.get("/dashboard/api/appearance", async (context) => context.json((await options.getService()).inspect()));
+  const authorizeRead = async (context: Context) => {
+    const principal = await (options.authenticateRead ?? options.authenticateMutation)(context);
+    return principal && (!options.allowRead || await options.allowRead(context, principal)) ? principal : undefined;
+  };
+  app.get("/dashboard/api/appearance", async (context) => {
+    if (!await authorizeRead(context)) return context.json({ error: "unauthorized" }, 403);
+    return context.json(await (await options.getService()).inspectFresh());
+  });
   app.get("/dashboard/api/appearance/revisions/:revisionId/snapshot", async (context) => {
-    const revision = (await options.getService()).inspect().revisions.find((candidate) => candidate.revisionId === context.req.param("revisionId"));
+    if (!await authorizeRead(context)) return context.json({ error: "unauthorized" }, 403);
+    const revision = (await (await options.getService()).inspectFresh()).revisions.find((candidate) => candidate.revisionId === context.req.param("revisionId"));
     return revision ? context.json({ revisionId: revision.revisionId, snapshot: revision.snapshot }) : context.json({ error: "unknown-revision" }, 404);
   });
   app.get("/dashboard/api/appearance/diff", async (context) => {
+    if (!await authorizeRead(context)) return context.json({ error: "unauthorized" }, 403);
     const service = await options.getService();
-    const revisions = service.inspect().revisions;
+    const revisions = (await service.inspectFresh()).revisions;
     const from = revisions.find((revision) => revision.revisionId === context.req.query("from"));
     const to = revisions.find((revision) => revision.revisionId === context.req.query("to"));
     if (!from || !to) return context.json({ error: "unknown-revision" }, 404);
@@ -72,7 +83,19 @@ export function registerAppearanceRoutes(app: Hono, options: AppearanceRouteOpti
         artifactDigest: candidate.artifactDigest as `sha256-${string}` | null,
       });
       if (!verified.ok) return context.json({ ok: false, diagnostic: { code: verified.code, message: verified.message } }, 409);
-      result = await service.apply({ expectedCurrentRevisionId: body.expectedCurrentRevisionId, snapshot: body.snapshot, actor, source: trusted.source as AppearanceMutationSource & ("user" | "cli" | "import"), summary: body.summary });
+      result = await service.apply({
+        expectedCurrentRevisionId: body.expectedCurrentRevisionId,
+        snapshot: body.snapshot,
+        actor,
+        source: trusted.source as AppearanceMutationSource & ("user" | "cli" | "import"),
+        summary: body.summary,
+        activation: {
+          sourceDigest: verified.candidate.sourceDigest,
+          artifactDigest: verified.candidate.artifact?.digest ?? null,
+          compilerVersion: 1,
+          policyVersion: 1,
+        },
+      });
     } else if (body.type === "undo") {
       result = await service.undo({ expectedCurrentRevisionId: body.expectedCurrentRevisionId, actor, summary: body.summary, ...(typeof body.targetRevisionId === "string" ? { targetRevisionId: body.targetRevisionId } : {}) });
     } else if (["redo", "revert", "restore"].includes(body.type) && typeof body.targetRevisionId === "string") {

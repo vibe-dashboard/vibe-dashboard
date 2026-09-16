@@ -27,6 +27,10 @@ describe("appearance revision command service", () => {
       (s) => { s.revisions[1].actor.id = "forged"; }, (s) => { s.revisions[1].actor.kind = "forged"; }, (s) => { s.revisions[1].source = "forged"; },
       (s) => { s.revisions[1].committedAt = "2026-09-15T02:00:00Z"; }, (s) => { s.revisions[1].summary = "forged"; }, (s) => { s.revisions[1].parentRevisionId = "forged"; },
       (s) => { s.revisions[1].targetRevisionId = first.revisionId; }, (s) => { s.revisions[1].sequence = 7; }, (s) => { s.revisions[1].integrityVersion = 2; },
+      (s) => { s.revisions[1].streamId = "forged"; }, (s) => { s.revisions[1].ownerId = "forged"; },
+      (s) => { s.revisions[1].activation.sourceDigest = "sha256-forged"; }, (s) => { s.revisions[1].activation.artifactDigest = "sha256-forged"; },
+      (s) => { s.revisions[1].activation.compilerVersion = 2; }, (s) => { s.revisions[1].activation.policyVersion = 2; },
+      (s) => { s.streamId = "forged"; }, (s) => { s.ownerId = "forged"; }, (s) => { s.retention.mode = "delete"; },
       (s) => { s.revisions.reverse(); }, (s) => { s.headRevisionId = first.revisionId; }, (s) => { s.revisions[1].extra = true; },
     ];
     for (const mutate of mutations) { const corrupted = JSON.parse(JSON.stringify(valid)); mutate(corrupted); const store: AppearanceRevisionStore = { load: async () => corrupted, compareAndSwap: async () => "saved" }; await expect(AppearanceRevisionService.open({ store, genesisSnapshot: snapshot() })).rejects.toThrow("corrupt-appearance-history"); }
@@ -107,14 +111,21 @@ describe("appearance revision command service", () => {
       if (!result.ok) throw new Error("fixture"); head = result.revision.revisionId;
     }
     const before = service.inspect().revisions;
-    await service.compact({ retainRecent: 2 });
+    await service.checkpoint({ retainRecent: 2 });
     expect(service.inspect().revisions).toEqual(before);
-    expect(service.inspect().checkpoint).toMatchObject({ throughRevisionId: before[1]!.revisionId, retainedRevisionCount: 4 });
+    expect(service.inspect()).toMatchObject({ retention: { mode: "retain-all", undoWindow: null, assetGc: "disabled" } });
+    expect(service.inspect().checkpoint).toMatchObject({ throughRevisionId: before[1]!.revisionId, boundarySnapshot: before[1]!.snapshot, boundarySnapshotDigest: before[1]!.snapshotDigest, retainedRevisionCount: 4, retainedRoots: expect.arrayContaining(before.map((revision) => revision.revisionId)) });
     const valid = await store.load() as AppearanceRevisionState;
     for (const mutate of [
       (state: any) => { state.checkpoint.throughRevisionId = "missing"; },
       (state: any) => { state.checkpoint.retainedRevisionCount = 3; },
       (state: any) => { state.checkpoint.createdAt = "invalid"; },
+      (state: any) => { state.checkpoint.boundarySnapshot = "forged"; },
+      (state: any) => { state.checkpoint.boundarySnapshotDigest = "forged"; },
+      (state: any) => { state.checkpoint.rangeStartedAt = "invalid"; },
+      (state: any) => { state.checkpoint.rangeEndedAt = "invalid"; },
+      (state: any) => { state.checkpoint.auditSummary.user = 99; },
+      (state: any) => { state.checkpoint.retainedRoots = []; },
       (state: any) => { state.checkpoint.digest = "forged"; },
     ]) {
       const corrupted = JSON.parse(JSON.stringify(valid)); mutate(corrupted);

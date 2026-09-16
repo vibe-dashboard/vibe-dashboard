@@ -31,8 +31,9 @@ describe("production appearance AppHooks", () => {
     const host = createProductionAppearanceModule({ fetcher });
     const rendered = renderHook(() => host.module.useSkinEditor());
     await waitFor(() => expect(rendered.result.current.available && rendered.result.current.value.loading).toBe(false));
+    const candidate = await host.module.compileAppearanceCandidate({ snapshot: { schemaVersion: 1, value: JSON.parse(canonical).skin } });
     await act(async () => {
-      expect(await host.module.saveAppearance({ snapshot: { schemaVersion: 1, value: JSON.parse(canonical).skin } })).toEqual({ ok: true });
+      expect(await host.module.saveAppearance({ snapshot: { schemaVersion: 1, value: JSON.parse(canonical).skin }, candidate: { sourceDigest: candidate.ok ? candidate.sourceDigest! : "", artifactDigest: candidate.ok ? candidate.artifact?.digest ?? null : null } })).toEqual({ ok: true });
     });
     expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toMatchObject({
       type: "apply",
@@ -78,6 +79,7 @@ describe("production appearance AppHooks", () => {
         candidate: {
           sourceDigest: candidate.ok ? candidate.sourceDigest! : "",
           artifactDigest: candidate.ok ? candidate.artifact?.digest ?? null : null,
+          artifact: candidate.ok ? candidate.artifact : undefined,
         },
       })).toEqual({ ok: true });
     });
@@ -92,7 +94,8 @@ describe("production appearance AppHooks", () => {
   it("invalidates stale candidate bindings without persisting or replacing active state", async () => {
     const canonical = createDefaultAppearanceSnapshot();
     const fetcher = vi.fn()
-      .mockResolvedValueOnce(response({ head: { revisionId: "rev-1", snapshot: canonical }, revisions: [] }));
+      .mockResolvedValueOnce(response({ head: { revisionId: "rev-1", snapshot: canonical }, revisions: [] }))
+      .mockResolvedValueOnce(response({ ok: false, diagnostic: { code: "candidate-digest-mismatch", message: "stale" } }, 409));
     const host = createProductionAppearanceModule({ fetcher });
     const rendered = renderHook(() => host.module.useSkinEditor());
     await waitFor(() => expect(rendered.result.current.available && rendered.result.current.value.loading).toBe(false));
@@ -102,7 +105,7 @@ describe("production appearance AppHooks", () => {
       candidate: { sourceDigest: "sha256-stale", artifactDigest: null },
     });
     expect(result).toMatchObject({ ok: false, diagnostics: [{ code: "candidate-digest-mismatch" }] });
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledTimes(2);
     expect(rendered.result.current).toBe(before);
   });
 
@@ -116,8 +119,9 @@ describe("production appearance AppHooks", () => {
     const rendered = renderHook(() => host.module.useSkinEditor());
     await waitFor(() => expect(rendered.result.current.available && rendered.result.current.value.loading).toBe(false));
     const before = rendered.result.current;
+    const candidate = await host.module.compileAppearanceCandidate({ snapshot: { schemaVersion: 1, value: JSON.parse(canonical).skin } });
     await act(async () => {
-      const result = await host.module.saveAppearance({ snapshot: { schemaVersion: 1, value: JSON.parse(canonical).skin } });
+      const result = await host.module.saveAppearance({ snapshot: { schemaVersion: 1, value: JSON.parse(canonical).skin }, candidate: { sourceDigest: candidate.ok ? candidate.sourceDigest! : "", artifactDigest: candidate.ok ? candidate.artifact?.digest ?? null : null } });
       expect(result).toMatchObject({ ok: false, diagnostics: [{ code: "stale-revision" }] });
       await host.reload();
     });
@@ -157,7 +161,8 @@ describe("production appearance AppHooks", () => {
     const host = createProductionAppearanceModule({ fetcher });
     const rendered = renderHook(() => host.module.useSkinEditor());
     await waitFor(() => expect(rendered.result.current.available && rendered.result.current.value.loading).toBe(false));
-    await host.module.saveAppearance({ snapshot: { schemaVersion: 1, value: JSON.parse(canonical).skin }, source: "import" });
+    const candidate = await host.module.compileAppearanceCandidate({ snapshot: { schemaVersion: 1, value: JSON.parse(canonical).skin } });
+    await host.module.saveAppearance({ snapshot: { schemaVersion: 1, value: JSON.parse(canonical).skin }, source: "import", candidate: { sourceDigest: candidate.ok ? candidate.sourceDigest! : "", artifactDigest: candidate.ok ? candidate.artifact?.digest ?? null : null } });
     expect(fetcher.mock.calls[1]?.[0]).toBe("/dashboard/api/appearance/commands");
     expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toMatchObject({ operation: "import" });
   });

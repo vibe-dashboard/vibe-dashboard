@@ -5,6 +5,7 @@ interface SurfaceContract {
   readonly layoutIds: ReadonlySet<string>;
   readonly viewPackIds: ReadonlySet<string>;
   readonly slots: Readonly<Record<string, ReadonlySet<string>>>;
+  readonly slotVersions: Readonly<Record<string, number>>;
 }
 
 const MYNE_APPEARANCE_SURFACE_CONTRACTS: Readonly<Record<string, SurfaceContract>> = Object.freeze({
@@ -18,6 +19,7 @@ const MYNE_APPEARANCE_SURFACE_CONTRACTS: Readonly<Record<string, SurfaceContract
       workspaceList: new Set(["myne.spaces.workspace-list.default", "myne.spaces.workspace-list.dense"]), spaces: new Set(["myne.spaces.spaces.default"]),
       spacePicker: new Set(["myne.spaces.space-picker.default"]),
     }),
+    slotVersions: Object.freeze({ pageHeader: 1, recentSessions: 1, starredCraft: 1, runningDevServers: 1, recentlyVisitedCraft: 1, recentlyCreatedCraft: 1, workspaceList: 1, spaces: 1, spacePicker: 1 }),
   },
   "skin-editor": {
     layoutIds: new Set(["myne.appearance.layout.dialog"]),
@@ -27,6 +29,7 @@ const MYNE_APPEARANCE_SURFACE_CONTRACTS: Readonly<Record<string, SurfaceContract
       tokenEditor: new Set(["myne.appearance.token-editor.default"]), preview: new Set(["myne.appearance.preview.default"]),
       importExport: new Set(["myne.appearance.import-export.default"]), diagnostics: new Set(["myne.appearance.diagnostics.default", "myne.appearance.diagnostics.compact"]),
     }),
+    slotVersions: Object.freeze({ header: 1, library: 2, tokenEditor: 2, preview: 1, importExport: 2, diagnostics: 1 }),
   },
 });
 
@@ -42,7 +45,7 @@ export function validateAppearanceSurfaceCompatibility(surface: MyneAppearanceSu
     const slot = supplied.get(slotId);
     if (!slot) fail("missing-slot", `Required slot \"${slotId}\" is missing from ${surface.surface}.`, "slots");
     else if (!componentIds.has(slot.componentId)) fail("incompatible-component", `Component \"${slot.componentId}\" is not registered for ${surface.surface}.${slotId}.`, `slots.${slotId}.componentId`);
-    else if (slot.contractVersion !== 1) fail("unsupported-slot-contract", `Slot \"${slotId}\" contract version is unsupported.`, `slots.${slotId}.contractVersion`);
+    else if (slot.contractVersion !== contract.slotVersions[slotId]) fail("unsupported-slot-contract", `Slot \"${slotId}\" contract version is unsupported.`, `slots.${slotId}.contractVersion`);
   }
   for (const slot of surface.slots) if (!(slot.id in contract.slots)) fail("unknown-slot", `Slot \"${slot.id}\" is not registered for ${surface.surface}.`, `slots.${slot.id}`);
   return diagnostics;

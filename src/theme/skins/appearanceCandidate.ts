@@ -1,4 +1,5 @@
-import { canonicalizeAppearanceSnapshot, type MyneAppearanceSnapshotV1 } from "./appearanceSnapshot";
+import type { MyneAppearanceSnapshotV1 } from "./appearanceSnapshot";
+import { sourceDigestForAppearanceSnapshot } from "./appearanceSourceDigest";
 import { BUILT_IN_MYNE_SKINS } from "./builtin";
 import { getSkinRuntimeState } from "./runtime";
 import { compileScopedAppearance, type CompiledAppearanceArtifactV1 } from "./scopedCss";
@@ -18,12 +19,7 @@ export type AppearanceCandidateCompileResult =
   | { readonly ok: true; readonly sourceDigest: `sha256-${string}`; readonly artifact?: AppearanceCandidateArtifactDTO; readonly artifactObject?: CompiledAppearanceArtifactV1 }
   | { readonly ok: false; readonly diagnostics: readonly { readonly severity: "error" | "warning"; readonly code: string; readonly message: string; readonly path?: string }[] };
 
-export async function sourceDigestForAppearanceSnapshot(snapshot: MyneAppearanceSnapshotV1): Promise<`sha256-${string}`> {
-  return sha256Base64Url(canonicalizeAppearanceSnapshot({
-    ...snapshot,
-    provenance: { source: "user-export", createdAt: "1970-01-01T00:00:00.000Z", generator: "candidate-source-binding" },
-  }));
-}
+export { sourceDigestForAppearanceSnapshot } from "./appearanceSourceDigest";
 
 export async function compileAppearanceSnapshotCandidate(snapshot: MyneAppearanceSnapshotV1): Promise<AppearanceCandidateCompileResult> {
   const sourceDigest = await sourceDigestForAppearanceSnapshot(snapshot);
@@ -65,10 +61,4 @@ export async function verifyAppearanceCandidateBinding(
     return { ok: false, code: "candidate-digest-mismatch", message: "The appearance candidate no longer matches the submitted activation artifact." };
   }
   return { ok: true, candidate };
-}
-
-async function sha256Base64Url(value: string): Promise<`sha256-${string}`> {
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  const binary = String.fromCharCode(...new Uint8Array(digest));
-  return `sha256-${btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/u, "")}`;
 }

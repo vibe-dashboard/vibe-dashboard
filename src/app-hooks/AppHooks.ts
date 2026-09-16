@@ -101,7 +101,7 @@ export interface AppearanceModuleV1 {
   readonly availability: CapabilityAvailability;
   readonly useSkinEditor: () => ModuleHookResult<AppearanceStateV1>;
   readonly compileAppearanceCandidate: (args: { readonly snapshot: AppearanceSnapshotV1 }) => Promise<AppearanceCandidateDTO>;
-  readonly saveAppearance: (args: { readonly snapshot: AppearanceSnapshotV1; readonly source?: "user" | "import"; readonly candidate?: { readonly sourceDigest: string; readonly artifactDigest: string | null } }) => Promise<AppearanceSaveResultDTO>;
+  readonly saveAppearance: (args: { readonly snapshot: AppearanceSnapshotV1; readonly source?: "user" | "import"; readonly candidate?: { readonly sourceDigest: string; readonly artifactDigest: string | null; readonly artifact?: { readonly scope: string; readonly cssText: string; readonly digest: string } } }) => Promise<AppearanceSaveResultDTO>;
 }
 
 export interface AppHooksModuleMapV1 {
@@ -257,7 +257,7 @@ export function createFakeAppHooksV1Host(options: {
   });
   const appearance: AppearanceModuleV1 = Object.freeze({
     id: "myne.appearance", version: 1, availability: Object.freeze({ available: true }), useSkinEditor,
-    compileAppearanceCandidate: options.compileAppearanceCandidate ?? (async () => ({ ok: true })),
+    compileAppearanceCandidate: options.compileAppearanceCandidate ?? (async () => ({ ok: true, sourceDigest: "sha256-fake-host-candidate" })),
     saveAppearance: options.saveAppearance ?? (async () => ({ ok: true })),
   });
   const appHooks = createAppHooksV1([spaces, appearance]);

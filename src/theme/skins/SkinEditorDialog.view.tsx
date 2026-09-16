@@ -83,14 +83,14 @@ export function DefaultSkinEditorLibrary({ model, actions }: SkinEditorSlotProps
         </MyneAction>
         <MyneAction
           className="border px-3 py-2 text-sm"
-          disabled={model.isSaving || model.isDirty}
+          disabled={model.isSaving || model.isDirty || !model.isCandidateReady}
           onClick={actions.applySelectedSkin}
         >
           Apply selected
         </MyneAction>
         <MyneAction
           className="border px-3 py-2 text-sm"
-          disabled={model.isSaving}
+          disabled={model.isSaving || !model.isCandidateReady}
           onClick={actions.revertToDefaultSkin}
           tone="quiet"
         >
@@ -202,7 +202,7 @@ export function DefaultSkinEditorTokenEditor({ model, actions }: SkinEditorSlotP
       <div className="mt-4 flex flex-wrap gap-2">
         <MyneAction
           className="border px-4 py-2 text-sm font-medium"
-          disabled={!model.draftSkin || model.isSaving}
+          disabled={!model.draftSkin || model.isSaving || !model.isCandidateReady}
           onClick={actions.saveDraftSkin}
           tone="accent"
         >
@@ -271,7 +271,7 @@ export function DefaultSkinEditorImportExport({ model, actions }: SkinEditorSlot
       <div className="mt-3 flex gap-2">
         <MyneAction
           className="border px-3 py-2 text-sm"
-          disabled={model.isSaving}
+          disabled={model.isSaving || !model.isCandidateReady}
           onClick={actions.importPackage}
           tone="accent"
         >
