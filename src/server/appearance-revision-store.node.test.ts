@@ -14,11 +14,12 @@ describe("file appearance revision store", () => {
     const root = await mkdtemp(join(tmpdir(), "myne-appearance-")); roots.push(root);
     const path = join(root, "history.json");
     const first = await AppearanceRevisionService.open({ store: new FileAppearanceRevisionStore(path), genesisSnapshot: createDefaultAppearanceSnapshot() });
-    const second = await AppearanceRevisionService.open({ store: new FileAppearanceRevisionStore(path), genesisSnapshot: createDefaultAppearanceSnapshot() });
+    const second = await AppearanceRevisionService.open({ store: new FileAppearanceRevisionStore(join(root, ".", "history.json")), genesisSnapshot: createDefaultAppearanceSnapshot() });
     const head = first.inspect().head!;
     const next = JSON.parse(head.snapshot); next.provenance.generator = "file-store";
     const commands = [first, second].map((service, index) => service.apply({ expectedCurrentRevisionId: head.revisionId, snapshot: JSON.stringify(next), actor: { id: `cli-${index}`, kind: "cli" }, source: "cli", summary: "race" }));
     expect((await Promise.all(commands)).filter((result) => result.ok)).toHaveLength(1);
+    expect(first.inspect().head?.revisionId).toBe(second.inspect().head?.revisionId);
     const restarted = await AppearanceRevisionService.open({ store: new FileAppearanceRevisionStore(path), genesisSnapshot: createDefaultAppearanceSnapshot() });
     expect(restarted.inspect().revisions).toHaveLength(2);
     const persisted = await readFile(path, "utf8");

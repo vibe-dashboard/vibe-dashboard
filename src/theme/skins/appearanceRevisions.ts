@@ -123,7 +123,11 @@ export class AppearanceRevisionService {
     try {
       if (await this.store.compareAndSwap(command.expectedCurrentRevisionId, next) === "stale") {
         const latest = await this.store.load();
-        const currentRevisionId = isState(latest) ? latest.headRevisionId : this.#state.headRevisionId;
+        if (!isState(latest) || latest.revisions.some((item) => !parseAppearanceSnapshot(item.snapshot).ok)) {
+          return { ok: false, diagnostic: { code: "persistence-failed", message: "The winning appearance history failed strict validation; the local last-known-good state remains active." } };
+        }
+        this.#state = Object.freeze({ ...latest, revisions: Object.freeze(latest.revisions.map(freezeRevision)) });
+        const currentRevisionId = this.#state.headRevisionId;
         return { ok: false, diagnostic: { code: "stale-revision", message: "Appearance head changed; refresh and review the diff before retrying.", expectedRevisionId: command.expectedCurrentRevisionId, currentRevisionId } };
       }
     } catch { return { ok: false, diagnostic: { code: "persistence-failed", message: "Appearance history was not changed because persistence failed." } }; }
