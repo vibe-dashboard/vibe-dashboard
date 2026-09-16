@@ -278,11 +278,15 @@ targets, and the narrow explicit negative/historical fixture exceptions. Both
 production proof stories are linted; their preview framing uses the token-backed
 `myne-preview-frame` class rather than a hardcoded palette utility.
 
-The target keeps working draft, preview snapshot, and committed revision
-separate. History is append-only: undo, redo, restore, and agent writes create
-compensating revisions through the same authorization, validation, confirmation,
-and optimistic-concurrency service. They never rewrite history or directly move
-a mutable current pointer.
+Working draft, preview snapshot, and committed revision remain separate.
+[`appearanceRevisions.ts`](../src/theme/skins/appearanceRevisions.ts) now provides
+the shared append-only command service: undo, redo, restore, revert, user, agent,
+CLI, import, and marketplace writes traverse canonical validation, authorization,
+atomic store compare-and-swap, and expected-head concurrency. They create
+compensating revisions rather than rewriting history. The in-memory conformance
+store proves restart, corruption, persistence-failure, and concurrent-client
+semantics; production host storage, app entry points, and CLI transport remain
+pending.
 
 ## 6. Styling cascade and protected UI
 
@@ -338,7 +342,7 @@ State ownership is similarly explicit:
 | Filters, pagination, picker, pending actions | SpacesOverview container/controller |
 | Skin draft, import/export text, draft diagnostics | Skin Editor controller |
 | Preview appearance | Disposable preview scope |
-| Active appearance and immutable history | Host persistence/revision service, once implemented |
+| Active appearance and immutable history | Shared revision command service; production host store wiring remains pending |
 | Permission, confirmation, recovery state | Protected host UI |
 
 ## 8. Future extension points

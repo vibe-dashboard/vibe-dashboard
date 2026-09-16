@@ -72,5 +72,6 @@ export * from "./types";
 export * from "./appearanceSnapshot";
 export * from "./appearanceCompatibility";
 export * from "./portablePackage";
+export * from "./appearanceRevisions";
 export * from "./scopedCss";
 export * from "./ProtectedAppearanceBoundary.view";
