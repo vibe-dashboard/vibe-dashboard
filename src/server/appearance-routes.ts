@@ -5,9 +5,13 @@ import {
   type AppearanceActor,
   type AppearanceMutationSource,
 } from "../theme/skins/appearanceRevisions";
+import { parseAppearanceSnapshot } from "../theme/skins/appearanceSnapshot";
+import { verifyAppearanceCandidateBinding } from "../theme/skins/appearanceCandidate";
+import type { AppearanceMutationPrincipal } from "./appearance-auth.node";
 
 interface AppearanceRouteOptions {
   getService: () => Promise<AppearanceRevisionService>;
+  authenticateMutation: (context: Context) => AppearanceMutationPrincipal | undefined | Promise<AppearanceMutationPrincipal | undefined>;
   allowMutation?: (context: Context, trusted: { actor: AppearanceActor; source: "user" | "cli" | "import" }) => boolean | Promise<boolean>;
 }
 type JsonRecord = Record<string, unknown>;
@@ -38,18 +42,36 @@ export function registerAppearanceRoutes(app: Hono, options: AppearanceRouteOpti
     if (!from || !to) return context.json({ error: "unknown-revision" }, 404);
     return context.json(diffAppearanceSnapshots(from.snapshot, to.snapshot));
   });
-  const execute = async (context: Context, trusted: { actor: AppearanceActor; source: "user" | "cli" | "import" }) => {
-    if (options.allowMutation && !await options.allowMutation(context, trusted)) return context.json({ error: "unauthorized" }, 403);
+  const execute = async (context: Context) => {
+    const principal = await options.authenticateMutation(context);
+    if (!principal) return context.json({ error: "unauthorized" }, 403);
     let body: JsonRecord | undefined;
     try { body = record(await context.req.json()); } catch { body = undefined; }
     if (!body || typeof body.type !== "string" || typeof body.expectedCurrentRevisionId !== "string"
-      || typeof body.summary !== "string") {
+      || typeof body.summary !== "string" || "actor" in body || "source" in body
+      || (body.operation !== undefined && body.operation !== "import")) {
       return context.json({ error: "invalid-command" }, 400);
     }
-    const actor = trusted.actor;
+    const isImport = body.operation === "import";
+    if (isImport && (principal.channel !== "browser" || body.type !== "apply")) return context.json({ error: "invalid-command" }, 400);
+    const trusted = { actor: principal.actor, source: (isImport ? "import" : principal.channel === "cli" ? "cli" : "user") as "user" | "cli" | "import" };
+    if (options.allowMutation && !await options.allowMutation(context, trusted)) return context.json({ error: "unauthorized" }, 403);
+    const actor = principal.actor;
     const service = await options.getService();
     let result;
     if (body.type === "apply" && typeof body.snapshot === "string") {
+      const candidate = record(body.candidate);
+      if (!candidate || typeof candidate.sourceDigest !== "string" || !("artifactDigest" in candidate)
+        || (candidate.artifactDigest !== null && typeof candidate.artifactDigest !== "string")) {
+        return context.json({ error: "invalid-command" }, 400);
+      }
+      const parsed = parseAppearanceSnapshot(body.snapshot);
+      if (!parsed.ok || !parsed.value) return context.json({ error: "invalid-snapshot", diagnostics: parsed.diagnostics }, 400);
+      const verified = await verifyAppearanceCandidateBinding(parsed.value, {
+        sourceDigest: candidate.sourceDigest as `sha256-${string}`,
+        artifactDigest: candidate.artifactDigest as `sha256-${string}` | null,
+      });
+      if (!verified.ok) return context.json({ ok: false, diagnostic: { code: verified.code, message: verified.message } }, 409);
       result = await service.apply({ expectedCurrentRevisionId: body.expectedCurrentRevisionId, snapshot: body.snapshot, actor, source: trusted.source as AppearanceMutationSource & ("user" | "cli" | "import"), summary: body.summary });
     } else if (body.type === "undo") {
       result = await service.undo({ expectedCurrentRevisionId: body.expectedCurrentRevisionId, actor, summary: body.summary, ...(typeof body.targetRevisionId === "string" ? { targetRevisionId: body.targetRevisionId } : {}) });
@@ -59,11 +81,5 @@ export function registerAppearanceRoutes(app: Hono, options: AppearanceRouteOpti
     } else return context.json({ error: "invalid-command" }, 400);
     return result.ok ? context.json(result, 201) : context.json(result, commandStatus(result.diagnostic.code));
   };
-  // CURRENT deployment assumption: the dashboard server is single-user and is
-  // the authorization boundary. Caller-supplied actor/source fields are ignored.
-  // Distinct trusted routes preserve audit provenance without making it an
-  // authorization credential; a future multi-user host must inject principals.
-  app.post("/dashboard/api/appearance/commands", (context) => execute(context, { actor: { id: "local-user", kind: "user" }, source: "user" }));
-  app.post("/dashboard/api/appearance/cli-commands", (context) => execute(context, { actor: { id: "local-cli", kind: "cli" }, source: "cli" }));
-  app.post("/dashboard/api/appearance/import-commands", (context) => execute(context, { actor: { id: "local-import", kind: "import" }, source: "import" }));
+  app.post("/dashboard/api/appearance/commands", execute);
 }

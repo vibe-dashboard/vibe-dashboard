@@ -1,5 +1,6 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { canonicalizeAppearanceSnapshot, parseAppearanceSnapshot, type MyneAppearanceSnapshotV1 } from "../theme/skins/appearanceSnapshot";
+import { compileAppearanceSnapshotCandidate, compilerTokensFromRuntime, verifyAppearanceCandidateBinding } from "../theme/skins/appearanceCandidate";
 import { migrateSkinState } from "../theme/skins/schema";
 import { BUILT_IN_MYNE_SKINS } from "../theme/skins/builtin";
 import { compileScopedAppearance, type CompiledAppearanceArtifactV1 } from "../theme/skins/scopedCss";
@@ -71,17 +72,38 @@ export function createProductionAppearanceModule(options: {
   };
   const module: AppearanceModuleV1 = Object.freeze({
     id: "myne.appearance", version: 1, availability: Object.freeze({ available: true }), useSkinEditor,
-    saveAppearance: async ({ snapshot, source = "user" }: { readonly snapshot: AppearanceSnapshotV1; readonly source?: "user" | "import" }) => {
+    compileAppearanceCandidate: async ({ snapshot }: { readonly snapshot: AppearanceSnapshotV1 }) => {
+      try {
+        if (!parsed) return { ok: false, diagnostics: [diagnostic("appearance-not-ready", "Appearance history is not ready.")] };
+        const skin = migrateSkinState(snapshot.value);
+        const next: MyneAppearanceSnapshotV1 = { ...parsed, skin, provenance: { source: "user-export", createdAt: new Date().toISOString(), generator: "vibe-kanban-skin-editor" } };
+        const candidate = await compileAppearanceSnapshotCandidate(next);
+        return candidate.ok ? { ok: true, sourceDigest: candidate.sourceDigest, ...(candidate.artifact ? { artifact: candidate.artifact } : {}) } : { ok: false, diagnostics: candidate.diagnostics.map((item) => ({ ...item })) };
+      } catch (cause) {
+        return { ok: false, diagnostics: [diagnostic("invalid-appearance", cause instanceof Error ? cause.message : "Appearance is invalid.")] };
+      }
+    },
+    saveAppearance: async ({ snapshot, source = "user", candidate }: { readonly snapshot: AppearanceSnapshotV1; readonly source?: "user" | "import"; readonly candidate?: { readonly sourceDigest: string; readonly artifactDigest: string | null } }) => {
       if (!canonical || !parsed || !state.headRevisionId) return { ok: false, diagnostics: [diagnostic("appearance-not-ready", "Appearance history is not ready.")] };
       try {
         const skin = migrateSkinState(snapshot.value);
-        const compiled = await compileActiveCss(skin);
-        if (!compiled.ok) return { ok: false, diagnostics: compiled.diagnostics.map((item) => ({ ...item })) };
         const next: MyneAppearanceSnapshotV1 = { ...parsed, skin, provenance: { source: "user-export", createdAt: new Date().toISOString(), generator: "vibe-kanban-skin-editor" } };
+        const binding = candidate
+          ? { sourceDigest: candidate.sourceDigest as `sha256-${string}`, artifactDigest: candidate.artifactDigest as `sha256-${string}` | null }
+          : await defaultCandidateBinding(next);
+        const verified = await verifyAppearanceCandidateBinding(next, binding);
+        if (!verified.ok) return { ok: false, diagnostics: [diagnostic(verified.code, verified.message)] };
         const nextCanonical = canonicalizeAppearanceSnapshot(next);
-        const response = await fetcher(`${endpoint}/${source === "import" ? "import-commands" : "commands"}`, {
-          method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify({ type: "apply", expectedCurrentRevisionId: state.headRevisionId, snapshot: nextCanonical, summary: `Activate ${skin.activeGlobalSkinId}` }),
+        const response = await fetcher(`${endpoint}/commands`, {
+          method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json", "X-VK-Appearance-CSRF": "1" },
+          body: JSON.stringify({
+            type: "apply",
+            ...(source === "import" ? { operation: "import" } : {}),
+            expectedCurrentRevisionId: state.headRevisionId,
+            snapshot: nextCanonical,
+            candidate: { sourceDigest: verified.candidate.sourceDigest, artifactDigest: verified.candidate.artifact?.digest ?? null },
+            summary: `Activate ${skin.activeGlobalSkinId}`,
+          }),
         });
         if (!response.ok) {
           const failure = await response.json().catch(() => ({})) as { diagnostic?: { code?: string; message?: string } };
@@ -112,7 +134,13 @@ async function compileActiveCss(skinState: MyneAppearanceSnapshotV1["skin"]): Pr
     ?? BUILT_IN_MYNE_SKINS.find((candidate) => candidate.id === skinState.activeGlobalSkinId);
   if (!skin || skin.rawCss.length === 0) return { ok: true };
   const runtime = getSkinRuntimeState({ state: skinState });
-  const tokens = Object.fromEntries(Object.entries(runtime.style).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+  const tokens = compilerTokensFromRuntime(runtime.style as Readonly<Record<string, unknown>>);
   const result = await compileScopedAppearance({ packageId: skin.id, cssBlocks: skin.rawCss, tokens });
   return result.ok ? { ok: true, artifact: result.artifact } : { ok: false, diagnostics: result.diagnostics };
+}
+
+async function defaultCandidateBinding(snapshot: MyneAppearanceSnapshotV1) {
+  const candidate = await compileAppearanceSnapshotCandidate(snapshot);
+  if (!candidate.ok) throw new Error(candidate.diagnostics.map((item) => item.code).join(", ") || "candidate compilation failed");
+  return { sourceDigest: candidate.sourceDigest, artifactDigest: candidate.artifact?.digest ?? null };
 }

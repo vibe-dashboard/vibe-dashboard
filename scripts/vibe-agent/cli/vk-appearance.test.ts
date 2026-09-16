@@ -1,10 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   commandAppearance,
   type AppearanceCliService,
   type FlagMap,
 } from './vk.js';
-import type { AppearanceHistoryDto, AppearanceRevisionDto } from './vk-service.js';
+import { VKService, type AppearanceHistoryDto, type AppearanceRevisionDto } from './vk-service.js';
 
 const revision = (revisionId: string, parentRevisionId?: string): AppearanceRevisionDto => ({
   revisionId,
@@ -31,6 +31,11 @@ function fixture() {
 }
 
 describe('vk appearance commands', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
   it('directly inspects history, snapshots the requested/default head, and diffs revisions', async () => {
     const { service, output, run } = fixture();
 
@@ -58,9 +63,12 @@ describe('vk appearance commands', () => {
         type,
         expectedCurrentRevisionId: 'expected-head',
         targetRevisionId: 'rev-1',
-        actor: { id: process.env.USER || 'vk-cli', kind: 'cli' },
         summary: 'operator summary',
       });
+      expect(service.commandAppearance).toHaveBeenCalledWith(expect.not.objectContaining({
+        actor: expect.anything(),
+        source: expect.anything(),
+      }));
     },
   );
 
@@ -87,6 +95,51 @@ describe('vk appearance commands', () => {
       .mockRejectedValueOnce(new Error('appearance CLI authentication required'));
     await expect(run(['undo'], { yes: true, expected: 'stale' })).rejects.toThrow('stale expected head');
     await expect(run(['undo'], { yes: true })).rejects.toThrow('authentication required');
+  });
+
+  it('sends CLI mutations to the unified command boundary with a host-issued credential', async () => {
+    vi.stubEnv('VK_APPEARANCE_CLI_TOKEN', 'cli-token-0123456789');
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({
+      ok: true,
+      revision: revision('rev-3', 'rev-2'),
+    }), { status: 201, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await new VKService().commandAppearance({
+      type: 'undo',
+      expectedCurrentRevisionId: 'rev-2',
+      summary: 'Undo via test',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/dashboard/api/appearance/commands'),
+      expect.objectContaining({
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer cli-token-0123456789',
+        },
+      }),
+    );
+    expect(fetchMock.mock.calls[0]?.[0]).not.toContain('cli-commands');
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      type: 'undo',
+      expectedCurrentRevisionId: 'rev-2',
+      summary: 'Undo via test',
+    });
+  });
+
+  it('refuses CLI mutations before network I/O when the host credential is absent', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(new VKService().commandAppearance({
+      type: 'undo',
+      expectedCurrentRevisionId: 'rev-2',
+      summary: 'Undo via test',
+    })).rejects.toThrow('appearance CLI authentication required');
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('rejects malformed direct command usage', async () => {

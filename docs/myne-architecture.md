@@ -284,16 +284,18 @@ Working draft, preview snapshot, and committed revision remain separate.
 [`appearanceRevisions.ts`](../src/theme/skins/appearanceRevisions.ts) now provides
 the shared append-only command service: undo, redo, restore, revert, user, agent,
 CLI, import, and marketplace writes traverse canonical validation, authorization,
-atomic store compare-and-swap, and expected-head concurrency. They create
+atomic store compare-and-swap, versioned immutable hash-chain verification, and expected-head concurrency. They create
 compensating revisions rather than rewriting history. The in-memory conformance
 store proves restart, corruption, persistence-failure, and concurrent-client
 semantics. The node host now persists the aggregate with atomic replacement and
 exposes one validated command shape to the app and `vk appearance`
 inspect/snapshot/diff/restore/undo/revert/redo commands. HTTP payload identity is
-never authorization input: the current single-user host derives local user/CLI
-actors from separate trusted routes and checks permissions at execution. A
-future multi-user host must replace that resolver with its authenticated
-principal without changing command-service semantics.
+never authorization input: the current single-user host derives local user
+mutations from same-origin plus CSRF-guarded browser requests and derives CLI
+mutations from a host-issued bearer credential on the same command endpoint.
+Browser bodies cannot claim CLI/import/agent actor identity; import provenance is
+a browser operation type. A future multi-user host must replace that resolver
+with its authenticated principal without changing command-service semantics.
 
 ## 6. Styling cascade and protected UI
 
@@ -325,9 +327,14 @@ package CSS to an AST, applies the versioned default-deny policy, rewrites it
 below an opaque generated root, and compiles all-or-nothing. Its runtime consumes
 the identical branded artifact for preview and activation and preserves a
 last-known-good artifact or startup safe mode. The production appearance host
-compiles active custom CSS before persistence and again on startup, exposes the
-same deterministic artifact digest to preview/activation roots, and falls back
-to its last-known-good projection in safe mode. Authorization, confirmation, diagnostics, safe-mode, and recovery
+compiles active custom CSS into a disposable candidate before confirmation,
+renders that candidate CSS in the preview root, submits a source/artifact digest
+binding, and the server recompiles/verifies the same binding before atomic
+persistence plus activation. Source changes invalidate the candidate; rejected
+or stale candidates leave active and persisted state untouched. Startup load
+compiles again, exposes the same deterministic artifact digest to
+preview/activation roots, and falls back to its last-known-good projection in
+safe mode. Authorization, confirmation, diagnostics, safe-mode, and recovery
 controls remain outside package selector scope or in a separately isolated
 subtree. They can visually match through a host-derived token subset that
 passes accessibility checks; arbitrary package selectors or tokens cannot hide,

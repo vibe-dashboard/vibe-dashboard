@@ -9,7 +9,13 @@ export interface SkinEditorSaveResult {
   ok: boolean;
 }
 
+export interface SkinEditorCandidateResult extends SkinEditorSaveResult {
+  sourceDigest?: string;
+  artifact?: { readonly scope: string; readonly cssText: string; readonly digest: string };
+}
+
 export interface SkinEditorActions {
+  compileSkinState?: (args: { state: MyneSkinState }) => Promise<SkinEditorCandidateResult>;
   saveSkinState: (args: { state: MyneSkinState; source?: "user" | "import" }) => Promise<SkinEditorSaveResult>;
 }
 
@@ -38,6 +44,7 @@ export interface SkinEditorViewModel {
   isDirty: boolean;
   isEditingCustomSkin: boolean;
   isSaving: boolean;
+  previewArtifact?: { readonly scope: string; readonly cssText: string; readonly digest: string };
   previewState: MyneSkinState;
   rawCssStatus: "compiler-protected";
   selectedSkin: MyneSkinManifestV1;

@@ -8,6 +8,7 @@ import { registerPluginAssetRoutes } from '../server/plugin-asset-routes';
 import { registerPluginAdminRoutes } from '../server/plugin-admin-routes';
 import { registerPreviewResolverRoutes } from '../server/preview-resolver-routes';
 import { registerAppearanceRoutes } from '../server/appearance-routes';
+import { createAppearanceMutationAuthenticator } from '../server/appearance-auth.node';
 import { FileAppearanceRevisionStore } from '../server/appearance-revision-store.node';
 import { AppearanceRevisionService } from '../theme/skins/appearanceRevisions';
 import { createDefaultAppearanceSnapshot } from '../theme/skins/defaultAppearanceSnapshot';
@@ -18,6 +19,7 @@ const execFileAsync = promisify(execFile);
 const reposRoot = process.env.VK_REPOS_ROOT || join(process.env.HOME || '/home/vkuser', 'repos');
 const pluginInstallRoot = process.env.VD_PLUGIN_INSTALL_ROOT || join(process.cwd(), 'plugins');
 const appearanceHistoryPath = process.env.VK_APPEARANCE_HISTORY_PATH || join(process.env.HOME || '/home/vkuser', '.config', 'vibe-kanban', 'appearance-history.json');
+const appearanceBrowserOrigin = process.env.VK_APPEARANCE_BROWSER_ORIGIN || process.env.VK_DASHBOARD_URL || process.env.VIBE_API_URL || process.env.VK_API_URL || 'http://localhost:3007';
 let cachedGitRepos: CachedRepoAlias[] | null = null;
 let appearanceService: Promise<AppearanceRevisionService> | undefined;
 
@@ -50,6 +52,10 @@ serverRegistry.registerServerModule((api) => {
   registerPreviewResolverRoutes(api.hono);
   registerAppearanceRoutes(api.hono, {
     getService: () => appearanceService ??= openAppearanceService(),
+    authenticateMutation: createAppearanceMutationAuthenticator({
+      browserOrigin: appearanceBrowserOrigin,
+      cliToken: process.env.VK_APPEARANCE_CLI_TOKEN,
+    }),
     // Current deployments are single-user. The node host, not request JSON,
     // establishes these local principals; read-only mode revokes mutations at
     // command execution without changing future authenticated-host semantics.

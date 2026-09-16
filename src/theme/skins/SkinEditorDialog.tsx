@@ -130,10 +130,34 @@ function SkinEditorContainerContent({
   return (
     <SkinEditorDialog
       actions={{
+        compileSkinState: async ({ state }) => {
+          const result = await appearanceModule.compileAppearanceCandidate({
+            snapshot: toAppearanceSnapshot(state),
+          });
+          return {
+            ok: result.ok,
+            sourceDigest: result.sourceDigest,
+            artifact: result.artifact,
+            diagnostics: result.diagnostics?.map((item) => ({ ...item })),
+          };
+        },
         saveSkinState: async ({ state, source }) => {
+          const candidate = await appearanceModule.compileAppearanceCandidate({
+            snapshot: toAppearanceSnapshot(state),
+          });
+          if (!candidate.ok) {
+            return {
+              ok: false,
+              diagnostics: candidate.diagnostics?.map((item) => ({ ...item })),
+            };
+          }
           const result = await appearanceModule.saveAppearance({
             snapshot: toAppearanceSnapshot(state),
             source,
+            candidate: {
+              sourceDigest: candidate.sourceDigest!,
+              artifactDigest: candidate.artifact?.digest ?? null,
+            },
           });
           return {
             ok: result.ok,
@@ -167,6 +191,7 @@ export function SkinEditorDialog({
   const [exportText, setExportText] = useState("");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<MyneSkinDiagnostic[]>([]);
+  const [candidateArtifact, setCandidateArtifact] = useState<{ readonly scope: string; readonly cssText: string; readonly digest: string } | undefined>();
   const [isSaving, setIsSaving] = useState(false);
   const operationGenerationRef = useRef(0);
   const nextSaveRequestRef = useRef(0);
@@ -185,6 +210,7 @@ export function SkinEditorDialog({
     setExportText("");
     setStatusMessage(null);
     setDiagnostics([]);
+    setCandidateArtifact(undefined);
     setIsSaving(false);
   }, [externalStateKey]);
 
@@ -206,6 +232,30 @@ export function SkinEditorDialog({
           ...savedState,
           activeGlobalSkinId: selectedSkin.id,
         };
+
+  const previewStateKey = useMemo(() => JSON.stringify(previewState), [previewState]);
+  useEffect(() => {
+    let cancelled = false;
+    const generation = operationGenerationRef.current;
+    if (!actions.compileSkinState) {
+      setCandidateArtifact(undefined);
+      return;
+    }
+    void actions.compileSkinState({ state: previewState }).then((result) => {
+      if (cancelled || generation !== operationGenerationRef.current) return;
+      if (result.ok) {
+        setCandidateArtifact(result.artifact);
+        return;
+      }
+      setCandidateArtifact(undefined);
+      setDiagnostics(result.diagnostics ?? []);
+    }).catch((error) => {
+      if (cancelled || generation !== operationGenerationRef.current) return;
+      setCandidateArtifact(undefined);
+      setDiagnostics([diagnostic("candidate-preview-failed", getErrorMessage(error), "compileSkinState")]);
+    });
+    return () => { cancelled = true; };
+  }, [actions, previewStateKey]);
 
   const colorSource = draftSkin ?? selectedSkin;
   const colorFields: SkinEditorColorField[] = EDITABLE_COLOR_TOKEN_KEYS.map(
@@ -231,6 +281,7 @@ export function SkinEditorDialog({
     isDirty: Boolean(draftSkin),
     isEditingCustomSkin: Boolean(draftSkin),
     isSaving,
+    previewArtifact: candidateArtifact,
     previewState,
     rawCssStatus: "compiler-protected",
     selectedSkin,

@@ -34,8 +34,76 @@ describe("production appearance AppHooks", () => {
     await act(async () => {
       expect(await host.module.saveAppearance({ snapshot: { schemaVersion: 1, value: JSON.parse(canonical).skin } })).toEqual({ ok: true });
     });
-    expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toMatchObject({ type: "apply", expectedCurrentRevisionId: "rev-1" });
+    expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toMatchObject({
+      type: "apply",
+      expectedCurrentRevisionId: "rev-1",
+      candidate: {
+        sourceDigest: expect.stringMatching(/^sha256-/),
+        artifactDigest: null,
+      },
+    });
+    expect(fetcher.mock.calls[1]?.[1]?.headers).toMatchObject({ "X-VK-Appearance-CSRF": "1" });
     expect(rendered.result.current).toMatchObject({ available: true, value: { headRevisionId: "rev-2" } });
+  });
+
+  it("compiles a digest-bound disposable candidate before confirmed activation", async () => {
+    const canonical = createDefaultAppearanceSnapshot();
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(response({ head: { revisionId: "rev-1", snapshot: canonical }, revisions: [] }))
+      .mockResolvedValueOnce(response({ ok: true, revision: { revisionId: "rev-2", snapshot: canonical } }, 201))
+      .mockResolvedValueOnce(response({ head: { revisionId: "rev-2", snapshot: canonical }, revisions: [] }));
+    const host = createProductionAppearanceModule({ fetcher });
+    const rendered = renderHook(() => host.module.useSkinEditor());
+    await waitFor(() => expect(rendered.result.current.available && rendered.result.current.value.loading).toBe(false));
+    const base = JSON.parse(canonical).skin;
+    const custom = {
+      ...JSON.parse(JSON.stringify(base)),
+      activeGlobalSkinId: "myne-user-css",
+      userSkins: [{ ...JSON.parse(JSON.stringify((await import("../theme/skins/builtin")).defaultDarkSkin)), id: "myne-user-css", name: "CSS", rawCss: [{ id: "myne.css", css: ".myne-card{color:#fff}" }] }],
+    };
+
+    const candidate = await host.module.compileAppearanceCandidate({ snapshot: { schemaVersion: 1, value: custom } });
+    expect(candidate).toMatchObject({
+      ok: true,
+      artifact: {
+        cssText: expect.stringContaining("color:#fff"),
+        digest: expect.stringMatching(/^sha256-/),
+      },
+      sourceDigest: expect.stringMatching(/^sha256-/),
+    });
+
+    await act(async () => {
+      expect(await host.module.saveAppearance({
+        snapshot: { schemaVersion: 1, value: custom },
+        candidate: {
+          sourceDigest: candidate.ok ? candidate.sourceDigest! : "",
+          artifactDigest: candidate.ok ? candidate.artifact?.digest ?? null : null,
+        },
+      })).toEqual({ ok: true });
+    });
+    expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toMatchObject({
+      candidate: {
+        sourceDigest: candidate.ok ? candidate.sourceDigest : "",
+        artifactDigest: candidate.ok ? candidate.artifact?.digest : "",
+      },
+    });
+  });
+
+  it("invalidates stale candidate bindings without persisting or replacing active state", async () => {
+    const canonical = createDefaultAppearanceSnapshot();
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(response({ head: { revisionId: "rev-1", snapshot: canonical }, revisions: [] }));
+    const host = createProductionAppearanceModule({ fetcher });
+    const rendered = renderHook(() => host.module.useSkinEditor());
+    await waitFor(() => expect(rendered.result.current.available && rendered.result.current.value.loading).toBe(false));
+    const before = rendered.result.current;
+    const result = await host.module.saveAppearance({
+      snapshot: { schemaVersion: 1, value: JSON.parse(canonical).skin },
+      candidate: { sourceDigest: "sha256-stale", artifactDigest: null },
+    });
+    expect(result).toMatchObject({ ok: false, diagnostics: [{ code: "candidate-digest-mismatch" }] });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(rendered.result.current).toBe(before);
   });
 
   it("enters safe mode with last-known-good state on stale, persistence, and corrupt responses", async () => {
@@ -90,6 +158,7 @@ describe("production appearance AppHooks", () => {
     const rendered = renderHook(() => host.module.useSkinEditor());
     await waitFor(() => expect(rendered.result.current.available && rendered.result.current.value.loading).toBe(false));
     await host.module.saveAppearance({ snapshot: { schemaVersion: 1, value: JSON.parse(canonical).skin }, source: "import" });
-    expect(fetcher.mock.calls[1]?.[0]).toBe("/dashboard/api/appearance/import-commands");
+    expect(fetcher.mock.calls[1]?.[0]).toBe("/dashboard/api/appearance/commands");
+    expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toMatchObject({ operation: "import" });
   });
 });

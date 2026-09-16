@@ -1159,7 +1159,6 @@ export async function commandAppearance(
     type: subcommand,
     expectedCurrentRevisionId: getFlagString(flags, 'expected') ?? head.revisionId,
     ...(targetRevisionId ? { targetRevisionId } : {}),
-    actor: { id: process.env.USER || 'vk-cli', kind: 'cli' },
     summary: getFlagString(flags, 'summary') ?? `${subcommand} via vk CLI`,
   });
   write(JSON.stringify(result, null, 2));

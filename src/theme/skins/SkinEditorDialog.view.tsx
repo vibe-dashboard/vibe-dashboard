@@ -352,7 +352,7 @@ export function SkinEditorDialogView({ actions, components, model, viewPackId = 
   const Diagnostics = components.diagnostics;
   const surfaceProps = { model, actions };
   return (
-    <SkinRoot className={styles.root} state={model.previewState}>
+    <SkinRoot className={styles.root} state={model.previewState} artifact={model.previewArtifact}>
       <section aria-label="Skin editor" className={`${styles.surface} flex h-full min-h-[42rem] flex-col gap-4 p-6`} data-myne-surface="skin-editor" data-myne-view-pack={viewPackId}>
         <Header {...surfaceProps} />
         <div className="grid flex-1 grid-cols-[minmax(12rem,18rem)_minmax(0,1fr)_minmax(16rem,24rem)] gap-4">
