@@ -177,6 +177,10 @@ describe('vk appearance commands', () => {
     await run(['revert', head.revisionId], { yes: true, expected: head.revisionId }); head = revisionService.inspect().head;
     await run(['restore', genesis.revisionId], { yes: true, expected: head.revisionId });
     expect(revisionService.inspect().revisions.every((item: any) => item.actor.kind === 'system' || item.actor.id === 'seed' || item.actor.id === 'local-cli')).toBe(true);
+    vi.stubEnv('VK_APPEARANCE_CLI_TOKEN', 'wrong-route-credential');
+    await expect(new VKService().inspectAppearance()).rejects.toMatchObject({ code: 'unauthorized', status: 403 });
+    vi.stubEnv('VK_APPEARANCE_CLI_TOKEN', '');
+    await expect(new VKService().inspectAppearance()).rejects.toThrow('appearance CLI authentication required');
   });
 
 });

@@ -17,14 +17,25 @@ describe("file appearance revision store", () => {
     const real = join(root, "real"); await mkdir(real); const alias = join(root, "alias"); await symlink(real, alias, "dir");
     await build({ configFile: false, logLevel: "silent", ssr: { noExternal: true }, build: { ssr: true, outDir: join(root, "bundle"), emptyOutDir: true, lib: { entry: join(process.cwd(), "src/server/fixtures/appearance-service-child.ts"), formats: ["es"], fileName: () => "worker.mjs" } } });
     const go = join(root, "go");
-    const run = (path: string, id: string) => new Promise<{ result: { ok: boolean }; head: string }>((resolve, reject) => {
-      const ready = join(root, `${id}.ready`); const child = spawn(process.execPath, [join(root, "bundle/appearance-service-child.js"), path, ready, go, id]); let output = ""; let errors = "";
+    const run = (path: string, id: string, ready = join(root, `${id}.ready`), gate = go, mode = "race") => new Promise<{ result: { ok: boolean }; observedHead: string; head: string }>((resolve, reject) => {
+      const child = spawn(process.execPath, [join(root, "bundle/appearance-service-child.js"), path, ready, gate, id, mode]); let output = ""; let errors = "";
       child.stdout.on("data", (chunk) => { output += chunk; }); child.stderr.on("data", (chunk) => { errors += chunk; }); child.once("error", reject); child.once("exit", (code) => code === 0 ? resolve(JSON.parse(output)) : reject(new Error(`child exited ${code}: ${errors}`)));
     });
     const first = run(join(real, "history.json"), "one"); const second = run(join(alias, "history.json"), "two");
     for (const id of ["one", "two"]) for (;;) { try { await access(join(root, `${id}.ready`)); break; } catch { await new Promise((resolve) => setTimeout(resolve, 5)); } }
     await writeFile(go, "go"); const results = await Promise.all([first, second]);
     expect(results.filter(({ result }) => result.ok)).toHaveLength(1); expect(results[0]!.head).toBe(results[1]!.head);
+
+    const observerReady = join(root, "observer.ready"); const observerGo = join(root, "observer.go");
+    const observer = run(join(alias, "history.json"), "observer", observerReady, observerGo, "observe-retry");
+    for (;;) { try { await access(observerReady); break; } catch { await new Promise((resolve) => setTimeout(resolve, 5)); } }
+    const external = await AppearanceRevisionService.open({ store: new FileAppearanceRevisionStore(join(real, "history.json")), genesisSnapshot: createDefaultAppearanceSnapshot() });
+    const externalHead = external.inspect().head!; const changed = JSON.parse(externalHead.snapshot); changed.provenance.generator = "delayed-winner";
+    const committed = await external.apply({ expectedCurrentRevisionId: externalHead.revisionId, snapshot: JSON.stringify(changed), actor: { id: "delayed", kind: "cli" }, source: "cli", summary: "delayed" });
+    expect(committed.ok).toBe(true); await writeFile(observerGo, "go");
+    const observed = await observer;
+    expect(observed.observedHead).toBe(committed.ok ? committed.revision.revisionId : "");
+    expect(observed.result.ok).toBe(true);
   }, 15_000);
   it("reports actionable lock timeouts and never releases a replacement owner's lock", async () => {
     const root = await mkdtemp(join(tmpdir(), "myne-appearance-lock-")); roots.push(root);

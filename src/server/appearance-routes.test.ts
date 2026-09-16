@@ -159,4 +159,24 @@ describe("appearance history API", () => {
     expect(response.status).toBe(403);
     expect(service.inspect().revisions).toHaveLength(1);
   });
+
+  it("does not publish activation metadata when the atomic history write fails", async () => {
+    const store = new MemoryAppearanceRevisionStore();
+    const service = await AppearanceRevisionService.open({ store, genesisSnapshot: createDefaultAppearanceSnapshot() });
+    const app = new Hono();
+    registerAppearanceRoutes(app, {
+      getService: async () => service,
+      authenticateMutation: createAppearanceMutationAuthenticator({ browserOrigin: "http://localhost", cliToken: "test-cli-token-0123456789" }),
+    });
+    const before = service.inspect().head!;
+    const changed = JSON.parse(before.snapshot); changed.provenance.generator = "failed-activation";
+    const serialized = JSON.stringify(changed); store.failNextWrite();
+    const response = await app.request("/dashboard/api/appearance/commands", {
+      method: "POST", headers: browserHeaders,
+      body: JSON.stringify({ type: "apply", expectedCurrentRevisionId: before.revisionId, snapshot: serialized, candidate: await candidateFor(serialized), summary: "must remain atomic" }),
+    });
+    expect(response.status).toBe(503);
+    expect(service.inspect().head).toEqual(before);
+    expect(service.inspect().revisions).toHaveLength(1);
+  });
 });
