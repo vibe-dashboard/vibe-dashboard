@@ -22,11 +22,12 @@ async function lockOwnerIsAlive(lock: string): Promise<boolean> {
 
 async function withFileLock<T>(path: string, operation: () => Promise<T>): Promise<T> {
   const lock = `${await canonicalPath(path)}.lock`;
+  const owner = `${process.pid}:${crypto.randomUUID()}`;
   const deadline = Date.now() + 15_000;
   for (;;) {
     try {
       await mkdir(lock, { mode: 0o700 });
-      await writeFile(join(lock, "owner"), `${process.pid}\n`, { mode: 0o600 });
+      await writeFile(join(lock, "owner"), `${owner}\n`, { mode: 0o600 });
       break;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
@@ -38,7 +39,11 @@ async function withFileLock<T>(path: string, operation: () => Promise<T>): Promi
     }
   }
   try { return await operation(); }
-  finally { await rm(lock, { recursive: true, force: true }); }
+  finally {
+    try {
+      if ((await readFile(join(lock, "owner"), "utf8")).trim() === owner) await rm(lock, { recursive: true, force: true });
+    } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  }
 }
 
 export class FileAppearanceRevisionStore implements AppearanceRevisionStore {
