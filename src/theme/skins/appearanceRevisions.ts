@@ -56,12 +56,15 @@ export class MemoryAppearanceRevisionStore implements AppearanceRevisionStore {
 export class AppearanceRevisionService {
   #state: AppearanceRevisionState;
   #queue: Promise<unknown> = Promise.resolve();
+  private readonly store: AppearanceRevisionStore;
+  private readonly clock: () => string;
+  private readonly authorize: (command: { actor: AppearanceActor; source: AppearanceMutationSource }) => boolean;
   private constructor(
-    private readonly store: AppearanceRevisionStore,
+    store: AppearanceRevisionStore,
     state: AppearanceRevisionState,
-    private readonly clock: () => string,
-    private readonly authorize: (command: { actor: AppearanceActor; source: AppearanceMutationSource }) => boolean,
-  ) { this.#state = state; }
+    clock: () => string,
+    authorize: (command: { actor: AppearanceActor; source: AppearanceMutationSource }) => boolean,
+  ) { this.store = store; this.#state = state; this.clock = clock; this.authorize = authorize; }
 
   static async open(options: { store: AppearanceRevisionStore; genesisSnapshot: string; clock?: () => string; authorize?: (command: { actor: AppearanceActor; source: AppearanceMutationSource }) => boolean }): Promise<AppearanceRevisionService> {
     const loaded = await options.store.load();
