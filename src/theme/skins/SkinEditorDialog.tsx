@@ -188,6 +188,7 @@ export function SkinEditorDialog({
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<MyneSkinDiagnostic[]>([]);
   const [candidate, setCandidate] = useState<{ readonly stateKey: string; readonly sourceDigest: string; readonly artifact?: { readonly scope: string; readonly cssText: string; readonly digest: string } } | undefined>();
+  const [pendingProposal, setPendingProposal] = useState<{ readonly kind: "import" | "default-revert"; readonly state: MyneSkinState } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const operationGenerationRef = useRef(0);
   const nextSaveRequestRef = useRef(0);
@@ -207,6 +208,7 @@ export function SkinEditorDialog({
     setStatusMessage(null);
     setDiagnostics([]);
     setCandidate(undefined);
+    setPendingProposal(null);
     setIsSaving(false);
   }, [externalStateKey]);
 
@@ -221,13 +223,13 @@ export function SkinEditorDialog({
     BUILT_IN_MYNE_SKINS[0]!;
   const selectedSkinIsBuiltIn = BUILT_IN_IDS.has(selectedSkin.id);
   const draftValidation = draftSkin ? validateSkinEditorDraft(draftSkin) : null;
-  const previewState =
+  const previewState = pendingProposal?.state ?? (
     draftSkin && draftValidation?.ok
       ? createSkinEditorPreviewState(savedState, draftSkin)
       : {
           ...savedState,
           activeGlobalSkinId: selectedSkin.id,
-        };
+        });
 
   const previewStateKey = useMemo(() => stableStateKey(previewState), [previewState]);
   useEffect(() => {
@@ -324,6 +326,7 @@ export function SkinEditorDialog({
           setDiagnostics([]);
         },
         forkSelectedSkin: () => {
+          setPendingProposal(null);
           const editable = selectedSkinIsBuiltIn
             ? createEditableSkinFromBase({
                 baseSkin: selectedSkin,
@@ -343,6 +346,10 @@ export function SkinEditorDialog({
           setDiagnostics([]);
         },
         importPackage: () => {
+          if (pendingProposal?.kind === "import") {
+            void saveStateFromResult(pendingProposal.state, "Imported skin package.", () => setPendingProposal(null), "import");
+            return;
+          }
           let parsed: unknown;
           try {
             parsed = JSON.parse(importText);
@@ -362,16 +369,20 @@ export function SkinEditorDialog({
           }
 
           const merged = mergeImportedSkinState(savedState, imported.value);
-          void saveStateFromResult(merged, "Imported skin package.", undefined, "import");
+          setPendingProposal({ kind: "import", state: merged });
+          setStatusMessage("Review the imported appearance preview, then confirm Import package.");
+          setDiagnostics([]);
         },
         revertToDefaultSkin: () => {
-          void saveStateFromResult(
-            setGlobalSkin({
-              state: savedState,
-              skinId: DEFAULT_MYNE_SKIN_ID,
-            }).value,
-            "Reverted to default skin.",
-          );
+          if (pendingProposal?.kind === "default-revert") {
+            void saveStateFromResult(pendingProposal.state, "Reverted to default skin.", () => setPendingProposal(null));
+            return;
+          }
+          const proposed = setGlobalSkin({ state: savedState, skinId: DEFAULT_MYNE_SKIN_ID }).value;
+          if (!proposed) return;
+          setPendingProposal({ kind: "default-revert", state: proposed });
+          setStatusMessage("Review the default appearance preview, then confirm Revert to default.");
+          setDiagnostics([]);
         },
         saveDraftSkin: () => {
           if (!draftSkin) return;
@@ -390,6 +401,7 @@ export function SkinEditorDialog({
           });
         },
         selectSkin: (skinId) => {
+          setPendingProposal(null);
           setSelectedSkinId(skinId);
           setDraftSkin(null);
           setDiagnostics([]);
@@ -419,6 +431,7 @@ export function SkinEditorDialog({
           });
         },
         updateImportText: (value) => {
+          setPendingProposal(null);
           setImportText(value);
           setExportText("");
           setDiagnostics([]);
@@ -430,6 +443,7 @@ export function SkinEditorDialog({
   );
 
   function updateDraft(mutator: (skin: MyneSkinManifestV1) => void) {
+    setPendingProposal(null);
     setDraftSkin((current) => {
       if (!current) return current;
       const next = cloneSkin(current);

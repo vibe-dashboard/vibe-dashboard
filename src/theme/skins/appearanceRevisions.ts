@@ -1,4 +1,4 @@
-import { parseAppearanceSnapshot } from "./appearanceSnapshot";
+import { parseAppearanceSnapshot, type MyneAppearanceSnapshotV1 } from "./appearanceSnapshot";
 import { sourceDigestForAppearanceSnapshot } from "./appearanceSourceDigest";
 
 export type AppearanceMutationSource = "genesis" | "user" | "agent" | "cli" | "import" | "marketplace" | "undo" | "redo" | "revert" | "restore";
@@ -82,7 +82,9 @@ async function isState(value: unknown): Promise<boolean> {
   return true;
 }
 
-async function migrateLegacyState(value: unknown, streamId: string, ownerId: string): Promise<AppearanceRevisionState | undefined> {
+type CompileActivation = (snapshot: MyneAppearanceSnapshotV1) => Promise<AppearanceActivationRecord | undefined>;
+
+async function migrateLegacyState(value: unknown, streamId: string, ownerId: string, compileActivation?: CompileActivation): Promise<AppearanceRevisionState | undefined> {
   if (!value || typeof value !== "object") return undefined;
   const legacy = value as { version?: unknown; headRevisionId?: unknown; revisions?: unknown };
   if (legacy.version !== 1 || typeof legacy.headRevisionId !== "string" || !Array.isArray(legacy.revisions) || legacy.revisions.length === 0) return undefined;
@@ -91,12 +93,17 @@ async function migrateLegacyState(value: unknown, streamId: string, ownerId: str
   for (let index = 0; index < legacy.revisions.length; index += 1) {
     const item = legacy.revisions[index] as Partial<AppearanceRevision>;
     if (typeof item.revisionId !== "string" || typeof item.snapshot !== "string" || typeof item.committedAt !== "string" || typeof item.summary !== "string"
-      || item.sequence !== index || item.integrityVersion !== 1 || !item.actor || !ACTORS.has(item.actor.kind) || !SOURCES.has(item.source as AppearanceMutationSource)) return undefined;
+      || Number.isNaN(Date.parse(item.committedAt)) || item.sequence !== index || item.integrityVersion !== 1 || !item.actor || typeof item.actor.id !== "string"
+      || !ACTORS.has(item.actor.kind) || !SOURCES.has(item.source as AppearanceMutationSource)
+      || (index === 0 ? item.parentRevisionId !== undefined || item.source !== "genesis" || item.actor.kind !== "system" : item.parentRevisionId !== (legacy.revisions[index - 1] as { revisionId?: unknown }).revisionId || item.source === "genesis")
+      || (TARGET_SOURCES.has(item.source as AppearanceMutationSource) !== (typeof item.targetRevisionId === "string"))) return undefined;
     const oldSnapshotDigest = await digest(item.snapshot);
     const oldRevisionId = `myne-rev-v1-${await digest(JSON.stringify({ integrityVersion: 1, sequence: index, parentRevisionId: item.parentRevisionId ?? null, targetRevisionId: item.targetRevisionId ?? null, snapshotDigest: oldSnapshotDigest, actor: item.actor, source: item.source, committedAt: item.committedAt, summary: item.summary }))}`;
     if (oldRevisionId !== item.revisionId || item.snapshotDigest !== oldSnapshotDigest) return undefined;
-    const activation = await activationForSnapshot(item.snapshot);
-    if (!activation) return undefined;
+    const parsed = parseAppearanceSnapshot(item.snapshot);
+    if (!parsed.ok || !parsed.value) return undefined;
+    const activation = await activationForSnapshot(item.snapshot) ?? await compileActivation?.(parsed.value);
+    if (!activation || activation.sourceDigest !== await sourceDigestForAppearanceSnapshot(parsed.value)) return undefined;
     const parentRevisionId = index === 0 ? undefined : migrated[index - 1]?.revisionId;
     const targetRevisionId = item.targetRevisionId ? idMap.get(item.targetRevisionId) : undefined;
     if (item.targetRevisionId && !targetRevisionId) return undefined;
@@ -113,7 +120,11 @@ export class MemoryAppearanceRevisionStore implements AppearanceRevisionStore {
   async load(): Promise<unknown | undefined> { return this.#state === undefined ? undefined : clone(this.#state); }
   async compareAndSwap(expectedHeadRevisionId: string | undefined, state: AppearanceRevisionState): Promise<"saved" | "stale"> {
     if (this.#fail) { this.#fail = false; throw new Error("injected persistence failure"); }
-    const currentHead = await isState(this.#state) ? (this.#state as AppearanceRevisionState).headRevisionId : undefined;
+    const currentHead = await isState(this.#state)
+      ? (this.#state as AppearanceRevisionState).headRevisionId
+      : this.#state && typeof this.#state === "object" && typeof (this.#state as { headRevisionId?: unknown }).headRevisionId === "string"
+        ? (this.#state as { headRevisionId: string }).headRevisionId
+        : undefined;
     if (currentHead !== expectedHeadRevisionId) return "stale";
     this.#state = clone(state); return "saved";
   }
@@ -134,7 +145,7 @@ export class AppearanceRevisionService {
     authorize: (command: { actor: AppearanceActor; source: AppearanceMutationSource }) => boolean,
   ) { this.store = store; this.#state = state; this.clock = clock; this.authorize = authorize; }
 
-  static async open(options: { store: AppearanceRevisionStore; genesisSnapshot: string; streamId?: string; ownerId?: string; clock?: () => string; authorize?: (command: { actor: AppearanceActor; source: AppearanceMutationSource }) => boolean }): Promise<AppearanceRevisionService> {
+  static async open(options: { store: AppearanceRevisionStore; genesisSnapshot: string; streamId?: string; ownerId?: string; compileActivation?: CompileActivation; clock?: () => string; authorize?: (command: { actor: AppearanceActor; source: AppearanceMutationSource }) => boolean }): Promise<AppearanceRevisionService> {
     const loaded = await options.store.load();
     const clock = options.clock ?? (() => new Date().toISOString());
     const authorize = options.authorize ?? (() => true);
@@ -144,7 +155,7 @@ export class AppearanceRevisionService {
       let validated: AppearanceRevisionState;
       if (await isState(loaded)) validated = loaded as AppearanceRevisionState;
       else {
-        const migrated = await migrateLegacyState(loaded, streamId, ownerId);
+        const migrated = await migrateLegacyState(loaded, streamId, ownerId, options.compileActivation);
         if (!migrated) throw new Error("corrupt-appearance-history");
         const oldHead = (loaded as { headRevisionId?: unknown }).headRevisionId;
         if (typeof oldHead !== "string" || await options.store.compareAndSwap(oldHead, migrated) === "stale") return AppearanceRevisionService.open(options);
@@ -176,10 +187,12 @@ export class AppearanceRevisionService {
   revert(command: TargetCommand): Promise<AppearanceRevisionResult> { return this.#target("revert", command, true); }
   undo(command: MutationCommand & { targetRevisionId?: string }): Promise<AppearanceRevisionResult> {
     return this.#enqueue(async () => {
+      try { await this.#refreshFromStore(); }
+      catch { return { ok: false, diagnostic: { code: "persistence-failed", message: "Appearance history could not be refreshed safely." } }; }
       const target = this.#find(command.targetRevisionId ?? this.#state.headRevisionId);
       if (!target?.parentRevisionId) return { ok: false, diagnostic: { code: "nothing-to-undo", message: "The selected revision has no prior snapshot." } };
       const previous = this.#find(target.parentRevisionId)!;
-      return this.#appendNow(previous.snapshot, "undo", { ...command, targetRevisionId: target.revisionId, activation: previous.activation });
+      return this.#appendNow(previous.snapshot, "undo", { ...command, targetRevisionId: target.revisionId, activation: previous.activation }, true);
     });
   }
   checkpoint(options: { retainRecent: number }): Promise<void> {
@@ -216,16 +229,18 @@ export class AppearanceRevisionService {
   compact(options: { retainRecent: number }): Promise<void> { return this.checkpoint(options); }
   #target(source: "restore" | "redo" | "revert", command: TargetCommand, parentSnapshot: boolean): Promise<AppearanceRevisionResult> {
     return this.#enqueue(async () => {
+      try { await this.#refreshFromStore(); }
+      catch { return { ok: false, diagnostic: { code: "persistence-failed", message: "Appearance history could not be refreshed safely." } }; }
       const target = this.#find(command.targetRevisionId);
       if (!target || (parentSnapshot && !target.parentRevisionId)) return { ok: false, diagnostic: { code: "unknown-revision", message: "Target revision is unavailable." } };
       const selected = parentSnapshot ? this.#find(target.parentRevisionId!)! : target;
-      return this.#appendNow(selected.snapshot, source, { ...command, activation: selected.activation });
+      return this.#appendNow(selected.snapshot, source, { ...command, activation: selected.activation }, true);
     });
   }
   #append(snapshot: string, source: AppearanceMutationSource, command: MutationCommand & { targetRevisionId?: string }): Promise<AppearanceRevisionResult> { return this.#appendNow(snapshot, source, command); }
-  async #appendNow(snapshot: string, source: AppearanceMutationSource, command: MutationCommand & { targetRevisionId?: string }): Promise<AppearanceRevisionResult> {
+  async #appendNow(snapshot: string, source: AppearanceMutationSource, command: MutationCommand & { targetRevisionId?: string }, alreadyRefreshed = false): Promise<AppearanceRevisionResult> {
     if (!this.authorize({ actor: command.actor, source })) return { ok: false, diagnostic: { code: "unauthorized", message: "Actor is not authorized to mutate appearance." } };
-    try { await this.#refreshFromStore(); }
+    try { if (!alreadyRefreshed) await this.#refreshFromStore(); }
     catch { return { ok: false, diagnostic: { code: "persistence-failed", message: "Appearance history could not be refreshed safely." } }; }
     if (command.expectedCurrentRevisionId !== this.#state.headRevisionId) return { ok: false, diagnostic: { code: "stale-revision", message: "Appearance head changed; refresh and review the diff before retrying.", expectedRevisionId: command.expectedCurrentRevisionId, currentRevisionId: this.#state.headRevisionId } };
     if (!parseAppearanceSnapshot(snapshot).ok) return { ok: false, diagnostic: { code: "invalid-snapshot", message: "Mutation snapshot is invalid or non-canonical." } };

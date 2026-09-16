@@ -69,6 +69,11 @@ fetch the new snapshot, present a semantic diff, and submit a newly confirmed
 operation against that head. Idempotency keys SHOULD make a repeated identical
 request return the original result rather than append twice.
 
+Compensating commands refresh and validate the persisted generation inside
+their serialized operation before resolving default or explicit targets. The
+subsequent append uses that same generation and storage CAS rejects any
+intervening external writer.
+
 ## 4. Restore, undo, redo, and revert
 
 History movement is always a new compensating revision:

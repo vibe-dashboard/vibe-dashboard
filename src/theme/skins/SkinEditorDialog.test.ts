@@ -92,6 +92,52 @@ describe("SkinEditorDialog controller", () => {
     expect(screen.getByRole("button", { name: "Save and apply" }).hasAttribute("disabled")).toBe(true);
   });
 
+  it("stages an imported state through a delayed visible candidate and submits its exact handle", async () => {
+    const initial = deferred<Awaited<ReturnType<NonNullable<SkinEditorActions["compileSkinState"]>>>>();
+    const imported = deferred<Awaited<ReturnType<NonNullable<SkinEditorActions["compileSkinState"]>>>>();
+    const compile = vi.fn<NonNullable<SkinEditorActions["compileSkinState"]>>()
+      .mockReturnValueOnce(initial.promise).mockReturnValueOnce(imported.promise)
+      .mockResolvedValue({ ok: true, sourceDigest: "sha256-after-save" });
+    const save = vi.fn<SkinEditorActions["saveSkinState"]>(async () => ({ ok: true }));
+    render(React.createElement(SkinEditorDialog, { actions: { compileSkinState: compile, saveSkinState: save }, onClose: vi.fn(), open: true, skinState: createDefaultSkinState() }));
+    await act(async () => initial.resolve({ ok: true, sourceDigest: "sha256-initial" }));
+    const importedSkin = { ...lightStudioSkin, id: "myne-user-import-preview", name: "Import preview", rawCss: [] };
+    fireEvent.change(screen.getByLabelText("Skin package JSON"), { target: { value: JSON.stringify({ packageVersion: 1, activeGlobalSkinId: importedSkin.id, skins: [importedSkin] }) } });
+    const button = screen.getByRole("button", { name: "Import package" });
+    fireEvent.click(button);
+    expect(button.hasAttribute("disabled")).toBe(true);
+    expect(save).not.toHaveBeenCalled();
+    await act(async () => imported.resolve({ ok: true, sourceDigest: "sha256-import", artifact: { scope: "myne-import", cssText: ".import-preview{color:red}", digest: "sha256-import-artifact" } }));
+    await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
+    expect([...document.querySelectorAll("style")].some((style) => style.textContent?.includes(".import-preview{color:red}"))).toBe(true);
+    fireEvent.click(button);
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0]?.[0]).toMatchObject({ source: "import", candidate: { sourceDigest: "sha256-import", artifactDigest: "sha256-import-artifact" } });
+  });
+
+  it("stages non-default to default revert, invalidates on source change, and permits cancellation", async () => {
+    const compile = vi.fn<NonNullable<SkinEditorActions["compileSkinState"]>>(async ({ state }) => ({ ok: true, sourceDigest: `sha256-${state.activeGlobalSkinId}` }));
+    const save = vi.fn<SkinEditorActions["saveSkinState"]>(async () => ({ ok: true }));
+    render(React.createElement(SkinEditorDialog, {
+      actions: { compileSkinState: compile, saveSkinState: save }, onClose: vi.fn(), open: true,
+      skinState: { version: 1, activeGlobalSkinId: lightStudioSkin.id, userSkins: [] },
+    }));
+    const revert = screen.getByRole("button", { name: "Revert to default" });
+    await waitFor(() => expect(revert.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(revert);
+    expect(revert.hasAttribute("disabled")).toBe(true);
+    await waitFor(() => expect(revert.hasAttribute("disabled")).toBe(false));
+    fireEvent.change(screen.getByLabelText("Skin package JSON"), { target: { value: "cancel pending revert" } });
+    expect(save).not.toHaveBeenCalled();
+    await waitFor(() => expect(revert.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(revert);
+    await waitFor(() => expect(revert.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(revert);
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect((save.mock.calls[0]?.[0].state as MyneSkinState).activeGlobalSkinId).toBe(DEFAULT_MYNE_SKIN_ID);
+    expect(save.mock.calls[0]?.[0].candidate.sourceDigest).toBe(`sha256-${DEFAULT_MYNE_SKIN_ID}`);
+  });
+
   it("checks required capabilities before mounting the hook-using container", () => {
     const useSkinEditor = vi.fn();
     const appHooks = createFakeAppHooksV1();
@@ -316,6 +362,8 @@ describe("SkinEditorDialog controller", () => {
       target: { value: "{not json" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Import package" }));
+    expect(onSave).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Import package" }));
 
     expect(onSave).not.toHaveBeenCalled();
     expect(screen.getByText("Skin package JSON could not be parsed.")).toBeTruthy();
@@ -383,6 +431,8 @@ describe("SkinEditorDialog controller", () => {
       target: { value: JSON.stringify(skinPackage) },
     });
     fireEvent.click(screen.getByRole("button", { name: "Import package" }));
+    expect(onSave).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Import package" }));
 
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     const savedState = onSave.mock.calls[0]![0].state as MyneSkinState;
@@ -416,6 +466,8 @@ describe("SkinEditorDialog controller", () => {
       target: { value: importJson },
     });
     fireEvent.click(screen.getByRole("button", { name: "Import package" }));
+    expect(onSave).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Import package" }));
 
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     expect(
@@ -445,6 +497,8 @@ describe("SkinEditorDialog controller", () => {
       },
     });
 
+    fireEvent.click(screen.getByRole("button", { name: "Revert to default" }));
+    expect(onSave).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Revert to default" }));
 
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));

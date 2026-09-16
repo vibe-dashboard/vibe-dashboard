@@ -12,6 +12,7 @@ import { createAppearanceMutationAuthenticator, createAppearanceReadAuthenticato
 import { FileAppearanceRevisionStore } from '../server/appearance-revision-store.node';
 import { AppearanceRevisionService } from '../theme/skins/appearanceRevisions';
 import { createDefaultAppearanceSnapshot } from '../theme/skins/defaultAppearanceSnapshot';
+import { compileAppearanceSnapshotCandidate } from '../theme/skins/appearanceCandidate';
 import { workflowRegistry } from '../workflows/registry';
 import type { CachedRepoAlias } from '../workflows/github-ci';
 
@@ -28,6 +29,15 @@ async function openAppearanceService(): Promise<AppearanceRevisionService> {
   const options = {
     store,
     genesisSnapshot: createDefaultAppearanceSnapshot(),
+    compileActivation: async (snapshot: Parameters<typeof compileAppearanceSnapshotCandidate>[0]) => {
+      const candidate = await compileAppearanceSnapshotCandidate(snapshot);
+      return candidate.ok ? {
+        sourceDigest: candidate.sourceDigest,
+        artifactDigest: candidate.artifact?.digest ?? null,
+        compilerVersion: 1 as const,
+        policyVersion: 1 as const,
+      } : undefined;
+    },
     authorize: ({ actor, source }: Parameters<NonNullable<Parameters<typeof AppearanceRevisionService.open>[0]['authorize']>>[0]) => actor.kind === source || source === 'undo' || source === 'redo' || source === 'revert' || source === 'restore',
   };
   try { return await AppearanceRevisionService.open(options); }

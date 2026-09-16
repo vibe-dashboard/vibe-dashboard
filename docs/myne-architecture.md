@@ -281,6 +281,10 @@ production proof stories are linted; their preview framing uses the token-backed
 `myne-preview-frame` class rather than a hardcoded palette utility.
 
 Working draft, preview snapshot, and committed revision remain separate.
+Import and default-revert workflows first stage the proposed snapshot as the
+visible disposable preview. Changing its source or cancelling invalidates that
+candidate immediately; confirmation submits only the retained handle that was
+successfully rendered.
 [`appearanceRevisions.ts`](../src/theme/skins/appearanceRevisions.ts) now provides
 the shared append-only command service: undo, redo, restore, revert, user, agent,
 CLI, import, and marketplace writes traverse canonical validation, authorization,
@@ -304,6 +308,12 @@ possibly replaced lock. Revisions bind stream/owner and activation
 compiler/policy metadata. The reported v1 retention policy is retain-all with
 asset GC disabled; checkpoints are verifiable audit markers with boundary
 snapshot/digest, audit range/summary, and retained roots, not compaction.
+Pre-activation-metadata histories are migrated under CAS. Token-only snapshots
+derive deterministic metadata directly; active legacy custom CSS must compile
+successfully under the current compiler policy before its rebuilt hash chain is
+published. Invalid CSS fails closed, while corrupt primaries remain preserved
+for diagnostics and may recover from a validated same-format last-known-good
+backup.
 
 ## 6. Styling cascade and protected UI
 

@@ -6,12 +6,37 @@ import { afterEach, describe, expect, it } from "vitest";
 import { build } from "vite";
 import { AppearanceRevisionService } from "../theme/skins/appearanceRevisions";
 import { createDefaultAppearanceSnapshot } from "../theme/skins/defaultAppearanceSnapshot";
+import { canonicalizeAppearanceSnapshot } from "../theme/skins/appearanceSnapshot";
+import { compileAppearanceSnapshotCandidate } from "../theme/skins/appearanceCandidate";
+import { defaultDarkSkin } from "../theme/skins/builtin";
 import { acquireAppearanceFileLock, FileAppearanceRevisionStore } from "./appearance-revision-store.node";
 
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
 describe("file appearance revision store", () => {
+  it("recovers and migrates a same-format legacy custom-CSS last-known-good backup", async () => {
+    const root = await mkdtemp(join(tmpdir(), "myne-appearance-legacy-recovery-")); roots.push(root);
+    const path = join(root, "history.json");
+    const value = JSON.parse(createDefaultAppearanceSnapshot());
+    value.skin = { version: 1, activeGlobalSkinId: "myne-user-legacy", userSkins: [{ ...defaultDarkSkin, id: "myne-user-legacy", name: "Legacy", rawCss: [{ id: "legacy.css", css: ".myne-card{color:#fff}" }] }] };
+    const snapshot = canonicalizeAppearanceSnapshot(value);
+    const hash = async (input: string) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input)))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    const snapshotDigest = await hash(snapshot);
+    const fields = { integrityVersion: 1, sequence: 0, parentRevisionId: null, targetRevisionId: null, snapshotDigest, actor: { id: "system", kind: "system" }, source: "genesis", committedAt: "2026-09-15T00:00:00Z", summary: "Initial appearance" };
+    const revisionId = `myne-rev-v1-${await hash(JSON.stringify(fields))}`;
+    const legacy = { version: 1, headRevisionId: revisionId, revisions: [{ revisionId, snapshot, actor: fields.actor, source: fields.source, committedAt: fields.committedAt, summary: fields.summary, integrityVersion: 1, sequence: 0, snapshotDigest }] };
+    await writeFile(`${path}.last-known-good`, JSON.stringify(legacy));
+    await writeFile(path, "{corrupt");
+    const store = new FileAppearanceRevisionStore(path);
+    expect(await store.recoverLastKnownGood()).toBe(true);
+    const service = await AppearanceRevisionService.open({ store, genesisSnapshot: createDefaultAppearanceSnapshot(), compileActivation: async (candidateSnapshot) => {
+      const candidate = await compileAppearanceSnapshotCandidate(candidateSnapshot);
+      return candidate.ok ? { sourceDigest: candidate.sourceDigest, artifactDigest: candidate.artifact?.digest ?? null, compilerVersion: 1, policyVersion: 1 } : undefined;
+    } });
+    expect(service.inspect().head?.activation.artifactDigest).toMatch(/^sha256-/);
+    expect((await readdir(root)).some((name) => name.startsWith("history.json.corrupt."))).toBe(true);
+  });
   it("converges the losing service process on the independently committed winner", async () => {
     const root = await mkdtemp(join(tmpdir(), "myne-appearance-service-child-")); roots.push(root);
     const real = join(root, "real"); await mkdir(real); const alias = join(root, "alias"); await symlink(real, alias, "dir");

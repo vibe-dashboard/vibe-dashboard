@@ -4,6 +4,7 @@ import { defaultSkinEditorManifest } from "./SkinEditorDialog.composition";
 import { defaultDarkSkin } from "./builtin";
 import { canonicalizeAppearanceSnapshot, type MyneAppearanceSnapshotV1 } from "./appearanceSnapshot";
 import { AppearanceRevisionService, MemoryAppearanceRevisionStore, type AppearanceRevisionState, type AppearanceRevisionStore } from "./appearanceRevisions";
+import { compileAppearanceSnapshotCandidate } from "./appearanceCandidate";
 
 function snapshot(activeGlobalSkinId = defaultDarkSkin.id): string {
   const mapSurface = (manifest: typeof defaultSpacesOverviewManifest | typeof defaultSkinEditorManifest) => ({ surface: manifest.surface, manifestVersion: 1 as const, layoutId: manifest.layout, viewPackId: manifest.viewPackId, slots: Object.values(manifest.slots).map((slot) => ({ id: slot.slot, componentId: slot.component, contractVersion: slot.contractVersion })) });
@@ -17,7 +18,50 @@ function snapshot(activeGlobalSkinId = defaultDarkSkin.id): string {
   return canonicalizeAppearanceSnapshot(value);
 }
 
+function customCssSnapshot(css: string): string {
+  const value = JSON.parse(snapshot()) as MyneAppearanceSnapshotV1;
+  value.skin = { version: 1, activeGlobalSkinId: "myne-user-legacy", userSkins: [{ ...defaultDarkSkin, id: "myne-user-legacy", name: "Legacy", rawCss: [{ id: "legacy.css", css }] }] };
+  return canonicalizeAppearanceSnapshot(value);
+}
+
+async function legacyGenesis(snapshotValue: string) {
+  const hash = async (value: string) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  const snapshotDigest = await hash(snapshotValue);
+  const fields = { integrityVersion: 1, sequence: 0, parentRevisionId: null, targetRevisionId: null, snapshotDigest, actor: { id: "system", kind: "system" }, source: "genesis", committedAt: "2026-09-15T00:00:00Z", summary: "Initial appearance" };
+  const revisionId = `myne-rev-v1-${await hash(JSON.stringify(fields))}`;
+  return { version: 1, headRevisionId: revisionId, revisions: [{ revisionId, snapshot: snapshotValue, actor: fields.actor, source: fields.source, committedAt: fields.committedAt, summary: fields.summary, integrityVersion: 1, sequence: 0, snapshotDigest }] };
+}
+
+const compileActivation = async (value: MyneAppearanceSnapshotV1) => {
+  const candidate = await compileAppearanceSnapshotCandidate(value);
+  return candidate.ok ? { sourceDigest: candidate.sourceDigest, artifactDigest: candidate.artifact?.digest ?? null, compilerVersion: 1 as const, policyVersion: 1 as const } : undefined;
+};
+
 describe("appearance revision command service", () => {
+  it("migrates valid legacy custom CSS with verified activation metadata and survives restart", async () => {
+    const store = new MemoryAppearanceRevisionStore();
+    const legacy = await legacyGenesis(customCssSnapshot(".myne-card{color:#fff}"));
+    await store.compareAndSwap(undefined, legacy as unknown as AppearanceRevisionState);
+    const migrated = await AppearanceRevisionService.open({ store, genesisSnapshot: snapshot(), compileActivation });
+    expect(migrated.inspect().head?.activation).toMatchObject({ artifactDigest: expect.stringMatching(/^sha256-/), compilerVersion: 1, policyVersion: 1 });
+    const restarted = await AppearanceRevisionService.open({ store, genesisSnapshot: snapshot(), compileActivation });
+    expect(restarted.inspect().head?.revisionId).toBe(migrated.inspect().head?.revisionId);
+  });
+
+  it("rejects invalid legacy custom CSS rather than inventing activation metadata", async () => {
+    const legacy = await legacyGenesis(customCssSnapshot("body{background:url(javascript:alert(1))}"));
+    const store: AppearanceRevisionStore = { load: async () => legacy, compareAndSwap: async () => "saved" };
+    await expect(AppearanceRevisionService.open({ store, genesisSnapshot: snapshot(), compileActivation })).rejects.toThrow("corrupt-appearance-history");
+  });
+  it("rejects legacy custom CSS when a compiler adapter returns metadata for different source", async () => {
+    const legacy = await legacyGenesis(customCssSnapshot(".myne-card{color:#fff}"));
+    const store: AppearanceRevisionStore = { load: async () => legacy, compareAndSwap: async () => "saved" };
+    await expect(AppearanceRevisionService.open({
+      store,
+      genesisSnapshot: snapshot(),
+      compileActivation: async () => ({ sourceDigest: "sha256-wrong-source", artifactDigest: "sha256-wrong-artifact", compilerVersion: 1, policyVersion: 1 }),
+    })).rejects.toThrow("corrupt-appearance-history");
+  });
   it("rejects field-by-field immutable-chain corruption", async () => {
     const source = new MemoryAppearanceRevisionStore(); const service = await AppearanceRevisionService.open({ store: source, genesisSnapshot: snapshot(), clock: () => "2026-09-15T01:00:00Z" });
     const first = service.inspect().head!; await service.apply({ expectedCurrentRevisionId: first.revisionId, snapshot: snapshot("myne-light-studio"), actor: { id: "u", kind: "user" }, source: "user", summary: "changed" });
@@ -61,6 +105,28 @@ describe("appearance revision command service", () => {
     expect(conflict).toMatchObject({ ok: false, diagnostic: { code: "stale-revision", expectedRevisionId: head, currentRevisionId: expect.any(String) } });
     const restarted = await AppearanceRevisionService.open({ store, genesisSnapshot: snapshot() });
     expect(restarted.inspect().revisions).toHaveLength(2);
+  });
+  it.each([
+    ["default undo", "undo", undefined, "myne-light-studio"],
+    ["targeted undo", "undo", "first", "myne-default-dark"],
+    ["restore", "restore", "first", "myne-light-studio"],
+    ["revert", "revert", "first", "myne-default-dark"],
+    ["redo", "redo", "first", "myne-light-studio"],
+  ] as const)("refreshes before resolving delayed %s", async (_label, operation, target, expectedSkin) => {
+    const store = new MemoryAppearanceRevisionStore();
+    const writer = await AppearanceRevisionService.open({ store, genesisSnapshot: snapshot() });
+    const delayed = await AppearanceRevisionService.open({ store, genesisSnapshot: snapshot() });
+    const genesis = writer.inspect().head!;
+    const first = await writer.apply({ expectedCurrentRevisionId: genesis.revisionId, snapshot: snapshot("myne-light-studio"), actor: { id: "writer", kind: "user" }, source: "user", summary: "first" });
+    if (!first.ok) throw new Error("first fixture write failed");
+    const second = await writer.apply({ expectedCurrentRevisionId: first.revision.revisionId, snapshot: snapshot("myne-high-contrast-terminal"), actor: { id: "writer", kind: "user" }, source: "user", summary: "second" });
+    if (!second.ok) throw new Error("second fixture write failed");
+    const command = { expectedCurrentRevisionId: second.revision.revisionId, actor: { id: "delayed", kind: "user" } as const, summary: operation, ...(target ? { targetRevisionId: first.revision.revisionId } : {}) };
+    const result = operation === "undo" ? await delayed.undo(command) : await delayed[operation](command as typeof command & { targetRevisionId: string });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(JSON.parse(result.revision.snapshot).skin.activeGlobalSkinId).toBe(expectedSkin);
+    expect((await writer.inspectFresh()).head?.revisionId).toBe(result.revision.revisionId);
   });
 
   it("leaves head/history unchanged on persistence failure and remains undoable", async () => {
