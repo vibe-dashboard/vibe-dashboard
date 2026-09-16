@@ -184,6 +184,7 @@ export function SpacesOverviewView({
   initialSpacePickerTargetId = null,
   initialOpenCraftActionError = null,
   skinState,
+  appearanceArtifact,
   presentation: Presentation = selectedSpacesOverviewView,
 }: SpacesOverviewViewProps) {
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(
@@ -488,7 +489,7 @@ export function SpacesOverviewView({
   );
 
   return (
-    <SkinRoot className="h-full w-full" state={skinState}>
+    <SkinRoot className="h-full w-full" state={skinState} artifact={appearanceArtifact}>
       <Presentation model={model} actions={actions} />
     </SkinRoot>
   );

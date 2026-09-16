@@ -333,7 +333,7 @@ describe("VD global skin schema", () => {
     );
   });
 
-  it("rejects non-empty raw CSS until the sanitizer/runtime milestone lands", () => {
+  it("preserves non-empty raw CSS as inert package data for the scoped compiler", () => {
     const result = validateSkinManifest({
       ...completeSkin(),
       rawCss: [
@@ -344,10 +344,8 @@ describe("VD global skin schema", () => {
       ],
     });
 
-    expect(result.ok).toBe(false);
-    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
-      "raw-css-deferred",
-    );
+    expect(result.ok).toBe(true);
+    expect(result.value?.rawCss[0]?.css).toContain("data-vd-skin-root");
   });
 
   it("defaults and migrates global-only skin state without byVoyageId", () => {

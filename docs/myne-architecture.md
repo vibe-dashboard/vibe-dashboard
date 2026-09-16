@@ -57,7 +57,8 @@ cover both proof-surface composition selections, skin state, capabilities,
 provenance, and SRI asset descriptors. The in-memory portable package reader now
 verifies exact asset coverage, byte length, and SHA-256/384/512 integrity before
 exposing defensive byte copies, and the scoped CSS compiler is implemented.
-Production package loading and the revision service remain pending.
+The production host now loads the persisted revision head, projects global skin,
+density, and view-pack state, and activates compiler-verified CSS artifacts.
 
 The registry replaces the earlier fixed `capabilities.spaces` /
 `capabilities.appearance` proof. Each module has a stable ID and independent
@@ -244,8 +245,8 @@ sequenceDiagram
   V-->>E: edit / import / preview / apply intent
   E->>C: validated save request after confirmation
   C->>H: saveAppearance(snapshot)
-  H-->>R: authorize + expected revision + append [TARGET]
-  R-->>H: committed snapshot or actionable conflict [TARGET]
+  H-->>R: host-derived actor + permission + expected revision + append [CURRENT]
+  R-->>H: committed snapshot or actionable conflict [CURRENT]
 ```
 
 [`editor.ts`](../src/theme/skins/editor.ts) implements current draft helpers;
@@ -255,10 +256,11 @@ the current proof tokens. [`appearanceSnapshot.ts`](../src/theme/skins/appearanc
 validates and canonically serializes the portable full-appearance snapshot; the
 normative persistence semantics are recorded in
 [`myne-appearance-revisions.md`](./myne-appearance-revisions.md). Production
-`hostAppHooksV1` still supplies an
-unavailable appearance adapter, so Storybook/test persistence is not evidence
-of a production settings or revision service. Raw CSS remains deferred and must
-not preview or persist before the protected compiler work is complete.
+`hostAppHooksV1` supplies a stable appearance module backed by the persisted
+history API. The Home workspace's Appearance entry migrates older state,
+provides protected confirmation/recovery controls, and exposes the Skin Editor
+plus history and compatible view-pack selection. Non-empty CSS stays inert data
+until the host compiler accepts it; rejected CSS never reaches history.
 
 The current Skin Editor composition proof is
 [`SkinEditorDialog.composition.tsx`](../src/theme/skins/SkinEditorDialog.composition.tsx).
@@ -287,8 +289,11 @@ compensating revisions rather than rewriting history. The in-memory conformance
 store proves restart, corruption, persistence-failure, and concurrent-client
 semantics. The node host now persists the aggregate with atomic replacement and
 exposes one validated command shape to the app and `vk appearance`
-inspect/snapshot/diff/restore/undo/revert/redo commands. Production Skin Editor
-entry points and activation/recovery UI remain pending.
+inspect/snapshot/diff/restore/undo/revert/redo commands. HTTP payload identity is
+never authorization input: the current single-user host derives local user/CLI
+actors from separate trusted routes and checks permissions at execution. A
+future multi-user host must replace that resolver with its authenticated
+principal without changing command-service semantics.
 
 ## 6. Styling cascade and protected UI
 
@@ -319,9 +324,10 @@ The current [`scopedCss.ts`](../src/theme/skins/scopedCss.ts) compiler parses
 package CSS to an AST, applies the versioned default-deny policy, rewrites it
 below an opaque generated root, and compiles all-or-nothing. Its runtime consumes
 the identical branded artifact for preview and activation and preserves a
-last-known-good artifact or startup safe mode. Production package-loader and
-revision-service wiring remain pending, so the existing manifest importer still
-rejects non-empty raw CSS. Authorization, confirmation, diagnostics, safe-mode, and recovery
+last-known-good artifact or startup safe mode. The production appearance host
+compiles active custom CSS before persistence and again on startup, exposes the
+same deterministic artifact digest to preview/activation roots, and falls back
+to its last-known-good projection in safe mode. Authorization, confirmation, diagnostics, safe-mode, and recovery
 controls remain outside package selector scope or in a separately isolated
 subtree. They can visually match through a host-derived token subset that
 passes accessibility checks; arbitrary package selectors or tokens cannot hide,
@@ -344,7 +350,7 @@ State ownership is similarly explicit:
 | Filters, pagination, picker, pending actions | SpacesOverview container/controller |
 | Skin draft, import/export text, draft diagnostics | Skin Editor controller |
 | Preview appearance | Disposable preview scope |
-| Active appearance and immutable history | Shared revision command service; production host store wiring remains pending |
+| Active appearance and immutable history | Production host projection plus shared revision command service |
 | Permission, confirmation, recovery state | Protected host UI |
 
 ## 8. Future extension points

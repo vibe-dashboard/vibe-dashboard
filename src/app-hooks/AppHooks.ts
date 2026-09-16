@@ -71,6 +71,13 @@ export interface AppearanceSaveResultDTO {
 
 export interface AppearanceStateV1 {
   readonly snapshot?: AppearanceSnapshotV1;
+  readonly loading?: boolean;
+  readonly error?: string | null;
+  readonly safeMode?: boolean;
+  readonly headRevisionId?: string;
+  readonly viewPacks?: Readonly<Record<string, string>>;
+  readonly artifact?: { readonly scope: string; readonly cssText: string; readonly digest: string };
+  readonly density?: string;
 }
 
 export interface SpacesModuleV1 {
@@ -86,7 +93,7 @@ export interface AppearanceModuleV1 {
   readonly version: number;
   readonly availability: CapabilityAvailability;
   readonly useSkinEditor: () => ModuleHookResult<AppearanceStateV1>;
-  readonly saveAppearance: (args: { readonly snapshot: AppearanceSnapshotV1 }) => Promise<AppearanceSaveResultDTO>;
+  readonly saveAppearance: (args: { readonly snapshot: AppearanceSnapshotV1; readonly source?: "user" | "import" }) => Promise<AppearanceSaveResultDTO>;
 }
 
 export interface AppHooksModuleMapV1 {
@@ -214,6 +221,7 @@ export interface FakeAppHooksV1Host {
 export function createFakeAppHooksV1Host(options: {
   spacesValue?: Partial<SpacesStateV1>;
   appearanceSnapshot?: AppearanceSnapshotV1;
+  appearanceState?: AppearanceStateV1;
   stopWorkspaceExecution?: (workspaceId: string) => Promise<void>;
   saveAppearance?: AppearanceModuleV1["saveAppearance"];
 } = {}): FakeAppHooksV1Host {
@@ -221,7 +229,7 @@ export function createFakeAppHooksV1Host(options: {
     workspaces: [], repos: [], loading: false, error: null,
     refetch: async () => undefined, ...options.spacesValue,
   });
-  const appearanceStore = createExternalStore<AppearanceStateV1>({ snapshot: options.appearanceSnapshot });
+  const appearanceStore = createExternalStore<AppearanceStateV1>(options.appearanceState ?? { snapshot: options.appearanceSnapshot });
   const useSpacesOverview = (): ModuleHookResult<SpacesStateV1> => ({
     available: true,
     value: useSyncExternalStore(spacesStore.subscribe, spacesStore.getSnapshot, spacesStore.getSnapshot),

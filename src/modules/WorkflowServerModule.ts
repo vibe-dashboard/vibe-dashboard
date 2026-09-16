@@ -21,6 +21,21 @@ const appearanceHistoryPath = process.env.VK_APPEARANCE_HISTORY_PATH || join(pro
 let cachedGitRepos: CachedRepoAlias[] | null = null;
 let appearanceService: Promise<AppearanceRevisionService> | undefined;
 
+async function openAppearanceService(): Promise<AppearanceRevisionService> {
+  const store = new FileAppearanceRevisionStore(appearanceHistoryPath);
+  const options = {
+    store,
+    genesisSnapshot: createDefaultAppearanceSnapshot(),
+    authorize: ({ actor, source }: Parameters<NonNullable<Parameters<typeof AppearanceRevisionService.open>[0]['authorize']>>[0]) => actor.kind === source || source === 'undo' || source === 'redo' || source === 'revert' || source === 'restore',
+  };
+  try { return await AppearanceRevisionService.open(options); }
+  catch (error) {
+    if (!await store.recoverLastKnownGood()) throw error;
+    console.error('Recovered last-known-good appearance history after primary storage corruption', error);
+    return AppearanceRevisionService.open(options);
+  }
+}
+
 serverRegistry.registerServerModule((api) => {
   registerWorkflowRoutes(api.hono, {
     registry: workflowRegistry,
@@ -34,11 +49,12 @@ serverRegistry.registerServerModule((api) => {
   registerPluginAdminRoutes(api.hono);
   registerPreviewResolverRoutes(api.hono);
   registerAppearanceRoutes(api.hono, {
-    getService: () => appearanceService ??= AppearanceRevisionService.open({
-      store: new FileAppearanceRevisionStore(appearanceHistoryPath),
-      genesisSnapshot: createDefaultAppearanceSnapshot(),
-      authorize: ({ actor, source }) => actor.kind === source || source === 'undo' || source === 'redo' || source === 'revert' || source === 'restore',
-    }),
+    getService: () => appearanceService ??= openAppearanceService(),
+    // Current deployments are single-user. The node host, not request JSON,
+    // establishes these local principals; read-only mode revokes mutations at
+    // command execution without changing future authenticated-host semantics.
+    allowMutation: (_context, trusted) => process.env.VK_APPEARANCE_READ_ONLY !== 'true'
+      && (trusted.actor.id === 'local-user' || trusted.actor.id === 'local-cli' || trusted.actor.id === 'local-import'),
   });
 });
 

@@ -46,7 +46,7 @@ export const config = {
     appearance: `${DASHBOARD_BASE_URL}/dashboard/api/appearance`,
     appearanceSnapshot: (revisionId: string) => `${DASHBOARD_BASE_URL}/dashboard/api/appearance/revisions/${encodeURIComponent(revisionId)}/snapshot`,
     appearanceDiff: (from: string, to: string) => `${DASHBOARD_BASE_URL}/dashboard/api/appearance/diff?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-    appearanceCommands: `${DASHBOARD_BASE_URL}/dashboard/api/appearance/commands`,
+    appearanceCommands: `${DASHBOARD_BASE_URL}/dashboard/api/appearance/cli-commands`,
   },
 
   // WebSocket endpoints

@@ -428,16 +428,6 @@ function normalizeRawCss(
       );
       return [];
     }
-    if (block.css.trim()) {
-      diagnostics.push(
-        error(
-          "raw-css-deferred",
-          "Raw CSS is reserved for a later sanitizer/runtime milestone and cannot be activated yet.",
-          `rawCss.${index}.css`,
-        ),
-      );
-      return [];
-    }
     seen.add(id);
     return [{ id, css: block.css }];
   });

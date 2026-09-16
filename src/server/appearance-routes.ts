@@ -1,4 +1,4 @@
-import type { Hono } from "hono";
+import type { Context, Hono } from "hono";
 import { diffAppearanceSnapshots } from "../theme/skins/portablePackage";
 import {
   AppearanceRevisionService,
@@ -6,7 +6,10 @@ import {
   type AppearanceMutationSource,
 } from "../theme/skins/appearanceRevisions";
 
-interface AppearanceRouteOptions { getService: () => Promise<AppearanceRevisionService> }
+interface AppearanceRouteOptions {
+  getService: () => Promise<AppearanceRevisionService>;
+  allowMutation?: (context: Context, trusted: { actor: AppearanceActor; source: "user" | "cli" | "import" }) => boolean | Promise<boolean>;
+}
 type JsonRecord = Record<string, unknown>;
 
 function record(value: unknown): JsonRecord | undefined {
@@ -20,8 +23,6 @@ function commandStatus(code: string): 400 | 403 | 404 | 409 | 503 {
   if (code === "persistence-failed") return 503;
   return 400;
 }
-
-const ACTOR_KINDS = new Set(["system", "user", "agent", "cli", "import", "marketplace"]);
 
 export function registerAppearanceRoutes(app: Hono, options: AppearanceRouteOptions): void {
   app.get("/dashboard/api/appearance", async (context) => context.json((await options.getService()).inspect()));
@@ -37,22 +38,19 @@ export function registerAppearanceRoutes(app: Hono, options: AppearanceRouteOpti
     if (!from || !to) return context.json({ error: "unknown-revision" }, 404);
     return context.json(diffAppearanceSnapshots(from.snapshot, to.snapshot));
   });
-  app.post("/dashboard/api/appearance/commands", async (context) => {
+  const execute = async (context: Context, trusted: { actor: AppearanceActor; source: "user" | "cli" | "import" }) => {
+    if (options.allowMutation && !await options.allowMutation(context, trusted)) return context.json({ error: "unauthorized" }, 403);
     let body: JsonRecord | undefined;
     try { body = record(await context.req.json()); } catch { body = undefined; }
-    const actorValue = record(body?.actor);
     if (!body || typeof body.type !== "string" || typeof body.expectedCurrentRevisionId !== "string"
-      || typeof body.summary !== "string" || !actorValue || typeof actorValue.id !== "string" || typeof actorValue.kind !== "string"
-      || !ACTOR_KINDS.has(actorValue.kind)) {
+      || typeof body.summary !== "string") {
       return context.json({ error: "invalid-command" }, 400);
     }
-    const actor = actorValue as unknown as AppearanceActor;
+    const actor = trusted.actor;
     const service = await options.getService();
     let result;
-    if (body.type === "apply" && typeof body.snapshot === "string" && typeof body.source === "string"
-      && ["user", "agent", "cli", "import", "marketplace"].includes(body.source)
-      && body.source === actor.kind) {
-      result = await service.apply({ expectedCurrentRevisionId: body.expectedCurrentRevisionId, snapshot: body.snapshot, actor, source: body.source as AppearanceMutationSource & ("user" | "agent" | "cli" | "import" | "marketplace"), summary: body.summary });
+    if (body.type === "apply" && typeof body.snapshot === "string") {
+      result = await service.apply({ expectedCurrentRevisionId: body.expectedCurrentRevisionId, snapshot: body.snapshot, actor, source: trusted.source as AppearanceMutationSource & ("user" | "cli" | "import"), summary: body.summary });
     } else if (body.type === "undo") {
       result = await service.undo({ expectedCurrentRevisionId: body.expectedCurrentRevisionId, actor, summary: body.summary, ...(typeof body.targetRevisionId === "string" ? { targetRevisionId: body.targetRevisionId } : {}) });
     } else if (["redo", "revert", "restore"].includes(body.type) && typeof body.targetRevisionId === "string") {
@@ -60,5 +58,12 @@ export function registerAppearanceRoutes(app: Hono, options: AppearanceRouteOpti
       result = await service[body.type as "redo" | "revert" | "restore"](command);
     } else return context.json({ error: "invalid-command" }, 400);
     return result.ok ? context.json(result, 201) : context.json(result, commandStatus(result.diagnostic.code));
-  });
+  };
+  // CURRENT deployment assumption: the dashboard server is single-user and is
+  // the authorization boundary. Caller-supplied actor/source fields are ignored.
+  // Distinct trusted routes preserve audit provenance without making it an
+  // authorization credential; a future multi-user host must inject principals.
+  app.post("/dashboard/api/appearance/commands", (context) => execute(context, { actor: { id: "local-user", kind: "user" }, source: "user" }));
+  app.post("/dashboard/api/appearance/cli-commands", (context) => execute(context, { actor: { id: "local-cli", kind: "cli" }, source: "cli" }));
+  app.post("/dashboard/api/appearance/import-commands", (context) => execute(context, { actor: { id: "local-import", kind: "import" }, source: "import" }));
 }

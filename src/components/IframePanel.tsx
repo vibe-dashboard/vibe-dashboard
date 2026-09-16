@@ -3,8 +3,11 @@ import { Group, Panel, Separator } from 'react-resizable-panels';
 import type { TabGroup, Tab } from '../types';
 import type { WorkspaceState, SavedWorkspaceSession } from '../types';
 import { AppLoadingScreen } from './AppLoadingScreen';
-import { SpacesOverview } from './SpacesOverview';
+import { SpacesOverview, type SpacesOverviewProps } from './SpacesOverview';
+import { AppearanceSettings } from './AppearanceSettings';
 import { hostAppHooksV1 } from '../app-hooks/AppHooks.host';
+import { migrateSkinState } from '../theme/skins/schema';
+import { getSpacesOverviewPresentation } from './spaces-overview/SpacesOverview.selected';
 import { hasSameBaseOrigin } from '../lib/originTrust';
 import { getPluginIframePolicy, getPluginIframePostMessageTargetOrigin, parsePluginInternalUrl } from '../modules/plugins/vibe-dashboard/runtime';
 import { getRegisteredPluginIframePolicy, resolvePluginInternalRouteIframeSrc } from '../modules/plugins/vibe-dashboard/registry';
@@ -20,6 +23,13 @@ const CADDY_PORT = process.env.CADDY_PORT || '';
 const MOBILE_VIEWPORT_INSET_STYLE = {
   bottom: 'var(--mobile-footer-offset)',
 };
+
+function ProductionSpacesOverview(props: Omit<SpacesOverviewProps, 'appHooks' | 'skinState'>) {
+  const appearance = hostAppHooksV1.modules.get('myne.appearance').useSkinEditor();
+  const value = appearance.available ? appearance.value : undefined;
+  const skinState = value?.snapshot ? migrateSkinState(value.snapshot.value) : undefined;
+  return <SpacesOverview {...props} appHooks={hostAppHooksV1} skinState={skinState} appearanceArtifact={value?.artifact} presentation={getSpacesOverviewPresentation(value?.viewPacks?.['spaces-overview'])} />;
+}
 
 export type IframeRenderMode = 'real' | 'placeholder' | 'disabled';
 export type IframePreviewStatus = 'ready' | 'loading' | 'error';
@@ -1317,6 +1327,10 @@ function StaticTabContent({
   if (target.kind === 'internal') {
     const { internalPath } = target;
 
+    if (internalPath === 'appearance') {
+      return <AppearanceSettings appHooks={hostAppHooksV1} />;
+    }
+
     if (
       internalPath === 'spaces-overview' &&
       workspace &&
@@ -1328,8 +1342,7 @@ function StaticTabContent({
     ) {
       return (
         <div className="flex-1 min-h-0 relative h-full">
-          <SpacesOverview
-            appHooks={hostAppHooksV1}
+          <ProductionSpacesOverview
             workspace={workspace}
             savedSessions={savedSessions || []}
             currentSessionId={currentSessionId}
@@ -1533,6 +1546,10 @@ function SingleTabView({
   if (target.kind === 'internal') {
     const { internalPath } = target;
 
+    if (internalPath === 'appearance') {
+      return <AppearanceSettings appHooks={hostAppHooksV1} />;
+    }
+
     if (
       internalPath === 'spaces-overview' &&
       workspace &&
@@ -1544,8 +1561,7 @@ function SingleTabView({
     ) {
       return (
         <div className="flex-1 min-h-0 relative h-full">
-          <SpacesOverview
-            appHooks={hostAppHooksV1}
+          <ProductionSpacesOverview
             workspace={workspace}
             savedSessions={savedSessions || []}
             currentSessionId={currentSessionId}

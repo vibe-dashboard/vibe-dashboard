@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { AppearanceRevisionState, AppearanceRevisionStore } from "../theme/skins/appearanceRevisions";
 
@@ -21,10 +21,20 @@ export class FileAppearanceRevisionStore implements AppearanceRevisionStore {
       await mkdir(dirname(this.path), { recursive: true });
       const temporary = `${this.path}.${process.pid}.${crypto.randomUUID()}.tmp`;
       await writeFile(temporary, `${JSON.stringify(state)}\n`, { encoding: "utf8", mode: 0o600 });
+      if (current) await copyFile(this.path, `${this.path}.last-known-good`);
       await rename(temporary, this.path);
       return "saved" as const;
     });
     queues.set(this.path, operation.then(() => undefined, () => undefined));
     return operation;
+  }
+  async recoverLastKnownGood(): Promise<boolean> {
+    try {
+      await copyFile(`${this.path}.last-known-good`, this.path);
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw error;
+    }
   }
 }

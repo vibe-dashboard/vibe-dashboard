@@ -2,11 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { vkClient, type RepoWithBranch, type WorkspaceSummary } from "../lib/vk-client";
 import {
   createAppHooksV1,
-  unavailableAppearanceHooksV1,
   type SpacesRepoDTO,
   type SpacesStateV1,
   type SpacesWorkspaceDTO,
 } from "./AppHooks";
+import { createProductionAppearanceModule } from "./AppearanceHooks.host";
 
 function useHostSpacesOverview(): SpacesStateV1 {
   const [workspaces, setWorkspaces] = useState<readonly SpacesWorkspaceDTO[]>([]);
@@ -71,6 +71,8 @@ function useHostSpacesModule() {
   return { available: true as const, value: useHostSpacesOverview() };
 }
 
+export const productionAppearanceHost = createProductionAppearanceModule();
+
 export const hostAppHooksV1 = createAppHooksV1([
   Object.freeze({
       id: "myne.spaces", version: 1, availability: Object.freeze({ available: true }),
@@ -80,5 +82,5 @@ export const hostAppHooksV1 = createAppHooksV1([
         await vkClient.stopWorkspaceExecution(workspaceId);
       },
   }),
-  unavailableAppearanceHooksV1,
+  productionAppearanceHost.module,
 ]);

@@ -10,7 +10,7 @@ export interface SkinEditorSaveResult {
 }
 
 export interface SkinEditorActions {
-  saveSkinState: (args: { state: MyneSkinState }) => Promise<SkinEditorSaveResult>;
+  saveSkinState: (args: { state: MyneSkinState; source?: "user" | "import" }) => Promise<SkinEditorSaveResult>;
 }
 
 export interface SkinEditorColorField {
@@ -39,7 +39,7 @@ export interface SkinEditorViewModel {
   isEditingCustomSkin: boolean;
   isSaving: boolean;
   previewState: MyneSkinState;
-  rawCssStatus: "deferred";
+  rawCssStatus: "compiler-protected";
   selectedSkin: MyneSkinManifestV1;
   selectedSkinIsBuiltIn: boolean;
   skinOptions: SkinEditorSkinOption[];

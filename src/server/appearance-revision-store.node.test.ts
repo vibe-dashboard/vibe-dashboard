@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -23,5 +23,19 @@ describe("file appearance revision store", () => {
     expect(restarted.inspect().revisions).toHaveLength(2);
     const persisted = await readFile(path, "utf8");
     expect(() => JSON.parse(persisted)).not.toThrow();
+  });
+
+  it("recovers the last-known-good aggregate after corrupt primary storage", async () => {
+    const root = await mkdtemp(join(tmpdir(), "myne-appearance-recovery-")); roots.push(root);
+    const path = join(root, "history.json");
+    const store = new FileAppearanceRevisionStore(path);
+    const service = await AppearanceRevisionService.open({ store, genesisSnapshot: createDefaultAppearanceSnapshot() });
+    const head = service.inspect().head!;
+    const changed = JSON.parse(head.snapshot); changed.provenance.generator = "known-good";
+    await service.apply({ expectedCurrentRevisionId: head.revisionId, snapshot: JSON.stringify(changed), actor: { id: "u", kind: "user" }, source: "user", summary: "known good" });
+    await writeFile(path, "{corrupt", "utf8");
+    await store.recoverLastKnownGood();
+    const recovered = await AppearanceRevisionService.open({ store, genesisSnapshot: createDefaultAppearanceSnapshot() });
+    expect(recovered.inspect().head?.revisionId).toBe(head.revisionId);
   });
 });

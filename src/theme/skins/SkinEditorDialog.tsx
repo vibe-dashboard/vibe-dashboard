@@ -29,9 +29,8 @@ import type {
   SkinEditorColorField,
   SkinEditorViewModel,
 } from "./SkinEditorDialog.contracts";
-import { selectedSkinEditorComposition } from "./SkinEditorDialog.composition";
+import { compactDiagnosticsSkinEditorManifest, defaultSkinEditorManifest, resolveSkinEditorComposition } from "./SkinEditorDialog.composition";
 
-const SelectedSkinEditorLayout = selectedSkinEditorComposition.layout;
 import {
   APP_HOOKS_V1_REQUIREMENTS,
   assertAppHooksV1Compatible,
@@ -45,6 +44,7 @@ export interface SkinEditorDialogProps {
   onClose: () => void;
   open: boolean;
   skinState?: MyneSkinState;
+  viewPackId?: string;
 }
 
 const COLOR_LABELS: Record<EditableColorTokenKey, string> = {
@@ -89,12 +89,14 @@ export interface SkinEditorContainerProps {
   appHooks: AppHooksV1;
   onClose: () => void;
   open: boolean;
+  viewPackId?: string;
 }
 
 export function SkinEditorContainer({
   appHooks,
   onClose,
   open,
+  viewPackId,
 }: SkinEditorContainerProps) {
   assertAppHooksV1Compatible(appHooks, APP_HOOKS_V1_REQUIREMENTS.skinEditor);
   return (
@@ -102,6 +104,7 @@ export function SkinEditorContainer({
       appHooks={appHooks}
       onClose={onClose}
       open={open}
+      viewPackId={viewPackId}
     />
   );
 }
@@ -110,6 +113,7 @@ function SkinEditorContainerContent({
   appHooks,
   onClose,
   open,
+  viewPackId,
 }: SkinEditorContainerProps) {
   const appearanceModule = appHooks.modules.get("myne.appearance");
   const appearanceResult = appearanceModule.useSkinEditor();
@@ -126,9 +130,10 @@ function SkinEditorContainerContent({
   return (
     <SkinEditorDialog
       actions={{
-        saveSkinState: async ({ state }) => {
+        saveSkinState: async ({ state, source }) => {
           const result = await appearanceModule.saveAppearance({
             snapshot: toAppearanceSnapshot(state),
+            source,
           });
           return {
             ok: result.ok,
@@ -139,6 +144,7 @@ function SkinEditorContainerContent({
       onClose={onClose}
       open={open}
       skinState={skinState}
+      viewPackId={viewPackId}
     />
   );
 }
@@ -148,7 +154,12 @@ export function SkinEditorDialog({
   onClose,
   open,
   skinState,
+  viewPackId,
 }: SkinEditorDialogProps) {
+  const composition = useMemo(() => resolveSkinEditorComposition(
+    viewPackId === compactDiagnosticsSkinEditorManifest.viewPackId ? compactDiagnosticsSkinEditorManifest : defaultSkinEditorManifest,
+  ), [viewPackId]);
+  const SelectedLayout = composition.layout;
   const savedState = getSavedSkinState(skinState);
   const [selectedSkinId, setSelectedSkinId] = useState(savedState.activeGlobalSkinId);
   const [draftSkin, setDraftSkin] = useState<MyneSkinManifestV1 | null>(null);
@@ -221,7 +232,7 @@ export function SkinEditorDialog({
     isEditingCustomSkin: Boolean(draftSkin),
     isSaving,
     previewState,
-    rawCssStatus: "deferred",
+    rawCssStatus: "compiler-protected",
     selectedSkin,
     selectedSkinIsBuiltIn,
     skinOptions: availableSkins.map((skin) => ({
@@ -237,9 +248,9 @@ export function SkinEditorDialog({
   if (!open) return null;
 
   return (
-    <SelectedSkinEditorLayout
-      components={selectedSkinEditorComposition.components}
-      viewPackId={selectedSkinEditorComposition.viewPackId}
+    <SelectedLayout
+      components={composition.components}
+      viewPackId={composition.viewPackId}
       actions={{
         applySelectedSkin: () => {
           void saveStateFromResult(
@@ -302,7 +313,7 @@ export function SkinEditorDialog({
           }
 
           const merged = mergeImportedSkinState(savedState, imported.value);
-          void saveStateFromResult(merged, "Imported skin package.");
+          void saveStateFromResult(merged, "Imported skin package.", undefined, "import");
         },
         revertToDefaultSkin: () => {
           void saveStateFromResult(
@@ -382,6 +393,7 @@ export function SkinEditorDialog({
     nextState: MyneSkinState | undefined,
     successMessage: string,
     afterSave?: () => void,
+    source: "user" | "import" = "user",
   ) {
     if (!nextState) {
       setDiagnostics([
@@ -405,7 +417,7 @@ export function SkinEditorDialog({
 
     setIsSaving(true);
     try {
-      const result = await actions.saveSkinState({ state: nextState });
+      const result = await actions.saveSkinState({ state: nextState, source });
       if (!isCurrentOperation()) return;
       setDiagnostics(result.diagnostics ?? []);
       if (result.ok) {

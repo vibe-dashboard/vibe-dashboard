@@ -51,7 +51,7 @@ describe("skin editor state model", () => {
     expect(previewState.activeGlobalSkinId).toBe(draft.id);
   });
 
-  it("blocks saving built-in ids or raw CSS while preserving diagnostics", () => {
+  it("blocks built-in ids while retaining CSS for host compiler validation", () => {
     const reserved = validateSkinEditorDraft(lightStudioSkin);
     const unsafe = validateSkinEditorDraft({
       ...editableSkin(),
@@ -62,10 +62,8 @@ describe("skin editor state model", () => {
     expect(reserved.diagnostics.map((entry) => entry.code)).toContain(
       "reserved-skin-id",
     );
-    expect(unsafe.ok).toBe(false);
-    expect(unsafe.diagnostics.map((entry) => entry.code)).toContain(
-      "raw-css-deferred",
-    );
+    expect(unsafe.ok).toBe(true);
+    expect(unsafe.value?.rawCss).toHaveLength(1);
   });
 
   it("upserts a user skin and sets it as the active global skin", () => {

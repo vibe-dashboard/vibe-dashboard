@@ -1,0 +1,11 @@
+.page { min-height: 100%; padding: 1rem; background: var(--myne-color-background); color: var(--myne-color-foreground); }
+.header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: 1rem; }
+.title { margin: 0; font-size: 1.5rem; }
+.summary { margin: .25rem 0 0; color: var(--myne-color-muted); }
+.controls { display: flex; flex-wrap: wrap; gap: .5rem; padding: .75rem; border: 1px solid var(--myne-protected-border, #52525b); border-radius: .75rem; }
+.button { min-height: 2.5rem; padding: .5rem .8rem; border: 1px solid currentColor; border-radius: .5rem; background: transparent; color: inherit; }
+.history { padding: 0; list-style: none; display: grid; gap: .5rem; }
+.revision { padding: .75rem; border: 1px solid var(--myne-color-border); border-radius: .5rem; background: var(--myne-color-panel); }
+.revisionMeta { display: block; color: var(--myne-color-muted); font-size: .8rem; }
+.error { color: var(--myne-protected-danger, #f87171); }
+@media (max-width: 40rem) { .page { padding: .75rem; } .controls, .button { width: 100%; } }

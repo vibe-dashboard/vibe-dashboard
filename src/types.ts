@@ -183,11 +183,35 @@ export function createDefaultWorkspace(): WorkspaceState {
             url: 'internal://spaces-overview',
             pinned: true,
           },
+          {
+            id: 'tab_appearance',
+            title: 'Appearance',
+            url: 'internal://appearance',
+            pinned: true,
+          },
         ],
         pairs: [],
         order: 0,
       },
     ],
     nextId: 10,
+  };
+}
+
+export function ensureAppearanceSettingsEntry(workspace: WorkspaceState): WorkspaceState {
+  const home = workspace.spaces.find((space) => space.isSystem)?.tabGroupIds
+    .map((id) => workspace.tabGroups.find((group) => group.id === id))
+    .find(Boolean);
+  if (!home || home.tabs.some((tab) => tab.url === 'internal://appearance')) return workspace;
+  const ids = new Set(workspace.tabGroups.flatMap((group) => group.tabs.map((tab) => tab.id)));
+  let id = 'tab_appearance';
+  let suffix = 1;
+  while (ids.has(id)) id = `tab_appearance_${suffix++}`;
+  return {
+    ...workspace,
+    tabGroups: workspace.tabGroups.map((group) => group.id === home.id ? {
+      ...group,
+      tabs: [...group.tabs, { id, title: 'Appearance', url: 'internal://appearance', pinned: true }],
+    } : group),
   };
 }

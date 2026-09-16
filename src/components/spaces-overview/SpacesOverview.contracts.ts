@@ -50,6 +50,8 @@ export interface SpacesOverviewProps {
     spaceId: string,
   ) => void | Promise<void>;
   skinState?: MyneSkinState;
+  presentation?: SpacesOverviewPresentation;
+  appearanceArtifact?: { readonly scope: string; readonly cssText: string };
 }
 
 export interface SpacesOverviewViewProps extends Omit<SpacesOverviewProps, "appHooks"> {
@@ -66,7 +68,6 @@ export interface SpacesOverviewViewProps extends Omit<SpacesOverviewProps, "appH
   initialSelectedRepoId?: string | null;
   initialSpacePickerTargetId?: string | null;
   initialOpenCraftActionError?: string | null;
-  presentation?: SpacesOverviewPresentation;
 }
 
 export type TabGroupWithSpace = {

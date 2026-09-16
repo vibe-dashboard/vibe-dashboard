@@ -465,7 +465,7 @@ describe("SkinEditorDialog view", () => {
           activeGlobalSkinId: lightStudioSkin.id,
           userSkins: [],
         },
-        rawCssStatus: "deferred",
+        rawCssStatus: "compiler-protected",
         selectedSkin: lightStudioSkin,
         selectedSkinIsBuiltIn: true,
         skinOptions: [

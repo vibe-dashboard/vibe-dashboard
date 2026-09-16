@@ -7,7 +7,7 @@ import {
 } from "./lib/savedVoyageState";
 
 import springboard, { ModuleAPI } from "springboard";
-import { createDefaultWorkspace, getDefaultSpace } from "./types";
+import { createDefaultWorkspace, ensureAppearanceSettingsEntry, getDefaultSpace } from "./types";
 import type { ResolvedWorkspaceComposition } from "./modules/plugins/vibe-dashboard/workspace-composition";
 import {
   BUILT_IN_AGENT_CODE_PAIR_ID,
@@ -594,8 +594,9 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
   }
 
   const currentWorkspace = workspaceState.getState();
-  const builtInMigratedWorkspace =
-    migrateWorkspaceBuiltInTabs(currentWorkspace);
+  const builtInMigratedWorkspace = ensureAppearanceSettingsEntry(
+    migrateWorkspaceBuiltInTabs(currentWorkspace),
+  );
   if (builtInMigratedWorkspace !== currentWorkspace) {
     workspaceState.setState(builtInMigratedWorkspace);
   }
@@ -761,6 +762,12 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
                       id: `tab_${draft.nextId++}`,
                       title: "Spaces",
                       url: "internal://spaces-overview",
+                      pinned: true,
+                    },
+                    {
+                      id: `tab_${draft.nextId++}`,
+                      title: "Appearance",
+                      url: "internal://appearance",
                       pinned: true,
                     },
                   ],

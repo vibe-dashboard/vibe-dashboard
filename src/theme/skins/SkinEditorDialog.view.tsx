@@ -300,8 +300,8 @@ export function DefaultSkinEditorDiagnostics({ model }: SkinEditorSlotProps<"dia
         </MyneBadge>
       </div>
       <MyneText as="p" className="mt-2 text-xs" tone="muted">
-        Raw CSS is {model.rawCssStatus}; skins currently save safe token
-        and recipe data only.
+        Raw CSS is {model.rawCssStatus}; activation occurs only after the
+        host scoped compiler accepts the complete candidate.
       </MyneText>
       {model.statusMessage && (
         <MyneText as="p" className="mt-2 text-xs" status="accent">
