@@ -7,7 +7,7 @@ export interface AppearanceRevision {
   readonly snapshot: string; readonly actor: AppearanceActor; readonly source: AppearanceMutationSource;
   readonly committedAt: string; readonly summary: string; readonly integrityVersion: 1; readonly sequence: number; readonly snapshotDigest: string;
 }
-export interface AppearanceRevisionCheckpoint { readonly throughRevisionId: string; readonly retainedRevisionCount: number; readonly createdAt: string }
+export interface AppearanceRevisionCheckpoint { readonly integrityVersion: 1; readonly throughRevisionId: string; readonly retainedRevisionCount: number; readonly createdAt: string; readonly digest: string }
 export interface AppearanceRevisionState { readonly version: 1; readonly headRevisionId: string; readonly revisions: readonly AppearanceRevision[]; readonly checkpoint?: AppearanceRevisionCheckpoint }
 export interface AppearanceRevisionStore { load(): Promise<unknown | undefined>; compareAndSwap(expectedHeadRevisionId: string | undefined, state: AppearanceRevisionState): Promise<"saved" | "stale"> }
 export interface AppearanceRevisionDiagnostic { readonly code: "stale-revision" | "persistence-failed" | "unauthorized" | "invalid-snapshot" | "unknown-revision" | "nothing-to-undo"; readonly message: string; readonly expectedRevisionId?: string; readonly currentRevisionId?: string }
@@ -29,6 +29,10 @@ async function createRevision(fields: RevisionFields): Promise<AppearanceRevisio
   const integrityVersion = 1 as const;
   const revisionId = `myne-rev-v1-${await digest(JSON.stringify({ integrityVersion, sequence: fields.sequence, parentRevisionId: fields.parentRevisionId ?? null, targetRevisionId: fields.targetRevisionId ?? null, snapshotDigest, actor: fields.actor, source: fields.source, committedAt: fields.committedAt, summary: fields.summary }))}`;
   return freezeRevision({ ...fields, integrityVersion, snapshotDigest, revisionId });
+}
+async function createCheckpoint(fields: Omit<AppearanceRevisionCheckpoint, "integrityVersion" | "digest">, headRevisionId: string): Promise<AppearanceRevisionCheckpoint> {
+  const integrityVersion = 1 as const;
+  return Object.freeze({ ...fields, integrityVersion, digest: await digest(JSON.stringify({ integrityVersion, headRevisionId, ...fields })) });
 }
 const SOURCES = new Set<AppearanceMutationSource>(["genesis", "user", "agent", "cli", "import", "marketplace", "undo", "redo", "revert", "restore"]);
 const ACTORS = new Set<AppearanceActor["kind"]>(["system", "user", "agent", "cli", "import", "marketplace"]);
@@ -56,8 +60,11 @@ async function isState(value: unknown): Promise<boolean> {
     ids.add(revision.revisionId);
   }
   if (state.revisions.at(-1)?.revisionId !== state.headRevisionId) return false;
-  if (state.checkpoint && (!hasExactKeys(state.checkpoint, ["throughRevisionId", "retainedRevisionCount", "createdAt"]) || !ids.has(state.checkpoint.throughRevisionId)
-    || state.checkpoint.retainedRevisionCount !== state.revisions.length || Number.isNaN(Date.parse(state.checkpoint.createdAt)))) return false;
+  if (state.checkpoint) {
+    if (!hasExactKeys(state.checkpoint, ["integrityVersion", "throughRevisionId", "retainedRevisionCount", "createdAt", "digest"]) || !ids.has(state.checkpoint.throughRevisionId)
+      || state.checkpoint.retainedRevisionCount !== state.revisions.length || Number.isNaN(Date.parse(state.checkpoint.createdAt)) || state.checkpoint.integrityVersion !== 1) return false;
+    if ((await createCheckpoint({ throughRevisionId: state.checkpoint.throughRevisionId, retainedRevisionCount: state.checkpoint.retainedRevisionCount, createdAt: state.checkpoint.createdAt }, state.headRevisionId)).digest !== state.checkpoint.digest) return false;
+  }
   return true;
 }
 
@@ -125,7 +132,8 @@ export class AppearanceRevisionService {
     return this.#enqueue(async () => {
       const through = this.#state.revisions.at(Math.max(0, this.#state.revisions.length - Math.max(1, options.retainRecent) - 1));
       if (!through) return;
-      const next = Object.freeze({ ...this.#state, checkpoint: Object.freeze({ throughRevisionId: through.revisionId, retainedRevisionCount: this.#state.revisions.length, createdAt: this.clock() }) });
+      const checkpoint = await createCheckpoint({ throughRevisionId: through.revisionId, retainedRevisionCount: this.#state.revisions.length, createdAt: this.clock() }, this.#state.headRevisionId);
+      const next = Object.freeze({ ...this.#state, checkpoint });
       const saved = await this.store.compareAndSwap(this.#state.headRevisionId, next);
       if (saved === "stale") throw new Error("stale-revision-during-compaction");
       this.#state = next;

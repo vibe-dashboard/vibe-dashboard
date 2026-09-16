@@ -99,7 +99,8 @@ describe("appearance revision command service", () => {
   });
 
   it("records a checkpoint without changing observable retained history", async () => {
-    const service = await AppearanceRevisionService.open({ store: new MemoryAppearanceRevisionStore(), genesisSnapshot: snapshot() });
+    const store = new MemoryAppearanceRevisionStore();
+    const service = await AppearanceRevisionService.open({ store, genesisSnapshot: snapshot() });
     let head = service.inspect().head!.revisionId;
     for (const id of ["myne-light-studio", "myne-high-contrast-terminal", "myne-default-dark"]) {
       const result = await service.apply({ expectedCurrentRevisionId: head, snapshot: snapshot(id), actor: { id: "u", kind: "user" }, source: "user", summary: id });
@@ -109,5 +110,15 @@ describe("appearance revision command service", () => {
     await service.compact({ retainRecent: 2 });
     expect(service.inspect().revisions).toEqual(before);
     expect(service.inspect().checkpoint).toMatchObject({ throughRevisionId: before[1]!.revisionId, retainedRevisionCount: 4 });
+    const valid = await store.load() as AppearanceRevisionState;
+    for (const mutate of [
+      (state: any) => { state.checkpoint.throughRevisionId = "missing"; },
+      (state: any) => { state.checkpoint.retainedRevisionCount = 3; },
+      (state: any) => { state.checkpoint.createdAt = "invalid"; },
+      (state: any) => { state.checkpoint.digest = "forged"; },
+    ]) {
+      const corrupted = JSON.parse(JSON.stringify(valid)); mutate(corrupted);
+      await expect(AppearanceRevisionService.open({ store: { load: async () => corrupted, compareAndSwap: async () => "saved" }, genesisSnapshot: snapshot() })).rejects.toThrow("corrupt-appearance-history");
+    }
   });
 });
