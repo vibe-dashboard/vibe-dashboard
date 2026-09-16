@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -10,6 +11,23 @@ const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
 describe("file appearance revision store", () => {
+  it("permits exactly one independent process through canonical and alias paths and recovers a dead owner", async () => {
+    const root = await mkdtemp(join(tmpdir(), "myne-appearance-child-")); roots.push(root);
+    const real = join(root, "real"); await mkdir(real);
+    const alias = join(root, "alias"); await symlink(real, alias, "dir");
+    const path = join(real, "history.json");
+    const store = new FileAppearanceRevisionStore(path);
+    const initial = { version: 1 as const, headRevisionId: "head", revisions: [{ revisionId: "head", snapshot: "{}", actor: { id: "system", kind: "system" as const }, source: "genesis" as const, committedAt: new Date().toISOString(), summary: "initial" }] };
+    expect(await store.compareAndSwap(undefined, initial)).toBe("saved");
+    const run = (candidatePath: string, id: string) => new Promise<string>((resolve, reject) => {
+      const child = spawn(process.execPath, ["--experimental-strip-types", join(process.cwd(), "src/server/fixtures/appearance-cas-child.mjs"), candidatePath, "head", JSON.stringify({ ...initial, headRevisionId: id })]);
+      let output = ""; child.stdout.on("data", (chunk) => { output += chunk; }); child.once("error", reject); child.once("exit", (code) => code === 0 ? resolve(output) : reject(new Error(`child exited ${code}`)));
+    });
+    const results = await Promise.all([run(path, "one"), run(join(alias, "history.json"), "two")]);
+    expect(results.sort()).toEqual(["saved", "stale"]);
+    await mkdir(`${path}.lock`); await writeFile(join(`${path}.lock`, "owner"), "99999999:crashed\n");
+    expect(await store.compareAndSwap((await store.load() as { headRevisionId: string }).headRevisionId, { ...initial, headRevisionId: "restart" })).toBe("saved");
+  });
   it("persists atomically across restart and serializes independent clients", async () => {
     const root = await mkdtemp(join(tmpdir(), "myne-appearance-")); roots.push(root);
     const path = join(root, "history.json");

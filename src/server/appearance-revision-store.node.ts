@@ -9,14 +9,16 @@ async function canonicalPath(path: string): Promise<string> {
   return join(await realpath(dirname(path)), basename(path));
 }
 
-async function lockOwnerIsAlive(lock: string): Promise<boolean> {
+async function lockOwnerStatus(lock: string): Promise<"alive" | "dead" | "unknown"> {
   try {
     const pid = Number.parseInt((await readFile(join(lock, "owner"), "utf8")).trim(), 10);
-    if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+    if (!Number.isSafeInteger(pid) || pid <= 0) return "unknown";
     process.kill(pid, 0);
-    return true;
+    return "alive";
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
+    if ((error as NodeJS.ErrnoException).code === "EPERM") return "alive";
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return "dead";
+    return "unknown";
   }
 }
 
@@ -32,7 +34,9 @@ async function withFileLock<T>(path: string, operation: () => Promise<T>): Promi
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       try {
-        if (Date.now() - (await stat(lock)).mtimeMs > LOCK_STALE_MS && !await lockOwnerIsAlive(lock)) { await rm(lock, { recursive: true, force: true }); continue; }
+        const age = Date.now() - (await stat(lock)).mtimeMs;
+        const status = await lockOwnerStatus(lock);
+        if (status === "dead" || (status === "unknown" && age > LOCK_STALE_MS)) { await rm(lock, { recursive: true, force: true }); continue; }
       } catch (statError) { if ((statError as NodeJS.ErrnoException).code === "ENOENT") continue; throw statError; }
       if (Date.now() >= deadline) throw new Error("appearance-history-lock-timeout");
       await new Promise((resolve) => setTimeout(resolve, 10 + Math.floor(Math.random() * 20)));
@@ -47,7 +51,8 @@ async function withFileLock<T>(path: string, operation: () => Promise<T>): Promi
 }
 
 export class FileAppearanceRevisionStore implements AppearanceRevisionStore {
-  constructor(private readonly path: string) {}
+  private readonly path: string;
+  constructor(path: string) { this.path = path; }
   async load(): Promise<unknown | undefined> {
     try { return JSON.parse(await readFile(this.path, "utf8")); }
     catch (error) {
