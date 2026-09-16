@@ -17,7 +17,12 @@ import { config, type Executor } from './vk-config.js';
 const service = new VKService();
 
 type FlagValue = string | boolean | string[];
-type FlagMap = Record<string, FlagValue>;
+export type FlagMap = Record<string, FlagValue>;
+
+export type AppearanceCliService = Pick<
+  VKService,
+  'inspectAppearance' | 'getAppearanceSnapshot' | 'diffAppearance' | 'commandAppearance'
+>;
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -1121,38 +1126,43 @@ async function commandSummary(flags: FlagMap) {
   }
 }
 
-async function commandAppearance(positional: string[], flags: FlagMap) {
+export async function commandAppearance(
+  positional: string[],
+  flags: FlagMap,
+  appearanceService: AppearanceCliService = service,
+  write: (value: string) => void = console.log,
+) {
   const subcommand = positional[0] ?? 'inspect';
-  const history = await service.inspectAppearance();
+  const history = await appearanceService.inspectAppearance();
   const head = history.head;
   if (!head) throw new Error('Appearance history has no current revision.');
   if (subcommand === 'inspect') {
-    console.log(JSON.stringify(history, null, 2));
+    write(JSON.stringify(history, null, 2));
     return;
   }
   if (subcommand === 'snapshot') {
-    const result = await service.getAppearanceSnapshot(positional[1] ?? head.revisionId);
-    console.log(result.snapshot);
+    const result = await appearanceService.getAppearanceSnapshot(positional[1] ?? head.revisionId);
+    write(result.snapshot);
     return;
   }
   if (subcommand === 'diff') {
     const from = positional[1]; const to = positional[2] ?? head.revisionId;
     if (!from) throw new Error('Usage: vk appearance diff <from-revision> [to-revision]');
-    console.log(JSON.stringify(await service.diffAppearance(from, to), null, 2));
+    write(JSON.stringify(await appearanceService.diffAppearance(from, to), null, 2));
     return;
   }
   if (!['restore', 'undo', 'revert', 'redo'].includes(subcommand)) throw new Error(`Unknown appearance command: ${subcommand}`);
   if (!boolFlag(flags, 'yes', false)) throw new Error('Appearance history mutations require explicit --yes confirmation.');
   const targetRevisionId = positional[1];
   if (subcommand !== 'undo' && !targetRevisionId) throw new Error(`Usage: vk appearance ${subcommand} <revision-id> --yes`);
-  const result = await service.commandAppearance({
+  const result = await appearanceService.commandAppearance({
     type: subcommand,
     expectedCurrentRevisionId: getFlagString(flags, 'expected') ?? head.revisionId,
     ...(targetRevisionId ? { targetRevisionId } : {}),
     actor: { id: process.env.USER || 'vk-cli', kind: 'cli' },
     summary: getFlagString(flags, 'summary') ?? `${subcommand} via vk CLI`,
   });
-  console.log(JSON.stringify(result, null, 2));
+  write(JSON.stringify(result, null, 2));
 }
 
 function printHelp() {
