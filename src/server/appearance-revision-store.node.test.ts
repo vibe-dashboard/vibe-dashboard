@@ -5,12 +5,21 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AppearanceRevisionService } from "../theme/skins/appearanceRevisions";
 import { createDefaultAppearanceSnapshot } from "../theme/skins/defaultAppearanceSnapshot";
-import { FileAppearanceRevisionStore } from "./appearance-revision-store.node";
+import { acquireAppearanceFileLock, FileAppearanceRevisionStore } from "./appearance-revision-store.node";
 
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
 describe("file appearance revision store", () => {
+  it("reports actionable lock timeouts and never releases a replacement owner's lock", async () => {
+    const root = await mkdtemp(join(tmpdir(), "myne-appearance-lock-")); roots.push(root);
+    const path = join(root, "history.json");
+    const release = await acquireAppearanceFileLock(path);
+    await expect(acquireAppearanceFileLock(path, { timeoutMs: 25 })).rejects.toThrow("appearance-history-lock-timeout");
+    await rm(`${path}.lock`, { recursive: true }); await mkdir(`${path}.lock`); await writeFile(join(`${path}.lock`, "owner"), `${process.pid}:replacement\n`);
+    await release();
+    expect(await readFile(join(`${path}.lock`, "owner"), "utf8")).toContain("replacement");
+  });
   it("permits exactly one independent process through canonical and alias paths and recovers a dead owner", async () => {
     const root = await mkdtemp(join(tmpdir(), "myne-appearance-child-")); roots.push(root);
     const real = join(root, "real"); await mkdir(real);
