@@ -73,6 +73,15 @@ describe("production appearance AppHooks", () => {
       sourceDigest: expect.stringMatching(/^sha256-/),
     });
 
+    expect(await host.module.saveAppearance({
+      snapshot: { schemaVersion: 1, value: custom },
+      candidate: {
+        sourceDigest: candidate.ok ? candidate.sourceDigest! : "",
+        artifactDigest: candidate.ok ? candidate.artifact?.digest ?? null : null,
+      },
+    })).toMatchObject({ ok: false, diagnostics: [{ code: "candidate-not-ready" }] });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
     await act(async () => {
       expect(await host.module.saveAppearance({
         snapshot: { schemaVersion: 1, value: custom },

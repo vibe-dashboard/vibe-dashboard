@@ -92,7 +92,9 @@ export function createProductionAppearanceModule(options: {
       try {
         const skin = migrateSkinState(snapshot.value);
         const next: MyneAppearanceSnapshotV1 = { ...parsed, skin, provenance: { source: "user-export", createdAt: new Date().toISOString(), generator: "vibe-kanban-skin-editor" } };
-        if (!candidate || (candidate.artifact && candidate.artifact.digest !== candidate.artifactDigest)) {
+        if (!candidate
+          || (candidate.artifactDigest === null) !== (candidate.artifact === undefined)
+          || (candidate.artifact && candidate.artifact.digest !== candidate.artifactDigest)) {
           return { ok: false, diagnostics: [diagnostic("candidate-not-ready", "The exact rendered preview candidate is required for activation.")] };
         }
         const nextCanonical = canonicalizeAppearanceSnapshot(next);
