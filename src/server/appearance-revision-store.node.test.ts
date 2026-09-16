@@ -1,4 +1,4 @@
-import { access, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -42,7 +42,7 @@ describe("file appearance revision store", () => {
     const path = join(real, "history.json");
     const store = new FileAppearanceRevisionStore(path);
     const initial = { version: 1 as const, headRevisionId: "head", revisions: [{ revisionId: "head", snapshot: "{}", actor: { id: "system", kind: "system" as const }, source: "genesis" as const, committedAt: new Date().toISOString(), summary: "initial" }] };
-    expect(await store.compareAndSwap(undefined, initial)).toBe("saved");
+    expect(await store.compareAndSwap(undefined, initial as unknown as import("../theme/skins/appearanceRevisions").AppearanceRevisionState)).toBe("saved");
     const run = (candidatePath: string, id: string) => new Promise<string>((resolve, reject) => {
       const child = spawn(process.execPath, ["--experimental-strip-types", join(process.cwd(), "src/server/fixtures/appearance-cas-child.mjs"), candidatePath, "head", JSON.stringify({ ...initial, headRevisionId: id })]);
       let output = ""; child.stdout.on("data", (chunk) => { output += chunk; }); child.once("error", reject); child.once("exit", (code) => code === 0 ? resolve(output) : reject(new Error(`child exited ${code}`)));
@@ -50,7 +50,7 @@ describe("file appearance revision store", () => {
     const results = await Promise.all([run(path, "one"), run(join(alias, "history.json"), "two")]);
     expect(results.sort()).toEqual(["saved", "stale"]);
     await mkdir(`${path}.lock`); await writeFile(join(`${path}.lock`, "owner"), "99999999:crashed\n");
-    expect(await store.compareAndSwap((await store.load() as { headRevisionId: string }).headRevisionId, { ...initial, headRevisionId: "restart" })).toBe("saved");
+    expect(await store.compareAndSwap((await store.load() as { headRevisionId: string }).headRevisionId, { ...initial, headRevisionId: "restart" } as unknown as import("../theme/skins/appearanceRevisions").AppearanceRevisionState)).toBe("saved");
   });
   it("persists atomically across restart and serializes independent clients", async () => {
     const root = await mkdtemp(join(tmpdir(), "myne-appearance-")); roots.push(root);
@@ -78,6 +78,7 @@ describe("file appearance revision store", () => {
     await service.apply({ expectedCurrentRevisionId: head.revisionId, snapshot: JSON.stringify(changed), actor: { id: "u", kind: "user" }, source: "user", summary: "known good" });
     await writeFile(path, "{corrupt", "utf8");
     await store.recoverLastKnownGood();
+    expect((await readdir(root)).some((name) => name.startsWith("history.json.corrupt."))).toBe(true);
     const recovered = await AppearanceRevisionService.open({ store, genesisSnapshot: createDefaultAppearanceSnapshot() });
     expect(recovered.inspect().head?.revisionId).toBe(head.revisionId);
   });

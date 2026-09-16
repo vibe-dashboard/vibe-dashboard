@@ -79,6 +79,8 @@ export class FileAppearanceRevisionStore implements AppearanceRevisionStore {
   }
   async recoverLastKnownGood(): Promise<boolean> {
     try {
+      try { await copyFile(this.path, `${this.path}.corrupt.${Date.now()}`); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
       await copyFile(`${this.path}.last-known-good`, this.path);
       return true;
     } catch (error) {

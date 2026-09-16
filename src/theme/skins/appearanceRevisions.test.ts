@@ -3,7 +3,7 @@ import { defaultSpacesOverviewManifest } from "../../components/spaces-overview/
 import { defaultSkinEditorManifest } from "./SkinEditorDialog.composition";
 import { defaultDarkSkin } from "./builtin";
 import { canonicalizeAppearanceSnapshot, type MyneAppearanceSnapshotV1 } from "./appearanceSnapshot";
-import { AppearanceRevisionService, MemoryAppearanceRevisionStore } from "./appearanceRevisions";
+import { AppearanceRevisionService, MemoryAppearanceRevisionStore, type AppearanceRevisionState, type AppearanceRevisionStore } from "./appearanceRevisions";
 
 function snapshot(activeGlobalSkinId = defaultDarkSkin.id): string {
   const mapSurface = (manifest: typeof defaultSpacesOverviewManifest | typeof defaultSkinEditorManifest) => ({ surface: manifest.surface, manifestVersion: 1 as const, layoutId: manifest.layout, viewPackId: manifest.viewPackId, slots: Object.values(manifest.slots).map((slot) => ({ id: slot.slot, componentId: slot.component, contractVersion: slot.contractVersion })) });
@@ -18,6 +18,19 @@ function snapshot(activeGlobalSkinId = defaultDarkSkin.id): string {
 }
 
 describe("appearance revision command service", () => {
+  it("rejects field-by-field immutable-chain corruption", async () => {
+    const source = new MemoryAppearanceRevisionStore(); const service = await AppearanceRevisionService.open({ store: source, genesisSnapshot: snapshot(), clock: () => "2026-09-15T01:00:00Z" });
+    const first = service.inspect().head!; await service.apply({ expectedCurrentRevisionId: first.revisionId, snapshot: snapshot("myne-light-studio"), actor: { id: "u", kind: "user" }, source: "user", summary: "changed" });
+    const valid = await source.load() as AppearanceRevisionState;
+    const mutations: Array<(state: any) => void> = [
+      (s) => { s.revisions[1].snapshot = snapshot("myne-high-contrast-terminal"); }, (s) => { s.revisions[1].snapshotDigest = "0".repeat(64); },
+      (s) => { s.revisions[1].actor.id = "forged"; }, (s) => { s.revisions[1].actor.kind = "forged"; }, (s) => { s.revisions[1].source = "forged"; },
+      (s) => { s.revisions[1].committedAt = "2026-09-15T02:00:00Z"; }, (s) => { s.revisions[1].summary = "forged"; }, (s) => { s.revisions[1].parentRevisionId = "forged"; },
+      (s) => { s.revisions[1].targetRevisionId = first.revisionId; }, (s) => { s.revisions[1].sequence = 7; }, (s) => { s.revisions[1].integrityVersion = 2; },
+      (s) => { s.revisions.reverse(); }, (s) => { s.headRevisionId = first.revisionId; }, (s) => { s.revisions[1].extra = true; },
+    ];
+    for (const mutate of mutations) { const corrupted = JSON.parse(JSON.stringify(valid)); mutate(corrupted); const store: AppearanceRevisionStore = { load: async () => corrupted, compareAndSwap: async () => "saved" }; await expect(AppearanceRevisionService.open({ store, genesisSnapshot: snapshot() })).rejects.toThrow("corrupt-appearance-history"); }
+  });
   it("appends immutable canonical metadata through one source-neutral command", async () => {
     const store = new MemoryAppearanceRevisionStore();
     const service = await AppearanceRevisionService.open({ store, genesisSnapshot: snapshot(), clock: () => "2026-09-15T01:00:00Z" });

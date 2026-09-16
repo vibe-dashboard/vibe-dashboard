@@ -5,7 +5,7 @@ export interface AppearanceActor { readonly id: string; readonly kind: "system" 
 export interface AppearanceRevision {
   readonly revisionId: string; readonly parentRevisionId?: string; readonly targetRevisionId?: string;
   readonly snapshot: string; readonly actor: AppearanceActor; readonly source: AppearanceMutationSource;
-  readonly committedAt: string; readonly summary: string;
+  readonly committedAt: string; readonly summary: string; readonly integrityVersion: 1; readonly sequence: number; readonly snapshotDigest: string;
 }
 export interface AppearanceRevisionCheckpoint { readonly throughRevisionId: string; readonly retainedRevisionCount: number; readonly createdAt: string }
 export interface AppearanceRevisionState { readonly version: 1; readonly headRevisionId: string; readonly revisions: readonly AppearanceRevision[]; readonly checkpoint?: AppearanceRevisionCheckpoint }
@@ -19,24 +19,46 @@ interface TargetCommand extends MutationCommand { targetRevisionId: string }
 
 function clone<T>(value: T): T { return JSON.parse(JSON.stringify(value)) as T; }
 function freezeRevision(revision: AppearanceRevision): AppearanceRevision { return Object.freeze({ ...revision, actor: Object.freeze({ ...revision.actor }) }); }
-async function revisionId(parent: string | undefined, snapshot: string, source: string, sequence: number): Promise<string> {
-  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${parent ?? "genesis"}\n${source}\n${sequence}\n${snapshot}`)));
-  return `myne-rev-${[...bytes.slice(0, 12)].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+async function digest(value: string): Promise<string> {
+  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
-function isState(value: unknown): value is AppearanceRevisionState {
+type RevisionFields = Omit<AppearanceRevision, "revisionId" | "snapshotDigest" | "integrityVersion">;
+async function createRevision(fields: RevisionFields): Promise<AppearanceRevision> {
+  const snapshotDigest = await digest(fields.snapshot);
+  const integrityVersion = 1 as const;
+  const revisionId = `myne-rev-v1-${await digest(JSON.stringify({ integrityVersion, sequence: fields.sequence, parentRevisionId: fields.parentRevisionId ?? null, targetRevisionId: fields.targetRevisionId ?? null, snapshotDigest, actor: fields.actor, source: fields.source, committedAt: fields.committedAt, summary: fields.summary }))}`;
+  return freezeRevision({ ...fields, integrityVersion, snapshotDigest, revisionId });
+}
+const SOURCES = new Set<AppearanceMutationSource>(["genesis", "user", "agent", "cli", "import", "marketplace", "undo", "redo", "revert", "restore"]);
+const ACTORS = new Set<AppearanceActor["kind"]>(["system", "user", "agent", "cli", "import", "marketplace"]);
+const TARGET_SOURCES = new Set<AppearanceMutationSource>(["undo", "redo", "revert", "restore"]);
+function hasExactKeys(value: object, keys: readonly string[]): boolean { return Object.keys(value).sort().join("\0") === [...keys].sort().join("\0"); }
+async function isState(value: unknown): Promise<boolean> {
   if (!value || typeof value !== "object") return false;
   const state = value as Partial<AppearanceRevisionState>;
-  if (!(state.version === 1 && typeof state.headRevisionId === "string" && Array.isArray(state.revisions) && state.revisions.length > 0)) return false;
+  if (!(state.version === 1 && typeof state.headRevisionId === "string" && Array.isArray(state.revisions) && state.revisions.length > 0)
+    || !hasExactKeys(state, state.checkpoint ? ["version", "headRevisionId", "revisions", "checkpoint"] : ["version", "headRevisionId", "revisions"])) return false;
   const ids = new Set<string>();
   for (let index = 0; index < state.revisions.length; index += 1) {
     const revision = state.revisions[index];
     if (!revision || typeof revision.revisionId !== "string" || ids.has(revision.revisionId) || typeof revision.snapshot !== "string"
       || typeof revision.committedAt !== "string" || Number.isNaN(Date.parse(revision.committedAt)) || typeof revision.summary !== "string"
-      || !revision.actor || typeof revision.actor.id !== "string" || typeof revision.source !== "string") return false;
+      || revision.integrityVersion !== 1 || revision.sequence !== index || typeof revision.snapshotDigest !== "string"
+      || !revision.actor || typeof revision.actor.id !== "string" || !ACTORS.has(revision.actor.kind) || !SOURCES.has(revision.source)
+      || !hasExactKeys(revision.actor, ["id", "kind"]) || !hasExactKeys(revision, ["revisionId", "parentRevisionId", "targetRevisionId", "snapshot", "actor", "source", "committedAt", "summary", "integrityVersion", "sequence", "snapshotDigest"].filter((key) => (revision as unknown as Record<string, unknown>)[key] !== undefined))) return false;
     if (index === 0 ? revision.parentRevisionId !== undefined : revision.parentRevisionId !== state.revisions[index - 1]?.revisionId) return false;
+    if (index === 0 ? revision.source !== "genesis" || revision.actor.kind !== "system" : revision.source === "genesis") return false;
+    if (TARGET_SOURCES.has(revision.source) !== (typeof revision.targetRevisionId === "string")) return false;
+    if (revision.targetRevisionId && !ids.has(revision.targetRevisionId)) return false;
+    const expected = await createRevision({ sequence: revision.sequence, ...(revision.parentRevisionId ? { parentRevisionId: revision.parentRevisionId } : {}), ...(revision.targetRevisionId ? { targetRevisionId: revision.targetRevisionId } : {}), snapshot: revision.snapshot, actor: revision.actor, source: revision.source, committedAt: revision.committedAt, summary: revision.summary });
+    if (expected.revisionId !== revision.revisionId || expected.snapshotDigest !== revision.snapshotDigest) return false;
     ids.add(revision.revisionId);
   }
-  return state.revisions.at(-1)?.revisionId === state.headRevisionId;
+  if (state.revisions.at(-1)?.revisionId !== state.headRevisionId) return false;
+  if (state.checkpoint && (!hasExactKeys(state.checkpoint, ["throughRevisionId", "retainedRevisionCount", "createdAt"]) || !ids.has(state.checkpoint.throughRevisionId)
+    || state.checkpoint.retainedRevisionCount !== state.revisions.length || Number.isNaN(Date.parse(state.checkpoint.createdAt)))) return false;
+  return true;
 }
 
 export class MemoryAppearanceRevisionStore implements AppearanceRevisionStore {
@@ -45,7 +67,7 @@ export class MemoryAppearanceRevisionStore implements AppearanceRevisionStore {
   async load(): Promise<unknown | undefined> { return this.#state === undefined ? undefined : clone(this.#state); }
   async compareAndSwap(expectedHeadRevisionId: string | undefined, state: AppearanceRevisionState): Promise<"saved" | "stale"> {
     if (this.#fail) { this.#fail = false; throw new Error("injected persistence failure"); }
-    const currentHead = isState(this.#state) ? this.#state.headRevisionId : undefined;
+    const currentHead = await isState(this.#state) ? (this.#state as AppearanceRevisionState).headRevisionId : undefined;
     if (currentHead !== expectedHeadRevisionId) return "stale";
     this.#state = clone(state); return "saved";
   }
@@ -71,12 +93,14 @@ export class AppearanceRevisionService {
     const clock = options.clock ?? (() => new Date().toISOString());
     const authorize = options.authorize ?? (() => true);
     if (loaded !== undefined) {
-      if (!isState(loaded) || loaded.revisions.some((revision) => !parseAppearanceSnapshot(revision.snapshot).ok)) throw new Error("corrupt-appearance-history");
-      const state = Object.freeze({ ...loaded, revisions: Object.freeze(loaded.revisions.map(freezeRevision)) });
+      if (!await isState(loaded)) throw new Error("corrupt-appearance-history");
+      const validated = loaded as AppearanceRevisionState;
+      if (validated.revisions.some((revision) => !parseAppearanceSnapshot(revision.snapshot).ok)) throw new Error("corrupt-appearance-history");
+      const state = Object.freeze({ ...validated, revisions: Object.freeze(validated.revisions.map(freezeRevision)) });
       return new AppearanceRevisionService(options.store, state, clock, authorize);
     }
     if (!parseAppearanceSnapshot(options.genesisSnapshot).ok) throw new Error("invalid-genesis-snapshot");
-    const genesis = freezeRevision({ revisionId: await revisionId(undefined, options.genesisSnapshot, "genesis", 0), snapshot: options.genesisSnapshot, actor: { id: "system", kind: "system" }, source: "genesis", committedAt: clock(), summary: "Initial appearance" });
+    const genesis = await createRevision({ sequence: 0, snapshot: options.genesisSnapshot, actor: { id: "system", kind: "system" }, source: "genesis", committedAt: clock(), summary: "Initial appearance" });
     const state = Object.freeze({ version: 1 as const, headRevisionId: genesis.revisionId, revisions: Object.freeze([genesis]) });
     if (await options.store.compareAndSwap(undefined, state) === "stale") return AppearanceRevisionService.open(options);
     return new AppearanceRevisionService(options.store, state, clock, authorize);
@@ -121,15 +145,16 @@ export class AppearanceRevisionService {
     if (command.expectedCurrentRevisionId !== this.#state.headRevisionId) return { ok: false, diagnostic: { code: "stale-revision", message: "Appearance head changed; refresh and review the diff before retrying.", expectedRevisionId: command.expectedCurrentRevisionId, currentRevisionId: this.#state.headRevisionId } };
     if (!parseAppearanceSnapshot(snapshot).ok) return { ok: false, diagnostic: { code: "invalid-snapshot", message: "Mutation snapshot is invalid or non-canonical." } };
     const summary = command.summary.trim().slice(0, 240);
-    const revision = freezeRevision({ revisionId: await revisionId(this.#state.headRevisionId, snapshot, source, this.#state.revisions.length), parentRevisionId: this.#state.headRevisionId, ...(command.targetRevisionId ? { targetRevisionId: command.targetRevisionId } : {}), snapshot, actor: command.actor, source, committedAt: this.clock(), summary });
+    const revision = await createRevision({ sequence: this.#state.revisions.length, parentRevisionId: this.#state.headRevisionId, ...(command.targetRevisionId ? { targetRevisionId: command.targetRevisionId } : {}), snapshot, actor: command.actor, source, committedAt: this.clock(), summary });
     const next = Object.freeze({ ...this.#state, headRevisionId: revision.revisionId, revisions: Object.freeze([...this.#state.revisions, revision]) });
     try {
       if (await this.store.compareAndSwap(command.expectedCurrentRevisionId, next) === "stale") {
         const latest = await this.store.load();
-        if (!isState(latest) || latest.revisions.some((item) => !parseAppearanceSnapshot(item.snapshot).ok)) {
+        if (!await isState(latest) || (latest as AppearanceRevisionState).revisions.some((item) => !parseAppearanceSnapshot(item.snapshot).ok)) {
           return { ok: false, diagnostic: { code: "persistence-failed", message: "The winning appearance history failed strict validation; the local last-known-good state remains active." } };
         }
-        this.#state = Object.freeze({ ...latest, revisions: Object.freeze(latest.revisions.map(freezeRevision)) });
+        const validated = latest as AppearanceRevisionState;
+        this.#state = Object.freeze({ ...validated, revisions: Object.freeze(validated.revisions.map(freezeRevision)) });
         const currentRevisionId = this.#state.headRevisionId;
         return { ok: false, diagnostic: { code: "stale-revision", message: "Appearance head changed; refresh and review the diff before retrying.", expectedRevisionId: command.expectedCurrentRevisionId, currentRevisionId } };
       }
