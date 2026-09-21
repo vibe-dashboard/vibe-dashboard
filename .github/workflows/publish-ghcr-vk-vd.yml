@@ -2,31 +2,17 @@ name: Publish VK/VD Image to GHCR
 
 on:
   push:
-    branches:
-      - main
-  pull_request:
-    types:
-      - opened
-      - synchronize
-      - reopened
-      - labeled
-  repository_dispatch:
-    types:
-      - vk-release-assets-ready
   workflow_dispatch:
     inputs:
       image_tag:
         description: Docker image tag to publish
         required: true
         default: manual
-      vk_branch:
-        description: vibe-kanban git branch, tag, or sha to build from
-        required: true
-        default: main
-      vk_repo_url:
-        description: vibe-kanban git repository URL to clone
-        required: true
-        default: https://github.com/mickmister/vibe-kanban.git
+      force_rebuild_vk_assets:
+        description: Rebuild and republish VK runtime assets even if the content-addressed release already exists.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -36,8 +22,15 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: vk-vd-publish-${{ github.event_name == 'repository_dispatch' && github.event.client_payload.vk_source_ref || github.event_name == 'pull_request' && format('refs/heads/{0}', github.event.pull_request.head.ref) || github.ref }}
+  group: vk-vd-publish-${{ github.event_name == 'pull_request' && format('refs/heads/{0}', github.event.pull_request.head.ref) || github.ref }}
   cancel-in-progress: ${{ github.event_name != 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  NODE_VERSION: 22
+  PNPM_VERSION: 10.13.1
+  RUST_TOOLCHAIN: nightly-2025-12-04
+  VK_ASSET_REPOSITORY: vibe-dashboard/vibe-kanban
 
 jobs:
   resolve-vk-ref:
@@ -51,102 +44,26 @@ jobs:
       vk_branch: ${{ steps.resolve.outputs.vk_branch }}
       vk_commit: ${{ steps.resolve.outputs.vk_commit }}
       vk_short_commit: ${{ steps.resolve.outputs.vk_short_commit }}
-      vk_repo_url: ${{ steps.resolve.outputs.vk_repo_url }}
+      vk_asset_repository: ${{ steps.resolve.outputs.vk_asset_repository }}
+      vd_ref: ${{ steps.resolve.outputs.vd_ref }}
+      vd_commit: ${{ steps.resolve.outputs.vd_commit }}
       vd_short_commit: ${{ steps.resolve.outputs.vd_short_commit }}
       publish_latest: ${{ steps.resolve.outputs.publish_latest }}
     steps:
-      - name: Resolve vibe-kanban ref to commit SHA
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve vibe-kanban and vibe-dashboard refs
         id: resolve
         env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
           IMAGE_TAG_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || '' }}
           PR_NUMBER: ${{ github.event_name == 'pull_request' && github.event.pull_request.number || '' }}
-          VD_SHA_INPUT: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          VK_BRANCH_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_branch || github.event.client_payload.vk_sha || github.event.client_payload.vk_ref || 'main' }}
-          # Repository dispatch intentionally ignores client_payload.vk_repo_url.
-          # Docker release assets are trusted only from the official VK repository.
-          VK_REPO_URL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_repo_url || 'https://github.com/mickmister/vibe-kanban.git' }}
-          VK_SOURCE_REF: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.vk_source_ref || '' }}
-        run: |
-          set -euo pipefail
-
-          vd_short_commit="${VD_SHA_INPUT:0:7}"
-          deploy_image_tag="vd-${VD_SHA_INPUT}"
-
-          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
-            echo "Resolved PR #${PR_NUMBER} deploy image tag to ${deploy_image_tag}"
-          fi
-
-          workdir="$(mktemp -d)"
-          trap 'rm -rf "$workdir" || true' EXIT
-
-          git -C "$workdir" init --quiet
-          git -C "$workdir" remote add origin "$VK_REPO_URL_INPUT"
-          git -C "$workdir" fetch --depth 1 origin "$VK_BRANCH_INPUT"
-
-          vk_commit="$(git -C "$workdir" rev-parse FETCH_HEAD)"
-          vk_short_commit="$(git -C "$workdir" rev-parse --short=7 FETCH_HEAD)"
-          used_asset_fallback=false
-
-          manifest_url="https://github.com/mickmister/vibe-kanban/releases/download/vk-assets-${vk_commit}/manifest.json"
-          if [[ "${GITHUB_EVENT_NAME}" == "push" && "$VK_BRANCH_INPUT" == "main" ]] && ! curl -fsI "$manifest_url" >/dev/null; then
-            echo "::notice::VK release assets for $vk_commit are not available yet; using the latest published vk-assets release for this VD branch image."
-            latest_assets_tag="$(
-              curl -fsSL "https://api.github.com/repos/mickmister/vibe-kanban/releases?per_page=100" \
-                | python3 -c 'import json,sys; releases=[r for r in json.load(sys.stdin) if r.get("tag_name", "").startswith("vk-assets-")]; releases.sort(key=lambda r: r.get("published_at") or r.get("created_at") or "", reverse=True); print(releases[0]["tag_name"] if releases else "")'
-            )"
-
-            if [[ -z "$latest_assets_tag" ]]; then
-              echo "No published vk-assets release found to use as a fallback." >&2
-              exit 1
-            fi
-
-            vk_commit="${latest_assets_tag#vk-assets-}"
-            if [[ ! "$vk_commit" =~ ^[0-9a-f]{40}$ ]]; then
-              echo "Latest vk-assets release tag does not contain a full commit SHA: $latest_assets_tag" >&2
-              exit 1
-            fi
-
-            VK_BRANCH_INPUT="$latest_assets_tag"
-            vk_short_commit="${vk_commit:0:7}"
-            used_asset_fallback=true
-            echo "Using fallback VK assets release $latest_assets_tag"
-          fi
-
-          publish_latest=false
-          deploy_pr_preview=false
-          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
-            deploy_pr_preview=true
-          fi
-
-          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF}" == "refs/heads/main" && "$used_asset_fallback" != "true" ]]; then
-            publish_latest=true
-          elif [[ "${GITHUB_EVENT_NAME}" == "repository_dispatch" ]]; then
-            git -C "$workdir" fetch --depth 1 origin main
-            vk_main_commit="$(git -C "$workdir" rev-parse FETCH_HEAD)"
-
-            if [[ "$vk_commit" == "$vk_main_commit" ]]; then
-              publish_latest=true
-            else
-              echo "Dispatched VK commit $vk_commit is not current origin/main ($vk_main_commit); not publishing latest."
-            fi
-          fi
-
-          echo "Resolved $VK_BRANCH_INPUT to $vk_commit"
-          echo "Publish latest: $publish_latest"
-          echo "Deploy PR preview: $deploy_pr_preview"
-
-          {
-            echo "image_tag=$IMAGE_TAG_INPUT"
-            echo "deploy_image_tag=$deploy_image_tag"
-            echo "deploy_pr_preview=$deploy_pr_preview"
-            echo "pr_number=$PR_NUMBER"
-            echo "vk_branch=$VK_BRANCH_INPUT"
-            echo "vk_commit=$vk_commit"
-            echo "vk_short_commit=$vk_short_commit"
-            echo "vk_repo_url=$VK_REPO_URL_INPUT"
-            echo "vd_short_commit=$vd_short_commit"
-            echo "publish_latest=$publish_latest"
-          } >> "$GITHUB_OUTPUT"
+          PR_HEAD_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || '' }}
+          PR_HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '' }}
+          SKIP_ASSET_FALLBACK: "true"
+          SKIP_ASSET_WAIT: "true"
+        run: .github/scripts/resolve-vk-vd-ci-refs.sh
 
   check-types:
     name: npm run check-types
@@ -170,8 +87,490 @@ jobs:
       - name: Check types
         run: npm run check-types
 
+  vk-prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      assets_exist: ${{ steps.preflight.outputs.assets_exist }}
+      checkout_ref: ${{ steps.prepare.outputs.checkout_ref }}
+      vk_sha: ${{ steps.prepare.outputs.vk_sha }}
+      vk_content_hash: ${{ steps.prepare.outputs.vk_content_hash }}
+      release_tag: ${{ steps.prepare.outputs.release_tag }}
+      release_name: ${{ steps.prepare.outputs.release_name }}
+      release_body: ${{ steps.prepare.outputs.release_body }}
+      matrix: ${{ steps.prepare.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve VK content and release metadata
+        id: prepare
+        run: |
+          set -euo pipefail
+
+          vk_sha="$(git rev-parse HEAD)"
+          vk_content_hash="$(.github/scripts/vk-content-hash.sh)"
+          short_hash="${vk_content_hash:0:12}"
+          release_tag="vk-assets-sha256-${vk_content_hash}"
+          release_name="VK Runtime Assets (${short_hash})"
+
+          echo "checkout_ref=$vk_sha" >> "$GITHUB_OUTPUT"
+          echo "vk_sha=$vk_sha" >> "$GITHUB_OUTPUT"
+          echo "vk_content_hash=$vk_content_hash" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "release_name=$release_name" >> "$GITHUB_OUTPUT"
+          echo 'matrix<<EOF' >> "$GITHUB_OUTPUT"
+          cat <<'JSON' >> "$GITHUB_OUTPUT"
+          {"include":[
+            {"target":"x86_64-unknown-linux-musl","os":"ubuntu-24.04","name":"linux-x64"},
+            {"target":"aarch64-unknown-linux-musl","os":"ubuntu-24.04-arm","name":"linux-arm64"},
+            {"target":"aarch64-apple-darwin","os":"macos-15","name":"macos-arm64"}
+          ]}
+          JSON
+          echo 'EOF' >> "$GITHUB_OUTPUT"
+          echo 'release_body<<EOF' >> "$GITHUB_OUTPUT"
+          cat <<EOF >> "$GITHUB_OUTPUT"
+          Runtime assets for VK content hash ${vk_content_hash}.
+
+          Source commit: \`${vk_sha}\`
+
+          Deterministic lookup tag: \`${release_tag}\`
+
+          Runtime contract for release consumers:
+          - Linux container consumers should use \`vibe-kanban-linux-x64.tar.gz\` or \`vibe-kanban-linux-arm64.tar.gz\`, selected by container architecture.
+          - macOS ARM consumers should use \`vibe-kanban-macos-arm64.tar.gz\`.
+          - Each archive contains the \`vibe-kanban\` executable, built from the VK \`server\` binary.
+          - The local web UI is embedded into the executable at build time; no separate frontend/dist artifact is required.
+          - Runtime ports are configured with \`HOST\`, \`PORT\`/\`BACKEND_PORT\`, and optionally \`PREVIEW_PROXY_PORT\`.
+
+          Release assets include runtime archives, checksum files, and a machine-readable \`manifest.json\`.
+          EOF
+          echo 'EOF' >> "$GITHUB_OUTPUT"
+
+      - name: Preflight existing VK release assets
+        id: preflight
+        env:
+          GH_TOKEN: ${{ secrets.VK_RELEASE_REPOSITORY_TOKEN }}
+          FORCE_REBUILD: ${{ github.event.inputs.force_rebuild_vk_assets || 'false' }}
+          RELEASE_TAG: ${{ steps.prepare.outputs.release_tag }}
+          VK_ASSET_REPOSITORY: ${{ env.VK_ASSET_REPOSITORY }}
+          VK_CONTENT_HASH: ${{ steps.prepare.outputs.vk_content_hash }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "Missing VK_RELEASE_REPOSITORY_TOKEN secret; cannot inspect ${VK_ASSET_REPOSITORY} releases." >&2
+            exit 1
+          fi
+
+          if [[ "$FORCE_REBUILD" == "true" ]]; then
+            echo "assets_exist=false" >> "$GITHUB_OUTPUT"
+            echo "force_rebuild=true; skipping preflight reuse"
+            exit 0
+          fi
+
+          if ! gh release view "$RELEASE_TAG" --repo "$VK_ASSET_REPOSITORY" --json assets --jq '.assets[].name' > existing-assets.txt 2>/dev/null; then
+            echo "assets_exist=false" >> "$GITHUB_OUTPUT"
+            echo "release $RELEASE_TAG does not exist yet"
+            exit 0
+          fi
+
+          required_assets=(
+            "manifest.json"
+            "vibe-kanban-linux-x64.tar.gz"
+            "vibe-kanban-linux-x64.tar.gz.sha256"
+            "vibe-kanban-linux-arm64.tar.gz"
+            "vibe-kanban-linux-arm64.tar.gz.sha256"
+            "vibe-kanban-macos-arm64.tar.gz"
+            "vibe-kanban-macos-arm64.tar.gz.sha256"
+          )
+
+          missing=0
+          for asset in "${required_assets[@]}"; do
+            if ! grep -Fxq "$asset" existing-assets.txt; then
+              echo "missing expected asset: $asset"
+              missing=1
+            fi
+          done
+
+          if [[ "$missing" -eq 0 ]]; then
+            echo "assets_exist=true" >> "$GITHUB_OUTPUT"
+            echo "all expected assets already exist for $VK_CONTENT_HASH at $RELEASE_TAG"
+          else
+            echo "assets_exist=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  vk-build-frontend:
+    needs: vk-prepare
+    if: needs.vk-prepare.outputs.assets_exist != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      VITE_PUBLIC_REACT_VIRTUOSO_LICENSE_KEY: ${{ secrets.PUBLIC_REACT_VIRTUOSO_LICENSE_KEY }}
+      VITE_VK_SHARED_API_BASE: ${{ secrets.VK_SHARED_API_BASE }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.vk-prepare.outputs.checkout_ref }}
+
+      - name: Setup Node
+        uses: ./.github/actions/vk-setup-node
+
+      - name: Install dependencies
+        working-directory: vibe-kanban
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        working-directory: vibe-kanban/packages/local-web
+        run: npm run build
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          VITE_POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+          VITE_POSTHOG_API_ENDPOINT: ${{ secrets.POSTHOG_API_ENDPOINT }}
+          VITE_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: frontend-dist
+          path: vibe-kanban/packages/local-web/dist/
+          retention-days: 1
+
+  vk-build-binaries:
+    needs: [vk-prepare, vk-build-frontend]
+    if: needs.vk-prepare.outputs.assets_exist != 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.vk-prepare.outputs.matrix) }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      CARGO_PROFILE_RELEASE_DEBUG: "0"
+      CARGO_HOME: ${{ github.workspace }}/.cargo
+      RUSTUP_HOME: ${{ github.workspace }}/.rustup
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.vk-prepare.outputs.checkout_ref }}
+
+      - name: Free up disk space
+        if: runner.os == 'Linux'
+        uses: insightsengineering/disk-space-reclaimer@v1
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          swap-storage: true
+          docker-images: true
+          tools-cache: false
+
+      - name: Cache Rust toolchain
+        uses: actions/cache@v5
+        with:
+          path: .rustup/toolchains
+          key: rust-toolchain-${{ runner.os }}-${{ matrix.target }}-${{ env.RUST_TOOLCHAIN }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ matrix.target }}
+
+      - name: Restore Rust caches
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: "vibe-kanban"
+          shared-key: release-binaries-v2-${{ runner.os }}-${{ matrix.target }}
+          cache-provider: github
+          cache-all-crates: "true"
+          cache-on-failure: "true"
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get \
+            -o Acquire::Retries=5 \
+            -o Acquire::ForceIPv4=true \
+            update
+          DEBIAN_FRONTEND=noninteractive sudo apt-get \
+            -o Acquire::Retries=5 \
+            -o Acquire::ForceIPv4=true \
+            install -y --fix-missing \
+            clang libclang-dev lld llvm nasm cmake ninja-build
+
+      - name: Install Zig
+        if: runner.os == 'Linux'
+        uses: BloopAI/setup-zig@main
+        with:
+          version: 0.15.2
+
+      - name: Install cargo zigbuild
+        if: runner.os == 'Linux'
+        uses: taiki-e/cache-cargo-install-action@34ce5120836e5f9f1508d8713d7fdea0e8facd6f # v3.0.1
+        with:
+          tool: cargo-zigbuild
+          git: https://github.com/rust-cross/cargo-zigbuild
+          rev: bbb57ac6a5eb90f53617a5c218fda03080599e4a # v0.20.1
+
+      - name: Download frontend artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: frontend-dist
+          path: vibe-kanban/packages/local-web/dist/
+
+      - name: Build Linux runtime binary
+        if: runner.os == 'Linux'
+        working-directory: vibe-kanban
+        run: |
+          cargo zigbuild --locked --release --target ${{ matrix.target }} \
+            -p server --bin server
+        env:
+          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+          POSTHOG_API_ENDPOINT: ${{ secrets.POSTHOG_API_ENDPOINT }}
+          VK_SHARED_API_BASE: ${{ secrets.VK_SHARED_API_BASE }}
+          VK_SHARED_RELAY_API_BASE: ${{ secrets.VK_SHARED_RELAY_API_BASE }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          VK_BUILD_COMMIT_HASH: ${{ needs.vk-prepare.outputs.vk_content_hash }}
+
+      - name: Build macOS runtime binary
+        if: runner.os == 'macOS'
+        working-directory: vibe-kanban
+        run: |
+          export MACOSX_DEPLOYMENT_TARGET=11.0
+          cargo build --locked --release --target ${{ matrix.target }} \
+            -p server --bin server
+        env:
+          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+          POSTHOG_API_ENDPOINT: ${{ secrets.POSTHOG_API_ENDPOINT }}
+          VK_SHARED_API_BASE: ${{ secrets.VK_SHARED_API_BASE }}
+          VK_SHARED_RELAY_API_BASE: ${{ secrets.VK_SHARED_RELAY_API_BASE }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          VK_BUILD_COMMIT_HASH: ${{ needs.vk-prepare.outputs.vk_content_hash }}
+
+      - name: Prepare package directory
+        working-directory: vibe-kanban
+        run: |
+          mkdir -p package dist
+          cp target/${{ matrix.target }}/release/server package/vibe-kanban
+          chmod 755 package/vibe-kanban
+
+      - name: Package runtime artifact
+        working-directory: vibe-kanban
+        run: |
+          tar -C package -czf dist/vibe-kanban-${{ matrix.name }}.tar.gz vibe-kanban
+
+      - name: Generate checksums
+        working-directory: vibe-kanban
+        run: |
+          node <<'EOF'
+          const crypto = require('crypto');
+          const fs = require('fs');
+          const path = require('path');
+
+          for (const file of fs.readdirSync('dist')) {
+            const fullPath = path.join('dist', file);
+            if (!fs.statSync(fullPath).isFile() || file.endsWith('.sha256')) {
+              continue;
+            }
+            const sha256 = crypto
+              .createHash('sha256')
+              .update(fs.readFileSync(fullPath))
+              .digest('hex');
+            fs.writeFileSync(`${fullPath}.sha256`, `${sha256}  ${file}\n`);
+          }
+          EOF
+
+      - name: Upload packaged artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-assets-${{ matrix.name }}
+          path: vibe-kanban/dist/
+          retention-days: 1
+          compression-level: 0
+
+  vk-publish-assets:
+    needs: [vk-prepare, vk-build-binaries]
+    if: needs.vk-prepare.outputs.assets_exist != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Download packaged artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: release-assets-*
+          path: release-assets/
+          merge-multiple: true
+
+      - name: Generate manifest
+        env:
+          RELEASE_TAG: ${{ needs.vk-prepare.outputs.release_tag }}
+          VK_SHA: ${{ needs.vk-prepare.outputs.vk_sha }}
+          VK_CONTENT_HASH: ${{ needs.vk-prepare.outputs.vk_content_hash }}
+          REPOSITORY: ${{ env.VK_ASSET_REPOSITORY }}
+        run: |
+          node <<'EOF'
+          const fs = require('fs');
+          const path = require('path');
+
+          const dir = 'release-assets';
+          const releaseTag = process.env.RELEASE_TAG;
+          const vkSha = process.env.VK_SHA;
+          const vkContentHash = process.env.VK_CONTENT_HASH;
+          const repository = process.env.REPOSITORY;
+          const releaseBaseUrl = `https://github.com/${repository}/releases/download/${releaseTag}`;
+          const manifest = {
+            schema_version: 1,
+            release_tag: releaseTag,
+            vk_sha: vkSha,
+            source_commit: vkSha,
+            vk_content_hash: vkContentHash,
+            content_hash: vkContentHash,
+            commit: vkContentHash,
+            mode: 'standalone-runtime-assets',
+            generated_at: new Date().toISOString(),
+            release_url: `https://github.com/${repository}/releases/tag/${releaseTag}`,
+            asset_naming: {
+              release_tag: 'vk-assets-sha256-<vk_content_hash>',
+              archive: 'vibe-kanban-<platform>.tar.gz',
+              checksum: 'vibe-kanban-<platform>.tar.gz.sha256',
+            },
+            runtime_contract: {
+              consumer: 'vibe-dashboard',
+              required_binary: 'vibe-kanban',
+              optional_binaries: [],
+              frontend_embedded: true,
+              mcp_binary_included: false,
+            },
+            required_assets: [
+              'manifest.json',
+              'vibe-kanban-linux-x64.tar.gz',
+              'vibe-kanban-linux-x64.tar.gz.sha256',
+              'vibe-kanban-linux-arm64.tar.gz',
+              'vibe-kanban-linux-arm64.tar.gz.sha256',
+              'vibe-kanban-macos-arm64.tar.gz',
+              'vibe-kanban-macos-arm64.tar.gz.sha256',
+            ],
+            platforms: {},
+          };
+
+          const entries = fs.readdirSync(dir).sort();
+          for (const file of entries) {
+            if (file.endsWith('.sha256')) continue;
+
+            const match = file.match(/^(vibe-kanban)-((?:linux)-(?:x64|arm64)|macos-arm64)\.tar\.gz$/);
+            if (!match) continue;
+
+            const [, binaryName, platform] = match;
+            const fullPath = path.join(dir, file);
+            const shaPath = `${fullPath}.sha256`;
+            const shaLine = fs.readFileSync(shaPath, 'utf8').trim();
+            const sha256 = shaLine.split(/\s+/)[0];
+            const size = fs.statSync(fullPath).size;
+            const [osName, archName] = platform.split('-');
+
+            manifest.platforms[platform] = {
+              arch: archName === 'x64' ? 'amd64' : 'arm64',
+              os: osName,
+              assets: {
+                [binaryName]: {
+                  file,
+                  download_url: `${releaseBaseUrl}/${file}`,
+                  sha256,
+                  size,
+                  archive_format: 'tar.gz',
+                  contains: ['vibe-kanban'],
+                },
+              },
+            };
+          }
+
+          for (const asset of manifest.required_assets) {
+            if (asset === 'manifest.json') continue;
+            if (!entries.includes(asset)) {
+              throw new Error(`Missing required release asset: ${asset}`);
+            }
+          }
+
+          fs.writeFileSync(
+            path.join(dir, 'manifest.json'),
+            JSON.stringify(manifest, null, 2) + '\n'
+          );
+          EOF
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.VK_RELEASE_REPOSITORY_TOKEN }}
+          VK_ASSET_REPOSITORY: ${{ env.VK_ASSET_REPOSITORY }}
+          RELEASE_TAG: ${{ needs.vk-prepare.outputs.release_tag }}
+          RELEASE_NAME: ${{ needs.vk-prepare.outputs.release_name }}
+          RELEASE_BODY: ${{ needs.vk-prepare.outputs.release_body }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "Missing VK_RELEASE_REPOSITORY_TOKEN secret; cannot publish ${VK_ASSET_REPOSITORY} releases." >&2
+            exit 1
+          fi
+
+          printf '%s\n' "$RELEASE_BODY" > release-body.md
+
+          if gh release view "$RELEASE_TAG" --repo "$VK_ASSET_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --repo "$VK_ASSET_REPOSITORY" \
+              --title "$RELEASE_NAME" \
+              --notes-file release-body.md \
+              --prerelease
+          else
+            gh release create "$RELEASE_TAG" \
+              --repo "$VK_ASSET_REPOSITORY" \
+              --title "$RELEASE_NAME" \
+              --notes-file release-body.md \
+              --prerelease
+          fi
+
+          gh release upload "$RELEASE_TAG" release-assets/* \
+            --repo "$VK_ASSET_REPOSITORY" \
+            --clobber
+
+  ensure-vk-assets:
+    needs: [vk-prepare, vk-publish-assets]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Verify VK assets are available
+        env:
+          ASSETS_EXIST: ${{ needs.vk-prepare.outputs.assets_exist }}
+          PUBLISH_RESULT: ${{ needs.vk-publish-assets.result }}
+          RELEASE_TAG: ${{ needs.vk-prepare.outputs.release_tag }}
+          VK_ASSET_REPOSITORY: ${{ env.VK_ASSET_REPOSITORY }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$ASSETS_EXIST" == "true" || "$PUBLISH_RESULT" == "success" ]]; then
+            echo "VK assets are available in ${VK_ASSET_REPOSITORY} at ${RELEASE_TAG}."
+            exit 0
+          fi
+
+          echo "VK assets were not available and were not published successfully." >&2
+          echo "assets_exist=${ASSETS_EXIST}; publish_result=${PUBLISH_RESULT}" >&2
+          exit 1
+
   publish:
-    needs: [resolve-vk-ref, check-types]
+    needs: [resolve-vk-ref, check-types, ensure-vk-assets]
+    if: >-
+      ${{
+        always() &&
+        needs.resolve-vk-ref.result == 'success' &&
+        needs.check-types.result == 'success' &&
+        needs.ensure-vk-assets.result == 'success'
+      }}
     uses: ./.github/workflows/docker-github-builder-build.yml
     permissions:
       contents: read
@@ -181,15 +580,25 @@ jobs:
       output: image
       push: true
       context: .
+      source-ref: ${{ needs.resolve-vk-ref.outputs.vd_ref }}
+      source-checksum: ${{ needs.resolve-vk-ref.outputs.vd_commit }}
       file: ./Dockerfile.vkvd
       platforms: linux/amd64,linux/arm64
       build-args: |
         VK_BRANCH=${{ needs.resolve-vk-ref.outputs.vk_branch }}
         VK_COMMIT=${{ needs.resolve-vk-ref.outputs.vk_commit }}
-        VK_REPO_URL=${{ needs.resolve-vk-ref.outputs.vk_repo_url }}
+        VK_ASSET_REPOSITORY=${{ needs.resolve-vk-ref.outputs.vk_asset_repository }}
       cache: true
       cache-scope: vk-vd-multiarch
-      sign: false
+      # The mode=max cache is larger than GitHub Actions' repository cache
+      # budget and was continuously evicted. Keep it in GHCR alongside the
+      # output image so intermediate toolchain layers persist across runs.
+      cache-ref: ghcr.io/${{ github.repository_owner }}/vk-vd:buildcache
+      # Export intermediate stages as well as final-image layers. The
+      # dependency installer and toolchain stages are the expensive part of
+      # this image and need to survive application-source changes.
+      cache-mode: max
+      sign: ${{ 'false' }}
       meta-images: ghcr.io/${{ github.repository_owner }}/vk-vd
       meta-tags: |
         type=raw,value=${{ needs.resolve-vk-ref.outputs.image_tag }},enable=${{ needs.resolve-vk-ref.outputs.image_tag != '' }}
@@ -221,6 +630,7 @@ jobs:
           EVENT_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           EVENT_PR_NUMBER: ${{ needs.resolve-vk-ref.outputs.pr_number }}
           GITHUB_TOKEN: ${{ github.token }}
+          PUBLISH_LATEST: ${{ needs.resolve-vk-ref.outputs.publish_latest }}
         run: |
           set -euo pipefail
 
@@ -231,10 +641,19 @@ jobs:
 
           pr_number=""
           built_pr_head_sha=""
+          deploy_release_tag=false
 
           if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
             pr_number="$EVENT_PR_NUMBER"
             built_pr_head_sha="$EVENT_PR_HEAD_SHA"
+          elif [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF:-}" == refs/tags/* ]]; then
+            if [[ "$PUBLISH_LATEST" != "true" ]]; then
+              echo "::notice::Tag push ${GITHUB_REF} is not a stable main release tag; skipping Coolify deployment."
+              exit 0
+            fi
+
+            deploy_release_tag=true
+            echo "::notice::Deploying main release tag ${GITHUB_REF} using image ${DEPLOY_IMAGE_TAG}."
           elif [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
             associated_prs_json="$(
               curl \
@@ -263,61 +682,63 @@ jobs:
             exit 0
           fi
 
-          if [[ -z "$pr_number" ]]; then
+          if [[ "$deploy_release_tag" != "true" && -z "$pr_number" ]]; then
             echo "::error::PR number was not resolved."
             exit 1
           fi
 
-          if [[ -z "$built_pr_head_sha" ]]; then
+          if [[ "$deploy_release_tag" != "true" && -z "$built_pr_head_sha" ]]; then
             echo "::error::PR head SHA was not resolved."
             exit 1
           fi
 
-          current_pr_json="$(
-            curl \
-              --fail-with-body \
-              --show-error \
-              --silent \
-              --retry 5 \
-              --retry-delay 5 \
-              --retry-all-errors \
-              "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${pr_number}" \
-              --header "Authorization: Bearer $GITHUB_TOKEN" \
-              --header "Accept: application/vnd.github+json" \
-              --header "X-GitHub-Api-Version: 2022-11-28"
-          )"
+          if [[ "$deploy_release_tag" != "true" ]]; then
+            current_pr_json="$(
+              curl \
+                --fail-with-body \
+                --show-error \
+                --silent \
+                --retry 5 \
+                --retry-delay 5 \
+                --retry-all-errors \
+                "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${pr_number}" \
+                --header "Authorization: Bearer $GITHUB_TOKEN" \
+                --header "Accept: application/vnd.github+json" \
+                --header "X-GitHub-Api-Version: 2022-11-28"
+            )"
 
-          current_pr_head_sha="$(python3 -c 'import json, sys; print(json.load(sys.stdin)["head"]["sha"])' <<< "$current_pr_json")"
+            current_pr_head_sha="$(python3 -c 'import json, sys; print(json.load(sys.stdin)["head"]["sha"])' <<< "$current_pr_json")"
 
-          if [[ "$current_pr_head_sha" != "$built_pr_head_sha" ]]; then
-            if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
-              echo "::error::PR #${pr_number} is not at the labeled head anymore. Labeled ${built_pr_head_sha}, but current PR head is ${current_pr_head_sha}. Re-add coolify-deploy to deploy the latest PR head."
-              exit 1
+            if [[ "$current_pr_head_sha" != "$built_pr_head_sha" ]]; then
+              if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+                echo "::error::PR #${pr_number} is not at the labeled head anymore. Labeled ${built_pr_head_sha}, but current PR head is ${current_pr_head_sha}. Re-add coolify-deploy to deploy the latest PR head."
+                exit 1
+              fi
+
+              echo "::notice::PR #${pr_number} moved after this image was published. Published ${built_pr_head_sha}, but current PR head is ${current_pr_head_sha}; skipping stale Coolify deployment."
+              exit 0
             fi
 
-            echo "::notice::PR #${pr_number} moved after this image was published. Published ${built_pr_head_sha}, but current PR head is ${current_pr_head_sha}; skipping stale Coolify deployment."
-            exit 0
-          fi
+            issue_json="$(
+              curl \
+                --fail-with-body \
+                --show-error \
+                --silent \
+                --retry 5 \
+                --retry-delay 5 \
+                --retry-all-errors \
+                "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${pr_number}" \
+                --header "Authorization: Bearer $GITHUB_TOKEN" \
+                --header "Accept: application/vnd.github+json" \
+                --header "X-GitHub-Api-Version: 2022-11-28"
+            )"
 
-          issue_json="$(
-            curl \
-              --fail-with-body \
-              --show-error \
-              --silent \
-              --retry 5 \
-              --retry-delay 5 \
-              --retry-all-errors \
-              "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${pr_number}" \
-              --header "Authorization: Bearer $GITHUB_TOKEN" \
-              --header "Accept: application/vnd.github+json" \
-              --header "X-GitHub-Api-Version: 2022-11-28"
-          )"
+            has_deploy_label="$(python3 -c 'import json, sys; issue=json.load(sys.stdin); print("true" if any(label.get("name") == "coolify-deploy" for label in issue.get("labels", [])) else "false")' <<< "$issue_json")"
 
-          has_deploy_label="$(python3 -c 'import json, sys; issue=json.load(sys.stdin); print("true" if any(label.get("name") == "coolify-deploy" for label in issue.get("labels", [])) else "false")' <<< "$issue_json")"
-
-          if [[ "$has_deploy_label" != "true" ]]; then
-            echo "::notice::PR #${pr_number} no longer has the coolify-deploy label; skipping Coolify deployment."
-            exit 0
+            if [[ "$has_deploy_label" != "true" ]]; then
+              echo "::notice::PR #${pr_number} no longer has the coolify-deploy label; skipping Coolify deployment."
+              exit 0
+            fi
           fi
 
           image_ref="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/vk-vd:${DEPLOY_IMAGE_TAG}"
@@ -440,19 +861,23 @@ jobs:
             --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
             --header "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET"
 
-          echo "Coolify main deployment webhook notified for PR #${pr_number} using image tag ${DEPLOY_IMAGE_TAG}."
+          if [[ "$deploy_release_tag" == "true" ]]; then
+            echo "Coolify main deployment webhook notified for release tag ${GITHUB_REF} using image tag ${DEPLOY_IMAGE_TAG}."
+          else
+            echo "Coolify main deployment webhook notified for PR #${pr_number} using image tag ${DEPLOY_IMAGE_TAG}."
 
-          curl \
-            --fail-with-body \
-            --show-error \
-            --silent \
-            --retry 5 \
-            --retry-delay 5 \
-            --retry-all-errors \
-            --request DELETE \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${pr_number}/labels/coolify-deploy" \
-            --header "Authorization: Bearer $GITHUB_TOKEN" \
-            --header "Accept: application/vnd.github+json" \
-            --header "X-GitHub-Api-Version: 2022-11-28"
+            curl \
+              --fail-with-body \
+              --show-error \
+              --silent \
+              --retry 5 \
+              --retry-delay 5 \
+              --retry-all-errors \
+              --request DELETE \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${pr_number}/labels/coolify-deploy" \
+              --header "Authorization: Bearer $GITHUB_TOKEN" \
+              --header "Accept: application/vnd.github+json" \
+              --header "X-GitHub-Api-Version: 2022-11-28"
 
-          echo "Removed coolify-deploy label from PR #${pr_number}."
+            echo "Removed coolify-deploy label from PR #${pr_number}."
+          fi

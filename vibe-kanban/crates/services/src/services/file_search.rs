@@ -1,0 +1,545 @@
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::{Duration, Instant},
+};
+
+use db::models::repo::{SearchMatchType, SearchResult};
+use fst::{Map, MapBuilder};
+use git::GitService;
+use ignore::WalkBuilder;
+use moka::future::Cache;
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+use tokio::sync::mpsc;
+use tracing::{error, info, warn};
+use ts_rs::TS;
+
+use super::file_ranker::{FileRanker, FileStats};
+
+/// Search mode for different use cases
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[derive(Default)]
+pub enum SearchMode {
+    #[default]
+    TaskForm, // Default: exclude ignored files (clean results)
+    Settings, // Include ignored files (for project config like .env)
+}
+
+/// Search query parameters for typed Axum extraction
+#[derive(Debug, Clone, Deserialize)]
+pub struct SearchQuery {
+    pub q: String,
+    #[serde(default)]
+    pub mode: SearchMode,
+}
+
+/// FST-indexed file search result
+#[derive(Clone, Debug)]
+pub struct IndexedFile {
+    pub path: String,
+    pub is_file: bool,
+    pub match_type: SearchMatchType,
+    pub path_lowercase: Arc<str>,
+    pub is_ignored: bool, // Track if file is gitignored
+}
+
+/// File index build result containing indexed files and FST map
+#[derive(Debug)]
+pub struct FileIndex {
+    pub files: Vec<IndexedFile>,
+    pub map: Map<Vec<u8>>,
+}
+
+/// Errors that can occur during file index building
+#[derive(Error, Debug)]
+enum FileIndexError {
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Fst(#[from] fst::Error),
+    #[error(transparent)]
+    Walk(#[from] ignore::Error),
+    #[error(transparent)]
+    StripPrefix(#[from] std::path::StripPrefixError),
+}
+
+/// Cached repository data with FST index and git stats
+#[derive(Clone)]
+pub struct CachedRepo {
+    pub head_sha: String,
+    pub fst_index: Map<Vec<u8>>,
+    pub indexed_files: Vec<IndexedFile>,
+    pub stats: Arc<FileStats>,
+    pub build_ts: Instant,
+}
+
+/// Cache miss error
+#[derive(Debug)]
+pub enum CacheError {
+    Miss,
+    BuildError(String),
+}
+
+/// File search cache with FST indexing
+pub struct FileSearchCache {
+    cache: Cache<PathBuf, CachedRepo>,
+    git_service: GitService,
+    file_ranker: FileRanker,
+    build_queue: mpsc::UnboundedSender<PathBuf>,
+}
+
+impl FileSearchCache {
+    pub fn new() -> Self {
+        let (build_sender, build_receiver) = mpsc::unbounded_channel();
+
+        // Create cache with 100MB limit and 1 hour TTL
+        let cache = Cache::builder()
+            .max_capacity(50) // Max 50 repos
+            .time_to_live(Duration::from_secs(3600)) // 1 hour TTL
+            .build();
+
+        let cache_for_worker = cache.clone();
+        let git_service = GitService::new();
+        let file_ranker = FileRanker::new();
+
+        // Spawn background worker
+        let worker_git_service = git_service.clone();
+        let worker_file_ranker = file_ranker.clone();
+        tokio::spawn(async move {
+            Self::background_worker(
+                build_receiver,
+                cache_for_worker,
+                worker_git_service,
+                worker_file_ranker,
+            )
+            .await;
+        });
+
+        Self {
+            cache,
+            git_service,
+            file_ranker,
+            build_queue: build_sender,
+        }
+    }
+
+    /// Search files in repository using cache
+    pub async fn search(
+        &self,
+        repo_path: &Path,
+        query: &str,
+        mode: SearchMode,
+    ) -> Result<Vec<SearchResult>, CacheError> {
+        let repo_path_buf = repo_path.to_path_buf();
+
+        // Check if we have a valid cache entry
+        if let Some(cached) = self.cache.get(&repo_path_buf).await
+            && let Ok(head_info) = self.git_service.get_head_info(&repo_path_buf)
+            && head_info.oid == cached.head_sha
+        {
+            // Cache hit - perform fast search with mode-based filtering
+            return Ok(self.search_in_cache(&cached, query, mode).await);
+        }
+
+        // Cache miss - trigger background refresh and return error
+        if let Err(e) = self.build_queue.send(repo_path_buf) {
+            warn!("Failed to enqueue cache build: {}", e);
+        }
+
+        Err(CacheError::Miss)
+    }
+
+    /// Search within cached index with mode-based filtering
+    async fn search_in_cache(
+        &self,
+        cached: &CachedRepo,
+        query: &str,
+        mode: SearchMode,
+    ) -> Vec<SearchResult> {
+        let query_lower = query.to_lowercase();
+        let mut results = Vec::new();
+
+        // Search through indexed files with mode-based filtering
+        for indexed_file in &cached.indexed_files {
+            if indexed_file.path_lowercase.contains(&query_lower) {
+                // Apply mode-based filtering
+                match mode {
+                    SearchMode::TaskForm => {
+                        // Exclude ignored files for task forms
+                        if indexed_file.is_ignored {
+                            continue;
+                        }
+                    }
+                    SearchMode::Settings => {
+                        // Include all files (including ignored) for project settings
+                        // No filtering needed
+                    }
+                }
+
+                results.push(SearchResult {
+                    path: indexed_file.path.clone(),
+                    is_file: indexed_file.is_file,
+                    match_type: indexed_file.match_type.clone(),
+                    score: 0,
+                });
+            }
+        }
+
+        // Apply git history-based ranking
+        self.file_ranker.rerank(&mut results, &cached.stats);
+
+        // Populate scores for sorted results
+        for result in &mut results {
+            result.score = self.file_ranker.calculate_score(result, &cached.stats);
+        }
+
+        // Limit to top 10 results
+        results.truncate(10);
+        results
+    }
+
+    /// Search files in a single repository with cache + fallback
+    pub async fn search_repo(
+        &self,
+        repo_path: &Path,
+        query: &str,
+        mode: SearchMode,
+    ) -> Result<Vec<SearchResult>, String> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Try cache first
+        match self.search(repo_path, query, mode.clone()).await {
+            Ok(results) => Ok(results),
+            Err(CacheError::Miss) | Err(CacheError::BuildError(_)) => {
+                // Fall back to filesystem search
+                self.search_files_no_cache(repo_path, query, mode).await
+            }
+        }
+    }
+
+    /// Fallback filesystem search when cache is not available
+    async fn search_files_no_cache(
+        &self,
+        repo_path: &Path,
+        query: &str,
+        mode: SearchMode,
+    ) -> Result<Vec<SearchResult>, String> {
+        if !repo_path.exists() {
+            return Err(format!("Path not found: {:?}", repo_path));
+        }
+
+        let mut results = Vec::new();
+        let query_lower = query.to_lowercase();
+
+        let walker = match mode {
+            SearchMode::Settings => {
+                // Settings mode: Include ignored files but exclude performance killers
+                WalkBuilder::new(repo_path)
+                    .git_ignore(false)
+                    .git_global(false)
+                    .git_exclude(false)
+                    .hidden(false)
+                    .filter_entry(|entry| {
+                        let name = entry.file_name().to_string_lossy();
+                        name != ".git"
+                            && name != "node_modules"
+                            && name != "target"
+                            && name != "dist"
+                            && name != "build"
+                    })
+                    .build()
+            }
+            SearchMode::TaskForm => WalkBuilder::new(repo_path)
+                .git_ignore(true)
+                .git_global(true)
+                .git_exclude(true)
+                .hidden(false)
+                .filter_entry(|entry| {
+                    let name = entry.file_name().to_string_lossy();
+                    name != ".git"
+                })
+                .build(),
+        };
+
+        for result in walker {
+            let entry = match result {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            let path = entry.path();
+
+            // Skip the root directory itself
+            if path == repo_path {
+                continue;
+            }
+
+            let relative_path = match path.strip_prefix(repo_path) {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+            let relative_path_str = relative_path.to_string_lossy().to_lowercase();
+
+            let file_name = path
+                .file_name()
+                .map(|name| name.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
+
+            if file_name.contains(&query_lower) {
+                results.push(SearchResult {
+                    path: relative_path.to_string_lossy().to_string(),
+                    is_file: path.is_file(),
+                    match_type: SearchMatchType::FileName,
+                    score: 0,
+                });
+            } else if relative_path_str.contains(&query_lower) {
+                let match_type = if path
+                    .parent()
+                    .and_then(|p| p.file_name())
+                    .map(|name| name.to_string_lossy().to_lowercase())
+                    .unwrap_or_default()
+                    .contains(&query_lower)
+                {
+                    SearchMatchType::DirectoryName
+                } else {
+                    SearchMatchType::FullPath
+                };
+
+                results.push(SearchResult {
+                    path: relative_path.to_string_lossy().to_string(),
+                    is_file: path.is_file(),
+                    match_type,
+                    score: 0,
+                });
+            }
+        }
+
+        // Apply git history-based ranking
+        match self.file_ranker.get_stats(repo_path).await {
+            Ok(stats) => {
+                self.file_ranker.rerank(&mut results, &stats);
+                // Populate scores for sorted results
+                for result in &mut results {
+                    result.score = self.file_ranker.calculate_score(result, &stats);
+                }
+            }
+            Err(_) => {
+                // Fallback to basic priority sorting
+                results.sort_by(|a, b| {
+                    let priority = |match_type: &SearchMatchType| match match_type {
+                        SearchMatchType::FileName => 0,
+                        SearchMatchType::DirectoryName => 1,
+                        SearchMatchType::FullPath => 2,
+                    };
+
+                    priority(&a.match_type)
+                        .cmp(&priority(&b.match_type))
+                        .then_with(|| a.path.cmp(&b.path))
+                });
+            }
+        }
+
+        results.truncate(10);
+        Ok(results)
+    }
+
+    /// Build cache entry for a repository
+    async fn build_repo_cache(&self, repo_path: &Path) -> Result<CachedRepo, String> {
+        let repo_path_buf = repo_path.to_path_buf();
+
+        info!("Building cache for repo: {:?}", repo_path);
+
+        // Get current HEAD
+        let head_info = self
+            .git_service
+            .get_head_info(&repo_path_buf)
+            .map_err(|e| format!("Failed to get HEAD info: {e}"))?;
+
+        // Get git stats
+        let stats = self
+            .file_ranker
+            .get_stats(repo_path)
+            .await
+            .map_err(|e| format!("Failed to get git stats: {e}"))?;
+
+        // Build file index
+        let file_index = Self::build_file_index(repo_path)
+            .map_err(|e| format!("Failed to build file index: {e}"))?;
+
+        Ok(CachedRepo {
+            head_sha: head_info.oid,
+            fst_index: file_index.map,
+            indexed_files: file_index.files,
+            stats,
+            build_ts: Instant::now(),
+        })
+    }
+
+    /// Build FST index from filesystem traversal using superset approach
+    fn build_file_index(repo_path: &Path) -> Result<FileIndex, FileIndexError> {
+        let mut indexed_files = Vec::new();
+        let mut fst_keys = Vec::new();
+
+        // Build superset walker - include ignored files but exclude .git and performance killers
+        let mut builder = WalkBuilder::new(repo_path);
+        builder
+            .git_ignore(false) // Include all files initially
+            .git_global(false)
+            .git_exclude(false)
+            .hidden(false) // Show hidden files like .env
+            .filter_entry(|entry| {
+                let name = entry.file_name().to_string_lossy();
+                // Always exclude .git directories
+                if name == ".git" {
+                    return false;
+                }
+                // Exclude performance killers even when including ignored files
+                if name == "node_modules" || name == "target" || name == "dist" || name == "build" {
+                    return false;
+                }
+                true
+            });
+
+        let walker = builder.build();
+
+        // Create a second walker for checking ignore status
+        let ignore_walker = WalkBuilder::new(repo_path)
+            .git_ignore(true) // This will tell us what's ignored
+            .git_global(true)
+            .git_exclude(true)
+            .hidden(false)
+            .filter_entry(|entry| {
+                let name = entry.file_name().to_string_lossy();
+                name != ".git"
+            })
+            .build();
+
+        // Collect paths from ignore-aware walker to know what's NOT ignored
+        let mut non_ignored_paths = std::collections::HashSet::new();
+        for result in ignore_walker {
+            if let Ok(entry) = result
+                && let Ok(relative_path) = entry.path().strip_prefix(repo_path)
+            {
+                non_ignored_paths.insert(relative_path.to_path_buf());
+            }
+        }
+
+        // Now walk all files and determine their ignore status
+        for result in walker {
+            let entry = result?;
+            let path = entry.path();
+
+            if path == repo_path {
+                continue;
+            }
+
+            let relative_path = path.strip_prefix(repo_path)?;
+            let relative_path_str = relative_path.to_string_lossy().to_string();
+            let relative_path_lower = relative_path_str.to_lowercase();
+
+            // Skip empty paths
+            if relative_path_lower.is_empty() {
+                continue;
+            }
+
+            // Determine if this file is ignored
+            let is_ignored = !non_ignored_paths.contains(relative_path);
+
+            let file_name = path
+                .file_name()
+                .map(|name| name.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
+
+            // Determine match type
+            let match_type = if !file_name.is_empty() {
+                SearchMatchType::FileName
+            } else if path
+                .parent()
+                .and_then(|p| p.file_name())
+                .map(|name| name.to_string_lossy().to_lowercase())
+                .unwrap_or_default()
+                != relative_path_lower
+            {
+                SearchMatchType::DirectoryName
+            } else {
+                SearchMatchType::FullPath
+            };
+
+            let indexed_file = IndexedFile {
+                path: relative_path_str,
+                is_file: path.is_file(),
+                match_type,
+                path_lowercase: Arc::from(relative_path_lower.as_str()),
+                is_ignored,
+            };
+
+            // Store the key for FST along with file index
+            let file_index = indexed_files.len() as u64;
+            fst_keys.push((relative_path_lower, file_index));
+            indexed_files.push(indexed_file);
+        }
+
+        // Sort keys for FST (required for building)
+        fst_keys.sort_by(|a, b| a.0.cmp(&b.0));
+
+        // Remove duplicates (keep first occurrence)
+        fst_keys.dedup_by(|a, b| a.0 == b.0);
+
+        // Build FST
+        let mut fst_builder = MapBuilder::memory();
+        for (key, value) in fst_keys {
+            fst_builder.insert(&key, value)?;
+        }
+
+        let fst_map = fst_builder.into_map();
+        Ok(FileIndex {
+            files: indexed_files,
+            map: fst_map,
+        })
+    }
+
+    /// Background worker for cache building
+    async fn background_worker(
+        mut build_receiver: mpsc::UnboundedReceiver<PathBuf>,
+        cache: Cache<PathBuf, CachedRepo>,
+        git_service: GitService,
+        file_ranker: FileRanker,
+    ) {
+        while let Some(repo_path) = build_receiver.recv().await {
+            if !repo_path.exists() {
+                warn!(
+                    "Skipping cache build for non-existent repo path: {:?}",
+                    repo_path
+                );
+                continue;
+            }
+
+            let cache_builder = FileSearchCache {
+                cache: cache.clone(),
+                git_service: git_service.clone(),
+                file_ranker: file_ranker.clone(),
+                build_queue: mpsc::unbounded_channel().0, // Dummy sender
+            };
+
+            match cache_builder.build_repo_cache(&repo_path).await {
+                Ok(cached_repo) => {
+                    cache.insert(repo_path.clone(), cached_repo).await;
+                    info!("Successfully cached repo: {:?}", repo_path);
+                }
+                Err(e) => {
+                    error!("Failed to cache repo {:?}: {}", repo_path, e);
+                }
+            }
+        }
+    }
+}
+
+impl Default for FileSearchCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}

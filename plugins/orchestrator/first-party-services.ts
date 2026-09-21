@@ -146,9 +146,25 @@ stderr_logfile=/dev/fd/2
 stderr_logfile_maxbytes=0
 user=root`;
 
+const BEADS_DOLT_SHARED_SERVER_SUPERVISOR = `; Beads shared Dolt server. Keep this running at container startup so agents can
+; use \`bd ready\` directly instead of racing opportunistic \`bd dolt start\` calls.
+[program:beads-dolt-shared-server]
+command=sh -c 'mkdir -p /home/vkuser/.beads/shared-server/dolt && cd /home/vkuser/.beads/shared-server/dolt && exec /usr/local/bin/dolt sql-server -H 127.0.0.1 -P 3308 --loglevel=warning'
+autostart=true
+autorestart=true
+priority=5
+startsecs=2
+startretries=3
+stdout_logfile=/dev/fd/1
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/fd/2
+stderr_logfile_maxbytes=0
+environment=HOME="/home/vkuser",XDG_CONFIG_HOME="/home/vkuser/.config",PATH="/usr/local/bin:/usr/bin:/bin"
+user=vkuser`;
+
 const CODE_SERVER_SUPERVISOR = `; code-server
 [program:code-server]
-command=sh -c 'if [ -n "\${CODE_PASSWORD}" ] && [ "\${CODE_PASSWORD}" != "__unset__" ]; then export PASSWORD="\${CODE_PASSWORD}"; unset HASHED_PASSWORD; exec code-server --auth password --bind-addr 0.0.0.0:%(ENV_CODE_PORT)s --idle-timeout-seconds=3600; else unset PASSWORD HASHED_PASSWORD; exec code-server --auth none --bind-addr 0.0.0.0:%(ENV_CODE_PORT)s --idle-timeout-seconds=3600; fi'
+command=sh -c 'if [ -n "\${CODE_PASSWORD}" ] && [ "\${CODE_PASSWORD}" != "__unset__" ]; then export PASSWORD="\${CODE_PASSWORD}"; unset HASHED_PASSWORD; exec code-server --auth password --bind-addr 0.0.0.0:%(ENV_CODE_PORT)s --idle-timeout-seconds=3600; else unset PASSWORD HASHED_PASSWORD; exec code-server --auth none --bind-addr 0.0.0.0:%(ENV_CODE_PORT)s --idle-timeout-seconds=3600 --disable-workspace-trust --disable-telemetry; fi'
 autostart=true
 autorestart=true
 stopasgroup=true
@@ -341,6 +357,20 @@ export const BUILTIN_FIRST_PARTY_SERVICE_PLUGINS: FirstPartyServicePlugin[] = [
   },
   {
     manifest: manifest({
+      id: 'first-party.beads-dolt-shared-server',
+      displayName: 'Beads Dolt Shared Server',
+      version: '2.3.1',
+      requestedCapabilities: {
+        hostShell: { commands: ['/usr/local/bin/dolt sql-server'] },
+        filesystem: [{ scope: 'absolute', path: '/home/vkuser/.beads/shared-server', access: 'readWrite' }],
+        network: { mode: 'ingress', ports: ['3308'] },
+      },
+      components: { services: [{ id: 'beads-dolt-shared-server', runtime: 'supervisor', command: '/usr/local/bin/dolt sql-server -H 127.0.0.1 -P 3308' }] },
+    }),
+    privilegeTier: 'core-control-plane', bootCritical: false, supervisorPrograms: ['beads-dolt-shared-server'], supervisorConfig: BEADS_DOLT_SHARED_SERVER_SUPERVISOR, installStrategy: 'github-release-asset', desiredVersion: 'dolt@2.3.1', stagingRequired: true, rollbackable: true,
+  },
+  {
+    manifest: manifest({
       id: 'first-party.code-server',
       displayName: 'code-server',
       version: '4.123.0',
@@ -352,7 +382,7 @@ export const BUILTIN_FIRST_PARTY_SERVICE_PLUGINS: FirstPartyServicePlugin[] = [
     manifest: manifest({
       id: 'first-party.vibe-kanban', displayName: 'Vibe Kanban', version: 'github-release:vk-assets-${VK_COMMIT}',
       requestedCapabilities: { vkHttpApi: 'agentPrompt', hostShell: { commands: ['/usr/local/bin/vibe-kanban'] }, codeServer: 'workspace', filesystem: [{ scope: 'repo', path: '/home/vkuser/repos', access: 'readWrite' }], network: { mode: 'ingress-and-egress', ports: ['${BACKEND_PORT}'] }, env: ['VK_SHARED_API_BASE', 'VK_ALLOWED_ORIGINS'] },
-      components: { services: [{ id: 'vibe-kanban', runtime: 'supervisor', command: '/usr/local/bin/vibe-kanban', versionSource: { kind: 'github-release-asset', repository: 'mickmister/vibe-kanban', tag: 'vk-assets-${VK_COMMIT}', asset: 'vibe-kanban-${TARGETARCH}.tar.gz' } }] },
+      components: { services: [{ id: 'vibe-kanban', runtime: 'supervisor', command: '/usr/local/bin/vibe-kanban', versionSource: { kind: 'github-release-asset', repository: 'vibe-dashboard/vibe-kanban', tag: 'vk-assets-${VK_COMMIT}', asset: 'vibe-kanban-${TARGETARCH}.tar.gz' } }] },
     }),
     privilegeTier: 'core-control-plane', bootCritical: false, supervisorPrograms: ['vibe-kanban'], supervisorConfig: VIBE_KANBAN_SUPERVISOR, installStrategy: 'github-release-asset', desiredVersion: 'github-release:vk-assets-${VK_COMMIT}', stagingRequired: true, rollbackable: true,
   },
