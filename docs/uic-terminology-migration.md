@@ -40,6 +40,27 @@ The first implementation sequence is:
 | Browser-extension product | Myne | Product docs and UX may say “Myne uses UIC”. |
 | Existing app customization contract | `@myne` v1 | Remains the approved Milestone 1–3 appearance/composition compatibility contract. |
 
+## Future UIC package and API naming scheme
+
+UIC framework-level code uses UIC names even when it adapts to existing
+`@myne` v1 compatibility IDs.
+
+| Artifact | Required naming |
+| --- | --- |
+| Source directories | Prefer `src/uic/**` for shared parser, descriptors, schema generation, IR, diagnostics, and render helpers. Surface-specific UIC adapters may live beside their surface, for example `src/components/spaces-overview/uic/**`, when that keeps proof code reviewable. |
+| Documentation | Use `docs/uic-*.md` for UIC framework/XML documents. Keep `docs/myne-*.md` only for existing appearance compatibility and product/extension work. |
+| Tests and fixtures | Use `*.uic.test.ts`, `*.uic.fixture.xml`, `*.uic.ir.json`, and Storybook story names containing `UIC`, not `Myne`, for new XML-template proof code. |
+| Generated XML schema | `uic-<surface>-v<version>.xsd`. |
+| Generated semantic descriptors | `uic-<surface>-descriptor-v<version>.json`. |
+| Generated editor metadata | `uic-<surface>-editor-v<version>.json`. |
+| Canonical IR artifacts | `uic-<surface>-ir-v<version>.json`; canonical digests are over the normalized IR plus registry/schema/compiler metadata. |
+| Registry names | `UICSurfaceRegistry`, `UICComponentRegistry`, `UICDescriptorRegistry`, and `createUICRegistry` style APIs. Avoid new `Myne*Registry` names for UIC framework code. |
+| TypeScript API prefixes | `UIC*` for exported framework types and functions, for example `UICTemplateIR`, `UICDiagnostic`, `defineUICComponent`, `compileUICXml`. |
+| Diagnostic prefixes | Human-readable diagnostics use `UIC####` or `uic/<category>` codes, for example `UIC1001` / `uic/schema/unknown-tag`. |
+| Runtime CSS scope naming | UIC CSS source sections may use UIC source concepts such as `:uic-scope`; compiled output must still target approved existing `myne-*`, `data-myne-*`, and `--myne-*` runtime compatibility hooks until a separate token migration is approved. |
+| npm package names | Framework packages use application-owned UIC names if package extraction is approved later, for example `@vibedashboard/uic-core`, `@vibedashboard/uic-xml`, and `@vibedashboard/uic-react`. New framework-level `@myne/*` package names are forbidden. |
+| Product package names | `@myne/*` remains reserved for a future Myne browser-extension product or compatibility shims and must not be used for new host-framework XML/runtime packages. |
+
 ## Boundary between UIC and existing `@myne` v1
 
 Existing `@myne` v1 remains authoritative for production appearance and
@@ -51,10 +72,42 @@ composition compatibility until a separate migration is reviewed:
   `myne.appearance`.
 - `src/components/spaces-overview/SpacesOverview.composition.ts` still uses
   `myne.spaces.*` layout, view-pack, and component identifiers.
+- `src/theme/skins/SkinEditorDialog.composition.tsx` still uses
+  Skin Editor composition identifiers such as
+  `myne.appearance.layout.dialog`, `myne.appearance.header.default`,
+  `myne.appearance.library.default`,
+  `myne.appearance.token-editor.default`,
+  `myne.appearance.preview.default`,
+  `myne.appearance.import-export.default`,
+  `myne.appearance.diagnostics.default`,
+  `myne.appearance.diagnostics.compact`,
+  `myne.appearance.view-pack.default`, and
+  `myne.appearance.view-pack.compact-diagnostics`.
 - `src/theme/skins/appearanceSnapshot.ts` still uses
   `myne.appearance.snapshot`, `myne.skin`, and `myne.composition`.
+- `src/theme/skins/appearanceRevisions.ts` still uses the current revision
+  stream ID `myne.appearance.global`.
+- `src/theme/skins/builtin.ts` still owns built-in skin IDs such as
+  `myne-default-dark`, `myne-light-studio`, and
+  `myne-high-contrast-terminal`; tests and import flows still use
+  user/custom skin IDs such as `myne-user-*`.
 - `src/theme/skins/myne.css` still owns the production `myne-*` classes,
   `--myne-*` custom properties, and `myne.*` cascade layers.
+- `src/theme/skins/scopedCss.ts` still owns current compiler/policy constants
+  such as `MYNE_SCOPED_CSS_COMPILER_VERSION` and
+  `MYNE_SCOPED_CSS_POLICY_VERSION`, current public identity allowlists for
+  `data-myne-surface`, `data-myne-slot`, `data-myne-skin`, and
+  `data-myne-view-pack`, host scope attributes such as
+  `data-myne-package-scope`, and compiled artifact attributes such as
+  `data-myne-compiled-artifact`.
+- `scripts/myne-contract-inventory.mjs`,
+  `scripts/openlint-myne-local.mjs`, and
+  `scripts/check-ui-customization-boundaries.mjs` still enforce the current
+  Milestone 1–3 `@myne` public DOM/CSS contract.
+- Storybook and test fixtures such as `src/components/SpacesOverview.stories.tsx`,
+  `src/theme/skins/SkinEditorDialog.stories.tsx`, and related
+  `*.test.ts(x)` files may continue to mention `myne.*` and `myne-*` when they
+  prove existing compatibility behavior.
 
 UIC descriptors may reference those compatibility identifiers because they are
 the current trusted host inventory. That is an adapter boundary, not a reason to
@@ -92,10 +145,20 @@ names, attributes, binding paths, named slots, and fallback behavior.
 | Historical planning docs | `docs/ui-customization-implementation-plan.md` | Leave archival; add no new requirements there. |
 | Approved v1 appearance docs | `docs/myne-v1-contract.md`, `docs/myne-architecture.md`, `docs/myne-scoped-css-security.md`, `docs/myne-appearance-revisions.md` | Keep `@myne` where describing Milestone 1–3 production compatibility; add cross-links to this UIC decision when discussing future XML authoring. |
 | AppHooks module IDs | `myne.spaces`, `myne.appearance` | Preserve for Milestone 3 compatibility; UIC containers consume projected data, not raw hooks. |
-| Composition IDs | `myne.spaces.layout.default`, `myne.spaces.page-header.default` | Preserve as trusted host IDs. UIC component descriptors map readable tags to these IDs internally. |
-| View-pack IDs | `myne.spaces.view-pack.default` | Preserve until a separately reviewed persisted-format migration exists. |
-| DOM/CSS hooks | `myne-root`, `myne-slot--workspace-list`, `--myne-*` | Preserve for production skins and histories. UIC CSS targets generated scope plus approved existing hooks/tokens. |
-| Package/snapshot formats | `myne.appearance.snapshot` | Preserve; UIC templates are separately versioned artifacts, not appearance snapshots. |
+| SpacesOverview composition IDs | `myne.spaces.layout.default`, `myne.spaces.page-header.default`, `myne.spaces.running-dev-servers.default`, `myne.spaces.workspace-list.default`, `myne.spaces.workspace-list.dense` | Preserve as trusted host IDs. UIC component descriptors map readable tags to these IDs internally. |
+| SpacesOverview view-pack IDs | `myne.spaces.view-pack.default`, `myne.spaces.view-pack.dense-workspace-list` | Preserve until a separately reviewed persisted-format migration exists. |
+| Skin Editor composition IDs | `myne.appearance.layout.dialog`, `myne.appearance.header.default`, `myne.appearance.library.default`, `myne.appearance.token-editor.default`, `myne.appearance.preview.default`, `myne.appearance.import-export.default`, `myne.appearance.diagnostics.default`, `myne.appearance.diagnostics.compact` | Preserve as trusted host IDs for the current proof surface. UIC work must not rename them incidentally. |
+| Skin Editor view-pack IDs | `myne.appearance.view-pack.default`, `myne.appearance.view-pack.compact-diagnostics` | Preserve as current compatibility IDs. |
+| Revision stream IDs | `myne.appearance.global` | Preserve; changing the stream ID would be a persistence migration requiring restart, rollback, backup/corruption, and history-chain tests. |
+| Built-in skin IDs | `myne-default-dark`, `myne-light-studio`, `myne-high-contrast-terminal` | Preserve as package/skin compatibility IDs. |
+| User/imported skin IDs | `myne-user-*` | Preserve accepted user-skin namespace and validation behavior. |
+| DOM/CSS classes and tokens | `myne-root`, `myne-surface`, `myne-slot--workspace-list`, `myne-card`, `myne-action`, `--myne-*`, `@layer myne.*` | Preserve for production skins and histories. UIC CSS targets generated scope plus approved existing hooks/tokens. |
+| Public identity attributes | `data-myne-surface`, `data-myne-slot`, `data-myne-skin`, `data-myne-view-pack` | Preserve sparse public identities; do not introduce parallel `data-uic-*` identities without a separate styling-token migration. |
+| Protected/scope/artifact attributes | `data-myne-protected`, `data-myne-protected-status`, `data-myne-package-scope`, `data-myne-compiled-artifact` | Preserve because compiler/runtime safety and protected UI tests depend on them. |
+| Compiler/policy constants | `MYNE_SCOPED_CSS_COMPILER_VERSION`, `MYNE_SCOPED_CSS_POLICY_VERSION`, current scoped-CSS policy names | Preserve until a separately reviewed appearance compiler policy migration exists. UIC template compiler constants should use `UIC_*` names. |
+| Package/snapshot formats | `myne.appearance.snapshot`, `myne.skin`, `myne.composition` | Preserve; UIC templates are separately versioned artifacts, not appearance snapshots. |
+| Scripts/checkers | `scripts/myne-contract-inventory.mjs`, `scripts/openlint-myne-local.mjs`, `scripts/check-ui-customization-boundaries.mjs` | Preserve to enforce existing appearance compatibility. Add UIC-specific guardrails rather than weakening these scripts. |
+| Storybook/test fixtures | `src/components/SpacesOverview.stories.tsx`, `src/theme/skins/SkinEditorDialog.stories.tsx`, `src/stories/skinLab.ts`, compatibility tests | Preserve `myne.*` references when fixtures assert current production compatibility. New UIC fixture/story names use UIC. |
 | Marketplace artifacts | deferred | Do not add Marketplace/UIC distribution coupling in this branch. |
 | Browser-extension product | Myne | Product may say “Myne templates are powered by UIC”. |
 
@@ -120,9 +183,12 @@ names, attributes, binding paths, named slots, and fallback behavior.
 Use these checks during review and before closing the rename decision:
 
 ```bash
+npm run lint:ui-customization
+npm run lint:skinability
 grep -R "UI injection\\|ui-injection" -n docs src scripts
 grep -R "@myne\\|myne\\." -n docs src scripts
-grep -R "uic:" -n docs src scripts
+grep -R "Myne\\|MYNE_\\|myne-" -n docs src scripts
+grep -R "uic:\\|UIC\\|uic-" -n docs src scripts
 ```
 
 Review each hit by category:
@@ -134,6 +200,35 @@ Review each hit by category:
 
 No automated mass rename is approved by this decision because existing `myne.*`
 runtime IDs are load-bearing compatibility identifiers.
+
+Before `vkvw-8xaj.18.3 — Rename the UI injection framework and XML vocabulary
+to UIC` closes, the reviewer should confirm that every `Myne`/`myne` hit in
+new UIC files is either an allowed adapter to an existing compatibility ID or
+product/browser-extension language. If this remains manual at close time, create
+a focused checker bead before UIC implementation for a pre-close command such
+as:
+
+```bash
+node scripts/check-uic-terminology-boundary.mjs
+```
+
+The named future checker must fail on framework-level additions such as:
+
+- `src/uic/**` exporting `Myne*`, `MYNE_*`, or `@myne/*` framework APIs;
+- generated UIC XML/schema/IR files using `myne` as their namespace, prefix, or
+  diagnostic family;
+- new UIC tests/stories named as Myne framework fixtures;
+- new package names under `@myne/*` for UIC framework/runtime modules;
+- new `data-uic-*` or `--uic-*` styling hooks that bypass the approved current
+  `@myne` appearance contract without a separate token migration.
+
+Allowed exceptions must be explicit and narrow:
+
+- references to current compatibility IDs listed in the rename inventory;
+- existing `@myne` v1 docs, scripts, tests, and fixtures that enforce Milestone
+  1–3 behavior;
+- Myne browser-extension/product copy;
+- archival text that is clearly marked non-normative.
 
 ## Implementation sequencing
 
