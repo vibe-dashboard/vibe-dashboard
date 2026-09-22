@@ -47,6 +47,8 @@ describe("UIC trusted component descriptors", () => {
     expect(xsd).toContain('fixed="actions"');
     expect(xsd).toContain('name="title"');
     expect(xsd).toContain('name="label"');
+    expect(xsd).toContain('name="uic:on-activate"');
+    expect(xsd).toContain('fixed="spaces.navigateToCraft"');
     expect(xsd).not.toContain('name="component"');
     expect(xsd).not.toContain('name="ref"');
     expect(xsd).not.toContain('name="version"');
@@ -82,7 +84,7 @@ describe("UIC trusted component descriptors", () => {
           },
         },
         { tag: "recentSessions", componentId: "myne.spaces.recent-sessions.default" },
-        { tag: "starredCraft", componentId: "myne.spaces.starred-craft.default" },
+        { tag: "starredCraft", componentId: "myne.spaces.starred-craft.default", actions: { activate: "spaces.navigateToCraft" } },
         { tag: "runningDevServers", componentId: "myne.spaces.running-dev-servers.default" },
         { tag: "recentlyVisitedCraft", componentId: "myne.spaces.recently-visited.default" },
         { tag: "recentlyCreatedCraft", componentId: "myne.spaces.recently-created.default" },
@@ -153,6 +155,15 @@ describe("UIC trusted component descriptors", () => {
     expect(validateUICXml(spacesOverviewPageHeaderUICProof, fullSpacesOverviewXml.replace("<uic:starredCraft ", '<uic:starredCraft onclick="alert(1)" ')).diagnostics).toContainEqual(
       expect.objectContaining({ code: "uic/xml/unknown-attribute" }),
     );
+  });
+
+  it("omits action IR when the generated tag has no action binding", async () => {
+    const xml = fullSpacesOverviewXml.replace(' uic:on-activate="spaces.navigateToCraft"', "");
+    const compiled = await compileUICXml(spacesOverviewPageHeaderUICProof, xml);
+
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) throw new Error("expected successful compile");
+    expect(compiled.ir.nodes.find((node) => node.tag === "starredCraft")).not.toHaveProperty("actions");
   });
 
   it("enforces the exact proof root and top-level structure before compiling", async () => {

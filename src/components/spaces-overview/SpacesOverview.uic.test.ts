@@ -21,6 +21,7 @@ import {
   projectUICSpacesResource,
   projectUICStarredCraftResource,
   projectUICWorkspaceListResource,
+  spacesOverviewUICLayoutXml,
 } from "./SpacesOverview.uic.view";
 import {
   storybookRepoBranches,
@@ -387,6 +388,25 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     const emptyWorkspace = { ...storybookWorkspace, tabGroups: storybookWorkspace.tabGroups.map((tabGroup) => ({ ...tabGroup, starred: false })) };
     const emptyRegion = starredCraftRegion(renderUICLayout(undefined, { workspace: emptyWorkspace }));
     expect(emptyRegion).toContain("No starred craft");
+  });
+
+  it("does not expose or dispatch the starred craft action when XML omits the binding", () => {
+    const xml = spacesOverviewUICLayoutXml.replace(' uic:on-activate="spaces.navigateToCraft"', "");
+    const region = starredCraftRegion(renderUICLayout(xml));
+
+    expect(region).toContain("Read-only UIC list");
+    expect(region).not.toContain("Open craft");
+    expect(projectUICStarredCraftActions({
+      starredTabGroups: [{ space: storybookWorkspace.spaces[1]!, tg: storybookWorkspace.tabGroups[1]! }],
+      tabGroupDisplayLabelById: new Map(),
+    }, false)).toEqual([]);
+  });
+
+  it("falls back instead of exposing the starred craft action when XML action validation fails", () => {
+    const html = renderUICLayout(spacesOverviewUICLayoutXml.replace("spaces.navigateToCraft", "spaces.deleteCraft"));
+
+    expect(html).toContain('data-myne-view-pack="myne.spaces.view-pack.default"');
+    expect(html).toContain("uic/xml/unknown-action");
   });
 
   it("projects only serializable allowed UIC action descriptors for starred craft", () => {

@@ -235,6 +235,7 @@ export function generateUICXsd(descriptor: UICSurfaceDescriptor): string {
   const topLevel = descriptor.layoutTags.map((tag) => `        <xs:element ref="uic:${tag}" minOccurs="1" maxOccurs="1" />`).join("\n");
   const componentElements = descriptor.layoutTags.map((tag) => {
     const component = requireComponent(descriptor, tag);
+    const eventAttrs = Object.entries(component.events ?? {}).map(([event, actions]) => `      <xs:attribute name="uic:on-${event}" type="xs:string" use="optional" fixed="${actions[0] ?? ""}" />`).join("\n");
     if (tag === "pageHeader") return `  <xs:element name="${component.tag}">
     <xs:complexType>
       <xs:sequence>
@@ -244,7 +245,11 @@ export function generateUICXsd(descriptor: UICSurfaceDescriptor): string {
       <xs:attribute name="subtitle" type="xs:string" use="optional" />
     </xs:complexType>
   </xs:element>`;
-    return `  <xs:element name="${component.tag}" />`;
+    return `  <xs:element name="${component.tag}">
+    <xs:complexType>
+${eventAttrs}
+    </xs:complexType>
+  </xs:element>`;
   }).join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:uic="${descriptor.namespace}" targetNamespace="${descriptor.namespace}" elementFormDefault="qualified">
@@ -357,6 +362,22 @@ export function validateUICXml(descriptor: UICSurfaceDescriptor, xml: string): {
     }
   }
   return { diagnostics };
+}
+
+export function getUICValidatedActionBindings(descriptor: UICSurfaceDescriptor, xml: string): ReadonlyMap<string, Readonly<Record<string, string>>> {
+  if (validateUICXml(descriptor, xml).diagnostics.length) return new Map();
+  const root = parseXmlLite(xml).roots[0];
+  if (!root) return new Map();
+  return new Map(root.children.flatMap((node) => {
+    const tag = node.name.replace(/^uic:/, "");
+    const component = descriptor.components[tag];
+    if (!component?.events) return [];
+    const actions = Object.fromEntries(Object.keys(component.events).flatMap((event) => {
+      const value = node.attrs[`uic:on-${event}`];
+      return value ? [[event, value]] : [];
+    }));
+    return Object.keys(actions).length ? [[tag, actions]] : [];
+  }));
 }
 
 export async function compileUICXml(

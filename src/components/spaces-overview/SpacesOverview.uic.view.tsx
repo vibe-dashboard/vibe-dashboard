@@ -3,7 +3,7 @@ import type { SpacesOverviewComponentProps, TabGroupWithSpace } from "./SpacesOv
 import type { SpacesOverviewSlotProps } from "./SpacesOverview.slots";
 import { formatRelativeTime } from "./workspaceList.view";
 import { MyneHeading, MyneText } from "../../theme/skins";
-import { spacesOverviewPageHeaderUICProof, validateUICXml } from "../../uic/trustedComponents";
+import { getUICValidatedActionBindings, spacesOverviewPageHeaderUICProof, validateUICXml } from "../../uic/trustedComponents";
 
 export const spacesOverviewUICLayoutXml = `<uic:spaceOverviewPage xmlns:uic="https://vibedashboard.dev/uic/xml/v1" artifactVersion="1">
   <uic:css><![CDATA[:uic-scope { --myne-slot-page-header-gap: 1rem; }]]></uic:css>
@@ -376,7 +376,8 @@ export function projectUICStarredCraftResource(model: SpacesOverviewSlotProps<"s
   });
 }
 
-export function projectUICStarredCraftActions(model: SpacesOverviewSlotProps<"starredCraft">["model"]): readonly UICSpacesOverviewActionDescriptor[] {
+export function projectUICStarredCraftActions(model: SpacesOverviewSlotProps<"starredCraft">["model"], enabled = true): readonly UICSpacesOverviewActionDescriptor[] {
+  if (!enabled) return [];
   return model.starredTabGroups.map(({ space, tg }) => ({
     event: "activate",
     id: "spaces.navigateToCraft",
@@ -385,8 +386,8 @@ export function projectUICStarredCraftActions(model: SpacesOverviewSlotProps<"st
   }));
 }
 
-function UICReadOnlyStarredCraftSection({ model, actions }: SpacesOverviewSlotProps<"starredCraft">) {
-  const actionDescriptors = new Map(projectUICStarredCraftActions(model).map((action) => [action.args.tabGroupId, action]));
+function UICReadOnlyStarredCraftSection({ model, actions, enableNavigateAction = true }: SpacesOverviewSlotProps<"starredCraft"> & { readonly enableNavigateAction?: boolean }) {
+  const actionDescriptors = new Map(projectUICStarredCraftActions(model, enableNavigateAction).map((action) => [action.args.tabGroupId, action]));
   return (
     <UICReadOnlyListSection
       slot="starred-craft"
@@ -635,7 +636,9 @@ export function SpacesOverviewUICLayoutProofPresentation({
   ...props
 }: SpacesOverviewComponentProps & { readonly xml?: string }) {
   const diagnostics = validateUICXml(spacesOverviewPageHeaderUICProof, xml).diagnostics;
-  const ui = diagnostics.length ? defaultSpacesOverviewUI : { ...defaultSpacesOverviewUI, RecentSessionsSection: UICReadOnlyRecentSessionsSection, StarredCraftSection: UICReadOnlyStarredCraftSection, RunningDevServersSection: UICReadOnlyRunningDevServersSection, RecentlyVisitedCraftSection: UICReadOnlyRecentlyVisitedCraftSection, RecentlyCreatedCraftSection: UICReadOnlyRecentlyCreatedCraftSection, WorkspaceListSection: UICReadOnlyWorkspaceListSection, SpacesSection: UICReadOnlySpacesSection };
+  const actionBindings = diagnostics.length ? new Map() : getUICValidatedActionBindings(spacesOverviewPageHeaderUICProof, xml);
+  const enableStarredNavigate = actionBindings.get("starredCraft")?.activate === "spaces.navigateToCraft";
+  const ui = diagnostics.length ? defaultSpacesOverviewUI : { ...defaultSpacesOverviewUI, RecentSessionsSection: UICReadOnlyRecentSessionsSection, StarredCraftSection: (slotProps: SpacesOverviewSlotProps<"starredCraft">) => <UICReadOnlyStarredCraftSection {...slotProps} enableNavigateAction={enableStarredNavigate} />, RunningDevServersSection: UICReadOnlyRunningDevServersSection, RecentlyVisitedCraftSection: UICReadOnlyRecentlyVisitedCraftSection, RecentlyCreatedCraftSection: UICReadOnlyRecentlyCreatedCraftSection, WorkspaceListSection: UICReadOnlyWorkspaceListSection, SpacesSection: UICReadOnlySpacesSection };
 
   return (
     <>
