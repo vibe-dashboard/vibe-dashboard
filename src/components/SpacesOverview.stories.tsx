@@ -23,6 +23,7 @@ import {
 import { DefaultSpacesOverviewLayout } from './spaces-overview/DefaultSpacesOverview.view';
 import { denseWorkspaceListSpacesOverviewUI } from './spaces-overview/SpacesOverview.alternates';
 import { SpacesOverviewStoryFrame } from './spaces-overview/SpacesOverviewStoryFrame.view';
+import { SpacesOverviewUICPageHeaderProof } from './spaces-overview/SpacesOverview.uic.view';
 import {
   createSkinLabStories,
   type SkinLabOption,
@@ -513,4 +514,17 @@ export const SpacePickerMutationError: Story = {
 
 export const PendingStopDevServer: Story = {
   ...(skinLabStories.PendingStopDevServer as Story),
+};
+
+export const UICPageHeaderProof: StoryObj<typeof SpacesOverviewUICPageHeaderProof> = {
+  name: 'UIC pageHeader proof',
+  render: () => <SpacesOverviewUICPageHeaderProof />,
+  parameters: {
+    docs: {
+      description: {
+        story:
+          'Development-only UIC fixture for the generated pageHeader tag. The full SpacesOverview migration remains future work; the trusted React renderer remains the fallback.',
+      },
+    },
+  },
 };
