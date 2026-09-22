@@ -72,6 +72,12 @@ export const UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET = Object.freeze({
   maxSpaceLabelLength: 32,
 });
 
+export const UIC_RECENT_SESSIONS_RESOURCE_BUDGET = Object.freeze({
+  maxRows: 5,
+  maxNameLength: 56,
+  maxLocationLength: 80,
+});
+
 export const UIC_RECENTLY_CREATED_CRAFT_RESOURCE_BUDGET = UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET;
 export const UIC_STARRED_CRAFT_RESOURCE_BUDGET = UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET;
 export const UIC_SPACES_RESOURCE_BUDGET = Object.freeze({
@@ -205,6 +211,55 @@ function UICReadOnlyRunningDevServersSection({ model }: SpacesOverviewSlotProps<
       emptyLabel="No running development servers"
       countNoun="workspace"
       resource={projectUICRunningDevServersResource(model)}
+    />
+  );
+}
+
+export function projectUICRecentSessionsResource(model: Pick<SpacesOverviewSlotProps<"recentSessions">["model"], "workspace" | "currentSessionId" | "expandedSessionId" | "editingSessionId" | "sortedSessions">): UICReadOnlyListResource {
+  const diagnostics: string[] = [];
+  const seen = new Set<string>();
+  const sessions = model.sortedSessions.filter((session) => {
+    if (!seen.has(session.id)) {
+      seen.add(session.id);
+      return true;
+    }
+    diagnostics.push("uic/resource/duplicate-row-id");
+    return false;
+  });
+  const items = sessions
+    .slice(0, UIC_RECENT_SESSIONS_RESOURCE_BUDGET.maxRows)
+    .map((session) => {
+      const space = model.workspace.spaces.find((item) => item.id === session.activeSpaceId);
+      const tabGroup = model.workspace.tabGroups.find((item) => item.id === session.activeTabGroupId);
+      const sessionName = session.name?.trim() || tabGroup?.label || session.slug || "Saved voyage";
+      const sessionLocation = space && tabGroup
+        ? `${space.name} / ${tabGroup.label}`
+        : "Recoverable voyage — saved craft is no longer available";
+      return {
+        id: session.id,
+        label: capUICResourceString(sessionName, UIC_RECENT_SESSIONS_RESOURCE_BUDGET.maxNameLength, diagnostics),
+        meta: [
+          capUICResourceString(sessionLocation, UIC_RECENT_SESSIONS_RESOURCE_BUDGET.maxLocationLength, diagnostics),
+          formatRelativeTime(session.updatedAt),
+          ...(session.id === model.currentSessionId ? ["Current"] : []),
+          ...(session.id === model.expandedSessionId ? ["Expanded"] : []),
+          ...(session.id === model.editingSessionId ? ["Editing"] : []),
+        ],
+      };
+    });
+  if (sessions.length > UIC_RECENT_SESSIONS_RESOURCE_BUDGET.maxRows) diagnostics.push("uic/resource/rows-truncated");
+  return items.length ? { state: "ready", items, diagnostics: [...new Set(diagnostics)] } : { state: "empty" };
+}
+
+function UICReadOnlyRecentSessionsSection({ model }: SpacesOverviewSlotProps<"recentSessions">) {
+  return (
+    <UICReadOnlyListSection
+      slot="recent-sessions"
+      title="All Voyages"
+      subtitle="Read-only UIC voyage list"
+      emptyLabel="No saved voyages"
+      countNoun="voyage"
+      resource={projectUICRecentSessionsResource(model)}
     />
   );
 }
@@ -513,7 +568,7 @@ export function SpacesOverviewUICLayoutProofPresentation({
   ...props
 }: SpacesOverviewComponentProps & { readonly xml?: string }) {
   const diagnostics = validateUICXml(spacesOverviewPageHeaderUICProof, xml).diagnostics;
-  const ui = diagnostics.length ? defaultSpacesOverviewUI : { ...defaultSpacesOverviewUI, StarredCraftSection: UICReadOnlyStarredCraftSection, RunningDevServersSection: UICReadOnlyRunningDevServersSection, RecentlyVisitedCraftSection: UICReadOnlyRecentlyVisitedCraftSection, RecentlyCreatedCraftSection: UICReadOnlyRecentlyCreatedCraftSection, WorkspaceListSection: UICReadOnlyWorkspaceListSection, SpacesSection: UICReadOnlySpacesSection };
+  const ui = diagnostics.length ? defaultSpacesOverviewUI : { ...defaultSpacesOverviewUI, RecentSessionsSection: UICReadOnlyRecentSessionsSection, StarredCraftSection: UICReadOnlyStarredCraftSection, RunningDevServersSection: UICReadOnlyRunningDevServersSection, RecentlyVisitedCraftSection: UICReadOnlyRecentlyVisitedCraftSection, RecentlyCreatedCraftSection: UICReadOnlyRecentlyCreatedCraftSection, WorkspaceListSection: UICReadOnlyWorkspaceListSection, SpacesSection: UICReadOnlySpacesSection };
 
   return (
     <>

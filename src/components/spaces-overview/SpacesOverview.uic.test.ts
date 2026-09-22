@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { SpacesOverviewView, type DashboardWorkspace } from "../SpacesOverview";
 import {
   UIC_RECENTLY_CREATED_CRAFT_RESOURCE_BUDGET,
+  UIC_RECENT_SESSIONS_RESOURCE_BUDGET,
   UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET,
   UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET,
   UIC_STARRED_CRAFT_RESOURCE_BUDGET,
@@ -11,6 +12,7 @@ import {
   UIC_WORKSPACE_LIST_RESOURCE_BUDGET,
   SpacesOverviewUICLayoutProofPresentation,
   SpacesOverviewUICPageHeaderProof,
+  projectUICRecentSessionsResource,
   projectUICRecentlyCreatedCraftResource,
   projectUICRecentlyVisitedCraftResource,
   projectUICSpacesResource,
@@ -78,6 +80,10 @@ function runningDevServersRegion(html: string) {
 
 function starredCraftRegion(html: string) {
   return html.slice(html.indexOf('data-uic-owned-region="starred-craft"'), html.indexOf('data-uic-owned-region="running-dev-servers"'));
+}
+
+function recentSessionsRegion(html: string) {
+  return html.slice(html.indexOf('data-uic-owned-region="recent-sessions"'), html.indexOf('data-uic-owned-region="starred-craft"'));
 }
 
 function recentlyVisitedRegion(html: string) {
@@ -596,5 +602,83 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(region).toContain(longName.slice(0, UIC_WORKSPACE_LIST_RESOURCE_BUDGET.maxNameLength));
     expect(region).toContain(longBranch.slice(0, UIC_WORKSPACE_LIST_RESOURCE_BUDGET.maxBranchLength));
     expect(region).toContain(longRepo.slice(0, UIC_WORKSPACE_LIST_RESOURCE_BUDGET.maxRepoLabelLength));
+  });
+
+  it("uses finite UIC states for recent sessions without session or navigation controls", () => {
+    const readyRegion = recentSessionsRegion(renderUICLayout());
+
+    expect(readyRegion).toContain("Read-only UIC voyage list");
+    expect(readyRegion).toContain("All Voyages");
+    expect(readyRegion).toContain("Current launch");
+    expect(readyRegion).toContain("Current");
+    expect(readyRegion).not.toContain("<button");
+    expect(readyRegion).not.toContain("New Voyage");
+    expect(readyRegion).not.toContain("Rename");
+    expect(readyRegion).not.toContain("Delete");
+    expect(readyRegion).not.toContain("Go to craft");
+
+    expect(recentSessionsRegion(renderUICLayout(undefined, { savedSessions: [] }))).toContain("No saved voyages");
+  });
+
+  it("caps UIC recent session rows deterministically before rendering", () => {
+    const savedSessions = Array.from({ length: UIC_RECENT_SESSIONS_RESOURCE_BUDGET.maxRows + 2 }, (_, index) => ({
+      ...storybookSavedSessions[0]!,
+      id: `voyage-uic-${index}`,
+      name: `UIC voyage ${index}`,
+      slug: `uic-voyage-${index}`,
+      updatedAt: `2026-06-27T13:${String(59 - index).padStart(2, "0")}:00.000Z`,
+    }));
+    const region = recentSessionsRegion(renderUICLayout(undefined, { savedSessions, currentSessionId: savedSessions[0]!.id }));
+
+    expect(region).toContain("uic/resource/rows-truncated");
+    expect(region).toContain(`UIC voyage ${UIC_RECENT_SESSIONS_RESOURCE_BUDGET.maxRows - 1}`);
+    expect(region).not.toContain(`UIC voyage ${UIC_RECENT_SESSIONS_RESOURCE_BUDGET.maxRows}`);
+  });
+
+  it("diagnoses duplicate UIC recent session IDs and keeps the first row", () => {
+    const resource = projectUICRecentSessionsResource({
+      workspace: storybookWorkspace,
+      currentSessionId: "session-dupe",
+      expandedSessionId: null,
+      editingSessionId: null,
+      sortedSessions: [
+        { ...storybookSavedSessions[0]!, id: "session-dupe", name: "First voyage duplicate" },
+        { ...storybookSavedSessions[1]!, id: "session-dupe", name: "Second voyage duplicate" },
+      ],
+    });
+
+    expect(resource).toMatchObject({ state: "ready", diagnostics: ["uic/resource/duplicate-row-id"] });
+    if (resource.state !== "ready") throw new Error("Expected ready resource");
+    expect(resource.items).toHaveLength(1);
+    expect(resource.items[0]?.label).toBe("First voyage duplicate");
+    expect(resource.items[0]?.meta).toContain("Current");
+  });
+
+  it("caps long UIC recent session names and metadata before rendering", () => {
+    const longName = `Voyage-${"v".repeat(UIC_RECENT_SESSIONS_RESOURCE_BUDGET.maxNameLength + 20)}`;
+    const longSpace = `Space-${"s".repeat(UIC_RECENT_SESSIONS_RESOURCE_BUDGET.maxLocationLength + 20)}`;
+    const longCraft = `Craft-${"c".repeat(UIC_RECENT_SESSIONS_RESOURCE_BUDGET.maxLocationLength + 20)}`;
+    const workspace = {
+      ...storybookWorkspace,
+      spaces: [{ ...storybookWorkspace.spaces[1]!, id: "space-long-session", name: longSpace, tabGroupIds: ["tg-long-session"] }],
+      tabGroups: [{ ...storybookWorkspace.tabGroups[1]!, id: "tg-long-session", label: longCraft }],
+    };
+    const savedSessions = [{
+      ...storybookSavedSessions[0]!,
+      id: "session-long",
+      name: longName,
+      activeSpaceId: "space-long-session",
+      activeTabGroupId: "tg-long-session",
+      visitedTabGroupIds: ["tg-long-session"],
+      voyageEntries: [{ id: "entry-long-session", tabGroupId: "tg-long-session", viewIds: [] }],
+    }];
+    const region = recentSessionsRegion(renderUICLayout(undefined, { workspace, savedSessions, currentSessionId: undefined }));
+
+    expect(region).toContain("uic/resource/string-truncated");
+    expect(region).not.toContain(longName);
+    expect(region).not.toContain(longSpace);
+    expect(region).not.toContain(longCraft);
+    expect(region).toContain(longName.slice(0, UIC_RECENT_SESSIONS_RESOURCE_BUDGET.maxNameLength));
+    expect(region).toContain(longSpace.slice(0, UIC_RECENT_SESSIONS_RESOURCE_BUDGET.maxLocationLength));
   });
 });
