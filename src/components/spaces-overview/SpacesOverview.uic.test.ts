@@ -66,6 +66,10 @@ function runningDevServersRegion(html: string) {
   return html.slice(html.indexOf('data-uic-owned-region="running-dev-servers"'), html.indexOf('data-myne-slot="recently-visited-craft"'));
 }
 
+function recentlyVisitedRegion(html: string) {
+  return html.slice(html.indexOf('data-uic-owned-region="recently-visited-craft"'), html.indexOf('data-myne-slot="recently-created-craft"'));
+}
+
 function runningWorkspace(overrides: Partial<DashboardWorkspace> = {}): DashboardWorkspace {
   const base = dashboardWorkspaces.find((workspace) => workspace.has_running_dev_server) ?? dashboardWorkspaces[0]!;
   return { ...base, id: "uic-running", name: "UIC running", branch: "vk/uic-running", has_running_dev_server: true, ...overrides };
@@ -175,5 +179,20 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(region).toContain(longName.slice(0, UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxLabelLength));
     expect(region).toContain(longBranch.slice(0, UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxBranchLength));
     expect(region).toContain(longRepo.slice(0, UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxRepoLabelLength));
+  });
+
+  it("uses finite UIC empty/ready/list semantics for recently visited craft without mutation controls", () => {
+    const readyRegion = recentlyVisitedRegion(renderUICLayout());
+
+    expect(readyRegion).toContain("Read-only UIC list");
+    expect(readyRegion).toContain("Auth bug fix");
+    expect(readyRegion).toContain("Product");
+    expect(readyRegion).not.toContain("<button");
+    expect(readyRegion).not.toContain("Previous");
+    expect(readyRegion).not.toContain("Next");
+
+    const emptyWorkspace = { ...storybookWorkspace, tabGroups: storybookWorkspace.tabGroups.map((tabGroup) => ({ ...tabGroup, lastVisitedAt: undefined })) };
+    const emptyRegion = recentlyVisitedRegion(renderUICLayout(undefined, { workspace: emptyWorkspace }));
+    expect(emptyRegion).toContain("No recently visited craft");
   });
 });

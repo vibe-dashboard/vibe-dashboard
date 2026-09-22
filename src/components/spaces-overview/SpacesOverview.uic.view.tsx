@@ -1,6 +1,7 @@
 import { DefaultPageHeader, DefaultSpacesOverviewLayout, defaultSpacesOverviewUI } from "./DefaultSpacesOverview.view";
 import type { SpacesOverviewComponentProps } from "./SpacesOverview.contracts";
 import type { SpacesOverviewSlotProps } from "./SpacesOverview.slots";
+import { formatRelativeTime } from "./workspaceList.view";
 import { MyneHeading, MyneText } from "../../theme/skins";
 import { spacesOverviewPageHeaderUICProof, validateUICXml } from "../../uic/trustedComponents";
 
@@ -36,10 +37,16 @@ export function SpacesOverviewUICPageHeaderProof({ xml = spacesOverviewUICLayout
   );
 }
 
-type UICRunningDevServersResource =
+type UICReadOnlyListItem = {
+  readonly id: string;
+  readonly label: string;
+  readonly meta: readonly string[];
+};
+
+type UICReadOnlyListResource =
   | { readonly state: "pending" }
   | { readonly state: "empty" }
-  | { readonly state: "ready"; readonly items: readonly { readonly id: string; readonly name: string; readonly branch: string; readonly repoNames: readonly string[] }[]; readonly diagnostics: readonly string[] };
+  | { readonly state: "ready"; readonly items: readonly UICReadOnlyListItem[]; readonly diagnostics: readonly string[] };
 
 export const UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET = Object.freeze({
   maxRows: 5,
@@ -55,7 +62,7 @@ function capUICResourceString(value: string, max: number, diagnostics: string[])
   return `${value.slice(0, max)}…`;
 }
 
-function projectUICRunningDevServersResource(model: SpacesOverviewSlotProps<"runningDevServers">["model"]): UICRunningDevServersResource {
+function projectUICRunningDevServersResource(model: SpacesOverviewSlotProps<"runningDevServers">["model"]): UICReadOnlyListResource {
   if (model.loading) return { state: "pending" };
   const diagnostics: string[] = [];
   const seen = new Set<string>();
@@ -72,29 +79,43 @@ function projectUICRunningDevServersResource(model: SpacesOverviewSlotProps<"run
     .slice(0, UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxRows)
     .map((workspace) => ({
       id: workspace.id,
-      name: capUICResourceString(workspace.name, UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxLabelLength, diagnostics),
-      branch: capUICResourceString(workspace.branch, UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxBranchLength, diagnostics),
-      repoNames: workspace.repos
+      label: capUICResourceString(workspace.name, UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxLabelLength, diagnostics),
+      meta: [
+        capUICResourceString(workspace.branch, UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxBranchLength, diagnostics),
+        ...workspace.repos
         .slice(0, UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxRepoLabelsPerRow)
         .map((repo) => capUICResourceString(repo.display_name || repo.name, UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxRepoLabelLength, diagnostics)),
+      ],
     }));
   if (model.workspaces.filter((workspace) => workspace.has_running_dev_server).length > UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxRows) diagnostics.push("uic/resource/rows-truncated");
   if (model.workspaces.some((workspace) => workspace.has_running_dev_server && workspace.repos.length > UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxRepoLabelsPerRow)) diagnostics.push("uic/resource/repo-labels-truncated");
   return items.length ? { state: "ready", items, diagnostics: [...new Set(diagnostics)] } : { state: "empty" };
 }
 
-function UICReadOnlyRunningDevServersSection({ model }: SpacesOverviewSlotProps<"runningDevServers">) {
-  const resource = projectUICRunningDevServersResource(model);
-
+function UICReadOnlyListSection({
+  slot,
+  title,
+  subtitle,
+  pendingLabel,
+  emptyLabel,
+  resource,
+}: {
+  readonly slot: string;
+  readonly title: string;
+  readonly subtitle: string;
+  readonly pendingLabel?: string;
+  readonly emptyLabel: string;
+  readonly resource: UICReadOnlyListResource;
+}) {
   return (
-    <section className="mb-8 rounded-xl border p-4" data-myne-slot="running-dev-servers" data-uic-owned-region="running-dev-servers" aria-busy={resource.state === "pending"}>
+    <section className="mb-8 rounded-xl border p-4" data-myne-slot={slot} data-uic-owned-region={slot} aria-busy={resource.state === "pending"}>
       <div className="mb-3 flex items-center justify-between">
         <div>
           <MyneHeading className="text-lg font-semibold" level={2}>
-            Running Dev Servers
+            {title}
           </MyneHeading>
           <MyneText as="p" className="mt-1 text-xs" tone="muted">
-            Read-only UIC resource
+            {subtitle}
           </MyneText>
         </div>
         {resource.state === "ready" && (
@@ -105,11 +126,11 @@ function UICReadOnlyRunningDevServersSection({ model }: SpacesOverviewSlotProps<
       </div>
       {resource.state === "pending" ? (
         <MyneText as="p" className="myne-state myne-state--loading py-6 text-sm" tone="muted">
-          Loading running development servers
+          {pendingLabel}
         </MyneText>
       ) : resource.state === "empty" ? (
         <MyneText as="p" className="myne-state myne-state--empty py-6 text-sm" tone="muted">
-          No running development servers
+          {emptyLabel}
         </MyneText>
       ) : (
         <ul className="space-y-1">
@@ -121,14 +142,11 @@ function UICReadOnlyRunningDevServersSection({ model }: SpacesOverviewSlotProps<
           {resource.items.map((item) => (
             <li key={item.id} className="myne-row rounded-lg border px-4 py-3">
               <MyneText as="span" className="block text-sm font-medium" tone="primary">
-                {item.name}
+                {item.label}
               </MyneText>
-              <MyneText as="span" className="mt-1 block break-all font-mono text-xs" tone="muted">
-                {item.branch}
-              </MyneText>
-              {item.repoNames.length > 0 && (
+              {item.meta.length > 0 && (
                 <MyneText as="span" className="mt-1 block text-xs" tone="muted">
-                  {item.repoNames.join(", ")}
+                  {item.meta.join(" · ")}
                 </MyneText>
               )}
             </li>
@@ -139,12 +157,50 @@ function UICReadOnlyRunningDevServersSection({ model }: SpacesOverviewSlotProps<
   );
 }
 
+function UICReadOnlyRunningDevServersSection({ model }: SpacesOverviewSlotProps<"runningDevServers">) {
+  return (
+    <UICReadOnlyListSection
+      slot="running-dev-servers"
+      title="Running Dev Servers"
+      subtitle="Read-only UIC resource"
+      pendingLabel="Loading running development servers"
+      emptyLabel="No running development servers"
+      resource={projectUICRunningDevServersResource(model)}
+    />
+  );
+}
+
+function projectUICRecentlyVisitedCraftResource(model: SpacesOverviewSlotProps<"recentlyVisitedCraft">["model"]): UICReadOnlyListResource {
+  const items = model.recentlyVisited.items.map(({ space, tg }) => ({
+    id: tg.id,
+    label: model.tabGroupDisplayLabelById.get(tg.id) ?? tg.label,
+    meta: [
+      space.name,
+      `${tg.tabs.length} view${tg.tabs.length === 1 ? "" : "s"}`,
+      ...(tg.lastVisitedAt ? [formatRelativeTime(tg.lastVisitedAt)] : []),
+    ],
+  }));
+  return items.length ? { state: "ready", items, diagnostics: [] } : { state: "empty" };
+}
+
+function UICReadOnlyRecentlyVisitedCraftSection({ model }: SpacesOverviewSlotProps<"recentlyVisitedCraft">) {
+  return (
+    <UICReadOnlyListSection
+      slot="recently-visited-craft"
+      title="Recently Visited"
+      subtitle="Read-only UIC list"
+      emptyLabel="No recently visited craft"
+      resource={projectUICRecentlyVisitedCraftResource(model)}
+    />
+  );
+}
+
 export function SpacesOverviewUICLayoutProofPresentation({
   xml = spacesOverviewUICLayoutXml,
   ...props
 }: SpacesOverviewComponentProps & { readonly xml?: string }) {
   const diagnostics = validateUICXml(spacesOverviewPageHeaderUICProof, xml).diagnostics;
-  const ui = diagnostics.length ? defaultSpacesOverviewUI : { ...defaultSpacesOverviewUI, RunningDevServersSection: UICReadOnlyRunningDevServersSection };
+  const ui = diagnostics.length ? defaultSpacesOverviewUI : { ...defaultSpacesOverviewUI, RunningDevServersSection: UICReadOnlyRunningDevServersSection, RecentlyVisitedCraftSection: UICReadOnlyRecentlyVisitedCraftSection };
 
   return (
     <>
