@@ -15,9 +15,12 @@ import {
   SpacesOverviewUICPageHeaderProof,
   invokeUICSpacesOverviewAction,
   projectUICRecentSessionsResource,
+  projectUICRecentlyCreatedCraftActions,
   projectUICRecentlyCreatedCraftResource,
+  projectUICRecentlyVisitedCraftActions,
   projectUICRecentlyVisitedCraftResource,
   projectUICStarredCraftActions,
+  projectUICSpacesCraftActions,
   projectUICSpacesResource,
   projectUICStarredCraftResource,
   projectUICWorkspaceListResource,
@@ -218,16 +221,18 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(region).toContain(longRepo.slice(0, UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxRepoLabelLength));
   });
 
-  it("uses finite UIC empty/ready/list semantics for recently visited craft without mutation controls", () => {
+  it("uses finite UIC empty/ready/list semantics and navigation action for recently visited craft", () => {
     const readyRegion = recentlyVisitedRegion(renderUICLayout());
 
     expect(readyRegion).toContain("Read-only UIC list");
     expect(readyRegion).toContain("3 craft");
     expect(readyRegion).toContain("Auth bug fix");
     expect(readyRegion).toContain("Product");
-    expect(readyRegion).not.toContain("<button");
+    expect(readyRegion).toContain("Open craft");
     expect(readyRegion).not.toContain("Previous");
     expect(readyRegion).not.toContain("Next");
+    expect(readyRegion).not.toContain("Delete");
+    expect(readyRegion).not.toContain("Stop server");
 
     const emptyWorkspace = { ...storybookWorkspace, tabGroups: storybookWorkspace.tabGroups.map((tabGroup) => ({ ...tabGroup, lastVisitedAt: undefined })) };
     const emptyRegion = recentlyVisitedRegion(renderUICLayout(undefined, { workspace: emptyWorkspace }));
@@ -296,16 +301,18 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(region).toContain(longSpace.slice(0, UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET.maxSpaceLabelLength));
   });
 
-  it("uses finite UIC empty/ready/list semantics for recently created craft without mutation controls", () => {
+  it("uses finite UIC empty/ready/list semantics and navigation action for recently created craft", () => {
     const readyRegion = recentlyCreatedRegion(renderUICLayout());
 
     expect(readyRegion).toContain("Read-only UIC list");
     expect(readyRegion).toContain("3 craft");
     expect(readyRegion).toContain("Auth bug fix");
     expect(readyRegion).toContain("Product");
-    expect(readyRegion).not.toContain("<button");
+    expect(readyRegion).toContain("Open craft");
     expect(readyRegion).not.toContain("Previous");
     expect(readyRegion).not.toContain("Next");
+    expect(readyRegion).not.toContain("Delete");
+    expect(readyRegion).not.toContain("Stop server");
 
     const emptyWorkspace = { ...storybookWorkspace, tabGroups: storybookWorkspace.tabGroups.map((tabGroup) => ({ ...tabGroup, createdAt: undefined })) };
     const emptyRegion = recentlyCreatedRegion(renderUICLayout(undefined, { workspace: emptyWorkspace }));
@@ -402,8 +409,39 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     }, false)).toEqual([]);
   });
 
+  it("does not expose sibling craft-list actions when XML omits their bindings", () => {
+    const withoutVisited = spacesOverviewUICLayoutXml.replace('  <uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" />', "  <uic:recentlyVisitedCraft />");
+    expect(recentlyVisitedRegion(renderUICLayout(withoutVisited))).not.toContain("Open craft");
+    expect(projectUICRecentlyVisitedCraftActions({
+      recentlyVisited: { page: 0, totalPages: 1, items: [{ space: storybookWorkspace.spaces[1]!, tg: storybookWorkspace.tabGroups[1]! }] },
+      tabGroupDisplayLabelById: new Map(),
+    }, false)).toEqual([]);
+
+    const withoutCreated = spacesOverviewUICLayoutXml.replace('  <uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" />', "  <uic:recentlyCreatedCraft />");
+    expect(recentlyCreatedRegion(renderUICLayout(withoutCreated))).not.toContain("Open craft");
+    expect(projectUICRecentlyCreatedCraftActions({
+      recentlyCreated: { page: 0, totalPages: 1, items: [{ space: storybookWorkspace.spaces[1]!, tg: storybookWorkspace.tabGroups[1]! }] },
+      tabGroupDisplayLabelById: new Map(),
+    }, false)).toEqual([]);
+
+    const withoutSpaces = spacesOverviewUICLayoutXml.replace('  <uic:spaces uic:on-activate="spaces.navigateToCraft" />', "  <uic:spaces />");
+    expect(spacesRegion(renderUICLayout(withoutSpaces))).not.toContain("Open craft");
+    expect(projectUICSpacesCraftActions({
+      hasSpaces: true,
+      tabGroupDisplayLabelById: new Map(),
+      spacesWithTabGroups: [{ space: storybookWorkspace.spaces[1]!, tabGroups: [storybookWorkspace.tabGroups[1]!] }],
+    }, false)).toEqual([]);
+  });
+
   it("falls back instead of exposing the starred craft action when XML action validation fails", () => {
     const html = renderUICLayout(spacesOverviewUICLayoutXml.replace("spaces.navigateToCraft", "spaces.deleteCraft"));
+
+    expect(html).toContain('data-myne-view-pack="myne.spaces.view-pack.default"');
+    expect(html).toContain("uic/xml/unknown-action");
+  });
+
+  it("falls back instead of exposing sibling craft-list actions when XML action validation fails", () => {
+    const html = renderUICLayout(spacesOverviewUICLayoutXml.replace('<uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" />', '<uic:recentlyVisitedCraft uic:on-activate="https://example.test/action" />'));
 
     expect(html).toContain('data-myne-view-pack="myne.spaces.view-pack.default"');
     expect(html).toContain("uic/xml/unknown-action");
@@ -425,6 +463,48 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     ]);
     expect(JSON.stringify(descriptors)).not.toMatch(/function|=>|appHooks|QueryClient|https?:|navigateToTabGroup/u);
     expect(UIC_SPACES_OVERVIEW_ACTIONS["spaces.navigateToCraft"].args).toEqual({ spaceId: "string", tabGroupId: "string" });
+  });
+
+  it("projects only serializable allowed UIC action descriptors for sibling craft lists", () => {
+    const expected = {
+      event: "activate",
+      id: "spaces.navigateToCraft",
+      args: { spaceId: storybookWorkspace.spaces[1]!.id, tabGroupId: storybookWorkspace.tabGroups[1]!.id },
+      status: "available",
+    };
+    const item = { space: storybookWorkspace.spaces[1]!, tg: storybookWorkspace.tabGroups[1]! };
+    const descriptors = [
+      ...projectUICRecentlyVisitedCraftActions({ recentlyVisited: { page: 0, totalPages: 1, items: [item] }, tabGroupDisplayLabelById: new Map() }),
+      ...projectUICRecentlyCreatedCraftActions({ recentlyCreated: { page: 0, totalPages: 1, items: [item] }, tabGroupDisplayLabelById: new Map() }),
+      ...projectUICSpacesCraftActions({ hasSpaces: true, tabGroupDisplayLabelById: new Map(), spacesWithTabGroups: [{ space: item.space, tabGroups: [item.tg] }] }),
+    ];
+
+    expect(descriptors).toEqual([expected, expected, expected]);
+    expect(JSON.stringify(descriptors)).not.toMatch(/function|=>|appHooks|QueryClient|https?:|navigateToTabGroup|delete|stop/u);
+  });
+
+  it("keeps sibling craft-list action targets aligned with the bounded rendered rows", () => {
+    const duplicateItems = [
+      { space: storybookWorkspace.spaces[1]!, tg: { ...storybookWorkspace.tabGroups[1]!, id: "dupe-action" } },
+      { space: storybookWorkspace.spaces[2]!, tg: { ...storybookWorkspace.tabGroups[2]!, id: "dupe-action" } },
+    ];
+
+    expect(projectUICRecentlyVisitedCraftActions({ recentlyVisited: { page: 0, totalPages: 1, items: duplicateItems }, tabGroupDisplayLabelById: new Map() })).toEqual([
+      expect.objectContaining({ args: { spaceId: storybookWorkspace.spaces[1]!.id, tabGroupId: "dupe-action" } }),
+    ]);
+    expect(projectUICRecentlyCreatedCraftActions({ recentlyCreated: { page: 0, totalPages: 1, items: duplicateItems }, tabGroupDisplayLabelById: new Map() })).toEqual([
+      expect.objectContaining({ args: { spaceId: storybookWorkspace.spaces[1]!.id, tabGroupId: "dupe-action" } }),
+    ]);
+    expect(projectUICSpacesCraftActions({
+      hasSpaces: true,
+      tabGroupDisplayLabelById: new Map(),
+      spacesWithTabGroups: [
+        { space: storybookWorkspace.spaces[1]!, tabGroups: [duplicateItems[0]!.tg] },
+        { space: storybookWorkspace.spaces[2]!, tabGroups: [duplicateItems[1]!.tg] },
+      ],
+    })).toEqual([
+      expect.objectContaining({ args: { spaceId: storybookWorkspace.spaces[1]!.id, tabGroupId: "dupe-action" } }),
+    ]);
   });
 
   it("rejects invalid, unavailable, or arbitrary UIC action invocations before trusted host dispatch", () => {
@@ -501,14 +581,16 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(region).toContain(longSpace.slice(0, UIC_STARRED_CRAFT_RESOURCE_BUDGET.maxSpaceLabelLength));
   });
 
-  it("uses finite UIC grouped-list semantics for spaces without navigation controls", () => {
+  it("uses finite UIC grouped-list semantics and navigation action for spaces", () => {
     const readyRegion = spacesRegion(renderUICLayout());
 
     expect(readyRegion).toContain("Read-only UIC grouped list");
     expect(readyRegion).toContain("2 spaces");
     expect(readyRegion).toContain("Product");
     expect(readyRegion).toContain("Auth bug fix");
-    expect(readyRegion).not.toContain("<button");
+    expect(readyRegion).toContain("Open craft");
+    expect(readyRegion).not.toContain("Delete");
+    expect(readyRegion).not.toContain("Stop server");
 
     const emptyWorkspace = { ...storybookWorkspace, spaces: storybookWorkspace.spaces.filter((space) => space.isSystem) };
     expect(spacesRegion(renderUICLayout(undefined, { workspace: emptyWorkspace }))).toContain("No spaces");

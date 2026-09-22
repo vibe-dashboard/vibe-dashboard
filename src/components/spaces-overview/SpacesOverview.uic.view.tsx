@@ -15,10 +15,10 @@ export const spacesOverviewUICLayoutXml = `<uic:spaceOverviewPage xmlns:uic="htt
   <uic:recentSessions />
   <uic:starredCraft uic:on-activate="spaces.navigateToCraft" />
   <uic:runningDevServers />
-  <uic:recentlyVisitedCraft />
-  <uic:recentlyCreatedCraft />
+  <uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" />
+  <uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" />
   <uic:workspaceList />
-  <uic:spaces />
+  <uic:spaces uic:on-activate="spaces.navigateToCraft" />
   <uic:spacePicker />
 </uic:spaceOverviewPage>`;
 
@@ -377,13 +377,33 @@ export function projectUICStarredCraftResource(model: SpacesOverviewSlotProps<"s
 }
 
 export function projectUICStarredCraftActions(model: SpacesOverviewSlotProps<"starredCraft">["model"], enabled = true): readonly UICSpacesOverviewActionDescriptor[] {
+  return projectUICCraftActions(model.starredTabGroups, UIC_STARRED_CRAFT_RESOURCE_BUDGET.maxRows, enabled);
+}
+
+function projectUICCraftActions(items: readonly TabGroupWithSpace[], maxRows: number, enabled = true): readonly UICSpacesOverviewActionDescriptor[] {
   if (!enabled) return [];
-  return model.starredTabGroups.map(({ space, tg }) => ({
-    event: "activate",
-    id: "spaces.navigateToCraft",
-    args: { spaceId: space.id, tabGroupId: tg.id },
-    status: "available",
-  }));
+  const seen = new Set<string>();
+  return items
+    .filter(({ tg }) => {
+      if (seen.has(tg.id)) return false;
+      seen.add(tg.id);
+      return true;
+    })
+    .slice(0, maxRows)
+    .map(({ space, tg }) => ({
+      event: "activate",
+      id: "spaces.navigateToCraft",
+      args: { spaceId: space.id, tabGroupId: tg.id },
+      status: "available",
+    }));
+}
+
+export function projectUICRecentlyVisitedCraftActions(model: SpacesOverviewSlotProps<"recentlyVisitedCraft">["model"], enabled = true): readonly UICSpacesOverviewActionDescriptor[] {
+  return projectUICCraftActions(model.recentlyVisited.items, UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET.maxRows, enabled);
+}
+
+export function projectUICRecentlyCreatedCraftActions(model: SpacesOverviewSlotProps<"recentlyCreatedCraft">["model"], enabled = true): readonly UICSpacesOverviewActionDescriptor[] {
+  return projectUICCraftActions(model.recentlyCreated.items, UIC_RECENTLY_CREATED_CRAFT_RESOURCE_BUDGET.maxRows, enabled);
 }
 
 function UICReadOnlyStarredCraftSection({ model, actions, enableNavigateAction = true }: SpacesOverviewSlotProps<"starredCraft"> & { readonly enableNavigateAction?: boolean }) {
@@ -403,7 +423,8 @@ function UICReadOnlyStarredCraftSection({ model, actions, enableNavigateAction =
   );
 }
 
-function UICReadOnlyRecentlyVisitedCraftSection({ model }: SpacesOverviewSlotProps<"recentlyVisitedCraft">) {
+function UICReadOnlyRecentlyVisitedCraftSection({ model, actions, enableNavigateAction = true }: SpacesOverviewSlotProps<"recentlyVisitedCraft"> & { readonly enableNavigateAction?: boolean }) {
+  const actionDescriptors = new Map(projectUICRecentlyVisitedCraftActions(model, enableNavigateAction).map((action) => [action.args.tabGroupId, action]));
   return (
     <UICReadOnlyListSection
       slot="recently-visited-craft"
@@ -413,6 +434,8 @@ function UICReadOnlyRecentlyVisitedCraftSection({ model }: SpacesOverviewSlotPro
       countNoun="craft"
       countNounPlural="craft"
       resource={projectUICRecentlyVisitedCraftResource(model)}
+      actionsByItemId={actionDescriptors}
+      trustedActions={actions}
     />
   );
 }
@@ -426,7 +449,8 @@ export function projectUICRecentlyCreatedCraftResource(model: SpacesOverviewSlot
   });
 }
 
-function UICReadOnlyRecentlyCreatedCraftSection({ model }: SpacesOverviewSlotProps<"recentlyCreatedCraft">) {
+function UICReadOnlyRecentlyCreatedCraftSection({ model, actions, enableNavigateAction = true }: SpacesOverviewSlotProps<"recentlyCreatedCraft"> & { readonly enableNavigateAction?: boolean }) {
+  const actionDescriptors = new Map(projectUICRecentlyCreatedCraftActions(model, enableNavigateAction).map((action) => [action.args.tabGroupId, action]));
   return (
     <UICReadOnlyListSection
       slot="recently-created-craft"
@@ -436,6 +460,8 @@ function UICReadOnlyRecentlyCreatedCraftSection({ model }: SpacesOverviewSlotPro
       countNoun="craft"
       countNounPlural="craft"
       resource={projectUICRecentlyCreatedCraftResource(model)}
+      actionsByItemId={actionDescriptors}
+      trustedActions={actions}
     />
   );
 }
@@ -574,8 +600,38 @@ export function projectUICSpacesResource(model: SpacesOverviewSlotProps<"spaces"
   return groups.length ? { state: "ready", groups, diagnostics: [...new Set(diagnostics)] } : { state: "empty" };
 }
 
-function UICReadOnlySpacesSection({ model }: SpacesOverviewSlotProps<"spaces">) {
+export function projectUICSpacesCraftActions(model: SpacesOverviewSlotProps<"spaces">["model"], enabled = true): readonly UICSpacesOverviewActionDescriptor[] {
+  if (!enabled) return [];
+  const seen = new Set<string>();
+  const seenSpaces = new Set<string>();
+  return model.spacesWithTabGroups
+    .filter(({ space }) => {
+      if (seenSpaces.has(space.id)) return false;
+      seenSpaces.add(space.id);
+      return true;
+    })
+    .slice(0, UIC_SPACES_RESOURCE_BUDGET.maxSpaces)
+    .flatMap(({ space, tabGroups }) =>
+      tabGroups
+        .filter((tg) => {
+          if (seen.has(tg.id)) return false;
+          seen.add(tg.id);
+          return true;
+        })
+        .slice(0, UIC_SPACES_RESOURCE_BUDGET.maxCraftPerSpace)
+        .map((tg) => ({
+          event: "activate" as const,
+          id: "spaces.navigateToCraft" as const,
+          args: { spaceId: space.id, tabGroupId: tg.id },
+          status: "available" as const,
+        })),
+  );
+}
+
+function UICReadOnlySpacesSection({ model, actions, enableNavigateAction = true }: SpacesOverviewSlotProps<"spaces"> & { readonly enableNavigateAction?: boolean }) {
   const resource = projectUICSpacesResource(model);
+  const actionDescriptors = new Map(projectUICSpacesCraftActions(model, enableNavigateAction).map((action) => [action.args.tabGroupId, action]));
+  const allowedTargets = new Set(Array.from(actionDescriptors.values()).map((action) => `${action.args.spaceId}:${action.args.tabGroupId}`));
   return (
     <section className="mb-8 rounded-xl border p-4" data-myne-slot="spaces-list" data-uic-owned-region="spaces-list">
       <div className="mb-3 flex items-center justify-between">
@@ -620,6 +676,18 @@ function UICReadOnlySpacesSection({ model }: SpacesOverviewSlotProps<"spaces">) 
                         {item.meta.join(" · ")}
                       </MyneText>
                     )}
+                    {actions && actionDescriptors.has(item.id) && (
+                      <button
+                        type="button"
+                        className="myne-button myne-button--quiet mt-2 text-xs"
+                        onClick={() => {
+                          const action = actionDescriptors.get(item.id);
+                          if (action) invokeUICSpacesOverviewAction(actions, action, allowedTargets);
+                        }}
+                      >
+                        Open craft
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -638,7 +706,10 @@ export function SpacesOverviewUICLayoutProofPresentation({
   const diagnostics = validateUICXml(spacesOverviewPageHeaderUICProof, xml).diagnostics;
   const actionBindings = diagnostics.length ? new Map() : getUICValidatedActionBindings(spacesOverviewPageHeaderUICProof, xml);
   const enableStarredNavigate = actionBindings.get("starredCraft")?.activate === "spaces.navigateToCraft";
-  const ui = diagnostics.length ? defaultSpacesOverviewUI : { ...defaultSpacesOverviewUI, RecentSessionsSection: UICReadOnlyRecentSessionsSection, StarredCraftSection: (slotProps: SpacesOverviewSlotProps<"starredCraft">) => <UICReadOnlyStarredCraftSection {...slotProps} enableNavigateAction={enableStarredNavigate} />, RunningDevServersSection: UICReadOnlyRunningDevServersSection, RecentlyVisitedCraftSection: UICReadOnlyRecentlyVisitedCraftSection, RecentlyCreatedCraftSection: UICReadOnlyRecentlyCreatedCraftSection, WorkspaceListSection: UICReadOnlyWorkspaceListSection, SpacesSection: UICReadOnlySpacesSection };
+  const enableRecentlyVisitedNavigate = actionBindings.get("recentlyVisitedCraft")?.activate === "spaces.navigateToCraft";
+  const enableRecentlyCreatedNavigate = actionBindings.get("recentlyCreatedCraft")?.activate === "spaces.navigateToCraft";
+  const enableSpacesNavigate = actionBindings.get("spaces")?.activate === "spaces.navigateToCraft";
+  const ui = diagnostics.length ? defaultSpacesOverviewUI : { ...defaultSpacesOverviewUI, RecentSessionsSection: UICReadOnlyRecentSessionsSection, StarredCraftSection: (slotProps: SpacesOverviewSlotProps<"starredCraft">) => <UICReadOnlyStarredCraftSection {...slotProps} enableNavigateAction={enableStarredNavigate} />, RunningDevServersSection: UICReadOnlyRunningDevServersSection, RecentlyVisitedCraftSection: (slotProps: SpacesOverviewSlotProps<"recentlyVisitedCraft">) => <UICReadOnlyRecentlyVisitedCraftSection {...slotProps} enableNavigateAction={enableRecentlyVisitedNavigate} />, RecentlyCreatedCraftSection: (slotProps: SpacesOverviewSlotProps<"recentlyCreatedCraft">) => <UICReadOnlyRecentlyCreatedCraftSection {...slotProps} enableNavigateAction={enableRecentlyCreatedNavigate} />, WorkspaceListSection: UICReadOnlyWorkspaceListSection, SpacesSection: (slotProps: SpacesOverviewSlotProps<"spaces">) => <UICReadOnlySpacesSection {...slotProps} enableNavigateAction={enableSpacesNavigate} /> };
 
   return (
     <>
