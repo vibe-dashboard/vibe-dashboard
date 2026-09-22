@@ -56,6 +56,12 @@ export const UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET = Object.freeze({
   maxRepoLabelLength: 32,
 });
 
+export const UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET = Object.freeze({
+  maxRows: 5,
+  maxLabelLength: 48,
+  maxSpaceLabelLength: 32,
+});
+
 function capUICResourceString(value: string, max: number, diagnostics: string[]): string {
   if (value.length <= max) return value;
   diagnostics.push("uic/resource/string-truncated");
@@ -98,6 +104,8 @@ function UICReadOnlyListSection({
   subtitle,
   pendingLabel,
   emptyLabel,
+  countNoun,
+  countNounPlural = `${countNoun}s`,
   resource,
 }: {
   readonly slot: string;
@@ -105,6 +113,8 @@ function UICReadOnlyListSection({
   readonly subtitle: string;
   readonly pendingLabel?: string;
   readonly emptyLabel: string;
+  readonly countNoun: string;
+  readonly countNounPlural?: string;
   readonly resource: UICReadOnlyListResource;
 }) {
   return (
@@ -120,7 +130,7 @@ function UICReadOnlyListSection({
         </div>
         {resource.state === "ready" && (
           <MyneText className="text-xs" tone="muted">
-            {resource.items.length} workspace{resource.items.length === 1 ? "" : "s"}
+            {resource.items.length} {resource.items.length === 1 ? countNoun : countNounPlural}
           </MyneText>
         )}
       </div>
@@ -165,22 +175,36 @@ function UICReadOnlyRunningDevServersSection({ model }: SpacesOverviewSlotProps<
       subtitle="Read-only UIC resource"
       pendingLabel="Loading running development servers"
       emptyLabel="No running development servers"
+      countNoun="workspace"
       resource={projectUICRunningDevServersResource(model)}
     />
   );
 }
 
-function projectUICRecentlyVisitedCraftResource(model: SpacesOverviewSlotProps<"recentlyVisitedCraft">["model"]): UICReadOnlyListResource {
-  const items = model.recentlyVisited.items.map(({ space, tg }) => ({
-    id: tg.id,
-    label: model.tabGroupDisplayLabelById.get(tg.id) ?? tg.label,
-    meta: [
-      space.name,
-      `${tg.tabs.length} view${tg.tabs.length === 1 ? "" : "s"}`,
-      ...(tg.lastVisitedAt ? [formatRelativeTime(tg.lastVisitedAt)] : []),
-    ],
-  }));
-  return items.length ? { state: "ready", items, diagnostics: [] } : { state: "empty" };
+export function projectUICRecentlyVisitedCraftResource(model: SpacesOverviewSlotProps<"recentlyVisitedCraft">["model"]): UICReadOnlyListResource {
+  const diagnostics: string[] = [];
+  const seen = new Set<string>();
+  const items = model.recentlyVisited.items
+    .filter(({ tg }) => {
+      if (!seen.has(tg.id)) {
+        seen.add(tg.id);
+        return true;
+      }
+      diagnostics.push("uic/resource/duplicate-row-id");
+      return false;
+    })
+    .slice(0, UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET.maxRows)
+    .map(({ space, tg }) => ({
+      id: tg.id,
+      label: capUICResourceString(model.tabGroupDisplayLabelById.get(tg.id) ?? tg.label, UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET.maxLabelLength, diagnostics),
+      meta: [
+        capUICResourceString(space.name, UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET.maxSpaceLabelLength, diagnostics),
+        `${tg.tabs.length} view${tg.tabs.length === 1 ? "" : "s"}`,
+        ...(tg.lastVisitedAt ? [formatRelativeTime(tg.lastVisitedAt)] : []),
+      ],
+    }));
+  if (model.recentlyVisited.items.length > UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET.maxRows) diagnostics.push("uic/resource/rows-truncated");
+  return items.length ? { state: "ready", items, diagnostics: [...new Set(diagnostics)] } : { state: "empty" };
 }
 
 function UICReadOnlyRecentlyVisitedCraftSection({ model }: SpacesOverviewSlotProps<"recentlyVisitedCraft">) {
@@ -190,6 +214,8 @@ function UICReadOnlyRecentlyVisitedCraftSection({ model }: SpacesOverviewSlotPro
       title="Recently Visited"
       subtitle="Read-only UIC list"
       emptyLabel="No recently visited craft"
+      countNoun="craft"
+      countNounPlural="craft"
       resource={projectUICRecentlyVisitedCraftResource(model)}
     />
   );

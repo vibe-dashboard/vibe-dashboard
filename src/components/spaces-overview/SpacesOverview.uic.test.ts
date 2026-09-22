@@ -3,9 +3,11 @@ import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 import { SpacesOverviewView, type DashboardWorkspace } from "../SpacesOverview";
 import {
+  UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET,
   UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET,
   SpacesOverviewUICLayoutProofPresentation,
   SpacesOverviewUICPageHeaderProof,
+  projectUICRecentlyVisitedCraftResource,
 } from "./SpacesOverview.uic.view";
 import {
   storybookRepoBranches,
@@ -185,6 +187,7 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     const readyRegion = recentlyVisitedRegion(renderUICLayout());
 
     expect(readyRegion).toContain("Read-only UIC list");
+    expect(readyRegion).toContain("3 craft");
     expect(readyRegion).toContain("Auth bug fix");
     expect(readyRegion).toContain("Product");
     expect(readyRegion).not.toContain("<button");
@@ -194,5 +197,67 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     const emptyWorkspace = { ...storybookWorkspace, tabGroups: storybookWorkspace.tabGroups.map((tabGroup) => ({ ...tabGroup, lastVisitedAt: undefined })) };
     const emptyRegion = recentlyVisitedRegion(renderUICLayout(undefined, { workspace: emptyWorkspace }));
     expect(emptyRegion).toContain("No recently visited craft");
+  });
+
+  it("caps UIC recently visited craft rows deterministically before rendering", () => {
+    const tabGroups = Array.from({ length: UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET.maxRows + 2 }, (_, index) => ({
+      ...storybookWorkspace.tabGroups[1]!,
+      id: `tg-uic-${index}`,
+      label: `Visited craft ${index}`,
+      lastVisitedAt: `2026-06-27T13:${String(59 - index).padStart(2, "0")}:00.000Z`,
+    }));
+    const workspace = {
+      ...storybookWorkspace,
+      spaces: [{ ...storybookWorkspace.spaces[1]!, tabGroupIds: tabGroups.map((tabGroup) => tabGroup.id) }],
+      tabGroups,
+    };
+    const region = recentlyVisitedRegion(renderUICLayout(undefined, { workspace }));
+
+    expect(region).toContain("uic/resource/rows-truncated");
+    expect(region).toContain(`Visited craft ${UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET.maxRows - 1}`);
+    expect(region).not.toContain(`Visited craft ${UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET.maxRows}`);
+  });
+
+  it("diagnoses duplicate recently visited craft IDs and renders the first matching row only", () => {
+    const resource = projectUICRecentlyVisitedCraftResource({
+      tabGroupDisplayLabelById: new Map([["dupe", "First duplicate"]]),
+      recentlyVisited: {
+        page: 0,
+        totalPages: 1,
+        items: [
+          { space: { ...storybookWorkspace.spaces[1]!, name: "First space" }, tg: { ...storybookWorkspace.tabGroups[1]!, id: "dupe", label: "First fallback" } },
+          { space: { ...storybookWorkspace.spaces[2]!, name: "Second space" }, tg: { ...storybookWorkspace.tabGroups[2]!, id: "dupe", label: "Second duplicate" } },
+        ],
+      },
+    });
+
+    expect(resource).toMatchObject({ state: "ready", diagnostics: ["uic/resource/duplicate-row-id"] });
+    if (resource.state !== "ready") throw new Error("Expected ready resource");
+    expect(resource.items).toHaveLength(1);
+    expect(resource.items[0]?.label).toBe("First duplicate");
+    expect(resource.items[0]?.meta).toContain("First space");
+  });
+
+  it("caps long recently visited craft labels and metadata before rendering", () => {
+    const longLabel = `Craft-${"c".repeat(UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET.maxLabelLength + 20)}`;
+    const longSpace = `Space-${"s".repeat(UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET.maxSpaceLabelLength + 20)}`;
+    const tabGroup = {
+      ...storybookWorkspace.tabGroups[1]!,
+      id: "tg-long",
+      label: longLabel,
+      lastVisitedAt: "2026-06-27T13:00:00.000Z",
+    };
+    const workspace = {
+      ...storybookWorkspace,
+      spaces: [{ ...storybookWorkspace.spaces[1]!, name: longSpace, tabGroupIds: [tabGroup.id] }],
+      tabGroups: [tabGroup],
+    };
+    const region = recentlyVisitedRegion(renderUICLayout(undefined, { workspace }));
+
+    expect(region).toContain("uic/resource/string-truncated");
+    expect(region).not.toContain(longLabel);
+    expect(region).not.toContain(longSpace);
+    expect(region).toContain(longLabel.slice(0, UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET.maxLabelLength));
+    expect(region).toContain(longSpace.slice(0, UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET.maxSpaceLabelLength));
   });
 });
