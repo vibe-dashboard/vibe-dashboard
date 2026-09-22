@@ -39,6 +39,24 @@ func TestParseEncodedPreviewHostAcceptsDnsBoundaryLengths(t *testing.T) {
 	}
 }
 
+func TestParseEncodedPreviewHostAcceptsAnyBaseDomainWhenUnconfigured(t *testing.T) {
+	cases := []string{
+		"0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev",
+		"0123456789abcdef-vibekanban-web-mickmister.customer.example",
+		"0123456789abcdef-vibekanban-web-mickmister.localhost",
+	}
+
+	for _, host := range cases {
+		match, ok := parseEncodedPreviewHost(host, "")
+		if !ok {
+			t.Fatalf("expected unconfigured base domain to accept encoded preview host %q", host)
+		}
+		if match.Host != host {
+			t.Fatalf("unexpected normalized host for %q: %+v", host, match)
+		}
+	}
+}
+
 func TestParseEncodedPreviewHostRejectsInvalidHosts(t *testing.T) {
 	cases := map[string]string{
 		"port-style":                "port-3000--mickmister.vibedashboard.dev",

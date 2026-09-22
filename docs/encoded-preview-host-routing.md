@@ -25,14 +25,15 @@ The full first-label budget is `16 + 18 + 10 + 16 + 3 separators = 63`
 characters. Old `preview-{workspace}-{slot}--{customer}` numeric hosts are
 intentionally rejected; this branch is a hard break with no backwards
 compatibility for numeric slots.
-The Caddy handler defaults to this `vibedashboard.dev` base domain via
-`PREVIEW_BASE_DOMAIN`; local/dev deployments using another customer base domain
-must set that variable explicitly.
+By default, the Caddy handler does not need a configured base domain. It detects
+preview requests by the compact first-label pattern on whatever hostname reaches
+Caddy, so previews work for any customer/runtime domain that preserves the
+original requested host.
 
-This compact first-label pattern is reserved under `PREVIEW_BASE_DOMAIN`.
 Customer hostnames that merely contain dashes are not preview hosts unless the
 first label satisfies the full `workspaceToken-repoSlug-slotSlug-customerSlug`
-grammar.
+grammar. Advanced deployments may still set the optional `base_domain` handler
+option to restrict preview matching to one DNS suffix.
 
 ## Runtime request flow
 
