@@ -91,6 +91,34 @@ describe("UIC trusted component descriptors", () => {
     );
   });
 
+  it("rejects every undeclared generated-tag attribute", () => {
+    for (const attribute of ["onclick", "data-app-hooks", "dangerouslySetInnerHTML", "variant", "vendorProp", "unknown"]) {
+      expect(validateUICXml(spacesOverviewPageHeaderUICProof, pageHeaderXml.replace("<uic:pageHeader ", `<uic:pageHeader ${attribute}="x" `)).diagnostics).toContainEqual(
+        expect.objectContaining({ code: "uic/xml/unknown-attribute" }),
+      );
+    }
+    expect(validateUICXml(spacesOverviewPageHeaderUICProof, pageHeaderXml.replace("<uic:slot ", '<uic:slot data-app-hooks="x" ')).diagnostics).toContainEqual(
+      expect.objectContaining({ code: "uic/xml/unknown-attribute" }),
+    );
+  });
+
+  it("enforces the exact proof root and top-level structure before compiling", async () => {
+    const cases = [
+      ["missing root", pageHeaderXml.replace("<uic:spaceOverviewPage", "<uic:notRoot"), "uic/xml/root-required"],
+      ["nested css", pageHeaderXml.replace("</uic:slot>", "</uic:slot><uic:css>bad</uic:css>"), "uic/xml/css-position"],
+      ["extra sibling", `${pageHeaderXml}<uic:pageHeader />`, "uic/xml/single-root-required"],
+      ["duplicate pageHeader", pageHeaderXml.replace("</uic:pageHeader>", "</uic:pageHeader><uic:pageHeader />"), "uic/xml/duplicate-node"],
+      ["duplicate action", pageHeaderXml.replace("<uic:pageHeaderAction label=\"Start voyage\" />", '<uic:pageHeaderAction label="Start voyage" /><uic:pageHeaderAction label="Again" />'), "uic/xml/duplicate-node"],
+      ["non-UIC element", pageHeaderXml.replace("</uic:slot>", "</uic:slot><div />"), "uic/xml/non-uic-element"],
+      ["unsupported namespace", pageHeaderXml.replace("<uic:slot", "<x:slot"), "uic/xml/unsupported-namespace"],
+    ] as const;
+
+    for (const [, xml, code] of cases) {
+      const compiled = await compileUICXml(spacesOverviewPageHeaderUICProof, xml);
+      expect(compiled).toMatchObject({ ok: false, diagnostics: expect.arrayContaining([expect.objectContaining({ code })]) });
+    }
+  });
+
   it("records wrapper-first HeroUI policy without exposing vendor APIs", () => {
     const action = spacesOverviewPageHeaderUICProof.components.pageHeaderAction;
 

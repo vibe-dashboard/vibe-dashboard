@@ -87,6 +87,57 @@ function attrs(source: string): Record<string, string> {
   return Object.fromEntries([...source.matchAll(/\s([A-Za-z_:][\w:.-]*)="([^"]*)"/g)].map((match) => [match[1]!, match[2]!]));
 }
 
+interface ParsedXmlNode {
+  readonly name: string;
+  readonly attrs: Readonly<Record<string, string>>;
+  readonly children: ParsedXmlNode[];
+  text: string;
+}
+
+function parseXmlLite(xml: string): { roots: ParsedXmlNode[]; diagnostics: UICDiagnostic[] } {
+  const roots: ParsedXmlNode[] = [];
+  const diagnostics: UICDiagnostic[] = [];
+  const stack: ParsedXmlNode[] = [];
+  const tokens = xml.matchAll(/<!\[CDATA\[([\s\S]*?)\]\]>|<([^>]+)>|([^<]+)/g);
+  for (const token of tokens) {
+    if (token[1] !== undefined) {
+      const current = stack.at(-1);
+      if (current) current.text += token[1];
+      continue;
+    }
+    if (token[3] !== undefined) {
+      const current = stack.at(-1);
+      if (current) current.text += token[3];
+      else if (token[3].trim()) diagnostics.push(diagnostic("uic/xml/single-root-required", "UIC XML must contain one root element."));
+      continue;
+    }
+
+    const raw = token[2]!.trim();
+    if (raw.startsWith("!--")) continue;
+    if (raw.startsWith("?") || raw.startsWith("!")) {
+      diagnostics.push(diagnostic("uic/xml/executable-forbidden", "UIC XML cannot contain declarations, doctypes, or processing instructions."));
+      continue;
+    }
+    if (raw.startsWith("/")) {
+      const name = raw.slice(1).trim();
+      const open = stack.pop();
+      if (!open || open.name !== name) diagnostics.push(diagnostic("uic/xml/malformed", `Mismatched closing tag "${name}".`));
+      continue;
+    }
+
+    const selfClosing = raw.endsWith("/");
+    const body = selfClosing ? raw.slice(0, -1).trim() : raw;
+    const [name = "", ...rest] = body.split(/\s+/);
+    const node: ParsedXmlNode = { name, attrs: attrs(` ${rest.join(" ")}`), children: [], text: "" };
+    const parent = stack.at(-1);
+    if (parent) parent.children.push(node);
+    else roots.push(node);
+    if (!selfClosing) stack.push(node);
+  }
+  if (stack.length) diagnostics.push(diagnostic("uic/xml/malformed", "UIC XML contains unclosed tags."));
+  return { roots, diagnostics };
+}
+
 function parseProp(value: string): UICPropValue {
   const binding = value.match(/^\{(model\.[A-Za-z][\w.]*)\}$/);
   return binding ? { kind: "binding", path: binding[1]! } : { kind: "literal", value };
@@ -146,37 +197,77 @@ export function generateUICXsd(descriptor: UICSurfaceDescriptor): string {
 }
 
 export function validateUICXml(descriptor: UICSurfaceDescriptor, xml: string): { diagnostics: readonly UICDiagnostic[] } {
-  const diagnostics: UICDiagnostic[] = [];
+  const parsed = parseXmlLite(xml);
+  const diagnostics: UICDiagnostic[] = [...parsed.diagnostics];
   if (/<\/?uic:component\b/.test(xml)) diagnostics.push(diagnostic("uic/xml/generic-component-forbidden", "UIC v1 uses generated named tags, not generic component refs."));
   if (/<\/?script\b|<\?xml-stylesheet|<!DOCTYPE/i.test(xml)) diagnostics.push(diagnostic("uic/xml/executable-forbidden", "UIC XML cannot contain executable markup."));
   if (/\s(?:class|className|style)=/.test(xml)) diagnostics.push(diagnostic("uic/xml/raw-style-forbidden", "UIC XML cannot pass raw class or style props."));
-  if (!xml.includes(`xmlns:uic="${descriptor.namespace}"`)) diagnostics.push(diagnostic("uic/xml/namespace-mismatch", "UIC namespace is missing or unsupported."));
 
   const allowedTags = new Set([descriptor.rootTag, "css", "slot", descriptor.components.pageHeader.tag, descriptor.components.pageHeaderAction.tag]);
-  for (const match of xml.matchAll(/<\/?uic:([A-Za-z][\w.-]*)\b/g)) {
-    if (!allowedTags.has(match[1]!)) diagnostics.push(diagnostic("uic/xml/unknown-tag", `Unknown UIC tag "${match[1]}".`));
-  }
 
-  for (const match of xml.matchAll(/<uic:(pageHeader|pageHeaderAction)\b([^>]*)/g)) {
-    const tag = match[1]!;
-    const component = descriptor.components[tag as "pageHeader" | "pageHeaderAction"];
-    const attributes = attrs(match[2]!);
-    if ("version" in attributes) diagnostics.push(diagnostic("uic/xml/component-version-forbidden", "App-local generated UIC component tags are unversioned."));
-    for (const forbidden of component.forbidden) {
-      if (forbidden in attributes) diagnostics.push(diagnostic("uic/xml/forbidden-prop", `Prop "${forbidden}" is not allowed on uic:${tag}.`));
+  function checkNode(node: ParsedXmlNode, parent?: ParsedXmlNode) {
+    if (!node.name.startsWith("uic:")) {
+      diagnostics.push(diagnostic(node.name.includes(":") ? "uic/xml/unsupported-namespace" : "uic/xml/non-uic-element", `Unsupported element "${node.name}".`));
+      return;
     }
+    const tag = node.name.slice(4);
+    if (!allowedTags.has(tag)) diagnostics.push(diagnostic("uic/xml/unknown-tag", `Unknown UIC tag "${tag}".`));
+
+    const allowedAttrs = tag === descriptor.rootTag
+      ? new Set(["xmlns:uic", "artifactVersion"])
+      : tag === "slot"
+        ? new Set(["name"])
+        : tag === descriptor.components.pageHeader.tag
+          ? new Set(descriptor.components.pageHeader.props)
+          : tag === descriptor.components.pageHeaderAction.tag
+            ? new Set(descriptor.components.pageHeaderAction.props)
+            : new Set<string>();
+    const forbidden = tag === descriptor.components.pageHeader.tag
+      ? descriptor.components.pageHeader.forbidden
+      : tag === descriptor.components.pageHeaderAction.tag
+        ? descriptor.components.pageHeaderAction.forbidden
+        : [];
+    for (const attr of Object.keys(node.attrs)) {
+      if (attr === "version" && (tag === descriptor.components.pageHeader.tag || tag === descriptor.components.pageHeaderAction.tag)) diagnostics.push(diagnostic("uic/xml/component-version-forbidden", "App-local generated UIC component tags are unversioned."));
+      if (forbidden.includes(attr)) diagnostics.push(diagnostic("uic/xml/forbidden-prop", `Prop "${attr}" is not allowed on uic:${tag}.`));
+      if (!allowedAttrs.has(attr)) diagnostics.push(diagnostic("uic/xml/unknown-attribute", `Attribute "${attr}" is not declared for uic:${tag}.`));
+    }
+    if (tag === descriptor.rootTag && node.attrs["xmlns:uic"] !== descriptor.namespace) diagnostics.push(diagnostic("uic/xml/namespace-mismatch", "UIC namespace is missing or unsupported."));
+    if (tag === "css" && parent?.name !== `uic:${descriptor.rootTag}`) diagnostics.push(diagnostic("uic/xml/css-position", "UIC CSS is only allowed as a top-level root child."));
+    node.children.forEach((child) => checkNode(child, node));
+  }
+  parsed.roots.forEach((root) => checkNode(root));
+
+  if (parsed.roots.length !== 1) diagnostics.push(diagnostic("uic/xml/single-root-required", "UIC XML must contain exactly one root element."));
+  const root = parsed.roots[0];
+  if (!root || root.name !== `uic:${descriptor.rootTag}`) {
+    diagnostics.push(diagnostic("uic/xml/root-required", `UIC XML root must be uic:${descriptor.rootTag}.`));
+    return { diagnostics };
   }
 
-  const pageHeader = xml.match(/<uic:pageHeader\b[^>]*>([\s\S]*?)<\/uic:pageHeader>/);
-  if (!pageHeader) diagnostics.push(diagnostic("uic/xml/missing-required-node", "SpacesOverview UIC proof requires uic:pageHeader."));
+  const rootTags = root.children.map((child) => child.name);
+  const cssCount = rootTags.filter((name) => name === "uic:css").length;
+  const pageHeaderChildren = root.children.filter((child) => child.name === "uic:pageHeader");
+  if (cssCount > 1) diagnostics.push(diagnostic("uic/xml/duplicate-node", "UIC proof allows at most one top-level css node."));
+  if (pageHeaderChildren.length !== 1) diagnostics.push(diagnostic(pageHeaderChildren.length ? "uic/xml/duplicate-node" : "uic/xml/missing-required-node", "SpacesOverview UIC proof requires exactly one uic:pageHeader."));
+  root.children.forEach((child, index) => {
+    if (child.name === "uic:css" && index !== 0) diagnostics.push(diagnostic("uic/xml/css-position", "UIC CSS must be the first top-level child when present."));
+    if (!["uic:css", "uic:pageHeader"].includes(child.name)) diagnostics.push(diagnostic("uic/xml/unsupported-structure", `Unsupported top-level element "${child.name}".`));
+  });
+
+  const pageHeader = pageHeaderChildren[0];
   if (pageHeader) {
-    const textOutsideSlots = pageHeader[1]!.replace(/<uic:slot\b[\s\S]*?<\/uic:slot>/g, "").trim();
-    if (textOutsideSlots) diagnostics.push(diagnostic("uic/xml/default-children-forbidden", "UIC v1 allows named slots only."));
-  }
-
-  for (const match of xml.matchAll(/<uic:slot\b([^>]*)>/g)) {
-    const name = attrs(match[1]!).name;
-    if (!name || !descriptor.components.pageHeader.slots?.[name]) diagnostics.push(diagnostic("uic/xml/unknown-slot", `Unknown UIC slot "${name ?? ""}".`));
+    const slots = pageHeader.children.filter((child) => child.name === "uic:slot");
+    if (pageHeader.text.trim() || pageHeader.children.some((child) => child.name !== "uic:slot")) diagnostics.push(diagnostic("uic/xml/default-children-forbidden", "UIC v1 allows named slots only."));
+    if (slots.length > 1) diagnostics.push(diagnostic("uic/xml/duplicate-node", "UIC pageHeader proof allows at most one actions slot."));
+    for (const slot of slots) {
+      const name = slot.attrs.name;
+      if (!name || !descriptor.components.pageHeader.slots?.[name]) diagnostics.push(diagnostic("uic/xml/unknown-slot", `Unknown UIC slot "${name ?? ""}".`));
+      if (slot.text.trim()) diagnostics.push(diagnostic("uic/xml/default-children-forbidden", "UIC slots may contain declared generated tags only."));
+      const actions = slot.children.filter((child) => child.name === "uic:pageHeaderAction");
+      if (actions.length > 1) diagnostics.push(diagnostic("uic/xml/duplicate-node", "UIC pageHeader proof allows at most one pageHeaderAction."));
+      if (slot.children.some((child) => child.name !== "uic:pageHeaderAction")) diagnostics.push(diagnostic("uic/xml/unsupported-structure", "UIC slot contains an unsupported child."));
+    }
   }
   return { diagnostics };
 }
@@ -188,11 +279,10 @@ export async function compileUICXml(
   const diagnostics = validateUICXml(descriptor, xml).diagnostics;
   if (diagnostics.length) return { ok: false, diagnostics };
 
-  const css = xml.match(/<uic:css><!\[CDATA\[([\s\S]*?)\]\]><\/uic:css>/)?.[1]?.trim() ?? "";
-  const headerOpen = xml.match(/<uic:pageHeader\b([^>]*)>/)?.[1] ?? "";
-  const headerAttrs = attrs(headerOpen);
-  const actionOpen = xml.match(/<uic:pageHeaderAction\b([^>]*)\/>/)?.[1] ?? "";
-  const actionAttrs = attrs(actionOpen);
+  const root = parseXmlLite(xml).roots[0]!;
+  const css = root.children.find((child) => child.name === "uic:css")?.text.trim() ?? "";
+  const pageHeader = root.children.find((child) => child.name === "uic:pageHeader")!;
+  const actionAttrs = pageHeader.children.find((child) => child.name === "uic:slot")?.children.find((child) => child.name === "uic:pageHeaderAction")?.attrs ?? {};
   const registryDigest = await sha256(stableDescriptorSource(descriptor));
   const schemaDigest = await sha256(generateUICXsd(descriptor));
 
@@ -211,8 +301,8 @@ export async function compileUICXml(
         componentId: descriptor.components.pageHeader.componentId,
         adapter: "trusted-react",
         props: {
-          title: parseProp(headerAttrs.title ?? ""),
-          subtitle: parseProp(headerAttrs.subtitle ?? ""),
+          title: parseProp(pageHeader.attrs.title ?? ""),
+          subtitle: parseProp(pageHeader.attrs.subtitle ?? ""),
         },
         slots: {
           actions: actionAttrs.label ? [{
