@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 import { SpacesOverviewView, type DashboardWorkspace } from "../SpacesOverview";
 import {
+  UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET,
   SpacesOverviewUICLayoutProofPresentation,
   SpacesOverviewUICPageHeaderProof,
 } from "./SpacesOverview.uic.view";
@@ -61,6 +62,15 @@ function renderUICLayout(xml?: string, overrides: Partial<React.ComponentProps<t
   }));
 }
 
+function runningDevServersRegion(html: string) {
+  return html.slice(html.indexOf('data-uic-owned-region="running-dev-servers"'), html.indexOf('data-myne-slot="recently-visited-craft"'));
+}
+
+function runningWorkspace(overrides: Partial<DashboardWorkspace> = {}): DashboardWorkspace {
+  const base = dashboardWorkspaces.find((workspace) => workspace.has_running_dev_server) ?? dashboardWorkspaces[0]!;
+  return { ...base, id: "uic-running", name: "UIC running", branch: "vk/uic-running", has_running_dev_server: true, ...overrides };
+}
+
 describe("SpacesOverview UIC pageHeader proof", () => {
   it("renders the dev-only pageHeader proof through existing public Myne hooks", () => {
     const html = renderToStaticMarkup(createElement(SpacesOverviewUICPageHeaderProof));
@@ -98,16 +108,72 @@ describe("SpacesOverview UIC pageHeader proof", () => {
 
   it("lets UIC own read-only running dev servers ready rendering without mutation controls", () => {
     const html = renderUICLayout();
-    const region = html.slice(html.indexOf('data-uic-owned-region="running-dev-servers"'), html.indexOf('data-myne-slot="recently-visited-craft"'));
+    const region = runningDevServersRegion(html);
 
     expect(html).toContain("data-uic-owned-region=\"running-dev-servers\"");
     expect(region).toContain("Read-only UIC resource");
     expect(region).toContain("Auth bug fix");
     expect(region).not.toContain("Stop server");
+    expect(region).not.toContain("Go to craft");
   });
 
   it("lets UIC own loading and empty states for running dev servers", () => {
     expect(renderUICLayout(undefined, { loading: true, workspaces: [] })).toContain("Loading running development servers");
     expect(renderUICLayout(undefined, { workspaces: [] })).toContain("No running development servers");
+  });
+
+  it("caps UIC running-dev-server rows and repo labels deterministically", () => {
+    const workspaces = Array.from({ length: UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxRows + 2 }, (_, index) =>
+      runningWorkspace({
+        id: `uic-running-${index}`,
+        name: `UIC running ${index}`,
+        repos: Array.from({ length: UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxRepoLabelsPerRow + 2 }, (_repo, repoIndex) => ({
+          id: `repo-${index}-${repoIndex}`,
+          name: `repo-${repoIndex}`,
+          display_name: `Repo ${repoIndex}`,
+          target_branch: "main",
+        })),
+      }),
+    );
+    const region = runningDevServersRegion(renderUICLayout(undefined, { workspaces }));
+
+    expect(region).toContain("uic/resource/rows-truncated");
+    expect(region).toContain(`UIC running ${UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxRows - 1}`);
+    expect(region).not.toContain(`UIC running ${UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxRows}`);
+    expect(region).toContain(`Repo ${UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxRepoLabelsPerRow - 1}`);
+    expect(region).not.toContain(`Repo ${UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxRepoLabelsPerRow}`);
+  });
+
+  it("diagnoses duplicate row IDs and renders the first matching row only", () => {
+    const workspaces = [
+      runningWorkspace({ id: "dupe", name: "First duplicate" }),
+      runningWorkspace({ id: "dupe", name: "Second duplicate" }),
+    ];
+    const region = runningDevServersRegion(renderUICLayout(undefined, { workspaces }));
+
+    expect(region).toContain("uic/resource/duplicate-row-id");
+    expect(region).toContain("First duplicate");
+    expect(region).not.toContain("Second duplicate");
+  });
+
+  it("caps long running-dev-server labels before rendering", () => {
+    const longName = `Name-${"n".repeat(UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxLabelLength + 20)}`;
+    const longBranch = `branch-${"b".repeat(UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxBranchLength + 20)}`;
+    const longRepo = `Repo-${"r".repeat(UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxRepoLabelLength + 20)}`;
+    const region = runningDevServersRegion(renderUICLayout(undefined, {
+      workspaces: [runningWorkspace({
+        name: longName,
+        branch: longBranch,
+        repos: [{ id: "repo-long", name: "repo-long", display_name: longRepo, target_branch: "main" }],
+      })],
+    }));
+
+    expect(region).toContain("uic/resource/string-truncated");
+    expect(region).not.toContain(longName);
+    expect(region).not.toContain(longBranch);
+    expect(region).not.toContain(longRepo);
+    expect(region).toContain(longName.slice(0, UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxLabelLength));
+    expect(region).toContain(longBranch.slice(0, UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxBranchLength));
+    expect(region).toContain(longRepo.slice(0, UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxRepoLabelLength));
   });
 });

@@ -39,19 +39,48 @@ export function SpacesOverviewUICPageHeaderProof({ xml = spacesOverviewUICLayout
 type UICRunningDevServersResource =
   | { readonly state: "pending" }
   | { readonly state: "empty" }
-  | { readonly state: "ready"; readonly items: readonly { readonly id: string; readonly name: string; readonly branch: string; readonly repoNames: readonly string[] }[] };
+  | { readonly state: "ready"; readonly items: readonly { readonly id: string; readonly name: string; readonly branch: string; readonly repoNames: readonly string[] }[]; readonly diagnostics: readonly string[] };
+
+export const UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET = Object.freeze({
+  maxRows: 5,
+  maxRepoLabelsPerRow: 2,
+  maxLabelLength: 48,
+  maxBranchLength: 64,
+  maxRepoLabelLength: 32,
+});
+
+function capUICResourceString(value: string, max: number, diagnostics: string[]): string {
+  if (value.length <= max) return value;
+  diagnostics.push("uic/resource/string-truncated");
+  return `${value.slice(0, max)}…`;
+}
 
 function projectUICRunningDevServersResource(model: SpacesOverviewSlotProps<"runningDevServers">["model"]): UICRunningDevServersResource {
   if (model.loading) return { state: "pending" };
+  const diagnostics: string[] = [];
+  const seen = new Set<string>();
   const items = model.workspaces
     .filter((workspace) => workspace.has_running_dev_server)
+    .filter((workspace) => {
+      if (!seen.has(workspace.id)) {
+        seen.add(workspace.id);
+        return true;
+      }
+      diagnostics.push("uic/resource/duplicate-row-id");
+      return false;
+    })
+    .slice(0, UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxRows)
     .map((workspace) => ({
       id: workspace.id,
-      name: workspace.name,
-      branch: workspace.branch,
-      repoNames: workspace.repos.map((repo) => repo.display_name || repo.name),
+      name: capUICResourceString(workspace.name, UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxLabelLength, diagnostics),
+      branch: capUICResourceString(workspace.branch, UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxBranchLength, diagnostics),
+      repoNames: workspace.repos
+        .slice(0, UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxRepoLabelsPerRow)
+        .map((repo) => capUICResourceString(repo.display_name || repo.name, UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxRepoLabelLength, diagnostics)),
     }));
-  return items.length ? { state: "ready", items } : { state: "empty" };
+  if (model.workspaces.filter((workspace) => workspace.has_running_dev_server).length > UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxRows) diagnostics.push("uic/resource/rows-truncated");
+  if (model.workspaces.some((workspace) => workspace.has_running_dev_server && workspace.repos.length > UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET.maxRepoLabelsPerRow)) diagnostics.push("uic/resource/repo-labels-truncated");
+  return items.length ? { state: "ready", items, diagnostics: [...new Set(diagnostics)] } : { state: "empty" };
 }
 
 function UICReadOnlyRunningDevServersSection({ model }: SpacesOverviewSlotProps<"runningDevServers">) {
@@ -84,6 +113,11 @@ function UICReadOnlyRunningDevServersSection({ model }: SpacesOverviewSlotProps<
         </MyneText>
       ) : (
         <ul className="space-y-1">
+          {resource.diagnostics.length > 0 && (
+            <li className="myne-status myne-status--warning text-xs">
+              {resource.diagnostics.join(", ")}
+            </li>
+          )}
           {resource.items.map((item) => (
             <li key={item.id} className="myne-row rounded-lg border px-4 py-3">
               <MyneText as="span" className="block text-sm font-medium" tone="primary">
