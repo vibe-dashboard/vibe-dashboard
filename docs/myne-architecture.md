@@ -2,9 +2,12 @@
 
 This is the repository-grounded companion to the normative
 [`@myne` v1 app customization contract](./myne-v1-contract.md). **If the two
-documents disagree, the v1 contract wins for requirements.** Source links here
-describe the checked-in proof; they do not turn implementation details into a
-public API.
+documents disagree, the v1 contract wins for requirements.** Future XML
+authoring work uses the UIC terminology and namespace decision in
+[`docs/uic-terminology-migration.md`](./uic-terminology-migration.md), while
+the `myne.*` identifiers described here remain the current production
+compatibility IDs. Source links here describe the checked-in proof; they do not
+turn implementation details into a public API.
 
 Status markers are deliberate:
 

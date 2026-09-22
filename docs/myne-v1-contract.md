@@ -15,6 +15,12 @@ this application first. It avoids assumptions that would prevent another host
 or future browser tooling from implementing the same vocabulary, but it does
 not attempt to standardize arbitrary websites in v1.
 
+Future XML authoring and template-runtime work uses the UIC vocabulary defined
+in [`docs/uic-terminology-migration.md`](./uic-terminology-migration.md).
+That decision deliberately preserves the `@myne` v1 compatibility identifiers,
+DOM classes, CSS tokens, snapshots, and revision histories described here until
+a separate persisted-format migration is reviewed.
+
 The key words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and **MAY** are
 normative requirements when written in uppercase.
 
