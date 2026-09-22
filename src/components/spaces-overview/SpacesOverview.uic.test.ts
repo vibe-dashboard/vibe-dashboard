@@ -39,7 +39,7 @@ const dashboardWorkspaces: DashboardWorkspace[] = storybookVKWorkspaces.map((wor
   };
 });
 
-function renderUICLayout(xml?: string) {
+function renderUICLayout(xml?: string, overrides: Partial<React.ComponentProps<typeof SpacesOverviewView>> = {}) {
   return renderToStaticMarkup(createElement(SpacesOverviewView, {
     workspace: storybookWorkspace,
     savedSessions: storybookSavedSessions,
@@ -56,6 +56,7 @@ function renderUICLayout(xml?: string) {
     onNavigateToTabGroup: () => undefined,
     onStopDevServer: () => undefined,
     onOpenWorkspaceInSpace: async () => undefined,
+    ...overrides,
     presentation: (props) => createElement(SpacesOverviewUICLayoutProofPresentation, { ...props, ...(xml ? { xml } : {}) }),
   }));
 }
@@ -93,5 +94,20 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(html).toContain('data-myne-view-pack="myne.spaces.view-pack.default"');
     expect(html).toContain("uic/xml/generic-component-forbidden");
     expect(html).toContain('data-myne-slot="workspace-list"');
+  });
+
+  it("lets UIC own read-only running dev servers ready rendering without mutation controls", () => {
+    const html = renderUICLayout();
+    const region = html.slice(html.indexOf('data-uic-owned-region="running-dev-servers"'), html.indexOf('data-myne-slot="recently-visited-craft"'));
+
+    expect(html).toContain("data-uic-owned-region=\"running-dev-servers\"");
+    expect(region).toContain("Read-only UIC resource");
+    expect(region).toContain("Auth bug fix");
+    expect(region).not.toContain("Stop server");
+  });
+
+  it("lets UIC own loading and empty states for running dev servers", () => {
+    expect(renderUICLayout(undefined, { loading: true, workspaces: [] })).toContain("Loading running development servers");
+    expect(renderUICLayout(undefined, { workspaces: [] })).toContain("No running development servers");
   });
 });

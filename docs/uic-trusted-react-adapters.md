@@ -7,8 +7,9 @@ external-library adapters for UIC XML`.
 This slice is intentionally narrow: it first proved the SpacesOverview
 `pageHeader` fixture, then expanded to a full SpacesOverview layout shell in
 development and Storybook while preserving the existing React renderer as
-fallback. Component internals still render through trusted React slots; XML
-does not yet own hooks, async resources, loops, or row-level actions.
+fallback. The first UIC-owned component body is a read-only Running Dev Servers
+region that consumes a trusted serializable resource projection. UIC still does
+not own hooks, raw AppHooks, query clients, promises, or mutations.
 
 ## Registry model
 
@@ -82,10 +83,21 @@ generated schema and registry digests.
 
 ## Props, bindings, events, and slots
 
-This first proof supports only literal scalar props and read-only `{model.*}`
-bindings. Named events/actions are deferred until an interactive
-SpacesOverview slice needs them. Children are named slots only; `actions` is the
-only `pageHeader` slot in this fixture.
+This first proof supports only literal scalar props, read-only `{model.*}`
+bindings, and trusted-container resource projections. Named events/actions are
+deferred until an interactive SpacesOverview slice needs them. Children are
+named slots only; `actions` is the only `pageHeader` slot in this fixture.
+
+The Running Dev Servers body uses a finite read-only resource state:
+
+- `pending` renders a busy/loading message;
+- `empty` renders an empty-state message;
+- `ready` renders a bounded keyed list of workspace name, branch, and repo
+  labels.
+
+It deliberately omits stop/open/navigate controls. Those require
+`vkvw-8xaj.18.4 — Expose typed AppHooks capabilities to UIC templates for
+declarative pages`.
 
 ## External libraries and HeroUI
 
@@ -111,6 +123,7 @@ while falling back to the trusted React layout.
 - Focused tests: `src/uic/trustedComponents.test.ts`
 - SpacesOverview dev fixture: `src/components/spaces-overview/SpacesOverview.uic.view.tsx`
 - Storybook exposure: `Scenes/SpacesOverview/UIC layout shell proof`
+- UIC-owned read-only region: Running Dev Servers loading/empty/ready states.
 
 No Marketplace, persistence, package archive, production selection, broad page
 migration, or runtime user exposure is included in this slice.
