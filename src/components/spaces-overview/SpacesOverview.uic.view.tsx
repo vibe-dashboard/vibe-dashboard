@@ -63,6 +63,7 @@ export const UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET = Object.freeze({
 });
 
 export const UIC_RECENTLY_CREATED_CRAFT_RESOURCE_BUDGET = UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET;
+export const UIC_STARRED_CRAFT_RESOURCE_BUDGET = UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET;
 
 function capUICResourceString(value: string, max: number, diagnostics: string[]): string {
   if (value.length <= max) return value;
@@ -231,6 +232,29 @@ export function projectUICRecentlyVisitedCraftResource(model: SpacesOverviewSlot
   });
 }
 
+export function projectUICStarredCraftResource(model: SpacesOverviewSlotProps<"starredCraft">["model"]): UICReadOnlyListResource {
+  return projectUICCraftListResource({
+    items: model.starredTabGroups,
+    tabGroupDisplayLabelById: model.tabGroupDisplayLabelById,
+    getTimeLabel: () => undefined,
+    budget: UIC_STARRED_CRAFT_RESOURCE_BUDGET,
+  });
+}
+
+function UICReadOnlyStarredCraftSection({ model }: SpacesOverviewSlotProps<"starredCraft">) {
+  return (
+    <UICReadOnlyListSection
+      slot="starred-craft"
+      title="Starred"
+      subtitle="Read-only UIC list"
+      emptyLabel="No starred craft"
+      countNoun="craft"
+      countNounPlural="craft"
+      resource={projectUICStarredCraftResource(model)}
+    />
+  );
+}
+
 function UICReadOnlyRecentlyVisitedCraftSection({ model }: SpacesOverviewSlotProps<"recentlyVisitedCraft">) {
   return (
     <UICReadOnlyListSection
@@ -273,7 +297,7 @@ export function SpacesOverviewUICLayoutProofPresentation({
   ...props
 }: SpacesOverviewComponentProps & { readonly xml?: string }) {
   const diagnostics = validateUICXml(spacesOverviewPageHeaderUICProof, xml).diagnostics;
-  const ui = diagnostics.length ? defaultSpacesOverviewUI : { ...defaultSpacesOverviewUI, RunningDevServersSection: UICReadOnlyRunningDevServersSection, RecentlyVisitedCraftSection: UICReadOnlyRecentlyVisitedCraftSection, RecentlyCreatedCraftSection: UICReadOnlyRecentlyCreatedCraftSection };
+  const ui = diagnostics.length ? defaultSpacesOverviewUI : { ...defaultSpacesOverviewUI, StarredCraftSection: UICReadOnlyStarredCraftSection, RunningDevServersSection: UICReadOnlyRunningDevServersSection, RecentlyVisitedCraftSection: UICReadOnlyRecentlyVisitedCraftSection, RecentlyCreatedCraftSection: UICReadOnlyRecentlyCreatedCraftSection };
 
   return (
     <>
