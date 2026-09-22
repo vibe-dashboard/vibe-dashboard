@@ -13,7 +13,7 @@ export const spacesOverviewUICLayoutXml = `<uic:spaceOverviewPage xmlns:uic="htt
     </uic:slot>
   </uic:pageHeader>
   <uic:recentSessions />
-  <uic:starredCraft />
+  <uic:starredCraft uic:on-activate="spaces.navigateToCraft" />
   <uic:runningDevServers />
   <uic:recentlyVisitedCraft />
   <uic:recentlyCreatedCraft />
@@ -41,6 +41,14 @@ type UICReadOnlyListItem = {
   readonly id: string;
   readonly label: string;
   readonly meta: readonly string[];
+};
+
+type UICSpacesOverviewActionId = "spaces.navigateToCraft";
+export type UICSpacesOverviewActionDescriptor = {
+  readonly event: "activate";
+  readonly id: UICSpacesOverviewActionId;
+  readonly args: Readonly<{ spaceId: string; tabGroupId: string }>;
+  readonly status: "available" | "unavailable";
 };
 
 type UICReadOnlyListResource =
@@ -96,6 +104,36 @@ export const UIC_WORKSPACE_LIST_RESOURCE_BUDGET = Object.freeze({
   maxErrorLength: 96,
 });
 
+export const UIC_SPACES_OVERVIEW_ACTIONS = Object.freeze({
+  "spaces.navigateToCraft": Object.freeze({
+    event: "activate",
+    args: Object.freeze({ spaceId: "string", tabGroupId: "string" }),
+    result: Object.freeze({ state: "completed" }),
+  }),
+});
+
+type UICNavigateActions = Pick<SpacesOverviewSlotProps<"starredCraft">["actions"], "navigateToTabGroup">;
+
+export function invokeUICSpacesOverviewAction(
+  actions: UICNavigateActions,
+  descriptor: { readonly id: string; readonly event: string; readonly status: string; readonly args: unknown },
+  allowedTargets: ReadonlySet<string>,
+): { readonly ok: true; readonly result: { readonly state: "completed" } } | { readonly ok: false; readonly diagnostic: { readonly code: string; readonly message: string } } {
+  if (descriptor.id !== "spaces.navigateToCraft" || descriptor.event !== "activate") {
+    return { ok: false, diagnostic: { code: "uic/action/unknown", message: "UIC action is not declared for this surface." } };
+  }
+  const args = descriptor.args;
+  if (!args || typeof args !== "object" || typeof (args as { spaceId?: unknown }).spaceId !== "string" || typeof (args as { tabGroupId?: unknown }).tabGroupId !== "string") {
+    return { ok: false, diagnostic: { code: "uic/action/invalid-args", message: "UIC action arguments do not match the declared schema." } };
+  }
+  const { spaceId, tabGroupId } = args as { spaceId: string; tabGroupId: string };
+  if (descriptor.status !== "available" || !allowedTargets.has(`${spaceId}:${tabGroupId}`)) {
+    return { ok: false, diagnostic: { code: "uic/action/unavailable", message: "UIC action is unavailable for the current trusted state." } };
+  }
+  actions.navigateToTabGroup(spaceId, tabGroupId);
+  return { ok: true, result: { state: "completed" } };
+}
+
 function capUICResourceString(value: string, max: number, diagnostics: string[]): string {
   if (value.length <= max) return value;
   diagnostics.push("uic/resource/string-truncated");
@@ -141,6 +179,8 @@ function UICReadOnlyListSection({
   countNoun,
   countNounPlural = `${countNoun}s`,
   resource,
+  actionsByItemId,
+  trustedActions,
 }: {
   readonly slot: string;
   readonly title: string;
@@ -150,7 +190,10 @@ function UICReadOnlyListSection({
   readonly countNoun: string;
   readonly countNounPlural?: string;
   readonly resource: UICReadOnlyListResource;
+  readonly actionsByItemId?: ReadonlyMap<string, UICSpacesOverviewActionDescriptor>;
+  readonly trustedActions?: UICNavigateActions;
 }) {
+  const allowedTargets = new Set(Array.from(actionsByItemId?.values() ?? []).map((action) => `${action.args.spaceId}:${action.args.tabGroupId}`));
   return (
     <section className="mb-8 rounded-xl border p-4" data-myne-slot={slot} data-uic-owned-region={slot} aria-busy={resource.state === "pending"}>
       <div className="mb-3 flex items-center justify-between">
@@ -192,6 +235,18 @@ function UICReadOnlyListSection({
                 <MyneText as="span" className="mt-1 block text-xs" tone="muted">
                   {item.meta.join(" · ")}
                 </MyneText>
+              )}
+              {trustedActions && actionsByItemId?.has(item.id) && (
+                <button
+                  type="button"
+                  className="myne-button myne-button--quiet mt-2 text-xs"
+                  onClick={() => {
+                    const action = actionsByItemId.get(item.id);
+                    if (action) invokeUICSpacesOverviewAction(trustedActions, action, allowedTargets);
+                  }}
+                >
+                  Open craft
+                </button>
               )}
             </li>
           ))}
@@ -321,7 +376,17 @@ export function projectUICStarredCraftResource(model: SpacesOverviewSlotProps<"s
   });
 }
 
-function UICReadOnlyStarredCraftSection({ model }: SpacesOverviewSlotProps<"starredCraft">) {
+export function projectUICStarredCraftActions(model: SpacesOverviewSlotProps<"starredCraft">["model"]): readonly UICSpacesOverviewActionDescriptor[] {
+  return model.starredTabGroups.map(({ space, tg }) => ({
+    event: "activate",
+    id: "spaces.navigateToCraft",
+    args: { spaceId: space.id, tabGroupId: tg.id },
+    status: "available",
+  }));
+}
+
+function UICReadOnlyStarredCraftSection({ model, actions }: SpacesOverviewSlotProps<"starredCraft">) {
+  const actionDescriptors = new Map(projectUICStarredCraftActions(model).map((action) => [action.args.tabGroupId, action]));
   return (
     <UICReadOnlyListSection
       slot="starred-craft"
@@ -331,6 +396,8 @@ function UICReadOnlyStarredCraftSection({ model }: SpacesOverviewSlotProps<"star
       countNoun="craft"
       countNounPlural="craft"
       resource={projectUICStarredCraftResource(model)}
+      actionsByItemId={actionDescriptors}
+      trustedActions={actions}
     />
   );
 }

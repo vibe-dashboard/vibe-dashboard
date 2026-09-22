@@ -23,7 +23,7 @@ const fullSpacesOverviewXml = `<uic:spaceOverviewPage xmlns:uic="https://vibedas
     </uic:slot>
   </uic:pageHeader>
   <uic:recentSessions />
-  <uic:starredCraft />
+  <uic:starredCraft uic:on-activate="spaces.navigateToCraft" />
   <uic:runningDevServers />
   <uic:recentlyVisitedCraft />
   <uic:recentlyCreatedCraft />
@@ -98,7 +98,7 @@ describe("UIC trusted component descriptors", () => {
   it("requires every SpacesOverview layout-shell tag exactly once before compile", async () => {
     const missingWorkspace = fullSpacesOverviewXml.replace("  <uic:workspaceList />\n", "");
     const duplicateSpaces = fullSpacesOverviewXml.replace("  <uic:spaces />", "  <uic:spaces />\n  <uic:spaces />");
-    const reordered = fullSpacesOverviewXml.replace("  <uic:recentSessions />\n  <uic:starredCraft />", "  <uic:starredCraft />\n  <uic:recentSessions />");
+    const reordered = fullSpacesOverviewXml.replace('  <uic:recentSessions />\n  <uic:starredCraft uic:on-activate="spaces.navigateToCraft" />', '  <uic:starredCraft uic:on-activate="spaces.navigateToCraft" />\n  <uic:recentSessions />');
     const extra = fullSpacesOverviewXml.replace("  <uic:spacePicker />", "  <uic:spacePicker />\n  <uic:unknownSection />");
 
     await expect(compileUICXml(spacesOverviewPageHeaderUICProof, missingWorkspace)).resolves.toMatchObject({ ok: false, diagnostics: expect.arrayContaining([expect.objectContaining({ code: "uic/xml/missing-required-node" })]) });
@@ -138,6 +138,19 @@ describe("UIC trusted component descriptors", () => {
       );
     }
     expect(validateUICXml(spacesOverviewPageHeaderUICProof, pageHeaderXml.replace("<uic:slot ", '<uic:slot data-app-hooks="x" ')).diagnostics).toContainEqual(
+      expect.objectContaining({ code: "uic/xml/unknown-attribute" }),
+    );
+  });
+
+  it("allows only declared local UIC action bindings", () => {
+    expect(validateUICXml(spacesOverviewPageHeaderUICProof, fullSpacesOverviewXml).diagnostics).toEqual([]);
+    expect(validateUICXml(spacesOverviewPageHeaderUICProof, fullSpacesOverviewXml.replace("spaces.navigateToCraft", "spaces.deleteCraft")).diagnostics).toContainEqual(
+      expect.objectContaining({ code: "uic/xml/unknown-action" }),
+    );
+    expect(validateUICXml(spacesOverviewPageHeaderUICProof, fullSpacesOverviewXml.replace("spaces.navigateToCraft", "https://example.test/action")).diagnostics).toContainEqual(
+      expect.objectContaining({ code: "uic/xml/unknown-action" }),
+    );
+    expect(validateUICXml(spacesOverviewPageHeaderUICProof, fullSpacesOverviewXml.replace("<uic:starredCraft ", '<uic:starredCraft onclick="alert(1)" ')).diagnostics).toContainEqual(
       expect.objectContaining({ code: "uic/xml/unknown-attribute" }),
     );
   });

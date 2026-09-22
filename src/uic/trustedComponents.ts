@@ -7,6 +7,7 @@ export interface UICComponentDescriptor {
   readonly componentId: string;
   readonly adapter: UICAdapterKind;
   readonly props: readonly string[];
+  readonly events?: Readonly<Record<string, readonly string[]>>;
   readonly slots?: Readonly<Record<string, readonly string[]>>;
   readonly externalLibrary?: Readonly<{ name: "HeroUI"; exposure: "wrapped-only" }>;
   readonly forbidden: readonly string[];
@@ -36,6 +37,7 @@ export interface UICIRNode {
   readonly componentId: string;
   readonly adapter: UICAdapterKind;
   readonly props: Readonly<Record<string, UICPropValue>>;
+  readonly actions?: Readonly<Record<string, string>>;
   readonly slots?: Readonly<Record<string, readonly UICIRNode[]>>;
 }
 
@@ -88,6 +90,7 @@ export const spacesOverviewPageHeaderUICProof: UICSurfaceDescriptor = Object.fre
       componentId: "myne.spaces.starred-craft.default",
       adapter: "trusted-react",
       props: Object.freeze([]),
+      events: Object.freeze({ activate: Object.freeze(["spaces.navigateToCraft"]) }),
       forbidden: Object.freeze(["class", "className", "style"]),
       fallback: "enclosing-slot",
     }),
@@ -296,13 +299,18 @@ export function validateUICXml(descriptor: UICSurfaceDescriptor, xml: string): {
       : tag === "slot"
         ? new Set(["name"])
         : descriptor.components[tag]
-          ? new Set(descriptor.components[tag]!.props)
+          ? new Set([...descriptor.components[tag]!.props, ...Object.keys(descriptor.components[tag]!.events ?? {}).map((event) => `uic:on-${event}`)])
             : new Set<string>();
     const forbidden = descriptor.components[tag]?.forbidden ?? [];
     for (const attr of Object.keys(node.attrs)) {
       if (attr === "version" && descriptor.components[tag]) diagnostics.push(diagnostic("uic/xml/component-version-forbidden", "App-local generated UIC component tags are unversioned."));
       if (forbidden.includes(attr)) diagnostics.push(diagnostic("uic/xml/forbidden-prop", `Prop "${attr}" is not allowed on uic:${tag}.`));
       if (!allowedAttrs.has(attr)) diagnostics.push(diagnostic("uic/xml/unknown-attribute", `Attribute "${attr}" is not declared for uic:${tag}.`));
+      if (attr.startsWith("uic:on-")) {
+        const event = attr.slice("uic:on-".length);
+        const allowedActions = descriptor.components[tag]?.events?.[event] ?? [];
+        if (!allowedActions.includes(node.attrs[attr]!)) diagnostics.push(diagnostic("uic/xml/unknown-action", `Action "${node.attrs[attr]}" is not declared for uic:${tag}.`));
+      }
     }
     if (tag === descriptor.rootTag && node.attrs["xmlns:uic"] !== descriptor.namespace) diagnostics.push(diagnostic("uic/xml/namespace-mismatch", "UIC namespace is missing or unsupported."));
     if (tag === "css" && parent?.name !== `uic:${descriptor.rootTag}`) diagnostics.push(diagnostic("uic/xml/css-position", "UIC CSS is only allowed as a top-level root child."));
@@ -393,7 +401,12 @@ export async function compileUICXml(
         },
       }, ...descriptor.layoutTags.filter((tag) => tag !== "pageHeader").map((tag) => {
         const component = requireComponent(descriptor, tag);
-        return { tag, componentId: component.componentId, adapter: component.adapter, props: {} };
+        const node = root.children.find((child) => child.name === `uic:${tag}`);
+        const actions = Object.fromEntries(Object.keys(component.events ?? {}).flatMap((event) => {
+          const value = node?.attrs[`uic:on-${event}`];
+          return value ? [[event, value]] : [];
+        }));
+        return { tag, componentId: component.componentId, adapter: component.adapter, props: {}, ...(Object.keys(actions).length ? { actions } : {}) };
       })],
     },
   };

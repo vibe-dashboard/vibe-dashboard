@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { SpacesOverviewView, type DashboardWorkspace } from "../SpacesOverview";
 import {
   UIC_RECENTLY_CREATED_CRAFT_RESOURCE_BUDGET,
@@ -9,12 +9,15 @@ import {
   UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET,
   UIC_STARRED_CRAFT_RESOURCE_BUDGET,
   UIC_SPACES_RESOURCE_BUDGET,
+  UIC_SPACES_OVERVIEW_ACTIONS,
   UIC_WORKSPACE_LIST_RESOURCE_BUDGET,
   SpacesOverviewUICLayoutProofPresentation,
   SpacesOverviewUICPageHeaderProof,
+  invokeUICSpacesOverviewAction,
   projectUICRecentSessionsResource,
   projectUICRecentlyCreatedCraftResource,
   projectUICRecentlyVisitedCraftResource,
+  projectUICStarredCraftActions,
   projectUICSpacesResource,
   projectUICStarredCraftResource,
   projectUICWorkspaceListResource,
@@ -370,18 +373,54 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(region).toContain(longSpace.slice(0, UIC_RECENTLY_CREATED_CRAFT_RESOURCE_BUDGET.maxSpaceLabelLength));
   });
 
-  it("uses finite UIC empty/ready/list semantics for starred craft without navigation controls", () => {
+  it("uses a typed UIC navigation action for starred craft without mutation controls", () => {
     const readyRegion = starredCraftRegion(renderUICLayout());
 
     expect(readyRegion).toContain("Read-only UIC list");
     expect(readyRegion).toContain("1 craft");
     expect(readyRegion).toContain("Auth bug fix");
     expect(readyRegion).toContain("Product");
-    expect(readyRegion).not.toContain("<button");
+    expect(readyRegion).toContain("Open craft");
+    expect(readyRegion).not.toContain("Delete");
+    expect(readyRegion).not.toContain("Stop server");
 
     const emptyWorkspace = { ...storybookWorkspace, tabGroups: storybookWorkspace.tabGroups.map((tabGroup) => ({ ...tabGroup, starred: false })) };
     const emptyRegion = starredCraftRegion(renderUICLayout(undefined, { workspace: emptyWorkspace }));
     expect(emptyRegion).toContain("No starred craft");
+  });
+
+  it("projects only serializable allowed UIC action descriptors for starred craft", () => {
+    const descriptors = projectUICStarredCraftActions({
+      starredTabGroups: [{ space: storybookWorkspace.spaces[1]!, tg: storybookWorkspace.tabGroups[1]! }],
+      tabGroupDisplayLabelById: new Map(),
+    });
+
+    expect(descriptors).toEqual([
+      {
+        event: "activate",
+        id: "spaces.navigateToCraft",
+        args: { spaceId: storybookWorkspace.spaces[1]!.id, tabGroupId: storybookWorkspace.tabGroups[1]!.id },
+        status: "available",
+      },
+    ]);
+    expect(JSON.stringify(descriptors)).not.toMatch(/function|=>|appHooks|QueryClient|https?:|navigateToTabGroup/u);
+    expect(UIC_SPACES_OVERVIEW_ACTIONS["spaces.navigateToCraft"].args).toEqual({ spaceId: "string", tabGroupId: "string" });
+  });
+
+  it("rejects invalid, unavailable, or arbitrary UIC action invocations before trusted host dispatch", () => {
+    const navigateToTabGroup = vi.fn();
+    const allowedTargets = new Set([`${storybookWorkspace.spaces[1]!.id}:${storybookWorkspace.tabGroups[1]!.id}`]);
+
+    expect(invokeUICSpacesOverviewAction(
+      { navigateToTabGroup },
+      { id: "spaces.navigateToCraft", args: { spaceId: storybookWorkspace.spaces[1]!.id, tabGroupId: storybookWorkspace.tabGroups[1]!.id }, status: "available", event: "activate" },
+      allowedTargets,
+    )).toEqual({ ok: true, result: { state: "completed" } });
+    expect(navigateToTabGroup).toHaveBeenCalledWith(storybookWorkspace.spaces[1]!.id, storybookWorkspace.tabGroups[1]!.id);
+
+    expect(invokeUICSpacesOverviewAction({ navigateToTabGroup }, { id: "spaces.deleteCraft", args: {}, status: "available", event: "activate" }, allowedTargets)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unknown" } });
+    expect(invokeUICSpacesOverviewAction({ navigateToTabGroup }, { id: "spaces.navigateToCraft", args: { spaceId: 1, tabGroupId: "tg" }, status: "available", event: "activate" }, allowedTargets)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/invalid-args" } });
+    expect(invokeUICSpacesOverviewAction({ navigateToTabGroup }, { id: "spaces.navigateToCraft", args: { spaceId: "missing", tabGroupId: "tg" }, status: "available", event: "activate" }, allowedTargets)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unavailable" } });
   });
 
   it("caps UIC starred craft rows deterministically before rendering", () => {
