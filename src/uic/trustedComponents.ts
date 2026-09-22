@@ -18,10 +18,8 @@ export interface UICSurfaceDescriptor {
   readonly surface: "spaces-overview";
   readonly rootTag: "spaceOverviewPage";
   readonly namespace: typeof UIC_XML_NAMESPACE_V1;
-  readonly components: Readonly<{
-    pageHeader: UICComponentDescriptor;
-    pageHeaderAction: UICComponentDescriptor;
-  }>;
+  readonly layoutTags: readonly string[];
+  readonly components: Readonly<Record<string, UICComponentDescriptor>>;
 }
 
 export interface UICDiagnostic {
@@ -57,6 +55,7 @@ export const spacesOverviewPageHeaderUICProof: UICSurfaceDescriptor = Object.fre
   surface: "spaces-overview",
   rootTag: "spaceOverviewPage",
   namespace: UIC_XML_NAMESPACE_V1,
+  layoutTags: Object.freeze(["pageHeader", "recentSessions", "starredCraft", "runningDevServers", "recentlyVisitedCraft", "recentlyCreatedCraft", "workspaceList", "spaces", "spacePicker"]),
   components: Object.freeze({
     pageHeader: Object.freeze({
       tag: "pageHeader",
@@ -75,6 +74,70 @@ export const spacesOverviewPageHeaderUICProof: UICSurfaceDescriptor = Object.fre
       props: Object.freeze(["label"]),
       forbidden: Object.freeze(["class", "className", "style", "onPress", "href", "as"]),
       fallback: "node",
+    }),
+    recentSessions: Object.freeze({
+      tag: "recentSessions",
+      componentId: "myne.spaces.recent-sessions.default",
+      adapter: "trusted-react",
+      props: Object.freeze([]),
+      forbidden: Object.freeze(["class", "className", "style"]),
+      fallback: "enclosing-slot",
+    }),
+    starredCraft: Object.freeze({
+      tag: "starredCraft",
+      componentId: "myne.spaces.starred-craft.default",
+      adapter: "trusted-react",
+      props: Object.freeze([]),
+      forbidden: Object.freeze(["class", "className", "style"]),
+      fallback: "enclosing-slot",
+    }),
+    runningDevServers: Object.freeze({
+      tag: "runningDevServers",
+      componentId: "myne.spaces.running-dev-servers.default",
+      adapter: "trusted-react",
+      props: Object.freeze([]),
+      forbidden: Object.freeze(["class", "className", "style"]),
+      fallback: "enclosing-slot",
+    }),
+    recentlyVisitedCraft: Object.freeze({
+      tag: "recentlyVisitedCraft",
+      componentId: "myne.spaces.recently-visited.default",
+      adapter: "trusted-react",
+      props: Object.freeze([]),
+      forbidden: Object.freeze(["class", "className", "style"]),
+      fallback: "enclosing-slot",
+    }),
+    recentlyCreatedCraft: Object.freeze({
+      tag: "recentlyCreatedCraft",
+      componentId: "myne.spaces.recently-created.default",
+      adapter: "trusted-react",
+      props: Object.freeze([]),
+      forbidden: Object.freeze(["class", "className", "style"]),
+      fallback: "enclosing-slot",
+    }),
+    workspaceList: Object.freeze({
+      tag: "workspaceList",
+      componentId: "myne.spaces.workspace-list.default",
+      adapter: "trusted-react",
+      props: Object.freeze([]),
+      forbidden: Object.freeze(["class", "className", "style"]),
+      fallback: "enclosing-slot",
+    }),
+    spaces: Object.freeze({
+      tag: "spaces",
+      componentId: "myne.spaces.spaces.default",
+      adapter: "trusted-react",
+      props: Object.freeze([]),
+      forbidden: Object.freeze(["class", "className", "style"]),
+      fallback: "enclosing-slot",
+    }),
+    spacePicker: Object.freeze({
+      tag: "spacePicker",
+      componentId: "myne.spaces.space-picker.default",
+      adapter: "trusted-react",
+      props: Object.freeze([]),
+      forbidden: Object.freeze(["class", "className", "style"]),
+      fallback: "enclosing-slot",
     }),
   }),
 });
@@ -143,6 +206,12 @@ function parseProp(value: string): UICPropValue {
   return binding ? { kind: "binding", path: binding[1]! } : { kind: "literal", value };
 }
 
+function requireComponent(descriptor: UICSurfaceDescriptor, tag: string): UICComponentDescriptor {
+  const component = descriptor.components[tag];
+  if (!component) throw new Error(`UIC descriptor missing component ${tag}`);
+  return component;
+}
+
 async function sha256(value: string): Promise<`sha256-${string}`> {
   const bytes = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
   return `sha256-${btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/u, "")}`;
@@ -152,6 +221,7 @@ function stableDescriptorSource(descriptor: UICSurfaceDescriptor): string {
   return JSON.stringify({
     artifactVersion: descriptor.artifactVersion,
     components: Object.fromEntries(Object.entries(descriptor.components).sort(([a], [b]) => a.localeCompare(b))),
+    layoutTags: descriptor.layoutTags,
     namespace: descriptor.namespace,
     rootTag: descriptor.rootTag,
     surface: descriptor.surface,
@@ -159,13 +229,27 @@ function stableDescriptorSource(descriptor: UICSurfaceDescriptor): string {
 }
 
 export function generateUICXsd(descriptor: UICSurfaceDescriptor): string {
+  const topLevel = descriptor.layoutTags.map((tag) => `        <xs:element ref="uic:${tag}" minOccurs="1" maxOccurs="1" />`).join("\n");
+  const componentElements = descriptor.layoutTags.map((tag) => {
+    const component = requireComponent(descriptor, tag);
+    if (tag === "pageHeader") return `  <xs:element name="${component.tag}">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="uic:slot" minOccurs="0" maxOccurs="1" />
+      </xs:sequence>
+      <xs:attribute name="title" type="xs:string" use="optional" />
+      <xs:attribute name="subtitle" type="xs:string" use="optional" />
+    </xs:complexType>
+  </xs:element>`;
+    return `  <xs:element name="${component.tag}" />`;
+  }).join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:uic="${descriptor.namespace}" targetNamespace="${descriptor.namespace}" elementFormDefault="qualified">
   <xs:element name="${descriptor.rootTag}">
     <xs:complexType>
       <xs:sequence>
         <xs:element ref="uic:css" minOccurs="0" maxOccurs="1" />
-        <xs:element ref="uic:pageHeader" minOccurs="1" maxOccurs="1" />
+${topLevel}
       </xs:sequence>
       <xs:attribute name="artifactVersion" type="xs:positiveInteger" use="required" fixed="1" />
     </xs:complexType>
@@ -179,16 +263,8 @@ export function generateUICXsd(descriptor: UICSurfaceDescriptor): string {
       <xs:attribute name="name" use="required" fixed="actions" />
     </xs:complexType>
   </xs:element>
-  <xs:element name="${descriptor.components.pageHeader.tag}">
-    <xs:complexType>
-      <xs:sequence>
-        <xs:element ref="uic:slot" minOccurs="0" maxOccurs="1" />
-      </xs:sequence>
-      <xs:attribute name="title" type="xs:string" use="optional" />
-      <xs:attribute name="subtitle" type="xs:string" use="optional" />
-    </xs:complexType>
-  </xs:element>
-  <xs:element name="${descriptor.components.pageHeaderAction.tag}">
+${componentElements}
+  <xs:element name="${requireComponent(descriptor, "pageHeaderAction").tag}">
     <xs:complexType>
       <xs:attribute name="label" type="xs:string" use="required" />
     </xs:complexType>
@@ -203,7 +279,9 @@ export function validateUICXml(descriptor: UICSurfaceDescriptor, xml: string): {
   if (/<\/?script\b|<\?xml-stylesheet|<!DOCTYPE/i.test(xml)) diagnostics.push(diagnostic("uic/xml/executable-forbidden", "UIC XML cannot contain executable markup."));
   if (/\s(?:class|className|style)=/.test(xml)) diagnostics.push(diagnostic("uic/xml/raw-style-forbidden", "UIC XML cannot pass raw class or style props."));
 
-  const allowedTags = new Set([descriptor.rootTag, "css", "slot", descriptor.components.pageHeader.tag, descriptor.components.pageHeaderAction.tag]);
+  const pageHeaderDescriptor = requireComponent(descriptor, "pageHeader");
+  const pageHeaderAction = requireComponent(descriptor, "pageHeaderAction");
+  const allowedTags = new Set([descriptor.rootTag, "css", "slot", pageHeaderAction.tag, ...descriptor.layoutTags]);
 
   function checkNode(node: ParsedXmlNode, parent?: ParsedXmlNode) {
     if (!node.name.startsWith("uic:")) {
@@ -217,18 +295,12 @@ export function validateUICXml(descriptor: UICSurfaceDescriptor, xml: string): {
       ? new Set(["xmlns:uic", "artifactVersion"])
       : tag === "slot"
         ? new Set(["name"])
-        : tag === descriptor.components.pageHeader.tag
-          ? new Set(descriptor.components.pageHeader.props)
-          : tag === descriptor.components.pageHeaderAction.tag
-            ? new Set(descriptor.components.pageHeaderAction.props)
+        : descriptor.components[tag]
+          ? new Set(descriptor.components[tag]!.props)
             : new Set<string>();
-    const forbidden = tag === descriptor.components.pageHeader.tag
-      ? descriptor.components.pageHeader.forbidden
-      : tag === descriptor.components.pageHeaderAction.tag
-        ? descriptor.components.pageHeaderAction.forbidden
-        : [];
+    const forbidden = descriptor.components[tag]?.forbidden ?? [];
     for (const attr of Object.keys(node.attrs)) {
-      if (attr === "version" && (tag === descriptor.components.pageHeader.tag || tag === descriptor.components.pageHeaderAction.tag)) diagnostics.push(diagnostic("uic/xml/component-version-forbidden", "App-local generated UIC component tags are unversioned."));
+      if (attr === "version" && descriptor.components[tag]) diagnostics.push(diagnostic("uic/xml/component-version-forbidden", "App-local generated UIC component tags are unversioned."));
       if (forbidden.includes(attr)) diagnostics.push(diagnostic("uic/xml/forbidden-prop", `Prop "${attr}" is not allowed on uic:${tag}.`));
       if (!allowedAttrs.has(attr)) diagnostics.push(diagnostic("uic/xml/unknown-attribute", `Attribute "${attr}" is not declared for uic:${tag}.`));
     }
@@ -250,9 +322,16 @@ export function validateUICXml(descriptor: UICSurfaceDescriptor, xml: string): {
   const pageHeaderChildren = root.children.filter((child) => child.name === "uic:pageHeader");
   if (cssCount > 1) diagnostics.push(diagnostic("uic/xml/duplicate-node", "UIC proof allows at most one top-level css node."));
   if (pageHeaderChildren.length !== 1) diagnostics.push(diagnostic(pageHeaderChildren.length ? "uic/xml/duplicate-node" : "uic/xml/missing-required-node", "SpacesOverview UIC proof requires exactly one uic:pageHeader."));
+  const topLevelTags = rootTags.filter((name) => name !== "uic:css").map((name) => name.replace(/^uic:/, ""));
+  if (topLevelTags.join("\0") !== descriptor.layoutTags.join("\0")) diagnostics.push(diagnostic("uic/xml/slot-order", "SpacesOverview UIC layout tags must appear once in descriptor order."));
+  for (const tag of descriptor.layoutTags) {
+    const count = topLevelTags.filter((candidate) => candidate === tag).length;
+    if (count === 0) diagnostics.push(diagnostic("uic/xml/missing-required-node", `SpacesOverview UIC proof requires uic:${tag}.`));
+    if (count > 1) diagnostics.push(diagnostic("uic/xml/duplicate-node", `SpacesOverview UIC proof allows one uic:${tag}.`));
+  }
   root.children.forEach((child, index) => {
     if (child.name === "uic:css" && index !== 0) diagnostics.push(diagnostic("uic/xml/css-position", "UIC CSS must be the first top-level child when present."));
-    if (!["uic:css", "uic:pageHeader"].includes(child.name)) diagnostics.push(diagnostic("uic/xml/unsupported-structure", `Unsupported top-level element "${child.name}".`));
+    if (!["uic:css", ...descriptor.layoutTags.map((tag) => `uic:${tag}`)].includes(child.name)) diagnostics.push(diagnostic("uic/xml/unsupported-structure", `Unsupported top-level element "${child.name}".`));
   });
 
   const pageHeader = pageHeaderChildren[0];
@@ -262,7 +341,7 @@ export function validateUICXml(descriptor: UICSurfaceDescriptor, xml: string): {
     if (slots.length > 1) diagnostics.push(diagnostic("uic/xml/duplicate-node", "UIC pageHeader proof allows at most one actions slot."));
     for (const slot of slots) {
       const name = slot.attrs.name;
-      if (!name || !descriptor.components.pageHeader.slots?.[name]) diagnostics.push(diagnostic("uic/xml/unknown-slot", `Unknown UIC slot "${name ?? ""}".`));
+      if (!name || !pageHeaderDescriptor.slots?.[name]) diagnostics.push(diagnostic("uic/xml/unknown-slot", `Unknown UIC slot "${name ?? ""}".`));
       if (slot.text.trim()) diagnostics.push(diagnostic("uic/xml/default-children-forbidden", "UIC slots may contain declared generated tags only."));
       const actions = slot.children.filter((child) => child.name === "uic:pageHeaderAction");
       if (actions.length > 1) diagnostics.push(diagnostic("uic/xml/duplicate-node", "UIC pageHeader proof allows at most one pageHeaderAction."));
@@ -298,7 +377,7 @@ export async function compileUICXml(
       css,
       nodes: [{
         tag: "pageHeader",
-        componentId: descriptor.components.pageHeader.componentId,
+          componentId: requireComponent(descriptor, "pageHeader").componentId,
         adapter: "trusted-react",
         props: {
           title: parseProp(pageHeader.attrs.title ?? ""),
@@ -307,12 +386,15 @@ export async function compileUICXml(
         slots: {
           actions: actionAttrs.label ? [{
             tag: "pageHeaderAction",
-            componentId: descriptor.components.pageHeaderAction.componentId,
+            componentId: requireComponent(descriptor, "pageHeaderAction").componentId,
             adapter: "wrapper",
             props: { label: parseProp(actionAttrs.label) },
           }] : [],
         },
-      }],
+      }, ...descriptor.layoutTags.filter((tag) => tag !== "pageHeader").map((tag) => {
+        const component = requireComponent(descriptor, tag);
+        return { tag, componentId: component.componentId, adapter: component.adapter, props: {} };
+      })],
     },
   };
 }

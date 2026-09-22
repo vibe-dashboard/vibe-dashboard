@@ -23,7 +23,7 @@ import {
 import { DefaultSpacesOverviewLayout } from './spaces-overview/DefaultSpacesOverview.view';
 import { denseWorkspaceListSpacesOverviewUI } from './spaces-overview/SpacesOverview.alternates';
 import { SpacesOverviewStoryFrame } from './spaces-overview/SpacesOverviewStoryFrame.view';
-import { SpacesOverviewUICPageHeaderProof } from './spaces-overview/SpacesOverview.uic.view';
+import { SpacesOverviewUICLayoutProofPresentation } from './spaces-overview/SpacesOverview.uic.view';
 import {
   createSkinLabStories,
   type SkinLabOption,
@@ -516,14 +516,29 @@ export const PendingStopDevServer: Story = {
   ...(skinLabStories.PendingStopDevServer as Story),
 };
 
-export const UICPageHeaderProof: StoryObj<typeof SpacesOverviewUICPageHeaderProof> = {
-  name: 'UIC pageHeader proof',
-  render: () => <SpacesOverviewUICPageHeaderProof />,
+export const UICLayoutShellProof: Story = {
+  name: 'UIC layout shell proof',
+  render: ({ densityPreset = 'desktop', skinPreset = 'default', ...props }) => (
+    <div
+      className={
+        densityPreset === 'mobile'
+          ? 'mx-auto h-full min-h-[720px] w-[390px] max-w-full overflow-hidden'
+          : 'h-full w-full'
+      }
+      data-storybook-density={densityPreset}
+    >
+      <SpacesOverviewView
+        {...props}
+        presentation={SpacesOverviewUICLayoutProofPresentation}
+        skinState={skinStateByPreset[skinPreset]}
+      />
+    </div>
+  ),
   parameters: {
     docs: {
       description: {
         story:
-          'Development-only UIC fixture for the generated pageHeader tag. The full SpacesOverview migration remains future work; the trusted React renderer remains the fallback.',
+          'Development-only UIC fixture for the generated full SpacesOverview layout shell. Component internals still render through trusted React slots while UIC validates the layout structure.',
       },
     },
   },

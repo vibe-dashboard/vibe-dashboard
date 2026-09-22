@@ -4,10 +4,11 @@ Status: design/prototype slice for
 `vkvw-8xaj.18.1.1 — Design trusted React component references and
 external-library adapters for UIC XML`.
 
-This slice is intentionally narrow: it proves the SpacesOverview `pageHeader`
-fixture only, in development and Storybook, while preserving the existing React
-renderer as fallback. The delivery target remains complete SpacesOverview UIC
-migration after this foundation is reviewed.
+This slice is intentionally narrow: it first proved the SpacesOverview
+`pageHeader` fixture, then expanded to a full SpacesOverview layout shell in
+development and Storybook while preserving the existing React renderer as
+fallback. Component internals still render through trusted React slots; XML
+does not yet own hooks, async resources, loops, or row-level actions.
 
 ## Registry model
 
@@ -26,8 +27,8 @@ APIs. Each descriptor declares:
 
 The current proof descriptor lives in `src/uic/trustedComponents.ts` and maps:
 
-- `uic:pageHeader` to existing trusted ID
-  `myne.spaces.page-header.default`;
+- `uic:pageHeader` and the other required SpacesOverview layout tags to
+  existing trusted `myne.spaces.*` component IDs;
 - `uic:pageHeaderAction` to wrapper ID `uic.heroui.button.action`.
 
 The `myne.*` ID is an existing compatibility target, not XML authoring syntax.
@@ -48,6 +49,14 @@ V1 uses generated readable tags only:
       <uic:pageHeaderAction label="Start voyage" />
     </uic:slot>
   </uic:pageHeader>
+  <uic:recentSessions />
+  <uic:starredCraft />
+  <uic:runningDevServers />
+  <uic:recentlyVisitedCraft />
+  <uic:recentlyCreatedCraft />
+  <uic:workspaceList />
+  <uic:spaces />
+  <uic:spacePicker />
 </uic:spaceOverviewPage>
 ```
 
@@ -92,16 +101,25 @@ slice.
 Descriptor-declared node fallback is allowed only when it preserves semantics
 and accessibility. Structural failures, unknown tags/slots, digest mismatch,
 or fallback failure escalate to the enclosing trusted React slot/layout. The
-Storybook proof intentionally renders through the existing public `myne-*` /
-`data-myne-*` hooks and reports validation diagnostics while falling back to
-the trusted React pageHeader.
+Storybook proof intentionally renders the full existing SpacesOverview view
+through public `myne-*` / `data-myne-*` hooks and reports validation diagnostics
+while falling back to the trusted React layout.
 
 ## Current proof
 
 - Core descriptor/XSD/IR proof: `src/uic/trustedComponents.ts`
 - Focused tests: `src/uic/trustedComponents.test.ts`
 - SpacesOverview dev fixture: `src/components/spaces-overview/SpacesOverview.uic.view.tsx`
-- Storybook exposure: `Scenes/SpacesOverview/UIC pageHeader proof`
+- Storybook exposure: `Scenes/SpacesOverview/UIC layout shell proof`
 
 No Marketplace, persistence, package archive, production selection, broad page
 migration, or runtime user exposure is included in this slice.
+
+Next slices must sequence through:
+
+- `vkvw-8xaj.18.4 — Expose typed AppHooks capabilities to UIC templates for
+  declarative pages` before XML receives host capabilities or actions;
+- `vkvw-8xaj.18.5 — Expose typed asynchronous resource state to UIC templates`
+  before XML renders loading/error/empty/success branches directly;
+- `vkvw-8xaj.18.6 — Evaluate Mitosis-inspired declarative control-flow
+  directives for UIC XML` before XML owns iteration over workspace/session rows.

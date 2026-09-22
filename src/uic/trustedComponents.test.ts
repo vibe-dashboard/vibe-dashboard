@@ -15,6 +15,23 @@ const pageHeaderXml = `<uic:spaceOverviewPage xmlns:uic="https://vibedashboard.d
   </uic:pageHeader>
 </uic:spaceOverviewPage>`;
 
+const fullSpacesOverviewXml = `<uic:spaceOverviewPage xmlns:uic="https://vibedashboard.dev/uic/xml/v1" artifactVersion="1">
+  <uic:css><![CDATA[:uic-scope { --myne-slot-page-header-gap: 1rem; }]]></uic:css>
+  <uic:pageHeader title="{model.title}" subtitle="{model.subtitle}">
+    <uic:slot name="actions">
+      <uic:pageHeaderAction label="Start voyage" />
+    </uic:slot>
+  </uic:pageHeader>
+  <uic:recentSessions />
+  <uic:starredCraft />
+  <uic:runningDevServers />
+  <uic:recentlyVisitedCraft />
+  <uic:recentlyCreatedCraft />
+  <uic:workspaceList />
+  <uic:spaces />
+  <uic:spacePicker />
+</uic:spaceOverviewPage>`;
+
 describe("UIC trusted component descriptors", () => {
   it("generates named tag XSD from the trusted descriptor without generic component refs", () => {
     const xsd = generateUICXsd(spacesOverviewPageHeaderUICProof);
@@ -22,6 +39,9 @@ describe("UIC trusted component descriptors", () => {
     expect(xsd).toContain('targetNamespace="https://vibedashboard.dev/uic/xml/v1"');
     expect(xsd).toContain('name="spaceOverviewPage"');
     expect(xsd).toContain('name="pageHeader"');
+    expect(xsd).toContain('name="recentSessions"');
+    expect(xsd).toContain('name="runningDevServers"');
+    expect(xsd).toContain('name="spacePicker"');
     expect(xsd).toContain('name="pageHeaderAction"');
     expect(xsd).toContain('name="css"');
     expect(xsd).toContain('fixed="actions"');
@@ -33,7 +53,7 @@ describe("UIC trusted component descriptors", () => {
   });
 
   it("compiles app-local unversioned generated tags into digest-bound canonical IR", async () => {
-    const compiled = await compileUICXml(spacesOverviewPageHeaderUICProof, pageHeaderXml);
+    const compiled = await compileUICXml(spacesOverviewPageHeaderUICProof, fullSpacesOverviewXml);
 
     expect(compiled.ok).toBe(true);
     if (!compiled.ok) throw new Error("expected successful compile");
@@ -61,10 +81,30 @@ describe("UIC trusted component descriptors", () => {
             ],
           },
         },
+        { tag: "recentSessions", componentId: "myne.spaces.recent-sessions.default" },
+        { tag: "starredCraft", componentId: "myne.spaces.starred-craft.default" },
+        { tag: "runningDevServers", componentId: "myne.spaces.running-dev-servers.default" },
+        { tag: "recentlyVisitedCraft", componentId: "myne.spaces.recently-visited.default" },
+        { tag: "recentlyCreatedCraft", componentId: "myne.spaces.recently-created.default" },
+        { tag: "workspaceList", componentId: "myne.spaces.workspace-list.default" },
+        { tag: "spaces", componentId: "myne.spaces.spaces.default" },
+        { tag: "spacePicker", componentId: "myne.spaces.space-picker.default" },
       ],
     });
     expect(compiled.ir.schemaDigest).toMatch(/^sha256-/);
     expect(compiled.ir.registryDigest).toMatch(/^sha256-/);
+  });
+
+  it("requires every SpacesOverview layout-shell tag exactly once before compile", async () => {
+    const missingWorkspace = fullSpacesOverviewXml.replace("  <uic:workspaceList />\n", "");
+    const duplicateSpaces = fullSpacesOverviewXml.replace("  <uic:spaces />", "  <uic:spaces />\n  <uic:spaces />");
+    const reordered = fullSpacesOverviewXml.replace("  <uic:recentSessions />\n  <uic:starredCraft />", "  <uic:starredCraft />\n  <uic:recentSessions />");
+    const extra = fullSpacesOverviewXml.replace("  <uic:spacePicker />", "  <uic:spacePicker />\n  <uic:unknownSection />");
+
+    await expect(compileUICXml(spacesOverviewPageHeaderUICProof, missingWorkspace)).resolves.toMatchObject({ ok: false, diagnostics: expect.arrayContaining([expect.objectContaining({ code: "uic/xml/missing-required-node" })]) });
+    await expect(compileUICXml(spacesOverviewPageHeaderUICProof, duplicateSpaces)).resolves.toMatchObject({ ok: false, diagnostics: expect.arrayContaining([expect.objectContaining({ code: "uic/xml/duplicate-node" })]) });
+    await expect(compileUICXml(spacesOverviewPageHeaderUICProof, reordered)).resolves.toMatchObject({ ok: false, diagnostics: expect.arrayContaining([expect.objectContaining({ code: "uic/xml/slot-order" })]) });
+    await expect(compileUICXml(spacesOverviewPageHeaderUICProof, extra)).resolves.toMatchObject({ ok: false, diagnostics: expect.arrayContaining([expect.objectContaining({ code: "uic/xml/unknown-tag" })]) });
   });
 
   it("rejects generic component refs, unknown slots, raw styling, and default children before mount", () => {
@@ -120,7 +160,7 @@ describe("UIC trusted component descriptors", () => {
   });
 
   it("records wrapper-first HeroUI policy without exposing vendor APIs", () => {
-    const action = spacesOverviewPageHeaderUICProof.components.pageHeaderAction;
+    const action = spacesOverviewPageHeaderUICProof.components.pageHeaderAction!;
 
     expect(action.adapter).toBe("wrapper");
     expect(action.externalLibrary).toEqual({ name: "HeroUI", exposure: "wrapped-only" });
