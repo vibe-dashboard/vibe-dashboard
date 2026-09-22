@@ -57,6 +57,7 @@ describe('external integrations migrations', () => {
         'VKWorkspace',
         'ExternalIssueWorkspaceLink',
         'ExternalRepoProjectMapping',
+        'GithubIssueWorkspaceReservation',
         'Migration',
       ]));
     } finally {
