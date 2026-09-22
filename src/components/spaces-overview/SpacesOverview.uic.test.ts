@@ -8,12 +8,14 @@ import {
   UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET,
   UIC_STARRED_CRAFT_RESOURCE_BUDGET,
   UIC_SPACES_RESOURCE_BUDGET,
+  UIC_WORKSPACE_LIST_RESOURCE_BUDGET,
   SpacesOverviewUICLayoutProofPresentation,
   SpacesOverviewUICPageHeaderProof,
   projectUICRecentlyCreatedCraftResource,
   projectUICRecentlyVisitedCraftResource,
   projectUICSpacesResource,
   projectUICStarredCraftResource,
+  projectUICWorkspaceListResource,
 } from "./SpacesOverview.uic.view";
 import {
   storybookRepoBranches,
@@ -84,6 +86,10 @@ function recentlyVisitedRegion(html: string) {
 
 function recentlyCreatedRegion(html: string) {
   return html.slice(html.indexOf('data-uic-owned-region="recently-created-craft"'), html.indexOf('data-myne-slot="workspace-list"'));
+}
+
+function workspaceListRegion(html: string) {
+  return html.slice(html.indexOf('data-uic-owned-region="workspace-list"'), html.indexOf('data-uic-owned-region="spaces-list"'));
 }
 
 function spacesRegion(html: string) {
@@ -505,5 +511,90 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(region).not.toContain(longCraft);
     expect(region).toContain(longSpace.slice(0, UIC_SPACES_RESOURCE_BUDGET.maxSpaceLabelLength));
     expect(region).toContain(longCraft.slice(0, UIC_SPACES_RESOURCE_BUDGET.maxCraftLabelLength));
+  });
+
+  it("uses finite UIC states for workspace list without filter, pagination, navigation, or mutation controls", () => {
+    const readyRegion = workspaceListRegion(renderUICLayout());
+
+    expect(readyRegion).toContain("Read-only UIC workspace list");
+    expect(readyRegion).toContain("VK Workspaces");
+    expect(readyRegion).toContain(dashboardWorkspaces[0]!.name);
+    expect(readyRegion).not.toContain("<button");
+    expect(readyRegion).not.toContain("All</");
+    expect(readyRegion).not.toContain("Previous");
+    expect(readyRegion).not.toContain("Next");
+    expect(readyRegion).not.toContain("Stop server");
+    expect(readyRegion).not.toContain("Go to craft");
+    expect(readyRegion).not.toContain(">Open<");
+
+    expect(workspaceListRegion(renderUICLayout(undefined, { loading: true, workspaces: [] }))).toContain("Loading workspaces");
+    expect(workspaceListRegion(renderUICLayout(undefined, { workspaces: [] }))).toContain("No active workspaces");
+    expect(workspaceListRegion(renderUICLayout(undefined, { error: "VK backend unavailable", workspaces: [] }))).toContain("VK backend unavailable");
+  });
+
+  it("caps UIC workspace rows and repo labels deterministically before rendering", () => {
+    const workspaces = Array.from({ length: UIC_WORKSPACE_LIST_RESOURCE_BUDGET.maxRows + 2 }, (_, index) => ({
+      ...runningWorkspace({
+        id: `uic-workspace-${index}`,
+        name: `UIC workspace ${index}`,
+        branch: `vk/workspace-${index}`,
+        repos: Array.from({ length: UIC_WORKSPACE_LIST_RESOURCE_BUDGET.maxRepoLabelsPerRow + 2 }, (_repo, repoIndex) => ({
+          id: `workspace-repo-${index}-${repoIndex}`,
+          name: `repo-${repoIndex}`,
+          display_name: `Repo ${repoIndex}`,
+          target_branch: "main",
+        })),
+      }),
+      has_running_dev_server: false,
+    }));
+    const region = workspaceListRegion(renderUICLayout(undefined, { workspaces }));
+
+    expect(region).toContain("uic/resource/rows-truncated");
+    expect(region).toContain("uic/resource/repo-labels-truncated");
+    expect(region).toContain(`UIC workspace ${UIC_WORKSPACE_LIST_RESOURCE_BUDGET.maxRows - 1}`);
+    expect(region).not.toContain(`UIC workspace ${UIC_WORKSPACE_LIST_RESOURCE_BUDGET.maxRows}`);
+    expect(region).toContain(`Repo ${UIC_WORKSPACE_LIST_RESOURCE_BUDGET.maxRepoLabelsPerRow - 1}`);
+    expect(region).not.toContain(`Repo ${UIC_WORKSPACE_LIST_RESOURCE_BUDGET.maxRepoLabelsPerRow}`);
+  });
+
+  it("diagnoses duplicate UIC workspace IDs and keeps the first row", () => {
+    const resource = projectUICWorkspaceListResource({
+      loading: false,
+      error: null,
+      sortedWorkspaces: [
+        { ...dashboardWorkspaces[0]!, id: "workspace-dupe", name: "First workspace duplicate" },
+        { ...dashboardWorkspaces[1]!, id: "workspace-dupe", name: "Second workspace duplicate" },
+      ],
+    });
+
+    expect(resource).toMatchObject({ state: "ready", diagnostics: ["uic/resource/duplicate-row-id"] });
+    if (resource.state !== "ready") throw new Error("Expected ready resource");
+    expect(resource.items).toHaveLength(1);
+    expect(resource.items[0]?.label).toBe("First workspace duplicate");
+  });
+
+  it("caps long UIC workspace labels and metadata before rendering", () => {
+    const longName = `Workspace-${"w".repeat(UIC_WORKSPACE_LIST_RESOURCE_BUDGET.maxNameLength + 20)}`;
+    const longBranch = `branch-${"b".repeat(UIC_WORKSPACE_LIST_RESOURCE_BUDGET.maxBranchLength + 20)}`;
+    const longRepo = `Repo-${"r".repeat(UIC_WORKSPACE_LIST_RESOURCE_BUDGET.maxRepoLabelLength + 20)}`;
+    const region = workspaceListRegion(renderUICLayout(undefined, {
+      workspaces: [
+        {
+          ...dashboardWorkspaces[0]!,
+          id: "workspace-long",
+          name: longName,
+          branch: longBranch,
+          repos: [{ id: "repo-long", name: "repo-long", display_name: longRepo, target_branch: "main" }],
+        },
+      ],
+    }));
+
+    expect(region).toContain("uic/resource/string-truncated");
+    expect(region).not.toContain(longName);
+    expect(region).not.toContain(longBranch);
+    expect(region).not.toContain(longRepo);
+    expect(region).toContain(longName.slice(0, UIC_WORKSPACE_LIST_RESOURCE_BUDGET.maxNameLength));
+    expect(region).toContain(longBranch.slice(0, UIC_WORKSPACE_LIST_RESOURCE_BUDGET.maxBranchLength));
+    expect(region).toContain(longRepo.slice(0, UIC_WORKSPACE_LIST_RESOURCE_BUDGET.maxRepoLabelLength));
   });
 });

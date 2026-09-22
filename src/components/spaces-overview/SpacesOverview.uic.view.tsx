@@ -52,6 +52,12 @@ type UICSpacesResource =
   | { readonly state: "empty" }
   | { readonly state: "ready"; readonly groups: readonly { readonly id: string; readonly label: string; readonly items: readonly UICReadOnlyListItem[] }[]; readonly diagnostics: readonly string[] };
 
+type UICWorkspaceListResource =
+  | { readonly state: "pending" }
+  | { readonly state: "empty" }
+  | { readonly state: "error"; readonly message: string }
+  | { readonly state: "ready"; readonly items: readonly UICReadOnlyListItem[]; readonly diagnostics: readonly string[] };
+
 export const UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET = Object.freeze({
   maxRows: 5,
   maxRepoLabelsPerRow: 2,
@@ -73,6 +79,15 @@ export const UIC_SPACES_RESOURCE_BUDGET = Object.freeze({
   maxCraftPerSpace: 3,
   maxSpaceLabelLength: 32,
   maxCraftLabelLength: 48,
+});
+
+export const UIC_WORKSPACE_LIST_RESOURCE_BUDGET = Object.freeze({
+  maxRows: 8,
+  maxRepoLabelsPerRow: 2,
+  maxNameLength: 56,
+  maxBranchLength: 64,
+  maxRepoLabelLength: 32,
+  maxErrorLength: 96,
 });
 
 function capUICResourceString(value: string, max: number, diagnostics: string[]): string {
@@ -302,6 +317,98 @@ function UICReadOnlyRecentlyCreatedCraftSection({ model }: SpacesOverviewSlotPro
   );
 }
 
+export function projectUICWorkspaceListResource(model: Pick<SpacesOverviewSlotProps<"workspaceList">["model"], "loading" | "error" | "sortedWorkspaces">): UICWorkspaceListResource {
+  if (model.loading) return { state: "pending" };
+  const diagnostics: string[] = [];
+  if (model.error) {
+    return {
+      state: "error",
+      message: capUICResourceString(model.error, UIC_WORKSPACE_LIST_RESOURCE_BUDGET.maxErrorLength, diagnostics),
+    };
+  }
+
+  const seen = new Set<string>();
+  const uniqueWorkspaces = model.sortedWorkspaces.filter((workspace) => {
+    if (!seen.has(workspace.id)) {
+      seen.add(workspace.id);
+      return true;
+    }
+    diagnostics.push("uic/resource/duplicate-row-id");
+    return false;
+  });
+  const items = uniqueWorkspaces
+    .slice(0, UIC_WORKSPACE_LIST_RESOURCE_BUDGET.maxRows)
+    .map((workspace) => {
+      if (workspace.repos.length > UIC_WORKSPACE_LIST_RESOURCE_BUDGET.maxRepoLabelsPerRow) diagnostics.push("uic/resource/repo-labels-truncated");
+      return {
+        id: workspace.id,
+        label: capUICResourceString(workspace.name, UIC_WORKSPACE_LIST_RESOURCE_BUDGET.maxNameLength, diagnostics),
+        meta: [
+          capUICResourceString(workspace.branch, UIC_WORKSPACE_LIST_RESOURCE_BUDGET.maxBranchLength, diagnostics),
+          ...workspace.repos
+            .slice(0, UIC_WORKSPACE_LIST_RESOURCE_BUDGET.maxRepoLabelsPerRow)
+            .map((repo) => capUICResourceString(repo.display_name || repo.name, UIC_WORKSPACE_LIST_RESOURCE_BUDGET.maxRepoLabelLength, diagnostics)),
+        ],
+      };
+    });
+  if (uniqueWorkspaces.length > UIC_WORKSPACE_LIST_RESOURCE_BUDGET.maxRows) diagnostics.push("uic/resource/rows-truncated");
+  return items.length ? { state: "ready", items, diagnostics: [...new Set(diagnostics)] } : { state: "empty" };
+}
+
+function UICReadOnlyWorkspaceListSection({ model }: SpacesOverviewSlotProps<"workspaceList">) {
+  const resource = projectUICWorkspaceListResource(model);
+  return (
+    <section className="mb-10 rounded-xl border p-4" data-myne-slot="workspace-list" data-uic-owned-region="workspace-list" aria-busy={resource.state === "pending"}>
+      <div className="mb-3 flex items-center justify-between">
+        <div>
+          <MyneHeading className="text-lg font-semibold" level={2}>
+            VK Workspaces
+          </MyneHeading>
+          <MyneText as="p" className="mt-1 text-xs" tone="muted">
+            Read-only UIC workspace list
+          </MyneText>
+        </div>
+        {resource.state === "ready" && (
+          <MyneText className="text-xs" tone="muted">
+            {resource.items.length} workspace{resource.items.length === 1 ? "" : "s"}
+          </MyneText>
+        )}
+      </div>
+      {resource.state === "pending" ? (
+        <MyneText as="p" className="myne-state myne-state--loading py-6 text-sm" tone="muted">
+          Loading workspaces
+        </MyneText>
+      ) : resource.state === "error" ? (
+        <MyneText as="p" className="myne-state myne-state--error py-6 text-sm" tone="secondary">
+          {resource.message}
+        </MyneText>
+      ) : resource.state === "empty" ? (
+        <MyneText as="p" className="myne-state myne-state--empty py-6 text-sm" tone="muted">
+          No active workspaces
+        </MyneText>
+      ) : (
+        <ul className="space-y-1">
+          {resource.diagnostics.length > 0 && (
+            <li className="myne-status myne-status--warning text-xs">
+              {resource.diagnostics.join(", ")}
+            </li>
+          )}
+          {resource.items.map((item) => (
+            <li key={item.id} className="myne-row rounded-lg border px-4 py-3">
+              <MyneText as="span" className="block text-sm font-medium" tone="primary">
+                {item.label}
+              </MyneText>
+              <MyneText as="span" className="mt-1 block text-xs" tone="muted">
+                {item.meta.join(" · ")}
+              </MyneText>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 export function projectUICSpacesResource(model: SpacesOverviewSlotProps<"spaces">["model"]): UICSpacesResource {
   if (!model.hasSpaces) return { state: "empty" };
   const diagnostics: string[] = [];
@@ -406,7 +513,7 @@ export function SpacesOverviewUICLayoutProofPresentation({
   ...props
 }: SpacesOverviewComponentProps & { readonly xml?: string }) {
   const diagnostics = validateUICXml(spacesOverviewPageHeaderUICProof, xml).diagnostics;
-  const ui = diagnostics.length ? defaultSpacesOverviewUI : { ...defaultSpacesOverviewUI, StarredCraftSection: UICReadOnlyStarredCraftSection, RunningDevServersSection: UICReadOnlyRunningDevServersSection, RecentlyVisitedCraftSection: UICReadOnlyRecentlyVisitedCraftSection, RecentlyCreatedCraftSection: UICReadOnlyRecentlyCreatedCraftSection, SpacesSection: UICReadOnlySpacesSection };
+  const ui = diagnostics.length ? defaultSpacesOverviewUI : { ...defaultSpacesOverviewUI, StarredCraftSection: UICReadOnlyStarredCraftSection, RunningDevServersSection: UICReadOnlyRunningDevServersSection, RecentlyVisitedCraftSection: UICReadOnlyRecentlyVisitedCraftSection, RecentlyCreatedCraftSection: UICReadOnlyRecentlyCreatedCraftSection, WorkspaceListSection: UICReadOnlyWorkspaceListSection, SpacesSection: UICReadOnlySpacesSection };
 
   return (
     <>
