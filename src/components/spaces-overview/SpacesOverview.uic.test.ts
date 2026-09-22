@@ -7,10 +7,12 @@ import {
   UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET,
   UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET,
   UIC_STARRED_CRAFT_RESOURCE_BUDGET,
+  UIC_SPACES_RESOURCE_BUDGET,
   SpacesOverviewUICLayoutProofPresentation,
   SpacesOverviewUICPageHeaderProof,
   projectUICRecentlyCreatedCraftResource,
   projectUICRecentlyVisitedCraftResource,
+  projectUICSpacesResource,
   projectUICStarredCraftResource,
 } from "./SpacesOverview.uic.view";
 import {
@@ -82,6 +84,11 @@ function recentlyVisitedRegion(html: string) {
 
 function recentlyCreatedRegion(html: string) {
   return html.slice(html.indexOf('data-uic-owned-region="recently-created-craft"'), html.indexOf('data-myne-slot="workspace-list"'));
+}
+
+function spacesRegion(html: string) {
+  const start = html.indexOf('data-uic-owned-region="spaces-list"');
+  return html.slice(start, html.indexOf("</main>", start));
 }
 
 function runningWorkspace(overrides: Partial<DashboardWorkspace> = {}): DashboardWorkspace {
@@ -421,5 +428,82 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(region).not.toContain(longSpace);
     expect(region).toContain(longLabel.slice(0, UIC_STARRED_CRAFT_RESOURCE_BUDGET.maxLabelLength));
     expect(region).toContain(longSpace.slice(0, UIC_STARRED_CRAFT_RESOURCE_BUDGET.maxSpaceLabelLength));
+  });
+
+  it("uses finite UIC grouped-list semantics for spaces without navigation controls", () => {
+    const readyRegion = spacesRegion(renderUICLayout());
+
+    expect(readyRegion).toContain("Read-only UIC grouped list");
+    expect(readyRegion).toContain("2 spaces");
+    expect(readyRegion).toContain("Product");
+    expect(readyRegion).toContain("Auth bug fix");
+    expect(readyRegion).not.toContain("<button");
+
+    const emptyWorkspace = { ...storybookWorkspace, spaces: storybookWorkspace.spaces.filter((space) => space.isSystem) };
+    expect(spacesRegion(renderUICLayout(undefined, { workspace: emptyWorkspace }))).toContain("No spaces");
+  });
+
+  it("caps UIC spaces and nested craft deterministically before rendering", () => {
+    const tabGroups = Array.from({ length: UIC_SPACES_RESOURCE_BUDGET.maxCraftPerSpace + 2 }, (_, index) => ({
+      ...storybookWorkspace.tabGroups[1]!,
+      id: `tg-space-uic-${index}`,
+      label: `Space craft ${index}`,
+    }));
+    const spaces = Array.from({ length: UIC_SPACES_RESOURCE_BUDGET.maxSpaces + 2 }, (_, index) => ({
+      ...storybookWorkspace.spaces[1]!,
+      id: `space-uic-${index}`,
+      name: `Space ${index}`,
+      tabGroupIds: tabGroups.map((tabGroup) => tabGroup.id),
+    }));
+    const region = spacesRegion(renderUICLayout(undefined, { workspace: { ...storybookWorkspace, spaces, tabGroups } }));
+
+    expect(region).toContain("uic/resource/spaces-truncated");
+    expect(region).toContain("uic/resource/craft-truncated");
+    expect(region).toContain(`Space ${UIC_SPACES_RESOURCE_BUDGET.maxSpaces - 1}`);
+    expect(region).not.toContain(`Space ${UIC_SPACES_RESOURCE_BUDGET.maxSpaces}`);
+    expect(region).toContain(`Space craft ${UIC_SPACES_RESOURCE_BUDGET.maxCraftPerSpace - 1}`);
+    expect(region).not.toContain(`Space craft ${UIC_SPACES_RESOURCE_BUDGET.maxCraftPerSpace}`);
+  });
+
+  it("diagnoses duplicate UIC space and craft IDs while keeping first matches", () => {
+    const resource = projectUICSpacesResource({
+      hasSpaces: true,
+      tabGroupDisplayLabelById: new Map([["craft-dupe", "First craft duplicate"]]),
+      spacesWithTabGroups: [
+        {
+          space: { ...storybookWorkspace.spaces[1]!, id: "space-dupe", name: "First space", tabGroupIds: ["craft-dupe"] },
+          tabGroups: [
+            { ...storybookWorkspace.tabGroups[1]!, id: "craft-dupe", label: "First fallback" },
+            { ...storybookWorkspace.tabGroups[2]!, id: "craft-dupe", label: "Second craft duplicate" },
+          ],
+        },
+        { space: { ...storybookWorkspace.spaces[2]!, id: "space-dupe", name: "Second space" }, tabGroups: [] },
+      ],
+    });
+
+    expect(resource).toMatchObject({ state: "ready", diagnostics: expect.arrayContaining(["uic/resource/duplicate-craft-id", "uic/resource/duplicate-space-id"]) });
+    if (resource.state !== "ready") throw new Error("Expected ready resource");
+    expect(resource.groups).toHaveLength(1);
+    expect(resource.groups[0]?.label).toBe("First space");
+    expect(resource.groups[0]?.items).toHaveLength(1);
+    expect(resource.groups[0]?.items[0]?.label).toBe("First craft duplicate");
+  });
+
+  it("caps long UIC space and craft labels before rendering", () => {
+    const longSpace = `Space-${"s".repeat(UIC_SPACES_RESOURCE_BUDGET.maxSpaceLabelLength + 20)}`;
+    const longCraft = `Craft-${"c".repeat(UIC_SPACES_RESOURCE_BUDGET.maxCraftLabelLength + 20)}`;
+    const tabGroup = { ...storybookWorkspace.tabGroups[1]!, id: "tg-space-long", label: longCraft };
+    const workspace = {
+      ...storybookWorkspace,
+      spaces: [{ ...storybookWorkspace.spaces[1]!, name: longSpace, tabGroupIds: [tabGroup.id] }],
+      tabGroups: [tabGroup],
+    };
+    const region = spacesRegion(renderUICLayout(undefined, { workspace }));
+
+    expect(region).toContain("uic/resource/string-truncated");
+    expect(region).not.toContain(longSpace);
+    expect(region).not.toContain(longCraft);
+    expect(region).toContain(longSpace.slice(0, UIC_SPACES_RESOURCE_BUDGET.maxSpaceLabelLength));
+    expect(region).toContain(longCraft.slice(0, UIC_SPACES_RESOURCE_BUDGET.maxCraftLabelLength));
   });
 });

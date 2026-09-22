@@ -48,6 +48,10 @@ type UICReadOnlyListResource =
   | { readonly state: "empty" }
   | { readonly state: "ready"; readonly items: readonly UICReadOnlyListItem[]; readonly diagnostics: readonly string[] };
 
+type UICSpacesResource =
+  | { readonly state: "empty" }
+  | { readonly state: "ready"; readonly groups: readonly { readonly id: string; readonly label: string; readonly items: readonly UICReadOnlyListItem[] }[]; readonly diagnostics: readonly string[] };
+
 export const UIC_RUNNING_DEV_SERVERS_RESOURCE_BUDGET = Object.freeze({
   maxRows: 5,
   maxRepoLabelsPerRow: 2,
@@ -64,6 +68,12 @@ export const UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET = Object.freeze({
 
 export const UIC_RECENTLY_CREATED_CRAFT_RESOURCE_BUDGET = UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET;
 export const UIC_STARRED_CRAFT_RESOURCE_BUDGET = UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET;
+export const UIC_SPACES_RESOURCE_BUDGET = Object.freeze({
+  maxSpaces: 4,
+  maxCraftPerSpace: 3,
+  maxSpaceLabelLength: 32,
+  maxCraftLabelLength: 48,
+});
 
 function capUICResourceString(value: string, max: number, diagnostics: string[]): string {
   if (value.length <= max) return value;
@@ -292,12 +302,111 @@ function UICReadOnlyRecentlyCreatedCraftSection({ model }: SpacesOverviewSlotPro
   );
 }
 
+export function projectUICSpacesResource(model: SpacesOverviewSlotProps<"spaces">["model"]): UICSpacesResource {
+  if (!model.hasSpaces) return { state: "empty" };
+  const diagnostics: string[] = [];
+  const seenSpaces = new Set<string>();
+  const seenCraft = new Set<string>();
+  const groups = model.spacesWithTabGroups
+    .filter(({ space }) => {
+      if (!seenSpaces.has(space.id)) {
+        seenSpaces.add(space.id);
+        return true;
+      }
+      diagnostics.push("uic/resource/duplicate-space-id");
+      return false;
+    })
+    .slice(0, UIC_SPACES_RESOURCE_BUDGET.maxSpaces)
+    .map(({ space, tabGroups }) => {
+      const items = tabGroups
+        .filter((tg) => {
+          if (!seenCraft.has(tg.id)) {
+            seenCraft.add(tg.id);
+            return true;
+          }
+          diagnostics.push("uic/resource/duplicate-craft-id");
+          return false;
+        })
+        .slice(0, UIC_SPACES_RESOURCE_BUDGET.maxCraftPerSpace)
+        .map((tg) => ({
+          id: tg.id,
+          label: capUICResourceString(model.tabGroupDisplayLabelById.get(tg.id) ?? tg.label, UIC_SPACES_RESOURCE_BUDGET.maxCraftLabelLength, diagnostics),
+          meta: [`${tg.tabs.length} view${tg.tabs.length === 1 ? "" : "s"}`],
+        }));
+      if (tabGroups.length > UIC_SPACES_RESOURCE_BUDGET.maxCraftPerSpace) diagnostics.push("uic/resource/craft-truncated");
+      return {
+        id: space.id,
+        label: capUICResourceString(space.name, UIC_SPACES_RESOURCE_BUDGET.maxSpaceLabelLength, diagnostics),
+        items,
+      };
+    });
+  if (model.spacesWithTabGroups.length > UIC_SPACES_RESOURCE_BUDGET.maxSpaces) diagnostics.push("uic/resource/spaces-truncated");
+  return groups.length ? { state: "ready", groups, diagnostics: [...new Set(diagnostics)] } : { state: "empty" };
+}
+
+function UICReadOnlySpacesSection({ model }: SpacesOverviewSlotProps<"spaces">) {
+  const resource = projectUICSpacesResource(model);
+  return (
+    <section className="mb-8 rounded-xl border p-4" data-myne-slot="spaces-list" data-uic-owned-region="spaces-list">
+      <div className="mb-3 flex items-center justify-between">
+        <div>
+          <MyneHeading className="text-lg font-semibold" level={2}>
+            All Spaces
+          </MyneHeading>
+          <MyneText as="p" className="mt-1 text-xs" tone="muted">
+            Read-only UIC grouped list
+          </MyneText>
+        </div>
+        {resource.state === "ready" && (
+          <MyneText className="text-xs" tone="muted">
+            {resource.groups.length} space{resource.groups.length === 1 ? "" : "s"}
+          </MyneText>
+        )}
+      </div>
+      {resource.state === "empty" ? (
+        <MyneText as="p" className="myne-state myne-state--empty py-6 text-sm" tone="muted">
+          No spaces
+        </MyneText>
+      ) : (
+        <div className="space-y-3">
+          {resource.diagnostics.length > 0 && (
+            <div className="myne-status myne-status--warning text-xs">
+              {resource.diagnostics.join(", ")}
+            </div>
+          )}
+          {resource.groups.map((group) => (
+            <section key={group.id} className="myne-section rounded-lg border px-4 py-3">
+              <MyneHeading className="text-sm font-semibold" level={3}>
+                {group.label}
+              </MyneHeading>
+              <ul className="mt-2 space-y-1">
+                {group.items.map((item) => (
+                  <li key={item.id} className="myne-row rounded border px-3 py-2">
+                    <MyneText as="span" className="block text-sm font-medium" tone="primary">
+                      {item.label}
+                    </MyneText>
+                    {item.meta.length > 0 && (
+                      <MyneText as="span" className="mt-1 block text-xs" tone="muted">
+                        {item.meta.join(" · ")}
+                      </MyneText>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function SpacesOverviewUICLayoutProofPresentation({
   xml = spacesOverviewUICLayoutXml,
   ...props
 }: SpacesOverviewComponentProps & { readonly xml?: string }) {
   const diagnostics = validateUICXml(spacesOverviewPageHeaderUICProof, xml).diagnostics;
-  const ui = diagnostics.length ? defaultSpacesOverviewUI : { ...defaultSpacesOverviewUI, StarredCraftSection: UICReadOnlyStarredCraftSection, RunningDevServersSection: UICReadOnlyRunningDevServersSection, RecentlyVisitedCraftSection: UICReadOnlyRecentlyVisitedCraftSection, RecentlyCreatedCraftSection: UICReadOnlyRecentlyCreatedCraftSection };
+  const ui = diagnostics.length ? defaultSpacesOverviewUI : { ...defaultSpacesOverviewUI, StarredCraftSection: UICReadOnlyStarredCraftSection, RunningDevServersSection: UICReadOnlyRunningDevServersSection, RecentlyVisitedCraftSection: UICReadOnlyRecentlyVisitedCraftSection, RecentlyCreatedCraftSection: UICReadOnlyRecentlyCreatedCraftSection, SpacesSection: UICReadOnlySpacesSection };
 
   return (
     <>
