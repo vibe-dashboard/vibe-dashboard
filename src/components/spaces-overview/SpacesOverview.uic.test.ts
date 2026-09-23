@@ -293,6 +293,50 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(projectUICRunningDevServerActions({ workspaces: [runningWorkspace()], stoppingDevServerIds: new Set() }, false)).toEqual([]);
   });
 
+  it("binds UIC running dev server craft navigation and open-workspace request from validated XML", () => {
+    const workspace = runningWorkspace();
+    const navRegion = runningDevServersRegion(renderUICPresentationWithModel({
+      workspaces: [workspace],
+      workspaceTabGroupMap: new Map([[workspace.id, { spaceId: "space_product", tabGroupId: "tg_agent", label: "Auth bug fix" }]]),
+    }));
+
+    expect(navRegion).toContain("Open craft");
+    expect(navRegion).not.toContain("Open workspace");
+
+    const openRegion = runningDevServersRegion(renderUICPresentationWithModel({ workspaces: [workspace], workspaceTabGroupMap: new Map(), canOpenWorkspaceInSpace: true }));
+    expect(openRegion).toContain("Open workspace");
+
+    const omitted = runningDevServersRegion(renderUICPresentationWithModel(
+      { workspaces: [workspace], workspaceTabGroupMap: new Map([[workspace.id, { spaceId: "space_product", tabGroupId: "tg_agent", label: "Auth bug fix" }]]) },
+      {},
+      spacesOverviewUICLayoutXml.replace('  <uic:runningDevServers uic:on-stop="spaces.stopDevServer" uic:on-activate="spaces.navigateToCraft" uic:on-open="spaces.openWorkspace" />', '  <uic:runningDevServers uic:on-stop="spaces.stopDevServer" />'),
+    ));
+    expect(omitted).not.toContain("Open craft");
+    expect(omitted).not.toContain("Open workspace");
+  });
+
+  it("falls back without running dev server navigation/open dispatch when bindings are invalid", () => {
+    for (const [attr, invalid, dispatcher] of [
+      ["uic:on-activate", "https://example.test/action", "navigateToTabGroup"],
+      ["uic:on-activate", "spaces.stopDevServer", "navigateToTabGroup"],
+      ["uic:on-open", "https://example.test/action", "openSpacePickerForWorkspace"],
+      ["uic:on-open", "spaces.deleteSession", "openSpacePickerForWorkspace"],
+    ] as const) {
+      const navigateToTabGroup = vi.fn();
+      const openSpacePickerForWorkspace = vi.fn();
+      const html = renderUICPresentationWithModel(
+        { workspaces: [runningWorkspace()] },
+        { navigateToTabGroup, openSpacePickerForWorkspace },
+        spacesOverviewUICLayoutXml.replace('  <uic:runningDevServers uic:on-stop="spaces.stopDevServer" uic:on-activate="spaces.navigateToCraft" uic:on-open="spaces.openWorkspace" />', `  <uic:runningDevServers uic:on-stop="spaces.stopDevServer" ${attr}="${invalid}" ${attr === "uic:on-activate" ? 'uic:on-open="spaces.openWorkspace"' : 'uic:on-activate="spaces.navigateToCraft"'} />`),
+      );
+
+      expect(html).toContain('data-myne-view-pack="myne.spaces.view-pack.default"');
+      expect(html).toContain("uic/xml/unknown-action");
+      expect(html).not.toContain('data-uic-owned-region="running-dev-servers"');
+      expect({ navigateToTabGroup, openSpacePickerForWorkspace }[dispatcher]).not.toHaveBeenCalled();
+    }
+  });
+
   it("falls back without running dev server stop dispatch when stop action validation fails", () => {
     for (const invalid of ["https://example.test/action", "spaces.deleteSession"]) {
       const stopDevServer = vi.fn();
@@ -311,7 +355,7 @@ describe("SpacesOverview UIC pageHeader proof", () => {
 
   it("projects confirmed running dev server stop descriptors through lifecycle before trusted dispatch", () => {
     const workspace = runningWorkspace();
-    const descriptor = projectUICRunningDevServerActions({ workspaces: [workspace], stoppingDevServerIds: new Set() })[0]!;
+    const descriptor = projectUICRunningDevServerActions({ workspaces: [workspace], stoppingDevServerIds: new Set() }).find((action) => action.id === "spaces.stopDevServer" && "lifecycle" in action)!;
     const stopDevServer = vi.fn();
     const allowed = new Set([workspace.id]);
 
@@ -333,6 +377,48 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(stopDevServer).not.toHaveBeenCalled();
     expect(invokeUICRunningDevServerAction({ stopDevServer }, descriptor, allowed, new Set(), { authorized: true, confirmed: true })).toEqual({ ok: true, result: { state: "completed" } });
     expect(stopDevServer).toHaveBeenCalledWith(workspace.id);
+  });
+
+  it("projects and validates running dev server navigation/open descriptors before trusted dispatch", () => {
+    const workspace = runningWorkspace();
+    const navigateToTabGroup = vi.fn();
+    const openSpacePickerForWorkspace = vi.fn();
+    const descriptors = projectUICRunningDevServerActions({
+      workspaces: [workspace],
+      stoppingDevServerIds: new Set(),
+      workspaceTabGroupMap: new Map([[workspace.id, { spaceId: "space_product", tabGroupId: "tg_agent", label: "Auth bug fix" }]]),
+      canOpenWorkspaceInSpace: true,
+    }, { stop: false, navigate: true, open: true });
+    const navigate = descriptors.find((action) => action.id === "spaces.navigateToCraft")!;
+    const open = projectUICRunningDevServerActions({
+      workspaces: [workspace],
+      stoppingDevServerIds: new Set(),
+      workspaceTabGroupMap: new Map(),
+      canOpenWorkspaceInSpace: true,
+    }, { stop: false, navigate: true, open: true }).find((action) => action.id === "spaces.openWorkspace")!;
+    const allowedWorkspaces = new Map([[workspace.id, workspace]]);
+    const allowedCraftTargets = new Set([`${workspace.id}:space_product:tg_agent`]);
+
+    expect(navigate).toEqual({ event: "activate", id: "spaces.navigateToCraft", args: { workspaceId: workspace.id, spaceId: "space_product", tabGroupId: "tg_agent" }, status: "available" });
+    expect(open).toEqual({ event: "open", id: "spaces.openWorkspace", args: { workspaceId: workspace.id }, status: "available" });
+    expect(JSON.stringify([navigate, open])).not.toMatch(/function|=>|appHooks|QueryClient|Promise|https?:|method|delete/u);
+    expect(invokeUICRunningDevServerAction({ stopDevServer: vi.fn(), navigateToTabGroup, openSpacePickerForWorkspace }, navigate, allowedWorkspaces, new Set(), { authorized: true, confirmed: true, allowedCraftTargets })).toEqual({ ok: true, result: { state: "completed" } });
+    expect(navigateToTabGroup).toHaveBeenCalledWith("space_product", "tg_agent");
+    expect(invokeUICRunningDevServerAction({ stopDevServer: vi.fn(), navigateToTabGroup, openSpacePickerForWorkspace }, open, allowedWorkspaces, new Set(), { authorized: true, confirmed: true, allowedCraftTargets })).toEqual({ ok: true, result: { state: "completed" } });
+    expect(openSpacePickerForWorkspace).toHaveBeenCalledWith(workspace);
+
+    navigateToTabGroup.mockClear();
+    openSpacePickerForWorkspace.mockClear();
+    for (const descriptor of [
+      { ...navigate, args: { workspaceId: workspace.id, spaceId: "space_product", tabGroupId: "tg_agent", url: "https://example.test" } },
+      { ...navigate, args: { workspaceId: workspace.id, spaceId: "missing", tabGroupId: "tg_agent" } },
+      { ...open, args: { workspaceId: workspace.id, method: "deleteSession" } },
+      { ...open, args: { workspaceId: "missing" } },
+    ]) {
+      expect(invokeUICRunningDevServerAction({ stopDevServer: vi.fn(), navigateToTabGroup, openSpacePickerForWorkspace }, descriptor, allowedWorkspaces, new Set(), { authorized: true, confirmed: true, allowedCraftTargets })).toMatchObject({ ok: false });
+    }
+    expect(navigateToTabGroup).not.toHaveBeenCalled();
+    expect(openSpacePickerForWorkspace).not.toHaveBeenCalled();
   });
 
   it("does not dispatch from rendered UIC stop control until trusted confirmation UI is wired", () => {
@@ -363,6 +449,7 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     const workspace = runningWorkspace();
     const stopDevServer = vi.fn();
     const descriptor = projectUICRunningDevServerActions({ workspaces: [workspace], stoppingDevServerIds: new Set() })[0]!;
+    if (!("lifecycle" in descriptor)) throw new Error("Expected stop descriptor");
 
     expect(projectUICRunningDevServerActions({ workspaces: [workspace], stoppingDevServerIds: new Set([workspace.id]) })).toEqual([]);
     expect(invokeUICRunningDevServerAction({ stopDevServer }, descriptor, new Set(), new Set(), { authorized: true, confirmed: true })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unavailable" } });
