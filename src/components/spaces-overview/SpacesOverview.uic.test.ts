@@ -13,6 +13,7 @@ import {
   UIC_WORKSPACE_LIST_RESOURCE_BUDGET,
   SpacesOverviewUICLayoutProofPresentation,
   SpacesOverviewUICPageHeaderProof,
+  invokeUICSpacePickerAction,
   invokeUICWorkspaceListAction,
   invokeUICSpacesOverviewAction,
   projectUICRecentSessionsResource,
@@ -24,6 +25,7 @@ import {
   projectUICSpacesCraftActions,
   projectUICSpacesResource,
   projectUICStarredCraftResource,
+  projectUICSpacePickerActions,
   projectUICWorkspaceListActions,
   projectUICWorkspaceListResource,
   spacesOverviewUICLayoutXml,
@@ -110,6 +112,11 @@ function workspaceListRegion(html: string) {
 function spacesRegion(html: string) {
   const start = html.indexOf('data-uic-owned-region="spaces-list"');
   return html.slice(start, html.indexOf("</main>", start));
+}
+
+function spacePickerRegion(html: string) {
+  const start = html.indexOf('data-uic-owned-region="space-picker"');
+  return start === -1 ? "" : html.slice(start, html.indexOf("</main>", start));
 }
 
 function runningWorkspace(overrides: Partial<DashboardWorkspace> = {}): DashboardWorkspace {
@@ -770,6 +777,67 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(invokeUICWorkspaceListAction({ openSpacePickerForWorkspace }, { id: "spaces.openWorkspace", event: "activate", status: "available", args: { workspaceId: "missing" } }, allowedWorkspaces)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unavailable" } });
     expect(invokeUICWorkspaceListAction({ openSpacePickerForWorkspace }, { id: "spaces.openWorkspace", event: "activate", status: "available", args: { workspaceId: 1 } }, allowedWorkspaces)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/invalid-args" } });
     expect(invokeUICWorkspaceListAction({ openSpacePickerForWorkspace }, { id: "spaces.deleteWorkspace", event: "activate", status: "available", args: { workspaceId: dashboardWorkspaces[0]!.id } }, allowedWorkspaces)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unknown" } });
+  });
+
+  it("renders UIC space-picker close action only from validated XML binding", () => {
+    const html = renderUICLayout(undefined, { initialSpacePickerTargetId: dashboardWorkspaces[0]!.id });
+    const region = spacePickerRegion(html);
+
+    expect(region).toContain("UIC space picker");
+    expect(region).toContain(dashboardWorkspaces[0]!.name);
+    expect(region).toContain("Close picker");
+    expect(region).not.toContain("Retry open");
+    expect(region).not.toContain("Stop server");
+    expect(region).not.toContain("Delete");
+
+    const withoutClose = renderUICLayout(
+      spacesOverviewUICLayoutXml.replace(' uic:on-close="spaces.dismissPicker"', ""),
+      { initialSpacePickerTargetId: dashboardWorkspaces[0]!.id },
+    );
+    expect(spacePickerRegion(withoutClose)).not.toContain("Close picker");
+  });
+
+  it("falls back without UIC space-picker action UI or dispatch when picker action validation fails", () => {
+    for (const invalid of ["https://example.test/action", "spaces.deleteWorkspace"]) {
+      const onOpenWorkspaceInSpace = vi.fn();
+      const html = renderUICLayout(spacesOverviewUICLayoutXml.replace(
+        '<uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" />',
+        `<uic:spacePicker uic:on-close="${invalid}" uic:on-retry="spaces.retryOpenWorkspace" />`,
+      ), { initialSpacePickerTargetId: dashboardWorkspaces[0]!.id, onOpenWorkspaceInSpace });
+
+      expect(html).toContain('data-myne-view-pack="myne.spaces.view-pack.default"');
+      expect(html).toContain("uic/xml/unknown-action");
+      expect(html).not.toContain('data-uic-owned-region="space-picker"');
+      expect(onOpenWorkspaceInSpace).not.toHaveBeenCalled();
+    }
+  });
+
+  it("projects serializable space-picker close/retry descriptors and gates unavailable picker state", () => {
+    const closeSpacePicker = vi.fn();
+    const retryOpenCraftRequest = vi.fn();
+    const retryRequest = { workspace: dashboardWorkspaces[0]!, spaceId: storybookWorkspace.spaces[1]!.id };
+    const descriptors = projectUICSpacePickerActions({
+      spacePickerTarget: dashboardWorkspaces[0]!,
+      pendingOpenCraftRequest: null,
+      openCraftRetryRequest: retryRequest,
+      canOpenWorkspaceInSpace: true,
+    });
+    const allowedActions = new Set(descriptors.map((descriptor) => descriptor.id));
+
+    expect(descriptors).toEqual([
+      { event: "close", id: "spaces.dismissPicker", args: {}, status: "available" },
+      { event: "retry", id: "spaces.retryOpenWorkspace", args: {}, status: "available" },
+    ]);
+    expect(JSON.stringify(descriptors)).not.toMatch(/function|=>|appHooks|QueryClient|https?:|closeSpacePicker|retryOpenCraftRequest|delete|stop/u);
+    expect(invokeUICSpacePickerAction({ closeSpacePicker, retryOpenCraftRequest }, descriptors[0]!, allowedActions)).toEqual({ ok: true, result: { state: "completed" } });
+    expect(closeSpacePicker).toHaveBeenCalledOnce();
+    expect(invokeUICSpacePickerAction({ closeSpacePicker, retryOpenCraftRequest }, descriptors[1]!, allowedActions)).toEqual({ ok: true, result: { state: "completed" } });
+    expect(retryOpenCraftRequest).toHaveBeenCalledOnce();
+
+    expect(projectUICSpacePickerActions({ spacePickerTarget: null, pendingOpenCraftRequest: null, openCraftRetryRequest: retryRequest, canOpenWorkspaceInSpace: true })).toEqual([]);
+    expect(projectUICSpacePickerActions({ spacePickerTarget: dashboardWorkspaces[0]!, pendingOpenCraftRequest: retryRequest, openCraftRetryRequest: retryRequest, canOpenWorkspaceInSpace: true })).toEqual([]);
+    expect(invokeUICSpacePickerAction({ closeSpacePicker, retryOpenCraftRequest }, { id: "spaces.retryOpenWorkspace", event: "retry", status: "available", args: { url: "https://example.test" } }, allowedActions)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/invalid-args" } });
+    expect(invokeUICSpacePickerAction({ closeSpacePicker, retryOpenCraftRequest }, { id: "spaces.retryOpenWorkspace", event: "retry", status: "available", args: {} }, new Set())).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unavailable" } });
   });
 
   it("caps UIC workspace rows and repo labels deterministically before rendering", () => {

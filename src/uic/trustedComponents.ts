@@ -143,6 +143,10 @@ export const spacesOverviewPageHeaderUICProof: UICSurfaceDescriptor = Object.fre
       componentId: "myne.spaces.space-picker.default",
       adapter: "trusted-react",
       props: Object.freeze([]),
+      events: Object.freeze({
+        close: Object.freeze(["spaces.dismissPicker"]),
+        retry: Object.freeze(["spaces.retryOpenWorkspace"]),
+      }),
       forbidden: Object.freeze(["class", "className", "style"]),
       fallback: "enclosing-slot",
     }),

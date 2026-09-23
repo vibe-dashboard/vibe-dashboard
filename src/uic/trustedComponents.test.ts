@@ -29,7 +29,7 @@ const fullSpacesOverviewXml = `<uic:spaceOverviewPage xmlns:uic="https://vibedas
   <uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" />
   <uic:workspaceList uic:on-activate="spaces.openWorkspace" />
   <uic:spaces uic:on-activate="spaces.navigateToCraft" />
-  <uic:spacePicker />
+  <uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" />
 </uic:spaceOverviewPage>`;
 
 describe("UIC trusted component descriptors", () => {
@@ -48,7 +48,11 @@ describe("UIC trusted component descriptors", () => {
     expect(xsd).toContain('name="title"');
     expect(xsd).toContain('name="label"');
     expect(xsd).toContain('name="uic:on-activate"');
+    expect(xsd).toContain('name="uic:on-close"');
+    expect(xsd).toContain('name="uic:on-retry"');
     expect(xsd).toContain('fixed="spaces.navigateToCraft"');
+    expect(xsd).toContain('fixed="spaces.dismissPicker"');
+    expect(xsd).toContain('fixed="spaces.retryOpenWorkspace"');
     expect(xsd).not.toContain('name="component"');
     expect(xsd).not.toContain('name="ref"');
     expect(xsd).not.toContain('name="version"');
@@ -90,7 +94,7 @@ describe("UIC trusted component descriptors", () => {
         { tag: "recentlyCreatedCraft", componentId: "myne.spaces.recently-created.default", actions: { activate: "spaces.navigateToCraft" } },
         { tag: "workspaceList", componentId: "myne.spaces.workspace-list.default", actions: { activate: "spaces.openWorkspace" } },
         { tag: "spaces", componentId: "myne.spaces.spaces.default", actions: { activate: "spaces.navigateToCraft" } },
-        { tag: "spacePicker", componentId: "myne.spaces.space-picker.default" },
+        { tag: "spacePicker", componentId: "myne.spaces.space-picker.default", actions: { close: "spaces.dismissPicker", retry: "spaces.retryOpenWorkspace" } },
       ],
     });
     expect(compiled.ir.schemaDigest).toMatch(/^sha256-/);
@@ -101,7 +105,7 @@ describe("UIC trusted component descriptors", () => {
     const missingWorkspace = fullSpacesOverviewXml.replace('  <uic:workspaceList uic:on-activate="spaces.openWorkspace" />\n', "");
     const duplicateSpaces = fullSpacesOverviewXml.replace('  <uic:spaces uic:on-activate="spaces.navigateToCraft" />', '  <uic:spaces uic:on-activate="spaces.navigateToCraft" />\n  <uic:spaces uic:on-activate="spaces.navigateToCraft" />');
     const reordered = fullSpacesOverviewXml.replace('  <uic:recentSessions />\n  <uic:starredCraft uic:on-activate="spaces.navigateToCraft" />', '  <uic:starredCraft uic:on-activate="spaces.navigateToCraft" />\n  <uic:recentSessions />');
-    const extra = fullSpacesOverviewXml.replace("  <uic:spacePicker />", "  <uic:spacePicker />\n  <uic:unknownSection />");
+    const extra = fullSpacesOverviewXml.replace('  <uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" />', '  <uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" />\n  <uic:unknownSection />');
 
     await expect(compileUICXml(spacesOverviewPageHeaderUICProof, missingWorkspace)).resolves.toMatchObject({ ok: false, diagnostics: expect.arrayContaining([expect.objectContaining({ code: "uic/xml/missing-required-node" })]) });
     await expect(compileUICXml(spacesOverviewPageHeaderUICProof, duplicateSpaces)).resolves.toMatchObject({ ok: false, diagnostics: expect.arrayContaining([expect.objectContaining({ code: "uic/xml/duplicate-node" })]) });
@@ -160,7 +164,9 @@ describe("UIC trusted component descriptors", () => {
   it("omits action IR when the generated tag has no action binding", async () => {
     const xml = fullSpacesOverviewXml
       .replaceAll(' uic:on-activate="spaces.navigateToCraft"', "")
-      .replaceAll(' uic:on-activate="spaces.openWorkspace"', "");
+      .replaceAll(' uic:on-activate="spaces.openWorkspace"', "")
+      .replaceAll(' uic:on-close="spaces.dismissPicker"', "")
+      .replaceAll(' uic:on-retry="spaces.retryOpenWorkspace"', "");
     const compiled = await compileUICXml(spacesOverviewPageHeaderUICProof, xml);
 
     expect(compiled.ok).toBe(true);
@@ -170,6 +176,7 @@ describe("UIC trusted component descriptors", () => {
     expect(compiled.ir.nodes.find((node) => node.tag === "recentlyCreatedCraft")).not.toHaveProperty("actions");
     expect(compiled.ir.nodes.find((node) => node.tag === "workspaceList")).not.toHaveProperty("actions");
     expect(compiled.ir.nodes.find((node) => node.tag === "spaces")).not.toHaveProperty("actions");
+    expect(compiled.ir.nodes.find((node) => node.tag === "spacePicker")).not.toHaveProperty("actions");
   });
 
   it("enforces the exact proof root and top-level structure before compiling", async () => {
