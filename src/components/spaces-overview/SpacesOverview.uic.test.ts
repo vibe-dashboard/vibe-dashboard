@@ -865,8 +865,8 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     for (const invalid of ["https://example.test/action", "spaces.deleteWorkspace"]) {
       const onOpenWorkspaceInSpace = vi.fn();
       const html = renderUICLayout(spacesOverviewUICLayoutXml.replace(
-        '<uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" />',
-        `<uic:spacePicker uic:on-close="${invalid}" uic:on-retry="spaces.retryOpenWorkspace" />`,
+        '<uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" uic:on-select="spaces.selectSpaceForWorkspace" />',
+        `<uic:spacePicker uic:on-close="${invalid}" uic:on-retry="spaces.retryOpenWorkspace" uic:on-select="spaces.selectSpaceForWorkspace" />`,
       ), { initialSpacePickerTargetId: dashboardWorkspaces[0]!.id, onOpenWorkspaceInSpace });
 
       expect(html).toContain('data-myne-view-pack="myne.spaces.view-pack.default"');
@@ -874,6 +874,67 @@ describe("SpacesOverview UIC pageHeader proof", () => {
       expect(html).not.toContain('data-uic-owned-region="space-picker"');
       expect(onOpenWorkspaceInSpace).not.toHaveBeenCalled();
     }
+  });
+
+  it("renders UIC space selection only from validated XML binding and dispatches the trusted request", () => {
+    const runOpenCraftRequest = vi.fn();
+    const html = renderUICPresentationWithModel(
+      { spacePickerTarget: dashboardWorkspaces[0]! },
+      { runOpenCraftRequest },
+    );
+    const region = spacePickerRegion(html);
+
+    expect(region).toContain(storybookWorkspace.spaces[0]!.name);
+    expect(region).toContain(storybookWorkspace.spaces[1]!.name);
+    const descriptors = projectUICSpacePickerActions({
+      workspace: storybookWorkspace,
+      spacePickerTarget: dashboardWorkspaces[0]!,
+      pendingOpenCraftRequest: null,
+      openCraftRetryRequest: null,
+      canOpenWorkspaceInSpace: true,
+    });
+    const select = descriptors.find((descriptor) => descriptor.id === "spaces.selectSpaceForWorkspace");
+    expect(select).toMatchObject({ event: "select", args: { spaceId: storybookWorkspace.spaces[0]!.id }, status: "available" });
+    expect(JSON.stringify(descriptors)).not.toMatch(/function|=>|appHooks|QueryClient|https?:|runOpenCraftRequest|delete|stop/u);
+    const allowedActions = new Set(descriptors.map((descriptor) => descriptor.id));
+    const allowedSpaceRequests = new Map([[storybookWorkspace.spaces[0]!.id, { workspace: dashboardWorkspaces[0]!, spaceId: storybookWorkspace.spaces[0]!.id }]]);
+
+    expect(invokeUICSpacePickerAction({ closeSpacePicker: () => undefined, retryOpenCraftRequest: () => undefined, runOpenCraftRequest }, select!, allowedActions, allowedSpaceRequests)).toEqual({ ok: true, result: { state: "completed" } });
+    expect(runOpenCraftRequest).toHaveBeenCalledWith({ workspace: dashboardWorkspaces[0], spaceId: storybookWorkspace.spaces[0]!.id });
+
+    const withoutSelect = renderUICPresentationWithModel(
+      { spacePickerTarget: dashboardWorkspaces[0]! },
+      { runOpenCraftRequest },
+      spacesOverviewUICLayoutXml.replace(' uic:on-select="spaces.selectSpaceForWorkspace"', ""),
+    );
+    expect(spacePickerRegion(withoutSelect)).not.toContain(storybookWorkspace.spaces[0]!.name);
+  });
+
+  it("falls back without UIC picker dispatch when only select binding is invalid", () => {
+    for (const invalid of ["https://example.test/action", "spaces.deleteWorkspace"]) {
+      const runOpenCraftRequest = vi.fn();
+      const html = renderUICPresentationWithModel(
+        { spacePickerTarget: dashboardWorkspaces[0]! },
+        { runOpenCraftRequest },
+        spacesOverviewUICLayoutXml.replace('uic:on-select="spaces.selectSpaceForWorkspace"', `uic:on-select="${invalid}"`),
+      );
+
+      expect(html).toContain('data-myne-view-pack="myne.spaces.view-pack.default"');
+      expect(html).toContain("uic/xml/unknown-action");
+      expect(html).not.toContain('data-uic-owned-region="space-picker"');
+      expect(runOpenCraftRequest).not.toHaveBeenCalled();
+    }
+  });
+
+  it("blocks invalid or unrendered UIC space selection targets before dispatch", () => {
+    const runOpenCraftRequest = vi.fn();
+    const actions = { closeSpacePicker: () => undefined, retryOpenCraftRequest: () => undefined, runOpenCraftRequest };
+    const allowedActions = new Set(["spaces.selectSpaceForWorkspace"]);
+    const allowedSpaceRequests = new Map([[storybookWorkspace.spaces[0]!.id, { workspace: dashboardWorkspaces[0]!, spaceId: storybookWorkspace.spaces[0]!.id }]]);
+
+    expect(invokeUICSpacePickerAction(actions, { id: "spaces.selectSpaceForWorkspace", event: "select", status: "available", args: { spaceId: 1 } }, allowedActions, allowedSpaceRequests)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/invalid-args" } });
+    expect(invokeUICSpacePickerAction(actions, { id: "spaces.selectSpaceForWorkspace", event: "select", status: "available", args: { spaceId: "unrendered" } }, allowedActions, allowedSpaceRequests)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unavailable" } });
+    expect(runOpenCraftRequest).not.toHaveBeenCalled();
   });
 
   it("does not expose retry UI or dispatch in retry state when XML omits the retry binding", () => {
@@ -894,11 +955,12 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(region).toContain("Close picker");
     expect(region).not.toContain("Retry open");
     expect(projectUICSpacePickerActions({
+      workspace: storybookWorkspace,
       spacePickerTarget: dashboardWorkspaces[0]!,
       pendingOpenCraftRequest: null,
       openCraftRetryRequest: retryRequest,
       canOpenWorkspaceInSpace: true,
-    }, { close: true, retry: false })).toEqual([
+    }, { close: true, retry: false, select: false })).toEqual([
       { event: "close", id: "spaces.dismissPicker", args: {}, status: "available" },
     ]);
     expect(retryOpenCraftRequest).not.toHaveBeenCalled();
@@ -930,13 +992,15 @@ describe("SpacesOverview UIC pageHeader proof", () => {
   it("projects serializable space-picker close/retry descriptors and gates unavailable picker state", () => {
     const closeSpacePicker = vi.fn();
     const retryOpenCraftRequest = vi.fn();
+    const runOpenCraftRequest = vi.fn();
     const retryRequest = { workspace: dashboardWorkspaces[0]!, spaceId: storybookWorkspace.spaces[1]!.id };
     const descriptors = projectUICSpacePickerActions({
+      workspace: storybookWorkspace,
       spacePickerTarget: dashboardWorkspaces[0]!,
       pendingOpenCraftRequest: null,
       openCraftRetryRequest: retryRequest,
       canOpenWorkspaceInSpace: true,
-    });
+    }, { close: true, retry: true, select: false });
     const allowedActions = new Set(descriptors.map((descriptor) => descriptor.id));
 
     expect(descriptors).toEqual([
@@ -944,15 +1008,15 @@ describe("SpacesOverview UIC pageHeader proof", () => {
       { event: "retry", id: "spaces.retryOpenWorkspace", args: {}, status: "available" },
     ]);
     expect(JSON.stringify(descriptors)).not.toMatch(/function|=>|appHooks|QueryClient|https?:|closeSpacePicker|retryOpenCraftRequest|delete|stop/u);
-    expect(invokeUICSpacePickerAction({ closeSpacePicker, retryOpenCraftRequest }, descriptors[0]!, allowedActions)).toEqual({ ok: true, result: { state: "completed" } });
+    expect(invokeUICSpacePickerAction({ closeSpacePicker, retryOpenCraftRequest, runOpenCraftRequest }, descriptors[0]!, allowedActions)).toEqual({ ok: true, result: { state: "completed" } });
     expect(closeSpacePicker).toHaveBeenCalledOnce();
-    expect(invokeUICSpacePickerAction({ closeSpacePicker, retryOpenCraftRequest }, descriptors[1]!, allowedActions)).toEqual({ ok: true, result: { state: "completed" } });
+    expect(invokeUICSpacePickerAction({ closeSpacePicker, retryOpenCraftRequest, runOpenCraftRequest }, descriptors[1]!, allowedActions)).toEqual({ ok: true, result: { state: "completed" } });
     expect(retryOpenCraftRequest).toHaveBeenCalledOnce();
 
-    expect(projectUICSpacePickerActions({ spacePickerTarget: null, pendingOpenCraftRequest: null, openCraftRetryRequest: retryRequest, canOpenWorkspaceInSpace: true })).toEqual([]);
-    expect(projectUICSpacePickerActions({ spacePickerTarget: dashboardWorkspaces[0]!, pendingOpenCraftRequest: retryRequest, openCraftRetryRequest: retryRequest, canOpenWorkspaceInSpace: true })).toEqual([]);
-    expect(invokeUICSpacePickerAction({ closeSpacePicker, retryOpenCraftRequest }, { id: "spaces.retryOpenWorkspace", event: "retry", status: "available", args: { url: "https://example.test" } }, allowedActions)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/invalid-args" } });
-    expect(invokeUICSpacePickerAction({ closeSpacePicker, retryOpenCraftRequest }, { id: "spaces.retryOpenWorkspace", event: "retry", status: "available", args: {} }, new Set())).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unavailable" } });
+    expect(projectUICSpacePickerActions({ workspace: storybookWorkspace, spacePickerTarget: null, pendingOpenCraftRequest: null, openCraftRetryRequest: retryRequest, canOpenWorkspaceInSpace: true })).toEqual([]);
+    expect(projectUICSpacePickerActions({ workspace: storybookWorkspace, spacePickerTarget: dashboardWorkspaces[0]!, pendingOpenCraftRequest: retryRequest, openCraftRetryRequest: retryRequest, canOpenWorkspaceInSpace: true })).toEqual([]);
+    expect(invokeUICSpacePickerAction({ closeSpacePicker, retryOpenCraftRequest, runOpenCraftRequest }, { id: "spaces.retryOpenWorkspace", event: "retry", status: "available", args: { url: "https://example.test" } }, allowedActions)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/invalid-args" } });
+    expect(invokeUICSpacePickerAction({ closeSpacePicker, retryOpenCraftRequest, runOpenCraftRequest }, { id: "spaces.retryOpenWorkspace", event: "retry", status: "available", args: {} }, new Set())).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unavailable" } });
   });
 
   it("caps UIC workspace rows and repo labels deterministically before rendering", () => {

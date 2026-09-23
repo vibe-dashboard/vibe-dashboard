@@ -146,6 +146,7 @@ export const spacesOverviewPageHeaderUICProof: UICSurfaceDescriptor = Object.fre
       events: Object.freeze({
         close: Object.freeze(["spaces.dismissPicker"]),
         retry: Object.freeze(["spaces.retryOpenWorkspace"]),
+        select: Object.freeze(["spaces.selectSpaceForWorkspace"]),
       }),
       forbidden: Object.freeze(["class", "className", "style"]),
       fallback: "enclosing-slot",

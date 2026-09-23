@@ -29,7 +29,7 @@ const fullSpacesOverviewXml = `<uic:spaceOverviewPage xmlns:uic="https://vibedas
   <uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" />
   <uic:workspaceList uic:on-activate="spaces.openWorkspace" />
   <uic:spaces uic:on-activate="spaces.navigateToCraft" />
-  <uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" />
+  <uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" uic:on-select="spaces.selectSpaceForWorkspace" />
 </uic:spaceOverviewPage>`;
 
 describe("UIC trusted component descriptors", () => {
@@ -50,9 +50,11 @@ describe("UIC trusted component descriptors", () => {
     expect(xsd).toContain('name="uic:on-activate"');
     expect(xsd).toContain('name="uic:on-close"');
     expect(xsd).toContain('name="uic:on-retry"');
+    expect(xsd).toContain('name="uic:on-select"');
     expect(xsd).toContain('fixed="spaces.navigateToCraft"');
     expect(xsd).toContain('fixed="spaces.dismissPicker"');
     expect(xsd).toContain('fixed="spaces.retryOpenWorkspace"');
+    expect(xsd).toContain('fixed="spaces.selectSpaceForWorkspace"');
     expect(xsd).not.toContain('name="component"');
     expect(xsd).not.toContain('name="ref"');
     expect(xsd).not.toContain('name="version"');
@@ -94,7 +96,7 @@ describe("UIC trusted component descriptors", () => {
         { tag: "recentlyCreatedCraft", componentId: "myne.spaces.recently-created.default", actions: { activate: "spaces.navigateToCraft" } },
         { tag: "workspaceList", componentId: "myne.spaces.workspace-list.default", actions: { activate: "spaces.openWorkspace" } },
         { tag: "spaces", componentId: "myne.spaces.spaces.default", actions: { activate: "spaces.navigateToCraft" } },
-        { tag: "spacePicker", componentId: "myne.spaces.space-picker.default", actions: { close: "spaces.dismissPicker", retry: "spaces.retryOpenWorkspace" } },
+        { tag: "spacePicker", componentId: "myne.spaces.space-picker.default", actions: { close: "spaces.dismissPicker", retry: "spaces.retryOpenWorkspace", select: "spaces.selectSpaceForWorkspace" } },
       ],
     });
     expect(compiled.ir.schemaDigest).toMatch(/^sha256-/);
@@ -105,7 +107,7 @@ describe("UIC trusted component descriptors", () => {
     const missingWorkspace = fullSpacesOverviewXml.replace('  <uic:workspaceList uic:on-activate="spaces.openWorkspace" />\n', "");
     const duplicateSpaces = fullSpacesOverviewXml.replace('  <uic:spaces uic:on-activate="spaces.navigateToCraft" />', '  <uic:spaces uic:on-activate="spaces.navigateToCraft" />\n  <uic:spaces uic:on-activate="spaces.navigateToCraft" />');
     const reordered = fullSpacesOverviewXml.replace('  <uic:recentSessions />\n  <uic:starredCraft uic:on-activate="spaces.navigateToCraft" />', '  <uic:starredCraft uic:on-activate="spaces.navigateToCraft" />\n  <uic:recentSessions />');
-    const extra = fullSpacesOverviewXml.replace('  <uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" />', '  <uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" />\n  <uic:unknownSection />');
+    const extra = fullSpacesOverviewXml.replace('  <uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" uic:on-select="spaces.selectSpaceForWorkspace" />', '  <uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" uic:on-select="spaces.selectSpaceForWorkspace" />\n  <uic:unknownSection />');
 
     await expect(compileUICXml(spacesOverviewPageHeaderUICProof, missingWorkspace)).resolves.toMatchObject({ ok: false, diagnostics: expect.arrayContaining([expect.objectContaining({ code: "uic/xml/missing-required-node" })]) });
     await expect(compileUICXml(spacesOverviewPageHeaderUICProof, duplicateSpaces)).resolves.toMatchObject({ ok: false, diagnostics: expect.arrayContaining([expect.objectContaining({ code: "uic/xml/duplicate-node" })]) });
@@ -166,7 +168,8 @@ describe("UIC trusted component descriptors", () => {
       .replaceAll(' uic:on-activate="spaces.navigateToCraft"', "")
       .replaceAll(' uic:on-activate="spaces.openWorkspace"', "")
       .replaceAll(' uic:on-close="spaces.dismissPicker"', "")
-      .replaceAll(' uic:on-retry="spaces.retryOpenWorkspace"', "");
+      .replaceAll(' uic:on-retry="spaces.retryOpenWorkspace"', "")
+      .replaceAll(' uic:on-select="spaces.selectSpaceForWorkspace"', "");
     const compiled = await compileUICXml(spacesOverviewPageHeaderUICProof, xml);
 
     expect(compiled.ok).toBe(true);
