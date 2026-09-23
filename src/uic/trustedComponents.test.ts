@@ -24,7 +24,7 @@ const fullSpacesOverviewXml = `<uic:spaceOverviewPage xmlns:uic="https://vibedas
   </uic:pageHeader>
   <uic:recentSessions />
   <uic:starredCraft uic:on-activate="spaces.navigateToCraft" />
-  <uic:runningDevServers />
+  <uic:runningDevServers uic:on-stop="spaces.stopDevServer" />
   <uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" />
   <uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" />
   <uic:workspaceList uic:on-activate="spaces.openWorkspace" uic:on-filter="spaces.filterWorkspaces" uic:on-page="spaces.pageWorkspaces" />
@@ -48,12 +48,14 @@ describe("UIC trusted component descriptors", () => {
     expect(xsd).toContain('name="title"');
     expect(xsd).toContain('name="label"');
     expect(xsd).toContain('name="uic:on-activate"');
+    expect(xsd).toContain('name="uic:on-stop"');
     expect(xsd).toContain('name="uic:on-filter"');
     expect(xsd).toContain('name="uic:on-page"');
     expect(xsd).toContain('name="uic:on-close"');
     expect(xsd).toContain('name="uic:on-retry"');
     expect(xsd).toContain('name="uic:on-select"');
     expect(xsd).toContain('fixed="spaces.navigateToCraft"');
+    expect(xsd).toContain('fixed="spaces.stopDevServer"');
     expect(xsd).toContain('fixed="spaces.filterWorkspaces"');
     expect(xsd).toContain('fixed="spaces.pageWorkspaces"');
     expect(xsd).toContain('fixed="spaces.dismissPicker"');
@@ -95,7 +97,7 @@ describe("UIC trusted component descriptors", () => {
         },
         { tag: "recentSessions", componentId: "myne.spaces.recent-sessions.default" },
         { tag: "starredCraft", componentId: "myne.spaces.starred-craft.default", actions: { activate: "spaces.navigateToCraft" } },
-        { tag: "runningDevServers", componentId: "myne.spaces.running-dev-servers.default" },
+        { tag: "runningDevServers", componentId: "myne.spaces.running-dev-servers.default", actions: { stop: "spaces.stopDevServer" } },
         { tag: "recentlyVisitedCraft", componentId: "myne.spaces.recently-visited.default", actions: { activate: "spaces.navigateToCraft" } },
         { tag: "recentlyCreatedCraft", componentId: "myne.spaces.recently-created.default", actions: { activate: "spaces.navigateToCraft" } },
         { tag: "workspaceList", componentId: "myne.spaces.workspace-list.default", actions: { activate: "spaces.openWorkspace", filter: "spaces.filterWorkspaces", page: "spaces.pageWorkspaces" } },
@@ -170,6 +172,7 @@ describe("UIC trusted component descriptors", () => {
   it("omits action IR when the generated tag has no action binding", async () => {
     const xml = fullSpacesOverviewXml
       .replaceAll(' uic:on-activate="spaces.navigateToCraft"', "")
+      .replaceAll(' uic:on-stop="spaces.stopDevServer"', "")
       .replaceAll(' uic:on-activate="spaces.openWorkspace"', "")
       .replaceAll(' uic:on-filter="spaces.filterWorkspaces"', "")
       .replaceAll(' uic:on-page="spaces.pageWorkspaces"', "")

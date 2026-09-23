@@ -99,6 +99,7 @@ export const spacesOverviewPageHeaderUICProof: UICSurfaceDescriptor = Object.fre
       componentId: "myne.spaces.running-dev-servers.default",
       adapter: "trusted-react",
       props: Object.freeze([]),
+      events: Object.freeze({ stop: Object.freeze(["spaces.stopDevServer"]) }),
       forbidden: Object.freeze(["class", "className", "style"]),
       fallback: "enclosing-slot",
     }),

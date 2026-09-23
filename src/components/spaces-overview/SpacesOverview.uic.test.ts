@@ -14,6 +14,7 @@ import {
   SpacesOverviewUICLayoutProofPresentation,
   SpacesOverviewUICPageHeaderProof,
   resolveUICActionLifecycle,
+  invokeUICRunningDevServerAction,
   invokeUICSpacePickerAction,
   invokeUICWorkspaceListAction,
   invokeUICSpacesOverviewAction,
@@ -22,6 +23,7 @@ import {
   projectUICRecentlyCreatedCraftResource,
   projectUICRecentlyVisitedCraftActions,
   projectUICRecentlyVisitedCraftResource,
+  projectUICRunningDevServerActions,
   projectUICStarredCraftActions,
   projectUICSpacesCraftActions,
   projectUICSpacesResource,
@@ -245,15 +247,80 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(html).toContain('data-myne-slot="workspace-list"');
   });
 
-  it("lets UIC own read-only running dev servers ready rendering without mutation controls", () => {
+  it("lets UIC own running dev servers ready rendering with a typed stop action", () => {
     const html = renderUICLayout();
     const region = runningDevServersRegion(html);
 
     expect(html).toContain("data-uic-owned-region=\"running-dev-servers\"");
     expect(region).toContain("Read-only UIC resource");
     expect(region).toContain("Auth bug fix");
-    expect(region).not.toContain("Stop server");
+    expect(region).toContain("Stop server");
     expect(region).not.toContain("Go to craft");
+  });
+
+  it("does not expose or dispatch running dev server stop when XML omits the binding", () => {
+    const html = renderUICLayout(spacesOverviewUICLayoutXml.replace(' uic:on-stop="spaces.stopDevServer"', ""));
+    const region = runningDevServersRegion(html);
+
+    expect(region).toContain("Read-only UIC resource");
+    expect(region).not.toContain("Stop server");
+    expect(projectUICRunningDevServerActions({ workspaces: [runningWorkspace()], stoppingDevServerIds: new Set() }, false)).toEqual([]);
+  });
+
+  it("falls back without running dev server stop dispatch when stop action validation fails", () => {
+    for (const invalid of ["https://example.test/action", "spaces.deleteSession"]) {
+      const stopDevServer = vi.fn();
+      const html = renderUICPresentationWithModel(
+        { workspaces: [runningWorkspace()] },
+        { stopDevServer },
+        spacesOverviewUICLayoutXml.replace('uic:on-stop="spaces.stopDevServer"', `uic:on-stop="${invalid}"`),
+      );
+
+      expect(html).toContain('data-myne-view-pack="myne.spaces.view-pack.default"');
+      expect(html).toContain("uic/xml/unknown-action");
+      expect(html).not.toContain('data-uic-owned-region="running-dev-servers"');
+      expect(stopDevServer).not.toHaveBeenCalled();
+    }
+  });
+
+  it("projects confirmed running dev server stop descriptors through lifecycle before trusted dispatch", () => {
+    const workspace = runningWorkspace();
+    const descriptor = projectUICRunningDevServerActions({ workspaces: [workspace], stoppingDevServerIds: new Set() })[0]!;
+    const stopDevServer = vi.fn();
+    const allowed = new Set([workspace.id]);
+
+    expect(descriptor).toMatchObject({
+      event: "stop",
+      id: "spaces.stopDevServer",
+      args: { workspaceId: workspace.id },
+      status: "available",
+      lifecycle: {
+        confirmation: { required: true, tone: "destructive" },
+        pending: { key: `running-dev-server:${workspace.id}:stop` },
+        result: { state: "idle" },
+        diagnostics: [],
+        authorization: { state: "allowed" },
+      },
+    });
+    expect(JSON.stringify(descriptor)).not.toMatch(/function|=>|appHooks|QueryClient|Promise|https?:|method|deleteSession|renameSession/u);
+    expect(invokeUICRunningDevServerAction({ stopDevServer }, descriptor, allowed, new Set(), { authorized: true, confirmed: false })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/confirmation-required" } });
+    expect(stopDevServer).not.toHaveBeenCalled();
+    expect(invokeUICRunningDevServerAction({ stopDevServer }, descriptor, allowed, new Set(), { authorized: true, confirmed: true })).toEqual({ ok: true, result: { state: "completed" } });
+    expect(stopDevServer).toHaveBeenCalledWith(workspace.id);
+  });
+
+  it("blocks unavailable, pending, and invalid running dev server stop targets before dispatch", () => {
+    const workspace = runningWorkspace();
+    const stopDevServer = vi.fn();
+    const descriptor = projectUICRunningDevServerActions({ workspaces: [workspace], stoppingDevServerIds: new Set() })[0]!;
+
+    expect(projectUICRunningDevServerActions({ workspaces: [workspace], stoppingDevServerIds: new Set([workspace.id]) })).toEqual([]);
+    expect(invokeUICRunningDevServerAction({ stopDevServer }, descriptor, new Set(), new Set(), { authorized: true, confirmed: true })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unavailable" } });
+    expect(invokeUICRunningDevServerAction({ stopDevServer }, descriptor, new Set([workspace.id]), new Set([`running-dev-server:${workspace.id}:stop`]), { authorized: true, confirmed: true })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/pending" } });
+    expect(invokeUICRunningDevServerAction({ stopDevServer }, { ...descriptor, lifecycle: { ...descriptor.lifecycle, result: { state: "failed", diagnostic: { code: "uic/stop/error", message: "Stop failed", recoverable: true } } } }, new Set([workspace.id]), new Set(), { authorized: true, confirmed: true })).toMatchObject({ ok: false, diagnostic: { code: "uic/stop/error" } });
+    expect(invokeUICRunningDevServerAction({ stopDevServer }, { ...descriptor, args: { workspaceId: 1 } }, new Set([workspace.id]), new Set(), { authorized: true, confirmed: true })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/invalid-args" } });
+    expect(invokeUICRunningDevServerAction({ stopDevServer }, { ...descriptor, id: "spaces.deleteSession" }, new Set([workspace.id]), new Set(), { authorized: true, confirmed: true })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unknown" } });
+    expect(stopDevServer).not.toHaveBeenCalled();
   });
 
   it("lets UIC own loading and empty states for running dev servers", () => {
@@ -637,7 +704,7 @@ describe("SpacesOverview UIC pageHeader proof", () => {
 
     expect(resolveUICActionLifecycle(descriptor, lifecycle, { authorized: false })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unauthorized" } });
     expect(resolveUICActionLifecycle(descriptor, lifecycle, { authorized: true, pendingKeys: new Set(["workspace:one:proof"]) })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/pending" } });
-    expect(resolveUICActionLifecycle(descriptor, { ...lifecycle, result: { state: "failed", diagnostic: { code: "uic/proof/error", message: "Proof failed", recoverable: true } } }, { authorized: true })).toMatchObject({ ok: true });
+    expect(resolveUICActionLifecycle(descriptor, { ...lifecycle, result: { state: "failed", diagnostic: { code: "uic/proof/error", message: "Proof failed", recoverable: true } } }, { authorized: true })).toMatchObject({ ok: false, diagnostic: { code: "uic/proof/error" } });
     expect(resolveUICActionLifecycle(descriptor, { ...lifecycle, result: { state: "failed" } }, { authorized: true })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/invalid-lifecycle" } });
     expect(resolveUICActionLifecycle(descriptor, { ...lifecycle, pending: { key: "https://example.test/action", label: "Bad" } }, { authorized: true })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/invalid-lifecycle" } });
     expect(resolveUICActionLifecycle({ ...descriptor, status: "unavailable" }, lifecycle, { authorized: true })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unavailable" } });
