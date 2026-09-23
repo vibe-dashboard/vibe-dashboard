@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { createElement } from "react";
+import { createElement, isValidElement, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { SpacesOverviewView, type DashboardWorkspace } from "../SpacesOverview";
 import {
@@ -13,6 +13,7 @@ import {
   UIC_WORKSPACE_LIST_RESOURCE_BUDGET,
   SpacesOverviewUICLayoutProofPresentation,
   SpacesOverviewUICPageHeaderProof,
+  UICReadOnlyRunningDevServersSection,
   resolveUICActionLifecycle,
   invokeUICRunningDevServerAction,
   invokeUICSpacePickerAction,
@@ -191,6 +192,25 @@ function runningWorkspace(overrides: Partial<DashboardWorkspace> = {}): Dashboar
   return { ...base, id: "uic-running", name: "UIC running", branch: "vk/uic-running", has_running_dev_server: true, ...overrides };
 }
 
+function findButtonByText(node: ReactNode, text: string): { readonly props: { readonly onClick?: () => void } } | null {
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const found = findButtonByText(child, text);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (!isValidElement(node)) return null;
+  const props = node.props as { readonly children?: ReactNode; readonly onClick?: () => void };
+  if (node.type === "button" && props.children === text) return { props };
+  const children = Array.isArray(props.children) ? props.children : [props.children];
+  for (const child of children) {
+    const found = findButtonByText(child, text);
+    if (found) return found;
+  }
+  return null;
+}
+
 function workspaceActionModel(overrides: Partial<Parameters<typeof projectUICWorkspaceListActions>[0]> = {}): Parameters<typeof projectUICWorkspaceListActions>[0] {
   return {
     sortedWorkspaces: [dashboardWorkspaces[0]!],
@@ -307,6 +327,30 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(stopDevServer).not.toHaveBeenCalled();
     expect(invokeUICRunningDevServerAction({ stopDevServer }, descriptor, allowed, new Set(), { authorized: true, confirmed: true })).toEqual({ ok: true, result: { state: "completed" } });
     expect(stopDevServer).toHaveBeenCalledWith(workspace.id);
+  });
+
+  it("does not dispatch from rendered UIC stop control until trusted confirmation UI is wired", () => {
+    const stopDevServer = vi.fn();
+    const node = UICReadOnlyRunningDevServersSection({
+      model: {
+        workspaces: [runningWorkspace()],
+        loading: false,
+        stoppingDevServerIds: new Set(),
+        workspaceTabGroupMap: new Map(),
+        canOpenWorkspaceInSpace: true,
+      },
+      actions: {
+        stopDevServer,
+        navigateToTabGroup: () => undefined,
+        openSpacePickerForWorkspace: () => undefined,
+      },
+    });
+    const button = findButtonByText(node, "Stop server");
+
+    expect(button).not.toBeNull();
+    button?.props.onClick?.();
+
+    expect(stopDevServer).not.toHaveBeenCalled();
   });
 
   it("blocks unavailable, pending, and invalid running dev server stop targets before dispatch", () => {

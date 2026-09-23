@@ -597,7 +597,7 @@ function UICReadOnlyListSection({
   );
 }
 
-function UICReadOnlyRunningDevServersSection({ model, actions, enableStopAction = true }: SpacesOverviewSlotProps<"runningDevServers"> & { readonly enableStopAction?: boolean }) {
+export function UICReadOnlyRunningDevServersSection({ model, actions, enableStopAction = true }: SpacesOverviewSlotProps<"runningDevServers"> & { readonly enableStopAction?: boolean }) {
   const resource = projectUICRunningDevServersResource(model);
   const actionDescriptors = new Map(projectUICRunningDevServerActions(model, enableStopAction).map((action) => [action.args.workspaceId, action]));
   const allowedWorkspaces = new Set(actionDescriptors.keys());
@@ -650,7 +650,7 @@ function UICReadOnlyRunningDevServersSection({ model, actions, enableStopAction 
                   className="myne-button myne-button--danger mt-2 text-xs"
                   onClick={() => {
                     const action = actionDescriptors.get(item.id);
-                    if (action) invokeUICRunningDevServerAction(actions, action, allowedWorkspaces, pendingKeys, { authorized: true, confirmed: true });
+                    if (action) invokeUICRunningDevServerAction(actions, action, allowedWorkspaces, pendingKeys, { authorized: true, confirmed: false });
                   }}
                 >
                   Stop server
