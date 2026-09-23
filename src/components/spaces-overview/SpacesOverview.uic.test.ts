@@ -1448,6 +1448,25 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(invokeUICRecentSessionAction({ resumeSession, startNewSession }, { id: "spaces.deleteSession", event: "resume", status: "available", args: { sessionId: storybookSavedSessions[0]!.id } }, allowedSessionIds, true)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unknown" } });
   });
 
+  it("rejects extra recent session resume payload keys before dispatch", () => {
+    const resumeSession = vi.fn();
+    const startNewSession = vi.fn();
+    const allowedSessionIds = new Set([storybookSavedSessions[0]!.id]);
+
+    for (const extra of [{ url: "https://example.test/session" }, { method: "deleteSession" }, { onResume: () => undefined }]) {
+      expect(
+        invokeUICRecentSessionAction(
+          { resumeSession, startNewSession },
+          { id: "spaces.resumeSession", event: "resume", status: "available", args: { sessionId: storybookSavedSessions[0]!.id, ...extra } },
+          allowedSessionIds,
+          true,
+        ),
+      ).toMatchObject({ ok: false, diagnostic: { code: "uic/action/invalid-args" } });
+    }
+    expect(resumeSession).not.toHaveBeenCalled();
+    expect(startNewSession).not.toHaveBeenCalled();
+  });
+
   it("caps UIC recent session rows deterministically before rendering", () => {
     const savedSessions = Array.from({ length: UIC_RECENT_SESSIONS_RESOURCE_BUDGET.maxRows + 2 }, (_, index) => ({
       ...storybookSavedSessions[0]!,

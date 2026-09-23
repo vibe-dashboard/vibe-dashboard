@@ -375,7 +375,7 @@ export function invokeUICRecentSessionAction(
     return { ok: true, result: { state: "completed" } };
   }
   const args = descriptor.args;
-  if (!args || typeof args !== "object" || typeof (args as { sessionId?: unknown }).sessionId !== "string") {
+  if (!args || typeof args !== "object" || Array.isArray(args) || Object.keys(args).length !== 1 || typeof (args as { sessionId?: unknown }).sessionId !== "string") {
     return { ok: false, diagnostic: { code: "uic/action/invalid-args", message: "UIC action arguments do not match the declared schema." } };
   }
   const sessionId = (args as { sessionId: string }).sessionId;
