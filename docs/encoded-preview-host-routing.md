@@ -35,6 +35,11 @@ first label satisfies the full `workspaceToken-repoSlug-slotSlug-customerSlug`
 grammar. Advanced deployments may still set the optional `base_domain` handler
 option to restrict preview matching to one DNS suffix.
 
+Preview URL generation still needs to choose a public DNS suffix. API callers
+may pass `baseDomain`; the `vk preview-url url` CLI and Vibe Dashboard internal
+preview URL route also use `PREVIEW_BASE_DOMAIN` as a fallback when no per-call
+base domain is supplied.
+
 ## Runtime request flow
 
 1. The public Cloudflare Worker receives the encoded preview host.

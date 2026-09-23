@@ -21,6 +21,9 @@ services:
 
       CADDY_PORT: ${CADDY_PORT:-3001}
       PROXY_DOMAIN: ${PROXY_DOMAIN:-localhost}
+      # Optional default suffix for generated Preview URLs. Caddy preview
+      # routing does not require this; callers may still override per request.
+      PREVIEW_BASE_DOMAIN: ${PREVIEW_BASE_DOMAIN:-}
       BACKEND_PORT: ${BACKEND_PORT:-3007}
       DASHBOARD_PORT: ${DASHBOARD_PORT:-3005}
       CODE_PORT: ${CODE_PORT:-3008}

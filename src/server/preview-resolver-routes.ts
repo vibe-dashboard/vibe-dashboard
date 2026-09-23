@@ -127,7 +127,7 @@ export function registerPreviewResolverRoutes(
     const workspaceId = c.req.param('workspaceId');
     const previewSlotId = c.req.param('previewSlotId');
     const customerSlug = c.req.query('customerSlug') || '';
-    const baseDomain = c.req.query('baseDomain') || undefined;
+    const baseDomain = c.req.query('baseDomain') || optionalEnvString('PREVIEW_BASE_DOMAIN');
     try {
       const response = await vkClient.getPreviewSlotUrl!(workspaceId, previewSlotId, { customerSlug, baseDomain });
       return c.json(response, 200);
@@ -136,6 +136,11 @@ export function registerPreviewResolverRoutes(
       return c.json({ message: error instanceof Error ? error.message : 'Preview slot URL generation failed' }, 502);
     }
   });
+}
+
+function optionalEnvString(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value || undefined;
 }
 
 async function parseJson<T>(request: Request): Promise<{ ok: true; value: T } | { ok: false; message: string }> {
