@@ -13,6 +13,7 @@ import {
   UIC_WORKSPACE_LIST_RESOURCE_BUDGET,
   SpacesOverviewUICLayoutProofPresentation,
   SpacesOverviewUICPageHeaderProof,
+  UICReadOnlyRecentSessionsSection,
   UICReadOnlyRunningDevServersSection,
   resolveUICActionLifecycle,
   invokeUICRecentSessionAction,
@@ -1374,7 +1375,7 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(region).toContain(longRepo.slice(0, UIC_WORKSPACE_LIST_RESOURCE_BUDGET.maxRepoLabelLength));
   });
 
-  it("uses finite UIC states and typed resume/start actions for recent sessions without destructive controls", () => {
+  it("uses finite UIC states and typed resume/start actions for recent sessions", () => {
     const readyRegion = recentSessionsRegion(renderUICLayout());
 
     expect(readyRegion).toContain("Read-only UIC voyage list");
@@ -1384,7 +1385,6 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(readyRegion).toContain("Resume voyage");
     expect(readyRegion).toContain("New Voyage");
     expect(readyRegion).not.toContain("Rename");
-    expect(readyRegion).not.toContain("Delete");
     expect(readyRegion).not.toContain("Go to craft");
 
     expect(recentSessionsRegion(renderUICLayout(undefined, { savedSessions: [] }))).toContain("No saved voyages");
@@ -1395,6 +1395,7 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     const region = recentSessionsRegion(renderUICPresentationWithModel(
       { editingSessionId: storybookSavedSessions[0]!.id, sessionNameDraft: "Renamed voyage" },
       { renameSession },
+      spacesOverviewUICLayoutXml.replace(' uic:on-delete="spaces.deleteSession"', ""),
     ));
 
     expect(region).toContain("Save rename");
@@ -1409,17 +1410,60 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(renameSession).not.toHaveBeenCalled();
   });
 
+  it("renders UIC recent session delete only from validated XML but does not dispatch without confirmation", () => {
+    const deleteSession = vi.fn();
+    const region = recentSessionsRegion(renderUICPresentationWithModel({}, { deleteSession }));
+
+    expect(region).toContain("Delete voyage");
+    expect(region).not.toContain("Delete</button>");
+
+    const omitted = recentSessionsRegion(renderUICPresentationWithModel(
+      {},
+      { deleteSession },
+      spacesOverviewUICLayoutXml.replace(' uic:on-delete="spaces.deleteSession"', ""),
+    ));
+    expect(omitted).not.toContain("Delete voyage");
+
+    const node = UICReadOnlyRecentSessionsSection({
+      model: {
+        workspace: storybookWorkspace,
+        savedSessions: storybookSavedSessions,
+        currentSessionId: storybookSavedSessions[0]!.id,
+        expandedSessionId: null,
+        editingSessionId: null,
+        sessionNameDraft: "",
+        sortedSessions: storybookSavedSessions,
+      },
+      actions: {
+        resumeSession: () => undefined,
+        startNewSession: () => undefined,
+        renameSession: () => undefined,
+        deleteSession,
+        toggleExpandedSession: () => undefined,
+        startRenameSession: () => undefined,
+        setSessionNameDraft: () => undefined,
+        submitRenameSession: () => undefined,
+        cancelRenameSession: () => undefined,
+        navigateToTabGroup: () => undefined,
+      },
+    });
+    findButtonByText(node, "Delete voyage")?.props.onClick?.();
+    expect(deleteSession).not.toHaveBeenCalled();
+  });
+
   it("does not expose recent session actions when XML omits their bindings", () => {
     const xml = spacesOverviewUICLayoutXml
       .replace(' uic:on-resume="spaces.resumeSession"', "")
       .replace(' uic:on-start="spaces.startSession"', "")
-      .replace(' uic:on-rename="spaces.renameSession"', "");
+      .replace(' uic:on-rename="spaces.renameSession"', "")
+      .replace(' uic:on-delete="spaces.deleteSession"', "");
     const region = recentSessionsRegion(renderUICLayout(xml));
 
     expect(region).toContain("Read-only UIC voyage list");
     expect(region).not.toContain("Resume voyage");
     expect(region).not.toContain("New Voyage");
-    expect(projectUICRecentSessionActions({ sortedSessions: storybookSavedSessions }, { resume: false, start: false, rename: false })).toEqual([]);
+    expect(region).not.toContain("Delete voyage");
+    expect(projectUICRecentSessionActions({ sortedSessions: storybookSavedSessions }, { resume: false, start: false, rename: false, delete: false })).toEqual([]);
   });
 
   it("falls back without recent session dispatch when session action validation fails", () => {
@@ -1429,22 +1473,70 @@ describe("SpacesOverview UIC pageHeader proof", () => {
       ["uic:on-start", "https://example.test/action", "startNewSession"],
       ["uic:on-start", "spaces.deleteSession", "startNewSession"],
       ["uic:on-rename", "https://example.test/action", "renameSession"],
-      ["uic:on-rename", "spaces.deleteSession", "renameSession"],
+      ["uic:on-rename", "spaces.stopDevServer", "renameSession"],
+      ["uic:on-delete", "https://example.test/action", "deleteSession"],
+      ["uic:on-delete", "spaces.stopDevServer", "deleteSession"],
     ] as const) {
       const resumeSession = vi.fn();
       const startNewSession = vi.fn();
       const renameSession = vi.fn();
+      const deleteSession = vi.fn();
       const html = renderUICPresentationWithModel(
         {},
-        { resumeSession, startNewSession, renameSession },
+        { resumeSession, startNewSession, renameSession, deleteSession },
         spacesOverviewUICLayoutXml.replace(new RegExp(`${attr}="[^"]+"`, "u"), `${attr}="${invalid}"`),
       );
 
       expect(html).toContain('data-myne-view-pack="myne.spaces.view-pack.default"');
       expect(html).toContain("uic/xml/unknown-action");
       expect(html).not.toContain('data-uic-owned-region="recent-sessions"');
-      expect({ resumeSession, startNewSession, renameSession }[dispatcher]).not.toHaveBeenCalled();
+      expect({ resumeSession, startNewSession, renameSession, deleteSession }[dispatcher]).not.toHaveBeenCalled();
     }
+  });
+
+  it("projects confirmation-gated recent session delete descriptors and blocks malformed args", () => {
+    const descriptors = projectUICRecentSessionActions({ sortedSessions: storybookSavedSessions });
+    const deleteAction = descriptors.find((action) => action.id === "spaces.deleteSession")!;
+    const resumeSession = vi.fn();
+    const startNewSession = vi.fn();
+    const renameSession = vi.fn();
+    const deleteSession = vi.fn();
+    const recentSessionActions = { resumeSession, startNewSession, renameSession, deleteSession };
+    const allowedSessionIds = new Set([storybookSavedSessions[0]!.id]);
+
+    expect(deleteAction).toMatchObject({
+      event: "delete",
+      id: "spaces.deleteSession",
+      args: { sessionId: storybookSavedSessions[0]!.id },
+      status: "available",
+      lifecycle: {
+        confirmation: { required: true, tone: "destructive" },
+        pending: { key: `recent-session:${storybookSavedSessions[0]!.id}:delete` },
+        result: { state: "idle" },
+        diagnostics: [],
+        authorization: { state: "allowed" },
+      },
+    });
+    expect(JSON.stringify(deleteAction)).not.toMatch(/function|=>|appHooks|QueryClient|Promise|https?:|method|renameSession/u);
+    expect(invokeUICRecentSessionAction(recentSessionActions, deleteAction, allowedSessionIds, true)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/confirmation-required" } });
+    expect(deleteSession).not.toHaveBeenCalled();
+    expect(invokeUICRecentSessionAction(recentSessionActions, deleteAction, allowedSessionIds, true, { authorized: false, confirmed: true })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unauthorized" } });
+    expect(invokeUICRecentSessionAction(recentSessionActions, deleteAction, allowedSessionIds, true, { authorized: true, confirmed: true, pendingKeys: new Set([`recent-session:${storybookSavedSessions[0]!.id}:delete`]) })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/pending" } });
+    expect(invokeUICRecentSessionAction(recentSessionActions, { ...deleteAction, lifecycle: { ...deleteAction.lifecycle, result: { state: "failed", diagnostic: { code: "uic/delete/error", message: "Delete failed", recoverable: true } } } }, allowedSessionIds, true, { authorized: true, confirmed: true })).toMatchObject({ ok: false, diagnostic: { code: "uic/delete/error" } });
+    expect(invokeUICRecentSessionAction(recentSessionActions, { ...deleteAction, lifecycle: { ...deleteAction.lifecycle, confirmation: { ...deleteAction.lifecycle.confirmation, url: "https://example.test" } } }, allowedSessionIds, true, { authorized: true, confirmed: true })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/invalid-lifecycle" } });
+    expect(invokeUICRecentSessionAction(recentSessionActions, deleteAction, allowedSessionIds, true, { authorized: true, confirmed: true })).toEqual({ ok: true, result: { state: "completed" } });
+    expect(deleteSession).toHaveBeenCalledWith(storybookSavedSessions[0]!.id);
+    deleteSession.mockClear();
+    for (const args of [
+      { sessionId: storybookSavedSessions[0]!.id, url: "https://example.test" },
+      { sessionId: storybookSavedSessions[0]!.id, method: "renameSession" },
+      { sessionId: storybookSavedSessions[0]!.id, onDelete: () => undefined },
+      { sessionId: "missing" },
+      { sessionId: 1 },
+    ]) {
+      expect(invokeUICRecentSessionAction(recentSessionActions, { ...deleteAction, args }, allowedSessionIds, true, { authorized: true, confirmed: true })).toMatchObject({ ok: false });
+    }
+    expect(deleteSession).not.toHaveBeenCalled();
   });
 
   it("projects lifecycle-gated recent session rename descriptors and blocks malformed args", () => {
@@ -1455,6 +1547,7 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     const resumeSession = vi.fn();
     const startNewSession = vi.fn();
     const renameSession = vi.fn();
+    const deleteSession = vi.fn();
     const allowedSessionIds = new Set([storybookSavedSessions[0]!.id]);
 
     expect(rename).toMatchObject({
@@ -1471,7 +1564,7 @@ describe("SpacesOverview UIC pageHeader proof", () => {
       },
     });
     expect(JSON.stringify(rename)).not.toMatch(/function|=>|appHooks|QueryClient|Promise|https?:|method|deleteSession/u);
-    expect(invokeUICRecentSessionAction({ resumeSession, startNewSession, renameSession }, rename, allowedSessionIds, true)).toEqual({ ok: true, result: { state: "completed" } });
+    expect(invokeUICRecentSessionAction({ resumeSession, startNewSession, renameSession, deleteSession }, rename, allowedSessionIds, true)).toEqual({ ok: true, result: { state: "completed" } });
     expect(renameSession).toHaveBeenCalledWith(storybookSavedSessions[0]!.id, "Renamed voyage");
     renameSession.mockClear();
     for (const args of [
@@ -1481,17 +1574,18 @@ describe("SpacesOverview UIC pageHeader proof", () => {
       { sessionId: "missing", name: "Renamed voyage" },
       { sessionId: storybookSavedSessions[0]!.id, name: "" },
     ]) {
-      expect(invokeUICRecentSessionAction({ resumeSession, startNewSession, renameSession }, { ...rename, args }, allowedSessionIds, true)).toMatchObject({ ok: false });
+      expect(invokeUICRecentSessionAction({ resumeSession, startNewSession, renameSession, deleteSession }, { ...rename, args }, allowedSessionIds, true)).toMatchObject({ ok: false });
     }
     expect(renameSession).not.toHaveBeenCalled();
   });
 
   it("projects serializable recent session resume/start descriptors and blocks invalid targets", () => {
-    const descriptors = projectUICRecentSessionActions({ sortedSessions: storybookSavedSessions });
+    const descriptors = projectUICRecentSessionActions({ sortedSessions: storybookSavedSessions }, { resume: true, start: true, rename: false, delete: false });
     const resumeSession = vi.fn();
     const startNewSession = vi.fn();
     const renameSession = vi.fn();
-    const recentSessionActions = { resumeSession, startNewSession, renameSession };
+    const deleteSession = vi.fn();
+    const recentSessionActions = { resumeSession, startNewSession, renameSession, deleteSession };
     const allowedSessionIds = new Set([storybookSavedSessions[0]!.id]);
     const resume = descriptors.find((action) => action.id === "spaces.resumeSession")!;
     const start = descriptors.find((action) => action.id === "spaces.startSession")!;
@@ -1516,12 +1610,13 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     const resumeSession = vi.fn();
     const startNewSession = vi.fn();
     const renameSession = vi.fn();
+    const deleteSession = vi.fn();
     const allowedSessionIds = new Set([storybookSavedSessions[0]!.id]);
 
     for (const extra of [{ url: "https://example.test/session" }, { method: "deleteSession" }, { onResume: () => undefined }]) {
       expect(
         invokeUICRecentSessionAction(
-          { resumeSession, startNewSession, renameSession },
+          { resumeSession, startNewSession, renameSession, deleteSession },
           { id: "spaces.resumeSession", event: "resume", status: "available", args: { sessionId: storybookSavedSessions[0]!.id, ...extra } },
           allowedSessionIds,
           true,
