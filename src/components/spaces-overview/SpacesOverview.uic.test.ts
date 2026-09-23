@@ -412,8 +412,12 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     for (const descriptor of [
       { ...navigate, args: { workspaceId: workspace.id, spaceId: "space_product", tabGroupId: "tg_agent", url: "https://example.test" } },
       { ...navigate, args: { workspaceId: workspace.id, spaceId: "missing", tabGroupId: "tg_agent" } },
+      { ...navigate, status: "unavailable" },
+      { ...navigate, args: { workspaceId: "stale-running", spaceId: "space_product", tabGroupId: "tg_agent" } },
       { ...open, args: { workspaceId: workspace.id, method: "deleteSession" } },
       { ...open, args: { workspaceId: "missing" } },
+      { ...open, status: "unavailable" },
+      { ...open, args: { workspaceId: "stale-running" } },
     ]) {
       expect(invokeUICRunningDevServerAction({ stopDevServer: vi.fn(), navigateToTabGroup, openSpacePickerForWorkspace }, descriptor, allowedWorkspaces, new Set(), { authorized: true, confirmed: true, allowedCraftTargets })).toMatchObject({ ok: false });
     }
@@ -453,6 +457,7 @@ describe("SpacesOverview UIC pageHeader proof", () => {
 
     expect(projectUICRunningDevServerActions({ workspaces: [workspace], stoppingDevServerIds: new Set([workspace.id]) })).toEqual([]);
     expect(invokeUICRunningDevServerAction({ stopDevServer }, descriptor, new Set(), new Set(), { authorized: true, confirmed: true })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unavailable" } });
+    expect(invokeUICRunningDevServerAction({ stopDevServer }, { ...descriptor, status: "unavailable" }, new Set([workspace.id]), new Set(), { authorized: true, confirmed: true })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unavailable" } });
     expect(invokeUICRunningDevServerAction({ stopDevServer }, descriptor, new Set([workspace.id]), new Set([`running-dev-server:${workspace.id}:stop`]), { authorized: true, confirmed: true })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/pending" } });
     expect(invokeUICRunningDevServerAction({ stopDevServer }, { ...descriptor, lifecycle: { ...descriptor.lifecycle, result: { state: "failed", diagnostic: { code: "uic/stop/error", message: "Stop failed", recoverable: true } } } }, new Set([workspace.id]), new Set(), { authorized: true, confirmed: true })).toMatchObject({ ok: false, diagnostic: { code: "uic/stop/error" } });
     expect(invokeUICRunningDevServerAction({ stopDevServer }, { ...descriptor, args: { workspaceId: 1 } }, new Set([workspace.id]), new Set(), { authorized: true, confirmed: true })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/invalid-args" } });

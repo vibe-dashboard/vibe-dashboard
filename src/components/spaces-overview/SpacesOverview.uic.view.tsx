@@ -561,6 +561,9 @@ export function invokeUICRunningDevServerAction(
   if (!args || typeof args !== "object" || Array.isArray(args) || typeof (args as { workspaceId?: unknown }).workspaceId !== "string") {
     return { ok: false, diagnostic: { code: "uic/action/invalid-args", message: "UIC action arguments do not match the declared schema." } };
   }
+  if (descriptor.status !== "available") {
+    return { ok: false, diagnostic: { code: "uic/action/unavailable", message: "UIC action is unavailable for the current trusted state." } };
+  }
   const workspaceId = (args as { workspaceId: string }).workspaceId;
   if (!allowedWorkspaces.has(workspaceId)) {
     return { ok: false, diagnostic: { code: "uic/action/unavailable", message: "UIC action is unavailable for the current trusted state." } };
@@ -890,7 +893,13 @@ export function UICReadOnlyRunningDevServersSection({ model, actions, enableStop
   const stopActions = new Map(actionDescriptors.filter((action): action is UICRunningDevServerStopActionDescriptor => action.id === "spaces.stopDevServer").map((action) => [action.args.workspaceId, action]));
   const navigateActions = new Map(actionDescriptors.filter((action): action is UICRunningDevServerNavigateActionDescriptor => action.id === "spaces.navigateToCraft").map((action) => [action.args.workspaceId, action]));
   const openActions = new Map(actionDescriptors.filter((action): action is UICRunningDevServerOpenActionDescriptor => action.id === "spaces.openWorkspace").map((action) => [action.args.workspaceId, action]));
-  const allowedWorkspaces = new Map(model.workspaces.map((workspace) => [workspace.id, workspace]));
+  const workspaceById = new Map(model.workspaces.map((workspace) => [workspace.id, workspace]));
+  const stopAllowedWorkspaces = new Set(stopActions.keys());
+  const navigateAllowedWorkspaces = new Set(navigateActions.keys());
+  const openAllowedWorkspaces = new Map(Array.from(openActions.keys()).flatMap((id) => {
+    const workspace = workspaceById.get(id);
+    return workspace ? [[id, workspace] as const] : [];
+  }));
   const allowedCraftTargets = new Set(Array.from(navigateActions.values()).map((action) => `${action.args.workspaceId}:${action.args.spaceId}:${action.args.tabGroupId}`));
   const pendingKeys = new Set(Array.from(model.stoppingDevServerIds).map((id) => `running-dev-server:${id}:stop`));
   return (
@@ -941,7 +950,7 @@ export function UICReadOnlyRunningDevServersSection({ model, actions, enableStop
                   className="myne-button myne-button--quiet mt-2 text-xs"
                   onClick={() => {
                     const action = navigateActions.get(item.id);
-                    if (action) invokeUICRunningDevServerAction(actions, action, allowedWorkspaces, pendingKeys, { authorized: true, confirmed: true, allowedCraftTargets });
+                    if (action) invokeUICRunningDevServerAction(actions, action, navigateAllowedWorkspaces, pendingKeys, { authorized: true, confirmed: true, allowedCraftTargets });
                   }}
                 >
                   Open craft
@@ -953,7 +962,7 @@ export function UICReadOnlyRunningDevServersSection({ model, actions, enableStop
                   className="myne-button myne-button--quiet mt-2 text-xs"
                   onClick={() => {
                     const action = openActions.get(item.id);
-                    if (action) invokeUICRunningDevServerAction(actions, action, allowedWorkspaces, pendingKeys, { authorized: true, confirmed: true, allowedCraftTargets });
+                    if (action) invokeUICRunningDevServerAction(actions, action, openAllowedWorkspaces, pendingKeys, { authorized: true, confirmed: true, allowedCraftTargets });
                   }}
                 >
                   Open workspace
@@ -965,7 +974,7 @@ export function UICReadOnlyRunningDevServersSection({ model, actions, enableStop
                   className="myne-button myne-button--danger mt-2 text-xs"
                   onClick={() => {
                     const action = stopActions.get(item.id);
-                    if (action) invokeUICRunningDevServerAction(actions, action, allowedWorkspaces, pendingKeys, { authorized: true, confirmed: false });
+                    if (action) invokeUICRunningDevServerAction(actions, action, stopAllowedWorkspaces, pendingKeys, { authorized: true, confirmed: false });
                   }}
                 >
                   Stop server
