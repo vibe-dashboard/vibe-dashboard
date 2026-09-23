@@ -1840,7 +1840,7 @@ function OpenFromGithubDialog({
       : state.type === "choose-pr-workspace"
         ? "Choose PR workspace"
       : state.type === "choose-clone-intent"
-        ? "How will you use this repository?"
+        ? "Would you like to fork or just clone this repository?"
       : state.type === "choose-fork"
         ? "Choose a writable fork"
       : state.type === "await-fork"
@@ -1870,7 +1870,7 @@ function OpenFromGithubDialog({
       : state.type === "choose-pr-workspace"
         ? `Multiple workspaces match PR #${state.prInfo.number}. Choose the workspace to open.`
       : state.type === "choose-clone-intent"
-        ? "This repository is not cloned yet. Analysis clones the source repository. Making changes checks your gh CLI account for push access or a writable fork."
+        ? "This only shows for new repositories that haven't been cloned on this machine yet."
       : state.type === "choose-fork"
         ? "Several writable forks are available to your authenticated gh CLI account."
       : state.type === "await-fork"
@@ -1969,12 +1969,12 @@ function OpenFromGithubDialog({
         {state.type === "choose-clone-intent" ? (
           <div className="space-y-2">
             <button type="button" className="w-full rounded-lg border border-neutral-700 bg-neutral-800 p-3 text-left hover:bg-neutral-700" onClick={() => onSelectCloneIntent("changes")}>
-              <div className="text-sm font-medium text-white">Make changes</div>
-              <div className="mt-1 text-xs text-neutral-400">Use a writable source repository or fork.</div>
+              <div className="text-sm font-medium text-white">Fork</div>
+              <div className="mt-1 text-xs text-neutral-400">This allows you to make changes and push to GitHub.</div>
             </button>
             <button type="button" className="w-full rounded-lg border border-neutral-700 bg-neutral-800 p-3 text-left hover:bg-neutral-700" onClick={() => onSelectCloneIntent("analysis")}>
-              <div className="text-sm font-medium text-white">Analyze only</div>
-              <div className="mt-1 text-xs text-neutral-400">Clone the linked source repository without requiring a fork.</div>
+              <div className="text-sm font-medium text-white">Clone without fork</div>
+              <div className="mt-1 text-xs text-neutral-400">This is useful for general analysis of the code and local-only development. You can always fork later if you decide you want to push changes.</div>
             </button>
           </div>
         ) : null}
