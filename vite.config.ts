@@ -23,6 +23,19 @@ if (platformVariant === 'node') {
 } else if (platformVariant === 'browser') {
   platforms = ['browser'];
 }
+
+export function buildClientEnvDefine(
+  env: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+  return {
+    'process.env.DEBUG_LOG_PERFORMANCE': '""',
+    'process.env.CADDY_PORT': JSON.stringify(env.CADDY_PORT || ''),
+    'process.env.VD_DISABLE_SPACES_OVERVIEW_UIC': JSON.stringify(
+      env.VD_DISABLE_SPACES_OVERVIEW_UIC || '',
+    ),
+  };
+}
+
 export default defineConfig({
   plugins: [react(), tailwindcss(), springboard({
     entry: './src/index.tsx',
@@ -40,10 +53,7 @@ export default defineConfig({
       '@vibe-dashboard/beads-form': path.resolve(__dirname, 'packages/beads-form/src/index.ts')
     }
   },
-  define: {
-    'process.env.DEBUG_LOG_PERFORMANCE': '""',
-    'process.env.CADDY_PORT': JSON.stringify(process.env.CADDY_PORT || '')
-  },
+  define: buildClientEnvDefine(),
   server: buildViteDevServerOptions(),
   test: {
     projects: [{

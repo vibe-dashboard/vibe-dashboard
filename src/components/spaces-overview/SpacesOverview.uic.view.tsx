@@ -4,7 +4,7 @@ import type { SpacesOverviewSlotProps } from "./SpacesOverview.slots";
 import { formatRelativeTime } from "./workspaceList.view";
 import { MyneHeading, MyneText } from "../../theme/skins";
 import { getUICValidatedActionBindings, spacesOverviewPageHeaderUICProof, validateUICXml, type UICDiagnostic } from "../../uic/trustedComponents";
-import type { ReactNode } from "react";
+import { Component, type ErrorInfo, type ReactNode } from "react";
 
 type SpacesOverviewUICEnv = Readonly<Record<string, string | undefined>>;
 type SpacesOverviewUICRenderer = (props: SpacesOverviewComponentProps) => ReactNode;
@@ -39,7 +39,10 @@ export const spacesOverviewUICStartupValidation = validateUICXml(
 ).diagnostics;
 
 function getDefaultSpacesOverviewUICEnv(): SpacesOverviewUICEnv {
-  return typeof process === "undefined" ? {} : process.env;
+  return {
+    [SPACES_OVERVIEW_UIC_DISABLE_ENV]:
+      process.env.VD_DISABLE_SPACES_OVERVIEW_UIC,
+  };
 }
 
 export function isSpacesOverviewUICDisabled(env: SpacesOverviewUICEnv = getDefaultSpacesOverviewUICEnv()): boolean {
@@ -72,8 +75,30 @@ function renderSpacesOverviewReactFallback(
   );
 }
 
+class SpacesOverviewUICRenderBoundary extends Component<
+  {
+    readonly children: ReactNode;
+    readonly fallback: ReactNode;
+  },
+  { readonly failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError(): { readonly failed: boolean } {
+    return { failed: true };
+  }
+
+  componentDidCatch(_error: Error, _info: ErrorInfo): void {
+    // The visible banner below is the production diagnostic for this local fallback.
+  }
+
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
+}
+
 export function createSpacesOverviewProductionView({
-  env = getDefaultSpacesOverviewUICEnv(),
+  env,
   startupDiagnostics = spacesOverviewUICStartupValidation,
   uicPresentation = SpacesOverviewUICLayoutProofPresentation,
 }: {
@@ -82,7 +107,7 @@ export function createSpacesOverviewProductionView({
   readonly uicPresentation?: SpacesOverviewUICRenderer;
 } = {}): SpacesOverviewPresentation {
   return (props) => {
-    if (isSpacesOverviewUICDisabled(env)) {
+    if (isSpacesOverviewUICDisabled(env ?? getDefaultSpacesOverviewUICEnv())) {
       return renderSpacesOverviewReactFallback(
         props,
         spacesOverviewUICFallbackDiagnostics.envDisabled,
@@ -96,7 +121,16 @@ export function createSpacesOverviewProductionView({
       );
     }
     try {
-      return uicPresentation(props);
+      return (
+        <SpacesOverviewUICRenderBoundary
+          fallback={renderSpacesOverviewReactFallback(
+            props,
+            spacesOverviewUICFallbackDiagnostics.renderException,
+          )}
+        >
+          {uicPresentation(props)}
+        </SpacesOverviewUICRenderBoundary>
+      );
     } catch {
       return renderSpacesOverviewReactFallback(
         props,
