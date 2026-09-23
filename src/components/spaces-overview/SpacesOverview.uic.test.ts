@@ -13,6 +13,7 @@ import {
   UIC_WORKSPACE_LIST_RESOURCE_BUDGET,
   SpacesOverviewUICLayoutProofPresentation,
   SpacesOverviewUICPageHeaderProof,
+  resolveUICActionLifecycle,
   invokeUICSpacePickerAction,
   invokeUICWorkspaceListAction,
   invokeUICSpacesOverviewAction,
@@ -594,6 +595,50 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     ]);
     expect(JSON.stringify(descriptors)).not.toMatch(/function|=>|appHooks|QueryClient|https?:|navigateToTabGroup/u);
     expect(UIC_SPACES_OVERVIEW_ACTIONS["spaces.navigateToCraft"].args).toEqual({ spaceId: "string", tabGroupId: "string" });
+  });
+
+  it("validates shared serializable lifecycle metadata before mutating UIC actions use it", () => {
+    const descriptor = {
+      event: "activate",
+      id: "spaces.openWorkspace",
+      args: { workspaceId: dashboardWorkspaces[0]!.id },
+      status: "available",
+    } as const;
+    const lifecycle = {
+      confirmation: {
+        required: true,
+        title: "Stop development server?",
+        message: "Confirm before invoking a mutating host action.",
+        confirmLabel: "Stop server",
+        tone: "destructive",
+      },
+      pending: { key: `workspace:${dashboardWorkspaces[0]!.id}:stop-dev-server`, label: "Stopping development server" },
+      result: { state: "idle" },
+      diagnostics: ["uic/action/mutation-proof"],
+      authorization: { state: "allowed" },
+    } as const;
+
+    expect(resolveUICActionLifecycle(descriptor, lifecycle, { authorized: true, confirmed: false })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/confirmation-required" } });
+    expect(resolveUICActionLifecycle(descriptor, lifecycle, { authorized: true, confirmed: true })).toEqual({ ok: true, descriptor: { ...descriptor, lifecycle } });
+    expect(JSON.stringify(lifecycle)).not.toMatch(/function|=>|appHooks|QueryClient|Promise|https?:|stopDevServer|deleteSession|renameSession/u);
+  });
+
+  it("gates lifecycle descriptors on authorization, pending identity, and result envelope shape", () => {
+    const descriptor = { event: "activate", id: "spaces.openWorkspace", args: { workspaceId: dashboardWorkspaces[0]!.id }, status: "available" } as const;
+    const lifecycle = {
+      confirmation: { required: false },
+      pending: { key: "workspace:one:proof", label: "Proof pending" },
+      result: { state: "completed" },
+      diagnostics: [],
+      authorization: { state: "allowed" },
+    } as const;
+
+    expect(resolveUICActionLifecycle(descriptor, lifecycle, { authorized: false })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unauthorized" } });
+    expect(resolveUICActionLifecycle(descriptor, lifecycle, { authorized: true, pendingKeys: new Set(["workspace:one:proof"]) })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/pending" } });
+    expect(resolveUICActionLifecycle(descriptor, { ...lifecycle, result: { state: "failed", diagnostic: { code: "uic/proof/error", message: "Proof failed", recoverable: true } } }, { authorized: true })).toMatchObject({ ok: true });
+    expect(resolveUICActionLifecycle(descriptor, { ...lifecycle, result: { state: "failed" } }, { authorized: true })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/invalid-lifecycle" } });
+    expect(resolveUICActionLifecycle(descriptor, { ...lifecycle, pending: { key: "https://example.test/action", label: "Bad" } }, { authorized: true })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/invalid-lifecycle" } });
+    expect(resolveUICActionLifecycle({ ...descriptor, status: "unavailable" }, lifecycle, { authorized: true })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unavailable" } });
   });
 
   it("projects only serializable allowed UIC action descriptors for sibling craft lists", () => {

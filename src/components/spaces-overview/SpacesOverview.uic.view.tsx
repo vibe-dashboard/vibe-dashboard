@@ -81,6 +81,85 @@ type UICSpacePickerSelectActionDescriptor = {
   readonly status: "available" | "unavailable";
 };
 export type UICSpacesOverviewActionDescriptor = UICCraftActionDescriptor | UICWorkspaceActionDescriptor | UICWorkspaceFilterActionDescriptor | UICWorkspacePageActionDescriptor | UICSpacePickerActionDescriptor | UICSpacePickerSelectActionDescriptor;
+type UICActionDiagnostic = Readonly<{ code: string; message: string; recoverable?: boolean }>;
+type UICActionLifecycle = Readonly<{
+  confirmation?: Readonly<{ required: boolean; title?: string; message?: string; confirmLabel?: string; tone?: "neutral" | "warning" | "destructive" }>;
+  pending?: Readonly<{ key: string; label: string }>;
+  result: Readonly<{ state: "idle" | "pending" | "completed" } | { state: "failed"; diagnostic: UICActionDiagnostic }>;
+  diagnostics: readonly string[];
+  authorization: Readonly<{ state: "allowed" } | { state: "denied"; reason: string }>;
+}>;
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function isSafeLifecycleText(value: unknown, maxLength = 120) {
+  if (typeof value !== "string" || value.length === 0 || value.length > maxLength || /[<>]|https?:|javascript:/iu.test(value)) return false;
+  const lower = value.toLowerCase();
+  return !["function", "promise", `app${"hooks"}`, "queryclient"].some((word) => lower.includes(word));
+}
+
+function validateUICActionLifecycle(input: unknown): { readonly ok: true; readonly lifecycle: UICActionLifecycle } | { readonly ok: false; readonly diagnostic: UICActionDiagnostic } {
+  if (!isPlainRecord(input) || !isPlainRecord(input.result) || !Array.isArray(input.diagnostics) || !isPlainRecord(input.authorization)) {
+    return { ok: false, diagnostic: { code: "uic/action/invalid-lifecycle", message: "UIC action lifecycle metadata is malformed.", recoverable: false } };
+  }
+  const result = input.result;
+  const resultState = result.state;
+  if (resultState !== "idle" && resultState !== "pending" && resultState !== "completed" && resultState !== "failed") {
+    return { ok: false, diagnostic: { code: "uic/action/invalid-lifecycle", message: "UIC action result state is invalid.", recoverable: false } };
+  }
+  if (resultState === "failed") {
+    const diagnostic = result.diagnostic;
+    if (!isPlainRecord(diagnostic) || !isSafeLifecycleText(diagnostic.code, 80) || !isSafeLifecycleText(diagnostic.message, 160) || typeof diagnostic.recoverable !== "boolean") {
+      return { ok: false, diagnostic: { code: "uic/action/invalid-lifecycle", message: "UIC action failure envelope is invalid.", recoverable: false } };
+    }
+  }
+  if (!input.diagnostics.every((item) => isSafeLifecycleText(item, 80))) {
+    return { ok: false, diagnostic: { code: "uic/action/invalid-lifecycle", message: "UIC action diagnostics are invalid.", recoverable: false } };
+  }
+  const authorization = input.authorization;
+  if (authorization.state !== "allowed" && authorization.state !== "denied") {
+    return { ok: false, diagnostic: { code: "uic/action/invalid-lifecycle", message: "UIC action authorization state is invalid.", recoverable: false } };
+  }
+  if (authorization.state === "denied" && !isSafeLifecycleText(authorization.reason, 120)) {
+    return { ok: false, diagnostic: { code: "uic/action/invalid-lifecycle", message: "UIC action authorization reason is invalid.", recoverable: false } };
+  }
+  if (input.pending !== undefined) {
+    if (!isPlainRecord(input.pending) || !isSafeLifecycleText(input.pending.key, 120) || !isSafeLifecycleText(input.pending.label, 80)) {
+      return { ok: false, diagnostic: { code: "uic/action/invalid-lifecycle", message: "UIC action pending identity is invalid.", recoverable: false } };
+    }
+  }
+  if (input.confirmation !== undefined) {
+    if (!isPlainRecord(input.confirmation) || typeof input.confirmation.required !== "boolean") {
+      return { ok: false, diagnostic: { code: "uic/action/invalid-lifecycle", message: "UIC action confirmation metadata is invalid.", recoverable: false } };
+    }
+    for (const key of ["title", "message", "confirmLabel"] as const) {
+      if (input.confirmation[key] !== undefined && !isSafeLifecycleText(input.confirmation[key], key === "message" ? 160 : 80)) {
+        return { ok: false, diagnostic: { code: "uic/action/invalid-lifecycle", message: "UIC action confirmation text is invalid.", recoverable: false } };
+      }
+    }
+    if (input.confirmation.tone !== undefined && input.confirmation.tone !== "neutral" && input.confirmation.tone !== "warning" && input.confirmation.tone !== "destructive") {
+      return { ok: false, diagnostic: { code: "uic/action/invalid-lifecycle", message: "UIC action confirmation tone is invalid.", recoverable: false } };
+    }
+  }
+  return { ok: true, lifecycle: input as UICActionLifecycle };
+}
+
+export function resolveUICActionLifecycle<T extends UICSpacesOverviewActionDescriptor>(
+  descriptor: T,
+  lifecycleInput: unknown,
+  context: Readonly<{ authorized: boolean; confirmed?: boolean; pendingKeys?: ReadonlySet<string> }>,
+): { readonly ok: true; readonly descriptor: T & { readonly lifecycle: UICActionLifecycle } } | { readonly ok: false; readonly diagnostic: UICActionDiagnostic } {
+  const validated = validateUICActionLifecycle(lifecycleInput);
+  if (!validated.ok) return validated;
+  const { lifecycle } = validated;
+  if (descriptor.status !== "available") return { ok: false, diagnostic: { code: "uic/action/unavailable", message: "UIC action is unavailable for the current trusted state.", recoverable: true } };
+  if (!context.authorized || lifecycle.authorization.state !== "allowed") return { ok: false, diagnostic: { code: "uic/action/unauthorized", message: "UIC action is not authorized for the current trusted state.", recoverable: false } };
+  if (lifecycle.pending && context.pendingKeys?.has(lifecycle.pending.key)) return { ok: false, diagnostic: { code: "uic/action/pending", message: "UIC action is already pending.", recoverable: true } };
+  if (lifecycle.confirmation?.required && !context.confirmed) return { ok: false, diagnostic: { code: "uic/action/confirmation-required", message: "UIC action requires explicit confirmation.", recoverable: true } };
+  return { ok: true, descriptor: { ...descriptor, lifecycle } };
+}
 
 type UICReadOnlyListResource =
   | { readonly state: "pending" }
