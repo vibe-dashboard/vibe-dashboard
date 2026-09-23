@@ -85,6 +85,70 @@ function renderUICLayout(xml?: string, overrides: Partial<React.ComponentProps<t
   }));
 }
 
+function renderUICPresentationWithModel(
+  modelOverrides: Partial<React.ComponentProps<typeof SpacesOverviewUICLayoutProofPresentation>["model"]>,
+  actionOverrides: Partial<React.ComponentProps<typeof SpacesOverviewUICLayoutProofPresentation>["actions"]> = {},
+  xml = spacesOverviewUICLayoutXml,
+) {
+  const tabGroupDisplayLabelById = new Map(storybookWorkspace.tabGroups.map((tabGroup) => [tabGroup.id, tabGroup.label]));
+  const model: React.ComponentProps<typeof SpacesOverviewUICLayoutProofPresentation>["model"] = {
+    workspace: storybookWorkspace,
+    savedSessions: storybookSavedSessions,
+    currentSessionId: storybookSavedSessions[0]?.id,
+    workspaces: dashboardWorkspaces,
+    effectiveRepos: storybookRepos,
+    loading: false,
+    error: null,
+    selectedRepoId: null,
+    sortedWorkspaces: dashboardWorkspaces,
+    pagedWorkspaces: dashboardWorkspaces,
+    workspacePage: 0,
+    workspaceTotalPages: 1,
+    stoppingDevServerIds: new Set<string>(),
+    tabGroupDisplayLabelById,
+    workspaceTabGroupMap: new Map(),
+    hasSpaces: true,
+    sortedSessions: storybookSavedSessions,
+    expandedSessionId: null,
+    editingSessionId: null,
+    sessionNameDraft: "",
+    starredTabGroups: [],
+    recentlyVisited: { items: [], page: 0, totalPages: 1 },
+    recentlyCreated: { items: [], page: 0, totalPages: 1 },
+    spacesWithTabGroups: [],
+    spacePickerTarget: null,
+    pendingOpenCraftRequest: null,
+    openCraftRetryRequest: null,
+    openCraftActionError: null,
+    isOpenCraftPending: false,
+    canOpenWorkspaceInSpace: true,
+    ...modelOverrides,
+  };
+  const actions: React.ComponentProps<typeof SpacesOverviewUICLayoutProofPresentation>["actions"] = {
+    resumeSession: () => undefined,
+    renameSession: () => undefined,
+    deleteSession: () => undefined,
+    startNewSession: () => undefined,
+    navigateToTabGroup: () => undefined,
+    selectRepo: () => undefined,
+    setWorkspacePage: () => undefined,
+    stopDevServer: () => undefined,
+    openSpacePickerForWorkspace: () => undefined,
+    runOpenCraftRequest: () => undefined,
+    closeSpacePicker: () => undefined,
+    retryOpenCraftRequest: () => undefined,
+    toggleExpandedSession: () => undefined,
+    startRenameSession: () => undefined,
+    setSessionNameDraft: () => undefined,
+    submitRenameSession: () => undefined,
+    cancelRenameSession: () => undefined,
+    setRecentlyVisitedPage: () => undefined,
+    setRecentlyCreatedPage: () => undefined,
+    ...actionOverrides,
+  };
+  return renderToStaticMarkup(createElement(SpacesOverviewUICLayoutProofPresentation, { model, actions, xml }));
+}
+
 function runningDevServersRegion(html: string) {
   return html.slice(html.indexOf('data-uic-owned-region="running-dev-servers"'), html.indexOf('data-myne-slot="recently-visited-craft"'));
 }
@@ -809,6 +873,57 @@ describe("SpacesOverview UIC pageHeader proof", () => {
       expect(html).toContain("uic/xml/unknown-action");
       expect(html).not.toContain('data-uic-owned-region="space-picker"');
       expect(onOpenWorkspaceInSpace).not.toHaveBeenCalled();
+    }
+  });
+
+  it("does not expose retry UI or dispatch in retry state when XML omits the retry binding", () => {
+    const retryOpenCraftRequest = vi.fn();
+    const retryRequest = { workspace: dashboardWorkspaces[0]!, spaceId: storybookWorkspace.spaces[1]!.id };
+    const html = renderUICPresentationWithModel(
+      {
+        spacePickerTarget: dashboardWorkspaces[0]!,
+        openCraftRetryRequest: retryRequest,
+        openCraftActionError: "Open failed",
+      },
+      { retryOpenCraftRequest },
+      spacesOverviewUICLayoutXml.replace(' uic:on-retry="spaces.retryOpenWorkspace"', ""),
+    );
+    const region = spacePickerRegion(html);
+
+    expect(region).toContain("UIC space picker");
+    expect(region).toContain("Close picker");
+    expect(region).not.toContain("Retry open");
+    expect(projectUICSpacePickerActions({
+      spacePickerTarget: dashboardWorkspaces[0]!,
+      pendingOpenCraftRequest: null,
+      openCraftRetryRequest: retryRequest,
+      canOpenWorkspaceInSpace: true,
+    }, { close: true, retry: false })).toEqual([
+      { event: "close", id: "spaces.dismissPicker", args: {}, status: "available" },
+    ]);
+    expect(retryOpenCraftRequest).not.toHaveBeenCalled();
+  });
+
+  it("falls back without UIC picker region or dispatch when only retry binding is invalid", () => {
+    for (const invalid of ["https://example.test/action", "spaces.deleteWorkspace"]) {
+      const closeSpacePicker = vi.fn();
+      const retryOpenCraftRequest = vi.fn();
+      const retryRequest = { workspace: dashboardWorkspaces[0]!, spaceId: storybookWorkspace.spaces[1]!.id };
+      const html = renderUICPresentationWithModel(
+        {
+          spacePickerTarget: dashboardWorkspaces[0]!,
+          openCraftRetryRequest: retryRequest,
+          openCraftActionError: "Open failed",
+        },
+        { closeSpacePicker, retryOpenCraftRequest },
+        spacesOverviewUICLayoutXml.replace('uic:on-retry="spaces.retryOpenWorkspace"', `uic:on-retry="${invalid}"`),
+      );
+
+      expect(html).toContain('data-myne-view-pack="myne.spaces.view-pack.default"');
+      expect(html).toContain("uic/xml/unknown-action");
+      expect(html).not.toContain('data-uic-owned-region="space-picker"');
+      expect(closeSpacePicker).not.toHaveBeenCalled();
+      expect(retryOpenCraftRequest).not.toHaveBeenCalled();
     }
   });
 
