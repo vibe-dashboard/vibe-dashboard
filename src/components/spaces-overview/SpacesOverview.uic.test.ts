@@ -447,6 +447,43 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(html).toContain("uic/xml/unknown-action");
   });
 
+  it("falls back without UIC action UI or dispatch for invalid recently-created and spaces action bindings", () => {
+    const cases = [
+      {
+        valid: '<uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" />',
+        invalid: '<uic:recentlyCreatedCraft uic:on-activate="https://example.test/action" />',
+        region: 'data-uic-owned-region="recently-created-craft"',
+      },
+      {
+        valid: '<uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" />',
+        invalid: '<uic:recentlyCreatedCraft uic:on-activate="spaces.deleteCraft" />',
+        region: 'data-uic-owned-region="recently-created-craft"',
+      },
+      {
+        valid: '<uic:spaces uic:on-activate="spaces.navigateToCraft" />',
+        invalid: '<uic:spaces uic:on-activate="https://example.test/action" />',
+        region: 'data-uic-owned-region="spaces-list"',
+      },
+      {
+        valid: '<uic:spaces uic:on-activate="spaces.navigateToCraft" />',
+        invalid: '<uic:spaces uic:on-activate="spaces.deleteCraft" />',
+        region: 'data-uic-owned-region="spaces-list"',
+      },
+    ] as const;
+
+    for (const item of cases) {
+      const navigateToTabGroup = vi.fn();
+      const html = renderUICLayout(spacesOverviewUICLayoutXml.replace(item.valid, item.invalid), {
+        onNavigateToTabGroup: navigateToTabGroup,
+      });
+
+      expect(html).toContain('data-myne-view-pack="myne.spaces.view-pack.default"');
+      expect(html).toContain("uic/xml/unknown-action");
+      expect(html).not.toContain(item.region);
+      expect(navigateToTabGroup).not.toHaveBeenCalled();
+    }
+  });
+
   it("projects only serializable allowed UIC action descriptors for starred craft", () => {
     const descriptors = projectUICStarredCraftActions({
       starredTabGroups: [{ space: storybookWorkspace.spaces[1]!, tg: storybookWorkspace.tabGroups[1]! }],
