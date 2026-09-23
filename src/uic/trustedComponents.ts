@@ -85,6 +85,7 @@ export const spacesOverviewPageHeaderUICProof: UICSurfaceDescriptor = Object.fre
       events: Object.freeze({
         resume: Object.freeze(["spaces.resumeSession"]),
         start: Object.freeze(["spaces.startSession"]),
+        rename: Object.freeze(["spaces.renameSession"]),
       }),
       forbidden: Object.freeze(["class", "className", "style"]),
       fallback: "enclosing-slot",
