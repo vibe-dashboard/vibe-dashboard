@@ -27,7 +27,7 @@ const fullSpacesOverviewXml = `<uic:spaceOverviewPage xmlns:uic="https://vibedas
   <uic:runningDevServers />
   <uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" />
   <uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" />
-  <uic:workspaceList />
+  <uic:workspaceList uic:on-activate="spaces.openWorkspace" />
   <uic:spaces uic:on-activate="spaces.navigateToCraft" />
   <uic:spacePicker />
 </uic:spaceOverviewPage>`;
@@ -88,7 +88,7 @@ describe("UIC trusted component descriptors", () => {
         { tag: "runningDevServers", componentId: "myne.spaces.running-dev-servers.default" },
         { tag: "recentlyVisitedCraft", componentId: "myne.spaces.recently-visited.default", actions: { activate: "spaces.navigateToCraft" } },
         { tag: "recentlyCreatedCraft", componentId: "myne.spaces.recently-created.default", actions: { activate: "spaces.navigateToCraft" } },
-        { tag: "workspaceList", componentId: "myne.spaces.workspace-list.default" },
+        { tag: "workspaceList", componentId: "myne.spaces.workspace-list.default", actions: { activate: "spaces.openWorkspace" } },
         { tag: "spaces", componentId: "myne.spaces.spaces.default", actions: { activate: "spaces.navigateToCraft" } },
         { tag: "spacePicker", componentId: "myne.spaces.space-picker.default" },
       ],
@@ -98,7 +98,7 @@ describe("UIC trusted component descriptors", () => {
   });
 
   it("requires every SpacesOverview layout-shell tag exactly once before compile", async () => {
-    const missingWorkspace = fullSpacesOverviewXml.replace("  <uic:workspaceList />\n", "");
+    const missingWorkspace = fullSpacesOverviewXml.replace('  <uic:workspaceList uic:on-activate="spaces.openWorkspace" />\n', "");
     const duplicateSpaces = fullSpacesOverviewXml.replace('  <uic:spaces uic:on-activate="spaces.navigateToCraft" />', '  <uic:spaces uic:on-activate="spaces.navigateToCraft" />\n  <uic:spaces uic:on-activate="spaces.navigateToCraft" />');
     const reordered = fullSpacesOverviewXml.replace('  <uic:recentSessions />\n  <uic:starredCraft uic:on-activate="spaces.navigateToCraft" />', '  <uic:starredCraft uic:on-activate="spaces.navigateToCraft" />\n  <uic:recentSessions />');
     const extra = fullSpacesOverviewXml.replace("  <uic:spacePicker />", "  <uic:spacePicker />\n  <uic:unknownSection />");
@@ -158,7 +158,9 @@ describe("UIC trusted component descriptors", () => {
   });
 
   it("omits action IR when the generated tag has no action binding", async () => {
-    const xml = fullSpacesOverviewXml.replaceAll(' uic:on-activate="spaces.navigateToCraft"', "");
+    const xml = fullSpacesOverviewXml
+      .replaceAll(' uic:on-activate="spaces.navigateToCraft"', "")
+      .replaceAll(' uic:on-activate="spaces.openWorkspace"', "");
     const compiled = await compileUICXml(spacesOverviewPageHeaderUICProof, xml);
 
     expect(compiled.ok).toBe(true);
@@ -166,6 +168,7 @@ describe("UIC trusted component descriptors", () => {
     expect(compiled.ir.nodes.find((node) => node.tag === "starredCraft")).not.toHaveProperty("actions");
     expect(compiled.ir.nodes.find((node) => node.tag === "recentlyVisitedCraft")).not.toHaveProperty("actions");
     expect(compiled.ir.nodes.find((node) => node.tag === "recentlyCreatedCraft")).not.toHaveProperty("actions");
+    expect(compiled.ir.nodes.find((node) => node.tag === "workspaceList")).not.toHaveProperty("actions");
     expect(compiled.ir.nodes.find((node) => node.tag === "spaces")).not.toHaveProperty("actions");
   });
 

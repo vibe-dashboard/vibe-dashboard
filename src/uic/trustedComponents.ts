@@ -125,6 +125,7 @@ export const spacesOverviewPageHeaderUICProof: UICSurfaceDescriptor = Object.fre
       componentId: "myne.spaces.workspace-list.default",
       adapter: "trusted-react",
       props: Object.freeze([]),
+      events: Object.freeze({ activate: Object.freeze(["spaces.openWorkspace"]) }),
       forbidden: Object.freeze(["class", "className", "style"]),
       fallback: "enclosing-slot",
     }),

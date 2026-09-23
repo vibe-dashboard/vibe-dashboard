@@ -13,6 +13,7 @@ import {
   UIC_WORKSPACE_LIST_RESOURCE_BUDGET,
   SpacesOverviewUICLayoutProofPresentation,
   SpacesOverviewUICPageHeaderProof,
+  invokeUICWorkspaceListAction,
   invokeUICSpacesOverviewAction,
   projectUICRecentSessionsResource,
   projectUICRecentlyCreatedCraftActions,
@@ -23,6 +24,7 @@ import {
   projectUICSpacesCraftActions,
   projectUICSpacesResource,
   projectUICStarredCraftResource,
+  projectUICWorkspaceListActions,
   projectUICWorkspaceListResource,
   spacesOverviewUICLayoutXml,
 } from "./SpacesOverview.uic.view";
@@ -697,13 +699,13 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(region).toContain(longCraft.slice(0, UIC_SPACES_RESOURCE_BUDGET.maxCraftLabelLength));
   });
 
-  it("uses finite UIC states for workspace list without filter, pagination, navigation, or mutation controls", () => {
+  it("uses finite UIC states and a typed open action for workspace list without filter, pagination, or mutation controls", () => {
     const readyRegion = workspaceListRegion(renderUICLayout());
 
     expect(readyRegion).toContain("Read-only UIC workspace list");
     expect(readyRegion).toContain("VK Workspaces");
     expect(readyRegion).toContain(dashboardWorkspaces[0]!.name);
-    expect(readyRegion).not.toContain("<button");
+    expect(readyRegion).toContain("Open workspace");
     expect(readyRegion).not.toContain("All</");
     expect(readyRegion).not.toContain("Previous");
     expect(readyRegion).not.toContain("Next");
@@ -714,6 +716,60 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(workspaceListRegion(renderUICLayout(undefined, { loading: true, workspaces: [] }))).toContain("Loading workspaces");
     expect(workspaceListRegion(renderUICLayout(undefined, { workspaces: [] }))).toContain("No active workspaces");
     expect(workspaceListRegion(renderUICLayout(undefined, { error: "VK backend unavailable", workspaces: [] }))).toContain("VK backend unavailable");
+  });
+
+  it("does not expose or dispatch the workspace open action when XML omits the binding", () => {
+    const xml = spacesOverviewUICLayoutXml.replace('  <uic:workspaceList uic:on-activate="spaces.openWorkspace" />', "  <uic:workspaceList />");
+    const region = workspaceListRegion(renderUICLayout(xml));
+
+    expect(region).toContain("Read-only UIC workspace list");
+    expect(region).not.toContain("Open workspace");
+    expect(projectUICWorkspaceListActions({ sortedWorkspaces: [dashboardWorkspaces[0]!], canOpenWorkspaceInSpace: true }, false)).toEqual([]);
+  });
+
+  it("does not expose workspace open descriptors when the trusted open capability is unavailable", () => {
+    const region = workspaceListRegion(renderUICLayout(undefined, { onOpenWorkspaceInSpace: undefined }));
+
+    expect(region).toContain("Read-only UIC workspace list");
+    expect(region).not.toContain("Open workspace");
+    expect(projectUICWorkspaceListActions({ sortedWorkspaces: [dashboardWorkspaces[0]!], canOpenWorkspaceInSpace: false })).toEqual([]);
+  });
+
+  it("falls back without workspace action UI or dispatch when workspace action validation fails", () => {
+    for (const invalid of ["https://example.test/action", "spaces.deleteWorkspace"]) {
+      const onOpenWorkspaceInSpace = vi.fn();
+      const html = renderUICLayout(spacesOverviewUICLayoutXml.replace(
+        '<uic:workspaceList uic:on-activate="spaces.openWorkspace" />',
+        `<uic:workspaceList uic:on-activate="${invalid}" />`,
+      ), { onOpenWorkspaceInSpace });
+
+      expect(html).toContain('data-myne-view-pack="myne.spaces.view-pack.default"');
+      expect(html).toContain("uic/xml/unknown-action");
+      expect(html).not.toContain('data-uic-owned-region="workspace-list"');
+      expect(onOpenWorkspaceInSpace).not.toHaveBeenCalled();
+    }
+  });
+
+  it("projects serializable workspace open descriptors and blocks invalid workspace targets before dispatch", () => {
+    const descriptors = projectUICWorkspaceListActions({ sortedWorkspaces: [dashboardWorkspaces[0]!], canOpenWorkspaceInSpace: true });
+    const openSpacePickerForWorkspace = vi.fn();
+    const allowedWorkspaces = new Map([[dashboardWorkspaces[0]!.id, dashboardWorkspaces[0]!]]);
+
+    expect(descriptors).toEqual([
+      {
+        event: "activate",
+        id: "spaces.openWorkspace",
+        args: { workspaceId: dashboardWorkspaces[0]!.id },
+        status: "available",
+      },
+    ]);
+    expect(JSON.stringify(descriptors)).not.toMatch(/function|=>|appHooks|QueryClient|https?:|openSpacePickerForWorkspace|stop|delete/u);
+    expect(invokeUICWorkspaceListAction({ openSpacePickerForWorkspace }, descriptors[0]!, allowedWorkspaces)).toEqual({ ok: true, result: { state: "completed" } });
+    expect(openSpacePickerForWorkspace).toHaveBeenCalledWith(dashboardWorkspaces[0]);
+
+    expect(invokeUICWorkspaceListAction({ openSpacePickerForWorkspace }, { id: "spaces.openWorkspace", event: "activate", status: "available", args: { workspaceId: "missing" } }, allowedWorkspaces)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unavailable" } });
+    expect(invokeUICWorkspaceListAction({ openSpacePickerForWorkspace }, { id: "spaces.openWorkspace", event: "activate", status: "available", args: { workspaceId: 1 } }, allowedWorkspaces)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/invalid-args" } });
+    expect(invokeUICWorkspaceListAction({ openSpacePickerForWorkspace }, { id: "spaces.deleteWorkspace", event: "activate", status: "available", args: { workspaceId: dashboardWorkspaces[0]!.id } }, allowedWorkspaces)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unknown" } });
   });
 
   it("caps UIC workspace rows and repo labels deterministically before rendering", () => {
