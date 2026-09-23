@@ -31,9 +31,59 @@ Everything else is resolution, validation, or progress.
 
 ## Wizard stages
 
-### Stage 1: Repository access
+### Stage 0: Resolve target facts
 
-Show this stage only when the repository is not already cloned or registered locally.
+This is not a user stage.
+
+The system resolves enough facts to decide which stages are necessary.
+
+Resolve:
+
+- target type: repository, PR, issue, tree, or blob;
+- matching local VK repos and remotes;
+- existing active or archived workspaces;
+- issue mappings and stale mappings;
+- related PRs for issue targets;
+- whether the repository is already cloned or registered locally.
+
+Do not ask about repository access before checking existing work when existing work can be found without cloning.
+
+### Stage 1: Existing work
+
+Show this stage only when matching work exists.
+
+Examples:
+
+- active PR workspace
+- archived PR workspace
+- existing issue workspace mapping
+- related PR work for an issue
+- multiple matching workspaces
+
+Primary choices:
+
+- **Open existing workspace**
+- **Reopen archived workspace** when applicable
+- **Create new workspace instead** only when safe and useful
+- **Forget stale mapping** when the mapped workspace no longer exists
+
+If the user opens or reopens existing work, skip branch/work-mode stages.
+
+After an existing workspace is selected, go directly to the Voyage stage.
+
+Default Voyage rule for existing work:
+
+1. If one or more Voyages already contain the workspace, select the most recently used or updated one.
+2. Otherwise select the current Voyage.
+3. Allow choosing another existing Voyage or creating a new Voyage.
+
+### Stage 2: Repository access
+
+Show this stage only when all of these are true:
+
+- the user is creating new work;
+- the repository is not already cloned or registered locally;
+- repository access cannot be inferred from an existing workspace.
 
 Title:
 
@@ -54,36 +104,7 @@ Expected behavior:
 - Clone path clones the source repository without requiring fork access.
 - After this stage, the wizard should know the local VK repo and remote.
 
-### Stage 2: Existing work
-
-Show this stage only when matching work exists.
-
-Examples:
-
-- active PR workspace
-- archived PR workspace
-- existing issue workspace mapping
-- related PR work for an issue
-- multiple matching workspaces
-
-Primary choices:
-
-- **Open existing workspace**
-- **Reopen archived workspace** when applicable
-- **Create new workspace instead** when safe and useful
-- **Forget stale mapping** when the mapped workspace no longer exists
-
-If the user opens or reopens existing work, skip branch/work-mode stages.
-
-After an existing workspace is selected, go directly to the Voyage stage.
-
-Default Voyage rule for existing work:
-
-1. If one or more Voyages already contain the workspace, select the most recently used or updated one.
-2. Otherwise select the current Voyage.
-3. Allow choosing another existing Voyage or creating a new Voyage.
-
-### Stage 3: Branch and work mode
+### Stage 3: Branch choice
 
 Show this stage only when the user is creating new work.
 
@@ -95,17 +116,26 @@ Controls:
 
 - Branch selector.
 - Mode cards:
-  - **Use existing branch**
+  - **Work on selected branch**
   - **Create new workspace branch**
 
 Do not use the term **direct work** in the UI.
 
-`Use existing branch` behavior:
+`Work on selected branch` behavior depends on the human decision in this plan's form.
 
-- If the selected branch exists locally, use it.
-- If the selected branch is remote-only, create a local tracking branch behind the scenes, then use that local branch.
-- If the derived local branch already exists with a different upstream, show a clear error.
-- If the local branch is already checked out in another worktree, show a clear error.
+Possible policies:
+
+- local branches only;
+- remote-only branches create a local tracking branch behind the scenes;
+- remote-only branches ask before creating a local tracking branch.
+
+If remote-only branch support is allowed, the backend must own:
+
+- deriving the local branch name;
+- creating the tracking branch;
+- detecting local branch collisions;
+- detecting branches already checked out in another worktree;
+- returning clear errors.
 
 `Create new workspace branch` behavior:
 
@@ -116,15 +146,29 @@ Default mode:
 - Protected branch: create new workspace branch.
 - Default branch: create new workspace branch.
 - Unknown branch protection: create new workspace branch.
-- Non-default unprotected branch: use existing branch.
+- Non-default unprotected branch: work on selected branch.
+
+Target-specific defaults:
+
+- Issue URL: default to a new workspace branch from the configured/default target branch.
+- PR URL: if no existing PR workspace exists, default to the PR head branch when safe.
+- Tree/blob URL: default from the resolved containing branch or permalink rules.
+- Repository root URL: default from the configured/default target branch.
 
 ### Stage 4: Voyage
 
 Show this stage before opening or creating the workspace.
 
-Do not show a Space picker.
+Do not show a Space picker by default.
 
-Spaces are legacy for this flow. Put the workspace in the first available non-system space automatically.
+Spaces are legacy for this flow. Choose the Space automatically.
+
+Space selection rule:
+
+1. If opening into an existing Voyage and the workspace already appears there, reuse that location.
+2. Else use the current active non-system Space in the selected Voyage.
+3. Else use the first non-system Space.
+4. Else create or use a safe default non-system Space.
 
 Controls:
 
@@ -169,7 +213,7 @@ Use one wizard state, not many unrelated dialog states.
 
 ```ts
 type OpenGithubWizard = {
-  step: "repository-access" | "existing-work" | "branch" | "voyage" | "running";
+  step: "existing-work" | "repository-access" | "branch" | "voyage" | "running";
   target: ParsedGithubTarget;
   repo?: ResolvedRepoChoice;
   access?: "fork" | "clone";
@@ -191,8 +235,8 @@ Use plain stage components.
 
 ```tsx
 <OpenFromGithubWizardDialog>
-  {step === "repository-access" && <RepositoryAccessStep />}
   {step === "existing-work" && <ExistingWorkStep />}
+  {step === "repository-access" && <RepositoryAccessStep />}
   {step === "branch" && <BranchWorkModeStep />}
   {step === "voyage" && <VoyageStep />}
   {step === "running" && <RunningStep />}
@@ -225,7 +269,7 @@ Candidate input:
 
 ```ts
 type WorkModeChoice =
-  | { type: "use-existing-branch"; branch: string }
+  | { type: "work-on-selected-branch"; branch: string }
   | { type: "create-workspace-branch"; baseBranch: string; workspaceName?: string };
 ```
 
@@ -240,6 +284,7 @@ type WorkModeChoice =
 
 ### Existing work
 
+- Existing workspace is offered before repository access when it can be resolved without cloning.
 - Existing workspace open skips branch/work-mode.
 - Existing workspace defaults to a Voyage that already contains it when possible.
 - Archived workspace can be reopened without creating a duplicate.
@@ -247,9 +292,9 @@ type WorkModeChoice =
 
 ### Branch/work mode
 
-- UI says Use existing branch, not Work directly.
-- Remote-only branch can be selected for Use existing branch.
-- System creates a local tracking branch behind the scenes.
+- UI says Work on selected branch, not Work directly.
+- Remote-only branch behavior follows the selected human policy.
+- If remote-only tracking is allowed, the system creates a local tracking branch behind the scenes.
 - Local branch collision gives a clear error.
 - Branch checked out elsewhere gives a clear error.
 - Protected/default/unknown branches default to new workspace branch.
@@ -258,7 +303,7 @@ type WorkModeChoice =
 
 - No Space picker is shown.
 - Current Voyage is selected by default when no existing-work Voyage applies.
-- First available non-system space is used automatically.
+- The automatic Space rule prefers existing workspace location, then current active non-system Space, then first non-system Space.
 - User can select existing Voyage or create a new one.
 
 ### Running and errors
@@ -279,8 +324,12 @@ type WorkModeChoice =
 
 ## Open decisions for human discussion
 
-1. Should remote-only `Use existing branch` create a local branch automatically, or should it ask first?
-2. What is the exact collision policy when `feature` exists locally but `origin/feature` was selected?
-3. Should `Create new workspace branch` still allow custom workspace branch names in this wizard?
-4. Which Voyage timestamp should decide the default for existing work: Voyage updated time, tab group last visited time, or saved Voyage creation time?
-5. Should `Create new workspace instead` be available when an existing issue workspace mapping exists?
+1. Should existing work be shown before repository access?
+2. Should existing workspace open skip branch/work-mode steps?
+3. Should remote-only `Work on selected branch` create a local tracking branch automatically, ask first, or stay local-only?
+4. What should the direct-branch option be called?
+5. Should Spaces be hidden and selected automatically with the proposed rule?
+6. Should `Create new workspace instead` be available when an active issue workspace mapping exists?
+7. For PR URLs with no existing workspace, should the default be the PR head branch?
+8. Should `Create new workspace branch` still allow custom workspace branch names in this wizard?
+9. Which Voyage timestamp should decide the default for existing work: Voyage updated time, tab group last visited time, or saved Voyage creation time?
