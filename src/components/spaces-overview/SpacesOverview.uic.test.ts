@@ -15,10 +15,12 @@ import {
   SpacesOverviewUICPageHeaderProof,
   UICReadOnlyRunningDevServersSection,
   resolveUICActionLifecycle,
+  invokeUICRecentSessionAction,
   invokeUICRunningDevServerAction,
   invokeUICSpacePickerAction,
   invokeUICWorkspaceListAction,
   invokeUICSpacesOverviewAction,
+  projectUICRecentSessionActions,
   projectUICRecentSessionsResource,
   projectUICRecentlyCreatedCraftActions,
   projectUICRecentlyCreatedCraftResource,
@@ -1372,20 +1374,78 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(region).toContain(longRepo.slice(0, UIC_WORKSPACE_LIST_RESOURCE_BUDGET.maxRepoLabelLength));
   });
 
-  it("uses finite UIC states for recent sessions without session or navigation controls", () => {
+  it("uses finite UIC states and typed resume/start actions for recent sessions without destructive controls", () => {
     const readyRegion = recentSessionsRegion(renderUICLayout());
 
     expect(readyRegion).toContain("Read-only UIC voyage list");
     expect(readyRegion).toContain("All Voyages");
     expect(readyRegion).toContain("Current launch");
     expect(readyRegion).toContain("Current");
-    expect(readyRegion).not.toContain("<button");
-    expect(readyRegion).not.toContain("New Voyage");
+    expect(readyRegion).toContain("Resume voyage");
+    expect(readyRegion).toContain("New Voyage");
     expect(readyRegion).not.toContain("Rename");
     expect(readyRegion).not.toContain("Delete");
     expect(readyRegion).not.toContain("Go to craft");
 
     expect(recentSessionsRegion(renderUICLayout(undefined, { savedSessions: [] }))).toContain("No saved voyages");
+  });
+
+  it("does not expose recent session actions when XML omits their bindings", () => {
+    const xml = spacesOverviewUICLayoutXml
+      .replace(' uic:on-resume="spaces.resumeSession"', "")
+      .replace(' uic:on-start="spaces.startSession"', "");
+    const region = recentSessionsRegion(renderUICLayout(xml));
+
+    expect(region).toContain("Read-only UIC voyage list");
+    expect(region).not.toContain("Resume voyage");
+    expect(region).not.toContain("New Voyage");
+    expect(projectUICRecentSessionActions({ sortedSessions: storybookSavedSessions }, { resume: false, start: false })).toEqual([]);
+  });
+
+  it("falls back without recent session dispatch when session action validation fails", () => {
+    for (const [attr, invalid, dispatcher] of [
+      ["uic:on-resume", "https://example.test/action", "resumeSession"],
+      ["uic:on-resume", "spaces.deleteSession", "resumeSession"],
+      ["uic:on-start", "https://example.test/action", "startNewSession"],
+      ["uic:on-start", "spaces.deleteSession", "startNewSession"],
+    ] as const) {
+      const resumeSession = vi.fn();
+      const startNewSession = vi.fn();
+      const html = renderUICPresentationWithModel(
+        {},
+        { resumeSession, startNewSession },
+        spacesOverviewUICLayoutXml.replace(new RegExp(`${attr}="[^"]+"`, "u"), `${attr}="${invalid}"`),
+      );
+
+      expect(html).toContain('data-myne-view-pack="myne.spaces.view-pack.default"');
+      expect(html).toContain("uic/xml/unknown-action");
+      expect(html).not.toContain('data-uic-owned-region="recent-sessions"');
+      expect(dispatcher === "resumeSession" ? resumeSession : startNewSession).not.toHaveBeenCalled();
+    }
+  });
+
+  it("projects serializable recent session resume/start descriptors and blocks invalid targets", () => {
+    const descriptors = projectUICRecentSessionActions({ sortedSessions: storybookSavedSessions });
+    const resumeSession = vi.fn();
+    const startNewSession = vi.fn();
+    const allowedSessionIds = new Set([storybookSavedSessions[0]!.id]);
+    const resume = descriptors.find((action) => action.id === "spaces.resumeSession")!;
+    const start = descriptors.find((action) => action.id === "spaces.startSession")!;
+
+    expect(descriptors).toEqual([
+      { event: "start", id: "spaces.startSession", args: {}, status: "available" },
+      ...storybookSavedSessions.map((session) => ({ event: "resume" as const, id: "spaces.resumeSession" as const, args: { sessionId: session.id }, status: "available" as const })),
+    ]);
+    expect(JSON.stringify(descriptors)).not.toMatch(/function|=>|appHooks|QueryClient|Promise|https?:|delete|rename/u);
+    expect(invokeUICRecentSessionAction({ resumeSession, startNewSession }, start, allowedSessionIds, true)).toEqual({ ok: true, result: { state: "completed" } });
+    expect(startNewSession).toHaveBeenCalledOnce();
+    expect(invokeUICRecentSessionAction({ resumeSession, startNewSession }, resume, allowedSessionIds, true)).toEqual({ ok: true, result: { state: "completed" } });
+    expect(resumeSession).toHaveBeenCalledWith(storybookSavedSessions[0]!.id);
+    expect(invokeUICRecentSessionAction({ resumeSession, startNewSession }, { id: "spaces.resumeSession", event: "resume", status: "available", args: { sessionId: "missing" } }, allowedSessionIds, true)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unavailable" } });
+    expect(invokeUICRecentSessionAction({ resumeSession, startNewSession }, { id: "spaces.resumeSession", event: "resume", status: "available", args: { sessionId: 1 } }, allowedSessionIds, true)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/invalid-args" } });
+    expect(invokeUICRecentSessionAction({ resumeSession, startNewSession }, { id: "spaces.startSession", event: "start", status: "available", args: { url: "https://example.test" } }, allowedSessionIds, true)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/invalid-args" } });
+    expect(invokeUICRecentSessionAction({ resumeSession, startNewSession }, start, allowedSessionIds, false)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unavailable" } });
+    expect(invokeUICRecentSessionAction({ resumeSession, startNewSession }, { id: "spaces.deleteSession", event: "resume", status: "available", args: { sessionId: storybookSavedSessions[0]!.id } }, allowedSessionIds, true)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unknown" } });
   });
 
   it("caps UIC recent session rows deterministically before rendering", () => {

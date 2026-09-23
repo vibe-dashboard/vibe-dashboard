@@ -22,7 +22,7 @@ const fullSpacesOverviewXml = `<uic:spaceOverviewPage xmlns:uic="https://vibedas
       <uic:pageHeaderAction label="Start voyage" />
     </uic:slot>
   </uic:pageHeader>
-  <uic:recentSessions />
+  <uic:recentSessions uic:on-resume="spaces.resumeSession" uic:on-start="spaces.startSession" />
   <uic:starredCraft uic:on-activate="spaces.navigateToCraft" />
   <uic:runningDevServers uic:on-stop="spaces.stopDevServer" />
   <uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" />
@@ -48,6 +48,8 @@ describe("UIC trusted component descriptors", () => {
     expect(xsd).toContain('name="title"');
     expect(xsd).toContain('name="label"');
     expect(xsd).toContain('name="uic:on-activate"');
+    expect(xsd).toContain('name="uic:on-resume"');
+    expect(xsd).toContain('name="uic:on-start"');
     expect(xsd).toContain('name="uic:on-stop"');
     expect(xsd).toContain('name="uic:on-filter"');
     expect(xsd).toContain('name="uic:on-page"');
@@ -55,6 +57,8 @@ describe("UIC trusted component descriptors", () => {
     expect(xsd).toContain('name="uic:on-retry"');
     expect(xsd).toContain('name="uic:on-select"');
     expect(xsd).toContain('fixed="spaces.navigateToCraft"');
+    expect(xsd).toContain('fixed="spaces.resumeSession"');
+    expect(xsd).toContain('fixed="spaces.startSession"');
     expect(xsd).toContain('fixed="spaces.stopDevServer"');
     expect(xsd).toContain('fixed="spaces.filterWorkspaces"');
     expect(xsd).toContain('fixed="spaces.pageWorkspaces"');
@@ -95,7 +99,7 @@ describe("UIC trusted component descriptors", () => {
             ],
           },
         },
-        { tag: "recentSessions", componentId: "myne.spaces.recent-sessions.default" },
+        { tag: "recentSessions", componentId: "myne.spaces.recent-sessions.default", actions: { resume: "spaces.resumeSession", start: "spaces.startSession" } },
         { tag: "starredCraft", componentId: "myne.spaces.starred-craft.default", actions: { activate: "spaces.navigateToCraft" } },
         { tag: "runningDevServers", componentId: "myne.spaces.running-dev-servers.default", actions: { stop: "spaces.stopDevServer" } },
         { tag: "recentlyVisitedCraft", componentId: "myne.spaces.recently-visited.default", actions: { activate: "spaces.navigateToCraft" } },
@@ -112,7 +116,7 @@ describe("UIC trusted component descriptors", () => {
   it("requires every SpacesOverview layout-shell tag exactly once before compile", async () => {
     const missingWorkspace = fullSpacesOverviewXml.replace('  <uic:workspaceList uic:on-activate="spaces.openWorkspace" uic:on-filter="spaces.filterWorkspaces" uic:on-page="spaces.pageWorkspaces" />\n', "");
     const duplicateSpaces = fullSpacesOverviewXml.replace('  <uic:spaces uic:on-activate="spaces.navigateToCraft" />', '  <uic:spaces uic:on-activate="spaces.navigateToCraft" />\n  <uic:spaces uic:on-activate="spaces.navigateToCraft" />');
-    const reordered = fullSpacesOverviewXml.replace('  <uic:recentSessions />\n  <uic:starredCraft uic:on-activate="spaces.navigateToCraft" />', '  <uic:starredCraft uic:on-activate="spaces.navigateToCraft" />\n  <uic:recentSessions />');
+    const reordered = fullSpacesOverviewXml.replace('  <uic:recentSessions uic:on-resume="spaces.resumeSession" uic:on-start="spaces.startSession" />\n  <uic:starredCraft uic:on-activate="spaces.navigateToCraft" />', '  <uic:starredCraft uic:on-activate="spaces.navigateToCraft" />\n  <uic:recentSessions uic:on-resume="spaces.resumeSession" uic:on-start="spaces.startSession" />');
     const extra = fullSpacesOverviewXml.replace('  <uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" uic:on-select="spaces.selectSpaceForWorkspace" />', '  <uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" uic:on-select="spaces.selectSpaceForWorkspace" />\n  <uic:unknownSection />');
 
     await expect(compileUICXml(spacesOverviewPageHeaderUICProof, missingWorkspace)).resolves.toMatchObject({ ok: false, diagnostics: expect.arrayContaining([expect.objectContaining({ code: "uic/xml/missing-required-node" })]) });
@@ -172,6 +176,8 @@ describe("UIC trusted component descriptors", () => {
   it("omits action IR when the generated tag has no action binding", async () => {
     const xml = fullSpacesOverviewXml
       .replaceAll(' uic:on-activate="spaces.navigateToCraft"', "")
+      .replaceAll(' uic:on-resume="spaces.resumeSession"', "")
+      .replaceAll(' uic:on-start="spaces.startSession"', "")
       .replaceAll(' uic:on-stop="spaces.stopDevServer"', "")
       .replaceAll(' uic:on-activate="spaces.openWorkspace"', "")
       .replaceAll(' uic:on-filter="spaces.filterWorkspaces"', "")

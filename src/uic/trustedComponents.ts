@@ -82,6 +82,10 @@ export const spacesOverviewPageHeaderUICProof: UICSurfaceDescriptor = Object.fre
       componentId: "myne.spaces.recent-sessions.default",
       adapter: "trusted-react",
       props: Object.freeze([]),
+      events: Object.freeze({
+        resume: Object.freeze(["spaces.resumeSession"]),
+        start: Object.freeze(["spaces.startSession"]),
+      }),
       forbidden: Object.freeze(["class", "className", "style"]),
       fallback: "enclosing-slot",
     }),
