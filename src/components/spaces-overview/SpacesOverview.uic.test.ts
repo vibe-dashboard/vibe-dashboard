@@ -18,14 +18,17 @@ import {
   resolveUICActionLifecycle,
   invokeUICRecentSessionAction,
   invokeUICRunningDevServerAction,
+  invokeUICCraftListPageAction,
   invokeUICSpacePickerAction,
   invokeUICWorkspaceListAction,
   invokeUICSpacesOverviewAction,
   projectUICRecentSessionActions,
   projectUICRecentSessionsResource,
   projectUICRecentlyCreatedCraftActions,
+  projectUICRecentlyCreatedCraftPageActions,
   projectUICRecentlyCreatedCraftResource,
   projectUICRecentlyVisitedCraftActions,
+  projectUICRecentlyVisitedCraftPageActions,
   projectUICRecentlyVisitedCraftResource,
   projectUICRunningDevServerActions,
   projectUICStarredCraftActions,
@@ -448,6 +451,22 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(emptyRegion).toContain("No recently visited craft");
   });
 
+  it("binds UIC recently visited pagination only from validated XML and current page state", () => {
+    const paged = recentlyVisitedRegion(renderUICPresentationWithModel({ recentlyVisited: { items: [{ space: storybookWorkspace.spaces[1]!, tg: storybookWorkspace.tabGroups[1]! }], page: 1, totalPages: 3 } }));
+
+    expect(paged).toContain("Previous page");
+    expect(paged).toContain("Next page");
+
+    const omitted = recentlyVisitedRegion(renderUICPresentationWithModel(
+      { recentlyVisited: { items: [{ space: storybookWorkspace.spaces[1]!, tg: storybookWorkspace.tabGroups[1]! }], page: 1, totalPages: 3 } },
+      {},
+      spacesOverviewUICLayoutXml.replace(' uic:on-page="spaces.pageRecentlyVisitedCraft"', ""),
+    ));
+    expect(omitted).not.toContain("Previous page");
+    expect(omitted).not.toContain("Next page");
+    expect(projectUICRecentlyVisitedCraftPageActions({ recentlyVisited: { items: [], page: 1, totalPages: 3 }, tabGroupDisplayLabelById: new Map() }, false)).toEqual([]);
+  });
+
   it("caps UIC recently visited craft rows deterministically before rendering", () => {
     const tabGroups = Array.from({ length: UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET.maxRows + 2 }, (_, index) => ({
       ...storybookWorkspace.tabGroups[1]!,
@@ -526,6 +545,22 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     const emptyWorkspace = { ...storybookWorkspace, tabGroups: storybookWorkspace.tabGroups.map((tabGroup) => ({ ...tabGroup, createdAt: undefined })) };
     const emptyRegion = recentlyCreatedRegion(renderUICLayout(undefined, { workspace: emptyWorkspace }));
     expect(emptyRegion).toContain("No recently created craft");
+  });
+
+  it("binds UIC recently created pagination only from validated XML and current page state", () => {
+    const paged = recentlyCreatedRegion(renderUICPresentationWithModel({ recentlyCreated: { items: [{ space: storybookWorkspace.spaces[1]!, tg: storybookWorkspace.tabGroups[1]! }], page: 1, totalPages: 3 } }));
+
+    expect(paged).toContain("Previous page");
+    expect(paged).toContain("Next page");
+
+    const omitted = recentlyCreatedRegion(renderUICPresentationWithModel(
+      { recentlyCreated: { items: [{ space: storybookWorkspace.spaces[1]!, tg: storybookWorkspace.tabGroups[1]! }], page: 1, totalPages: 3 } },
+      {},
+      spacesOverviewUICLayoutXml.replace(' uic:on-page="spaces.pageRecentlyCreatedCraft"', ""),
+    ));
+    expect(omitted).not.toContain("Previous page");
+    expect(omitted).not.toContain("Next page");
+    expect(projectUICRecentlyCreatedCraftPageActions({ recentlyCreated: { items: [], page: 1, totalPages: 3 }, tabGroupDisplayLabelById: new Map() }, false)).toEqual([]);
   });
 
   it("caps UIC recently created craft rows deterministically before rendering", () => {
@@ -619,14 +654,14 @@ describe("SpacesOverview UIC pageHeader proof", () => {
   });
 
   it("does not expose sibling craft-list actions when XML omits their bindings", () => {
-    const withoutVisited = spacesOverviewUICLayoutXml.replace('  <uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" />', "  <uic:recentlyVisitedCraft />");
+    const withoutVisited = spacesOverviewUICLayoutXml.replace('  <uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyVisitedCraft" />', "  <uic:recentlyVisitedCraft />");
     expect(recentlyVisitedRegion(renderUICLayout(withoutVisited))).not.toContain("Open craft");
     expect(projectUICRecentlyVisitedCraftActions({
       recentlyVisited: { page: 0, totalPages: 1, items: [{ space: storybookWorkspace.spaces[1]!, tg: storybookWorkspace.tabGroups[1]! }] },
       tabGroupDisplayLabelById: new Map(),
     }, false)).toEqual([]);
 
-    const withoutCreated = spacesOverviewUICLayoutXml.replace('  <uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" />', "  <uic:recentlyCreatedCraft />");
+    const withoutCreated = spacesOverviewUICLayoutXml.replace('  <uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyCreatedCraft" />', "  <uic:recentlyCreatedCraft />");
     expect(recentlyCreatedRegion(renderUICLayout(withoutCreated))).not.toContain("Open craft");
     expect(projectUICRecentlyCreatedCraftActions({
       recentlyCreated: { page: 0, totalPages: 1, items: [{ space: storybookWorkspace.spaces[1]!, tg: storybookWorkspace.tabGroups[1]! }] },
@@ -650,22 +685,71 @@ describe("SpacesOverview UIC pageHeader proof", () => {
   });
 
   it("falls back instead of exposing sibling craft-list actions when XML action validation fails", () => {
-    const html = renderUICLayout(spacesOverviewUICLayoutXml.replace('<uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" />', '<uic:recentlyVisitedCraft uic:on-activate="https://example.test/action" />'));
+    const html = renderUICLayout(spacesOverviewUICLayoutXml.replace('<uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyVisitedCraft" />', '<uic:recentlyVisitedCraft uic:on-activate="https://example.test/action" uic:on-page="spaces.pageRecentlyVisitedCraft" />'));
 
     expect(html).toContain('data-myne-view-pack="myne.spaces.view-pack.default"');
     expect(html).toContain("uic/xml/unknown-action");
   });
 
+  it("falls back without recently visited/created pagination dispatch when XML page bindings are invalid", () => {
+    for (const [valid, invalid, dispatcher] of [
+      ['<uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyVisitedCraft" />', '<uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="https://example.test/page" />', "setRecentlyVisitedPage"],
+      ['<uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyCreatedCraft" />', '<uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageWorkspaces" />', "setRecentlyCreatedPage"],
+    ] as const) {
+      const setRecentlyVisitedPage = vi.fn();
+      const setRecentlyCreatedPage = vi.fn();
+      const html = renderUICPresentationWithModel({}, { setRecentlyVisitedPage, setRecentlyCreatedPage }, spacesOverviewUICLayoutXml.replace(valid, invalid));
+
+      expect(html).toContain('data-myne-view-pack="myne.spaces.view-pack.default"');
+      expect(html).toContain("uic/xml/unknown-action");
+      expect({ setRecentlyVisitedPage, setRecentlyCreatedPage }[dispatcher]).not.toHaveBeenCalled();
+    }
+  });
+
+  it("projects and validates recently visited/created pagination descriptors before trusted dispatch", () => {
+    const visited = projectUICRecentlyVisitedCraftPageActions({ recentlyVisited: { items: [], page: 1, totalPages: 3 }, tabGroupDisplayLabelById: new Map() });
+    const created = projectUICRecentlyCreatedCraftPageActions({ recentlyCreated: { items: [], page: 1, totalPages: 3 }, tabGroupDisplayLabelById: new Map() });
+    const setRecentlyVisitedPage = vi.fn();
+    const setRecentlyCreatedPage = vi.fn();
+
+    expect(visited).toEqual([
+      { event: "page", id: "spaces.pageRecentlyVisitedCraft", args: { direction: "previous", page: 0 }, status: "available" },
+      { event: "page", id: "spaces.pageRecentlyVisitedCraft", args: { direction: "next", page: 2 }, status: "available" },
+    ]);
+    expect(created).toEqual([
+      { event: "page", id: "spaces.pageRecentlyCreatedCraft", args: { direction: "previous", page: 0 }, status: "available" },
+      { event: "page", id: "spaces.pageRecentlyCreatedCraft", args: { direction: "next", page: 2 }, status: "available" },
+    ]);
+    expect(JSON.stringify([...visited, ...created])).not.toMatch(/function|=>|appHooks|QueryClient|Promise|https?:|method|delete|stop/u);
+    expect(invokeUICCraftListPageAction({ setRecentlyVisitedPage, setRecentlyCreatedPage }, visited[0]!, new Map([["previous", 0], ["next", 2]]))).toEqual({ ok: true, result: { state: "completed" } });
+    expect(setRecentlyVisitedPage).toHaveBeenCalledWith(0);
+    expect(invokeUICCraftListPageAction({ setRecentlyVisitedPage, setRecentlyCreatedPage }, created[1]!, new Map([["previous", 0], ["next", 2]]))).toEqual({ ok: true, result: { state: "completed" } });
+    expect(setRecentlyCreatedPage).toHaveBeenCalledWith(2);
+
+    setRecentlyVisitedPage.mockClear();
+    setRecentlyCreatedPage.mockClear();
+    for (const descriptor of [
+      { ...visited[0]!, args: { direction: "previous", page: 0, url: "https://example.test" } },
+      { ...visited[0]!, args: { direction: "later", page: 0 } },
+      { ...visited[0]!, args: { direction: "previous", page: 99 } },
+      { ...visited[0]!, id: "spaces.pageWorkspaces" },
+    ]) {
+      expect(invokeUICCraftListPageAction({ setRecentlyVisitedPage, setRecentlyCreatedPage }, descriptor, new Map([["previous", 0], ["next", 2]]))).toMatchObject({ ok: false });
+    }
+    expect(setRecentlyVisitedPage).not.toHaveBeenCalled();
+    expect(setRecentlyCreatedPage).not.toHaveBeenCalled();
+  });
+
   it("falls back without UIC action UI or dispatch for invalid recently-created and spaces action bindings", () => {
     const cases = [
       {
-        valid: '<uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" />',
-        invalid: '<uic:recentlyCreatedCraft uic:on-activate="https://example.test/action" />',
+        valid: '<uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyCreatedCraft" />',
+        invalid: '<uic:recentlyCreatedCraft uic:on-activate="https://example.test/action" uic:on-page="spaces.pageRecentlyCreatedCraft" />',
         region: 'data-uic-owned-region="recently-created-craft"',
       },
       {
-        valid: '<uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" />',
-        invalid: '<uic:recentlyCreatedCraft uic:on-activate="spaces.deleteCraft" />',
+        valid: '<uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyCreatedCraft" />',
+        invalid: '<uic:recentlyCreatedCraft uic:on-activate="spaces.deleteCraft" uic:on-page="spaces.pageRecentlyCreatedCraft" />',
         region: 'data-uic-owned-region="recently-created-craft"',
       },
       {

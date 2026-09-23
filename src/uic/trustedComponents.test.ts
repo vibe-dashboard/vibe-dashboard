@@ -25,8 +25,8 @@ const fullSpacesOverviewXml = `<uic:spaceOverviewPage xmlns:uic="https://vibedas
   <uic:recentSessions uic:on-resume="spaces.resumeSession" uic:on-start="spaces.startSession" uic:on-rename="spaces.renameSession" uic:on-delete="spaces.deleteSession" uic:on-toggle="spaces.toggleSession" uic:on-activate="spaces.navigateToCraft" />
   <uic:starredCraft uic:on-activate="spaces.navigateToCraft" />
   <uic:runningDevServers uic:on-stop="spaces.stopDevServer" />
-  <uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" />
-  <uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" />
+  <uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyVisitedCraft" />
+  <uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyCreatedCraft" />
   <uic:workspaceList uic:on-activate="spaces.openWorkspace" uic:on-filter="spaces.filterWorkspaces" uic:on-page="spaces.pageWorkspaces" />
   <uic:spaces uic:on-activate="spaces.navigateToCraft" />
   <uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" uic:on-select="spaces.selectSpaceForWorkspace" />
@@ -68,6 +68,8 @@ describe("UIC trusted component descriptors", () => {
     expect(xsd).toContain('fixed="spaces.stopDevServer"');
     expect(xsd).toContain('fixed="spaces.filterWorkspaces"');
     expect(xsd).toContain('fixed="spaces.pageWorkspaces"');
+    expect(xsd).toContain('fixed="spaces.pageRecentlyVisitedCraft"');
+    expect(xsd).toContain('fixed="spaces.pageRecentlyCreatedCraft"');
     expect(xsd).toContain('fixed="spaces.dismissPicker"');
     expect(xsd).toContain('fixed="spaces.retryOpenWorkspace"');
     expect(xsd).toContain('fixed="spaces.selectSpaceForWorkspace"');
@@ -108,8 +110,8 @@ describe("UIC trusted component descriptors", () => {
         { tag: "recentSessions", componentId: "myne.spaces.recent-sessions.default", actions: { resume: "spaces.resumeSession", start: "spaces.startSession", rename: "spaces.renameSession", delete: "spaces.deleteSession", toggle: "spaces.toggleSession", activate: "spaces.navigateToCraft" } },
         { tag: "starredCraft", componentId: "myne.spaces.starred-craft.default", actions: { activate: "spaces.navigateToCraft" } },
         { tag: "runningDevServers", componentId: "myne.spaces.running-dev-servers.default", actions: { stop: "spaces.stopDevServer" } },
-        { tag: "recentlyVisitedCraft", componentId: "myne.spaces.recently-visited.default", actions: { activate: "spaces.navigateToCraft" } },
-        { tag: "recentlyCreatedCraft", componentId: "myne.spaces.recently-created.default", actions: { activate: "spaces.navigateToCraft" } },
+        { tag: "recentlyVisitedCraft", componentId: "myne.spaces.recently-visited.default", actions: { activate: "spaces.navigateToCraft", page: "spaces.pageRecentlyVisitedCraft" } },
+        { tag: "recentlyCreatedCraft", componentId: "myne.spaces.recently-created.default", actions: { activate: "spaces.navigateToCraft", page: "spaces.pageRecentlyCreatedCraft" } },
         { tag: "workspaceList", componentId: "myne.spaces.workspace-list.default", actions: { activate: "spaces.openWorkspace", filter: "spaces.filterWorkspaces", page: "spaces.pageWorkspaces" } },
         { tag: "spaces", componentId: "myne.spaces.spaces.default", actions: { activate: "spaces.navigateToCraft" } },
         { tag: "spacePicker", componentId: "myne.spaces.space-picker.default", actions: { close: "spaces.dismissPicker", retry: "spaces.retryOpenWorkspace", select: "spaces.selectSpaceForWorkspace" } },
@@ -190,6 +192,8 @@ describe("UIC trusted component descriptors", () => {
       .replaceAll(' uic:on-activate="spaces.openWorkspace"', "")
       .replaceAll(' uic:on-filter="spaces.filterWorkspaces"', "")
       .replaceAll(' uic:on-page="spaces.pageWorkspaces"', "")
+      .replaceAll(' uic:on-page="spaces.pageRecentlyVisitedCraft"', "")
+      .replaceAll(' uic:on-page="spaces.pageRecentlyCreatedCraft"', "")
       .replaceAll(' uic:on-close="spaces.dismissPicker"', "")
       .replaceAll(' uic:on-retry="spaces.retryOpenWorkspace"', "")
       .replaceAll(' uic:on-select="spaces.selectSpaceForWorkspace"', "");
