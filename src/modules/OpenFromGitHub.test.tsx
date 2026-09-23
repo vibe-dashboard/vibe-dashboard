@@ -651,7 +651,7 @@ describe("OpenFromGitHub", () => {
 
     const { findByText } = renderOpenFromGithub(emptyWorkspace);
 
-    fireEvent.click(await findByText("Analyze only"));
+    fireEvent.click(await findByText("Clone without fork"));
     await findByText("Open GitHub PR in Voyage");
     expect(vkClient.ensureGithubRepo).toHaveBeenCalledWith(
       "https://github.com/owner/repo",
@@ -989,7 +989,7 @@ describe("OpenFromGitHub", () => {
       "https://github.com/owner/repo/blob/main/src/file.ts",
     );
 
-    fireEvent.click(await findByText("Analyze only"));
+    fireEvent.click(await findByText("Clone without fork"));
     await acceptSuggestedWorkMode(findByText);
 
     await waitFor(() => {
