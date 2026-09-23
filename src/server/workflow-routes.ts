@@ -25,7 +25,9 @@ import {
 } from './github-repo-provisioning';
 import {
   findBranchesContainingCommit,
+  prepareSelectedBranch,
   GitBranchLookupError,
+  GitBranchPrepareError,
   type FindBranchesContainingCommitOptions,
 } from './git-branches';
 import { VibeKanbanServerClient, VkApiError } from './vk-client';
@@ -313,6 +315,60 @@ export function registerWorkflowRoutes(
         console.error('GitHub branch lookup route failed', error);
         return c.json(
           { error: 'Internal GitHub branch lookup route error' },
+          500,
+        );
+      }
+    },
+  );
+
+  hono.post(
+    '/dashboard/api/github/repos/:repoId/prepare-selected-branch',
+    async (c) => {
+      try {
+        const repoId = c.req.param('repoId');
+        const body = asRecord(await readJsonBody(c.req.raw));
+        const branch = asString(body?.branch)?.trim();
+        const remoteName = asString(body?.remoteName)?.trim();
+        if (!(branch && remoteName)) {
+          return c.json({ error: 'branch and remoteName are required' }, 400);
+        }
+
+        const vkClient =
+          options.githubBranchLookup?.vkClient ?? new VibeKanbanServerClient();
+        const repos = await vkClient.getRepos();
+        const repo = repos.find((entry) => entry.id === repoId);
+        if (!repo) {
+          return c.json(
+            { error: `VK repository ${repoId} was not found.` },
+            404,
+          );
+        }
+        if (!repo.path) {
+          return c.json(
+            { error: `VK repository ${repoId} does not expose a local path.` },
+            409,
+          );
+        }
+
+        const prepared = await prepareSelectedBranch(
+          repo.path,
+          branch,
+          remoteName,
+          { execFile: options.githubBranchLookup?.execFile },
+        );
+        return c.json(prepared);
+      } catch (error) {
+        if (error instanceof GitBranchPrepareError) {
+          return c.json(
+            { error: error.message },
+            error.status === 400 || error.status === 404 || error.status === 409
+              ? error.status
+              : 500,
+          );
+        }
+        console.error('GitHub selected branch preparation route failed', error);
+        return c.json(
+          { error: 'Internal GitHub selected branch preparation route error' },
           500,
         );
       }

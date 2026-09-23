@@ -548,6 +548,57 @@ describe("registerWorkflowRoutes", () => {
     );
   });
 
+  it("prepares a remote selected branch as a local tracking branch", async () => {
+    const registry = createWorkflowRegistry();
+    const app = new Hono();
+    const execFile = vi.fn(async (_file: string, args: readonly string[]) => {
+      const command = args[2];
+      if (command === "check-ref-format") return { stdout: "", stderr: "" };
+      if (command === "show-ref") {
+        const ref = args.at(-1);
+        if (ref === "refs/remotes/origin/feature/demo") return { stdout: "", stderr: "" };
+        throw new Error(`missing ${ref}`);
+      }
+      if (command === "branch") return { stdout: "", stderr: "" };
+      throw new Error(`unexpected git command ${args.join(" ")}`);
+    });
+    registerWorkflowRoutes(app, {
+      registry,
+      githubBranchLookup: {
+        execFile,
+        vkClient: {
+          getRepos: vi.fn(async () => [
+            {
+              id: "repo-1",
+              name: "repo",
+              display_name: "Repo",
+              path: "/home/vkuser/repos/repo",
+            },
+          ]),
+        },
+      },
+    });
+
+    const response = await app.request(
+      "/dashboard/api/github/repos/repo-1/prepare-selected-branch",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ branch: "origin/feature/demo", remoteName: "origin" }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      checkoutBranch: "feature/demo",
+      created: true,
+    });
+    expect(execFile).toHaveBeenCalledWith(
+      "git",
+      expect.arrayContaining(["branch", "--track", "feature/demo", "origin/feature/demo"]),
+    );
+  });
+
   it("runs the GitHub CI failure workflow from the GitHub webhook route", async () => {
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
     const registry = createWorkflowRegistry();

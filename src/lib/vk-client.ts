@@ -171,6 +171,11 @@ export interface GitBranchesContainingCommitResponse {
   branches: string[];
 }
 
+export interface PrepareSelectedBranchResponse {
+  checkoutBranch: string;
+  created: boolean;
+}
+
 // ── API response envelope ───────────────────────────────────────────────────
 
 interface ApiResponse<T> {
@@ -395,6 +400,17 @@ export class VibeKanbanClient {
   }): Promise<GitBranchesContainingCommitResponse> {
     return this.dashboardGet(
       `/dashboard/api/github/repos/${encodeURIComponent(args.repoId)}/branches-containing/${encodeURIComponent(args.commit)}`,
+    );
+  }
+
+  prepareGithubSelectedBranch(args: {
+    repoId: string;
+    branch: string;
+    remoteName: string;
+  }): Promise<PrepareSelectedBranchResponse> {
+    return this.dashboardPost(
+      `/dashboard/api/github/repos/${encodeURIComponent(args.repoId)}/prepare-selected-branch`,
+      { branch: args.branch, remoteName: args.remoteName },
     );
   }
 
