@@ -19,9 +19,11 @@ vi.mock("../lib/vk-client", () => ({
     getGithubIssuePullRequests: vi.fn(),
     getGithubBranchProtection: vi.fn(),
     createWorkspaceFromPr: vi.fn(),
+    createWorkspaceFromIssue: vi.fn(),
     resolveOrCreateGithubIssueWorkspace: vi.fn(),
     createWorkspaceFromTreeBlob: vi.fn(),
     getGitBranchesContainingCommit: vi.fn(),
+    prepareGithubSelectedBranch: vi.fn(),
     getGithubIssueWorkspaceMapping: vi.fn(),
     putGithubIssueWorkspaceMapping: vi.fn(),
     deleteGithubIssueWorkspaceMapping: vi.fn(),
@@ -40,8 +42,9 @@ function deferred<T>() {
 async function acceptSuggestedWorkMode(
   findByText: ReturnType<typeof render>["findByText"],
 ) {
-  await findByText("Choose branch and workspace mode");
-  fireEvent.click(await findByText("Create workspace"));
+  await findByText("How should this workspace work?");
+  fireEvent.click(await findByText("Continue"));
+  fireEvent.click(await findByText("A"));
 }
 
 const emptyWorkspace = {
@@ -188,9 +191,15 @@ describe("OpenFromGitHub", () => {
     vi.mocked(vkClient.getGithubBranchProtection).mockReset();
     vi.mocked(vkClient.getGithubBranchProtection).mockResolvedValue({ protected: false });
     vi.mocked(vkClient.createWorkspaceFromPr).mockReset();
+    vi.mocked(vkClient.createWorkspaceFromIssue).mockReset();
     vi.mocked(vkClient.resolveOrCreateGithubIssueWorkspace).mockReset();
     vi.mocked(vkClient.createWorkspaceFromTreeBlob).mockReset();
     vi.mocked(vkClient.getGitBranchesContainingCommit).mockReset();
+    vi.mocked(vkClient.prepareGithubSelectedBranch).mockReset();
+    vi.mocked(vkClient.prepareGithubSelectedBranch).mockImplementation(async ({ branch }) => ({
+      checkoutBranch: branch.startsWith("origin/") ? branch.slice("origin/".length) : branch,
+      created: branch.startsWith("origin/"),
+    }));
     vi.mocked(vkClient.getGithubIssueWorkspaceMapping).mockReset();
     vi.mocked(vkClient.putGithubIssueWorkspaceMapping).mockReset();
     vi.mocked(vkClient.deleteGithubIssueWorkspaceMapping).mockReset();
@@ -706,10 +715,10 @@ describe("OpenFromGitHub", () => {
       "https://github.com/owner/repo/tree/feature/demo/src",
     );
 
-    await findByText("Choose branch and workspace mode");
-    expect((await findByText("Work directly")).closest("button")).toHaveProperty("disabled", true);
-    await findByText(/Direct work requires an existing local branch/);
-    fireEvent.click(await findByText("Create workspace"));
+    await findByText("How should this workspace work?");
+    await findByText("Work on selected branch");
+    fireEvent.click(await findByText("Continue"));
+    fireEvent.click(await findByText("A"));
 
     await waitFor(() => {
       expect(vkClient.createWorkspaceFromTreeBlob).toHaveBeenCalledWith(
@@ -762,10 +771,68 @@ describe("OpenFromGitHub", () => {
     );
 
     await findByText(/Branch protection could not be verified/);
-    fireEvent.click(await findByText("Work directly"));
-    fireEvent.click(await findByText("Create workspace"));
+    fireEvent.click(await findByText("Work on selected branch"));
+    fireEvent.click(await findByText("Continue"));
+    fireEvent.click(await findByText("A"));
 
     await waitFor(() => {
+      expect(vkClient.createWorkspaceFromTreeBlob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          target_branch: "origin/main",
+          create_branch: false,
+          checkout_branch: "feature/demo",
+        }),
+      );
+    });
+  });
+
+  it("creates a local tracking branch behind the scenes for selected remote branch work", async () => {
+    vi.mocked(vkClient.getRepos).mockResolvedValue([
+      { id: "repo-1", name: "repo", display_name: "Repo" },
+    ]);
+    vi.mocked(vkClient.getRepoRemotes).mockResolvedValue([
+      { name: "origin", url: "https://github.com/owner/repo.git" },
+    ]);
+    vi.mocked(vkClient.getRepoBranches).mockResolvedValue([
+      {
+        name: "origin/feature/demo",
+        is_current: false,
+        is_remote: true,
+        last_commit_date: "2026-06-22T00:00:00Z",
+      },
+    ]);
+    vi.mocked(vkClient.createWorkspaceFromTreeBlob).mockResolvedValue({
+      workspace: {
+        id: "ws-tree",
+        task_id: "task-tree",
+        container_ref: "/tmp/ws-tree",
+        branch: "feature/demo",
+        agent_working_dir: null,
+        created_at: "2026-06-22T00:00:00Z",
+        updated_at: "2026-06-22T00:00:00Z",
+        archived: false,
+        pinned: false,
+        name: "Tree",
+      },
+    });
+
+    const { findByText } = renderOpenFromGithub(
+      emptyWorkspace,
+      "https://github.com/owner/repo/tree/feature/demo/src",
+    );
+
+    await findByText("How should this workspace work?");
+    await findByText("Work on selected branch");
+    await findByText(/Create a local tracking branch/);
+    fireEvent.click(await findByText("Continue"));
+    fireEvent.click(await findByText("A"));
+
+    await waitFor(() => {
+      expect(vkClient.prepareGithubSelectedBranch).toHaveBeenCalledWith({
+        repoId: "repo-1",
+        branch: "origin/feature/demo",
+        remoteName: "origin",
+      });
       expect(vkClient.createWorkspaceFromTreeBlob).toHaveBeenCalledWith(
         expect.objectContaining({
           target_branch: "origin/main",
@@ -911,9 +978,9 @@ describe("OpenFromGitHub", () => {
       expect(vkClient.createWorkspaceFromTreeBlob).toHaveBeenCalledWith(
         expect.objectContaining({
           repo_id: "repo-2",
-          target_branch: "origin/feature/demo",
-          create_branch: true,
-          checkout_branch: null,
+          target_branch: "origin/main",
+          create_branch: false,
+          checkout_branch: "feature/demo",
           path: "src",
         }),
       );
@@ -1145,9 +1212,9 @@ describe("OpenFromGitHub", () => {
     await waitFor(() => {
       expect(vkClient.createWorkspaceFromTreeBlob).toHaveBeenCalledWith(
         expect.objectContaining({
-          target_branch: "origin/b",
-          create_branch: true,
-          checkout_branch: null,
+          target_branch: "origin/main",
+          create_branch: false,
+          checkout_branch: "b",
         }),
       );
     });
@@ -1189,6 +1256,76 @@ describe("OpenFromGitHub", () => {
     });
     expect(props.selectSessionTabGroup).not.toHaveBeenCalled();
     expect(vkClient.resolveOrCreateGithubIssueWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("allows duplicate issue workspace creation only after explicit confirmation", async () => {
+    vi.mocked(vkClient.getGithubIssueWorkspaceMapping).mockResolvedValue({
+      mapping: {
+        owner: "owner",
+        repo: "repo",
+        number: 7,
+        normalizedIssueUrl: "https://github.com/owner/repo/issues/7",
+        workspaceId: "ws-1",
+        branch: "vk/issue-7",
+        createdAt: "2026-06-22T00:00:00Z",
+        updatedAt: "2026-06-22T00:00:00Z",
+      },
+    });
+    vi.mocked(vkClient.getWorkspace).mockResolvedValue({
+      id: "ws-1",
+      task_id: "task-1",
+      container_ref: "/tmp/ws-1",
+      branch: "vk/issue-7",
+      agent_working_dir: null,
+      created_at: "2026-06-22T00:00:00Z",
+      updated_at: "2026-06-22T00:00:00Z",
+      archived: false,
+      pinned: false,
+      name: "Issue #7",
+    });
+    vi.mocked(vkClient.getRepos).mockResolvedValue([
+      { id: "repo-1", name: "repo", display_name: "Repo" },
+    ]);
+    vi.mocked(vkClient.getRepoRemotes).mockResolvedValue([
+      { name: "origin", url: "https://github.com/owner/repo.git" },
+    ]);
+    vi.mocked(vkClient.getRepoBranches).mockResolvedValue([
+      {
+        name: "origin/main",
+        is_current: false,
+        is_remote: true,
+        last_commit_date: "2026-06-22T00:00:00Z",
+      },
+    ]);
+    vi.mocked(vkClient.createWorkspaceFromIssue).mockResolvedValue({
+      workspace: {
+        id: "ws-duplicate",
+        task_id: "task-duplicate",
+        container_ref: "/tmp/ws-duplicate",
+        branch: "vk/issue-7-duplicate",
+        agent_working_dir: null,
+        created_at: "2026-06-22T00:00:00Z",
+        updated_at: "2026-06-22T00:00:00Z",
+        archived: false,
+        pinned: false,
+        name: "Issue #7 duplicate",
+      },
+    });
+
+    const { findByText } = renderOpenFromGithub(
+      emptyWorkspace,
+      "https://github.com/owner/repo/issues/7",
+    );
+
+    await findByText("Existing issue workspace found");
+    expect(vkClient.createWorkspaceFromIssue).not.toHaveBeenCalled();
+    fireEvent.click(await findByText("Create new workspace instead"));
+    await acceptSuggestedWorkMode(findByText);
+
+    await waitFor(() => {
+      expect(vkClient.createWorkspaceFromIssue).toHaveBeenCalled();
+      expect(vkClient.resolveOrCreateGithubIssueWorkspace).not.toHaveBeenCalled();
+    });
   });
 
   it("asks before switching an issue URL to an associated PR", async () => {
