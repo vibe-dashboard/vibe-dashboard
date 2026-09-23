@@ -1,9 +1,20 @@
 import { DefaultPageHeader, DefaultSpacesOverviewLayout, defaultSpacesOverviewUI } from "./DefaultSpacesOverview.view";
-import type { DashboardWorkspace, SpacesOverviewComponentProps, TabGroupWithSpace } from "./SpacesOverview.contracts";
+import type { DashboardWorkspace, SpacesOverviewComponentProps, SpacesOverviewPresentation, TabGroupWithSpace } from "./SpacesOverview.contracts";
 import type { SpacesOverviewSlotProps } from "./SpacesOverview.slots";
 import { formatRelativeTime } from "./workspaceList.view";
 import { MyneHeading, MyneText } from "../../theme/skins";
-import { getUICValidatedActionBindings, spacesOverviewPageHeaderUICProof, validateUICXml } from "../../uic/trustedComponents";
+import { getUICValidatedActionBindings, spacesOverviewPageHeaderUICProof, validateUICXml, type UICDiagnostic } from "../../uic/trustedComponents";
+import type { ReactNode } from "react";
+
+type SpacesOverviewUICEnv = Readonly<Record<string, string | undefined>>;
+type SpacesOverviewUICRenderer = (props: SpacesOverviewComponentProps) => ReactNode;
+
+export const SPACES_OVERVIEW_UIC_DISABLE_ENV = "VD_DISABLE_SPACES_OVERVIEW_UIC";
+export const spacesOverviewUICFallbackDiagnostics = {
+  envDisabled: "uic/env-disabled",
+  startupInvalid: "uic/startup-invalid",
+  renderException: "uic/render-exception",
+} as const;
 
 export const spacesOverviewUICLayoutXml = `<uic:spaceOverviewPage xmlns:uic="https://vibedashboard.dev/uic/xml/v1" artifactVersion="1">
   <uic:css><![CDATA[:uic-scope { --myne-slot-page-header-gap: 1rem; }]]></uic:css>
@@ -21,6 +32,79 @@ export const spacesOverviewUICLayoutXml = `<uic:spaceOverviewPage xmlns:uic="htt
   <uic:spaces uic:on-activate="spaces.navigateToCraft" />
   <uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" uic:on-select="spaces.selectSpaceForWorkspace" />
 </uic:spaceOverviewPage>`;
+
+export const spacesOverviewUICStartupValidation = validateUICXml(
+  spacesOverviewPageHeaderUICProof,
+  spacesOverviewUICLayoutXml,
+).diagnostics;
+
+function getDefaultSpacesOverviewUICEnv(): SpacesOverviewUICEnv {
+  return typeof process === "undefined" ? {} : process.env;
+}
+
+export function isSpacesOverviewUICDisabled(env: SpacesOverviewUICEnv = getDefaultSpacesOverviewUICEnv()): boolean {
+  const raw = env[SPACES_OVERVIEW_UIC_DISABLE_ENV]?.trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+
+function renderSpacesOverviewReactFallback(
+  props: SpacesOverviewComponentProps,
+  diagnostic: string,
+  details: readonly string[] = [],
+) {
+  const detailCodes = details.length > 0 ? details : [diagnostic];
+  return (
+    <>
+      <DefaultSpacesOverviewLayout
+        {...props}
+        ui={defaultSpacesOverviewUI}
+        viewPackId="myne.spaces.view-pack.default"
+      />
+      <p
+        className="myne-status myne-status--warning"
+        role="status"
+        data-uic-fallback-diagnostic={diagnostic}
+        data-uic-disable-env={SPACES_OVERVIEW_UIC_DISABLE_ENV}
+      >
+        SpacesOverview UIC fallback active: {detailCodes.join(", ")}
+      </p>
+    </>
+  );
+}
+
+export function createSpacesOverviewProductionView({
+  env = getDefaultSpacesOverviewUICEnv(),
+  startupDiagnostics = spacesOverviewUICStartupValidation,
+  uicPresentation = SpacesOverviewUICLayoutProofPresentation,
+}: {
+  readonly env?: SpacesOverviewUICEnv;
+  readonly startupDiagnostics?: readonly UICDiagnostic[];
+  readonly uicPresentation?: SpacesOverviewUICRenderer;
+} = {}): SpacesOverviewPresentation {
+  return (props) => {
+    if (isSpacesOverviewUICDisabled(env)) {
+      return renderSpacesOverviewReactFallback(
+        props,
+        spacesOverviewUICFallbackDiagnostics.envDisabled,
+      );
+    }
+    if (startupDiagnostics.length > 0) {
+      return renderSpacesOverviewReactFallback(
+        props,
+        spacesOverviewUICFallbackDiagnostics.startupInvalid,
+        startupDiagnostics.map((item) => item.code),
+      );
+    }
+    try {
+      return uicPresentation(props);
+    } catch {
+      return renderSpacesOverviewReactFallback(
+        props,
+        spacesOverviewUICFallbackDiagnostics.renderException,
+      );
+    }
+  };
+}
 
 export function SpacesOverviewUICPageHeaderProof({ xml = spacesOverviewUICLayoutXml }: { readonly xml?: string }) {
   const diagnostics = validateUICXml(spacesOverviewPageHeaderUICProof, xml).diagnostics;
@@ -884,7 +968,7 @@ function UICReadOnlyListSection({
                 {item.label}
               </MyneText>
               {item.meta.length > 0 && (
-                <MyneText as="span" className="mt-1 block text-xs" tone="muted">
+                <MyneText as="span" className="mt-1 block text-xs" tone="secondary">
                   {item.meta.join(" · ")}
                 </MyneText>
               )}

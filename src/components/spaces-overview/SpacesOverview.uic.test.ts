@@ -1,8 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement, isValidElement, type ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { SpacesOverviewView, type DashboardWorkspace } from "../SpacesOverview";
 import {
+  SPACES_OVERVIEW_UIC_DISABLE_ENV,
+  createSpacesOverviewProductionView,
+  spacesOverviewUICFallbackDiagnostics,
   UIC_RECENTLY_CREATED_CRAFT_RESOURCE_BUDGET,
   UIC_RECENT_SESSIONS_RESOURCE_BUDGET,
   UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET,
@@ -74,6 +77,10 @@ const dashboardWorkspaces: DashboardWorkspace[] = storybookVKWorkspaces.map((wor
   };
 });
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 function renderUICLayout(xml?: string, overrides: Partial<React.ComponentProps<typeof SpacesOverviewView>> = {}) {
   return renderToStaticMarkup(createElement(SpacesOverviewView, {
     workspace: storybookWorkspace,
@@ -93,6 +100,29 @@ function renderUICLayout(xml?: string, overrides: Partial<React.ComponentProps<t
     onOpenWorkspaceInSpace: async () => undefined,
     ...overrides,
     presentation: (props) => createElement(SpacesOverviewUICLayoutProofPresentation, { ...props, ...(xml ? { xml } : {}) }),
+  }));
+}
+
+function renderProductionSpacesOverview(
+  overrides: Partial<React.ComponentProps<typeof SpacesOverviewView>> = {},
+) {
+  return renderToStaticMarkup(createElement(SpacesOverviewView, {
+    workspace: storybookWorkspace,
+    savedSessions: storybookSavedSessions,
+    currentSessionId: storybookSavedSessions[0]?.id,
+    workspaces: dashboardWorkspaces,
+    repos: storybookRepos,
+    loading: false,
+    error: null,
+    stoppingDevServerIds: new Set<string>(),
+    onResumeSession: () => undefined,
+    onRenameSession: () => undefined,
+    onDeleteSession: () => undefined,
+    onStartNewSession: () => undefined,
+    onNavigateToTabGroup: () => undefined,
+    onStopDevServer: () => undefined,
+    onOpenWorkspaceInSpace: async () => undefined,
+    ...overrides,
   }));
 }
 
@@ -244,6 +274,80 @@ function workspaceActionCallbacks(overrides: Partial<Parameters<typeof invokeUIC
 }
 
 describe("SpacesOverview UIC pageHeader proof", () => {
+  it("defaults the production SpacesOverview route to the validated UIC surface", () => {
+    vi.stubEnv(SPACES_OVERVIEW_UIC_DISABLE_ENV, "");
+
+    const html = renderProductionSpacesOverview();
+
+    expect(html).toContain('data-myne-view-pack="uic.spaces.layout-shell.proof"');
+    expect(html).toContain('data-uic-owned-region="workspace-list"');
+    expect(html).not.toContain("SpacesOverview UIC fallback active");
+  });
+
+  it("forces the trusted React fallback with the production UIC disable env var and no in-app toggle", () => {
+    vi.stubEnv(SPACES_OVERVIEW_UIC_DISABLE_ENV, "1");
+
+    const html = renderProductionSpacesOverview();
+
+    expect(html).toContain('data-myne-view-pack="myne.spaces.view-pack.default"');
+    expect(html).toContain("SpacesOverview UIC fallback active");
+    expect(html).toContain(`data-uic-disable-env="${SPACES_OVERVIEW_UIC_DISABLE_ENV}"`);
+    expect(html).toContain(`data-uic-fallback-diagnostic="${spacesOverviewUICFallbackDiagnostics.envDisabled}"`);
+    expect(html).not.toContain('data-uic-owned-region="workspace-list"');
+    expect(html).not.toContain("Enable UIC");
+    expect(html).not.toContain('type="checkbox"');
+  });
+
+  it("treats unset, 0, and false as production UIC enabled", () => {
+    expect(renderProductionSpacesOverview({
+      presentation: createSpacesOverviewProductionView({ env: {} }),
+    })).toContain('data-myne-view-pack="uic.spaces.layout-shell.proof"');
+    expect(renderProductionSpacesOverview({
+      presentation: createSpacesOverviewProductionView({ env: { VD_SPACES_OVERVIEW_UIC: "0" } }),
+    })).toContain('data-myne-view-pack="uic.spaces.layout-shell.proof"');
+
+    for (const value of ["", "0", "false", "FALSE"]) {
+      vi.stubEnv(SPACES_OVERVIEW_UIC_DISABLE_ENV, value);
+
+      const html = renderProductionSpacesOverview();
+
+      expect(html).toContain('data-myne-view-pack="uic.spaces.layout-shell.proof"');
+      expect(html).not.toContain("SpacesOverview UIC fallback active");
+    }
+  });
+
+  it("falls back visibly when startup prevalidation rejects the built-in UIC artifact", () => {
+    const presentation = createSpacesOverviewProductionView({
+      env: {},
+      startupDiagnostics: [{ code: "uic/xml/unknown-action", message: "bad artifact" }],
+    });
+
+    const html = renderProductionSpacesOverview({ presentation });
+
+    expect(html).toContain('data-myne-view-pack="myne.spaces.view-pack.default"');
+    expect(html).toContain("SpacesOverview UIC fallback active");
+    expect(html).toContain(`data-uic-fallback-diagnostic="${spacesOverviewUICFallbackDiagnostics.startupInvalid}"`);
+    expect(html).toContain("uic/xml/unknown-action");
+  });
+
+  it("catches UIC render failures and preserves the trusted React fallback", () => {
+    const brokenUICPresentation = () => {
+      throw new Error("render boom");
+    };
+    const presentation = createSpacesOverviewProductionView({
+      env: {},
+      startupDiagnostics: [],
+      uicPresentation: brokenUICPresentation,
+    });
+
+    const html = renderProductionSpacesOverview({ presentation });
+
+    expect(html).toContain('data-myne-view-pack="myne.spaces.view-pack.default"');
+    expect(html).toContain("SpacesOverview UIC fallback active");
+    expect(html).toContain(`data-uic-fallback-diagnostic="${spacesOverviewUICFallbackDiagnostics.renderException}"`);
+    expect(html).toContain("uic/render-exception");
+  });
+
   it("renders the dev-only pageHeader proof through existing public Myne hooks", () => {
     const html = renderToStaticMarkup(createElement(SpacesOverviewUICPageHeaderProof));
 

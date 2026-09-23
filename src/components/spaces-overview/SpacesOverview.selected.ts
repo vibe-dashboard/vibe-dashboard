@@ -1,21 +1,26 @@
+import { createElement } from "react";
 import type { SpacesOverviewPresentation } from "./SpacesOverview.contracts";
 import {
   defaultSpacesOverviewManifest,
   denseSpacesOverviewManifest,
   resolveSpacesOverviewComposition,
 } from "./SpacesOverview.composition";
+import { createSpacesOverviewProductionView } from "./SpacesOverview.uic.view";
 
 const selectedComposition = resolveSpacesOverviewComposition(
   defaultSpacesOverviewManifest,
 );
 export const selectedSpacesOverviewUI = selectedComposition.ui;
 
-export const selectedSpacesOverviewView: SpacesOverviewPresentation = (props) =>
+export const selectedSpacesOverviewReactView: SpacesOverviewPresentation = (props) =>
   createElement(selectedComposition.layout, {
     ...props,
     ui: selectedSpacesOverviewUI,
     viewPackId: selectedComposition.viewPackId,
   });
+
+export const selectedSpacesOverviewView: SpacesOverviewPresentation =
+  createSpacesOverviewProductionView();
 
 const denseComposition = resolveSpacesOverviewComposition(denseSpacesOverviewManifest);
 export const denseSpacesOverviewView: SpacesOverviewPresentation = (props) =>
@@ -24,4 +29,3 @@ export const denseSpacesOverviewView: SpacesOverviewPresentation = (props) =>
 export function getSpacesOverviewPresentation(viewPackId: string | undefined): SpacesOverviewPresentation {
   return viewPackId === denseSpacesOverviewManifest.viewPackId ? denseSpacesOverviewView : selectedSpacesOverviewView;
 }
-import { createElement } from "react";
