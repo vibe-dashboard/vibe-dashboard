@@ -161,13 +161,13 @@ Show this stage before opening or creating the workspace.
 
 Do not show a Space picker by default.
 
-Spaces are legacy for this flow. Do not create or require Spaces for this wizard. New users should be expected to have no non-system Spaces.
+Spaces are legacy for this flow. Do not show them in the wizard and do not assume any non-system Spaces exist. New users may only have the system Home Space.
 
-Location selection rule:
+Craft placement rule:
 
-1. If opening into an existing Voyage and the workspace already appears there, reuse that location.
-2. Else open the workspace in the selected Voyage without assigning a Space.
-3. If the current data model temporarily requires a Space ID, use the platform-owned invisible/default location, not a user-visible non-system Space.
+1. If opening into an existing Voyage and the workspace craft already exists in a Space, reuse that Space/craft location.
+2. Else create the workspace craft in the platform-owned system/default Space, currently the Home Space.
+3. Do not create a user-visible non-system Space just for this wizard.
 
 Controls:
 
@@ -302,7 +302,7 @@ type WorkModeChoice =
 
 - No Space picker is shown.
 - Current Voyage is selected by default when no existing-work Voyage applies.
-- The wizard does not assume non-system Spaces exist. It reuses an existing workspace location when present; otherwise it opens in the selected Voyage without creating a user-visible Space.
+- The wizard does not assume non-system Spaces exist. It reuses an existing craft location when present; otherwise it creates the craft in the platform-owned system/default Space, currently Home.
 - User can select existing Voyage or create a new one.
 
 ### Running and errors
@@ -327,7 +327,7 @@ type WorkModeChoice =
 2. Should existing workspace open skip branch/work-mode steps?
 3. Should remote-only `Work on selected branch` create a local tracking branch automatically, ask first, or stay local-only?
 4. What should the direct-branch option be called?
-5. Should Spaces be hidden and ignored for new opens, reusing an existing location only when present?
+5. Should Spaces stay hidden while new workspace crafts are placed in the system/default Space?
 6. Should `Create new workspace instead` be available when an active issue workspace mapping exists?
 7. For PR URLs with no existing workspace, should the default be the PR head branch?
 8. Should `Create new workspace branch` still allow custom workspace branch names in this wizard?
