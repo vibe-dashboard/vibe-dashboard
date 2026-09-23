@@ -29,6 +29,21 @@ The user is trying to answer three questions:
 
 Everything else is resolution, validation, or progress.
 
+## Human decisions from form
+
+Decisions captured on September 23, 2026:
+
+- Show existing work before repository access.
+- Opening or reopening existing workspace skips branch/work-mode steps.
+- Remote-only selected branches create local tracking branches automatically.
+- The selected-branch mode is called **Work on selected branch**.
+- Spaces stay hidden. New workspace crafts are placed in the system/default Space, currently Home; existing craft locations are reused.
+- If an active issue workspace mapping exists, **Create new workspace instead** is available only behind explicit confirmation.
+- PR URLs with no existing workspace default to the PR head branch when safe.
+- Users may edit the generated name for a new workspace branch. This may require VK API changes.
+- Existing work defaults to the most recently used or updated Voyage/location that already contains the workspace.
+- Suggested workspace names should factor in the issue or PR title/name.
+
 ## Wizard stages
 
 ### Stage 0: Resolve target facts
@@ -64,7 +79,7 @@ Primary choices:
 
 - **Open existing workspace**
 - **Reopen archived workspace** when applicable
-- **Create new workspace instead** only when safe and useful
+- **Create new workspace instead** only behind explicit confirmation when an active issue workspace mapping exists
 - **Forget stale mapping** when the mapped workspace no longer exists
 
 If the user opens or reopens existing work, skip branch/work-mode stages.
@@ -121,15 +136,12 @@ Controls:
 
 Do not use the term **direct work** in the UI.
 
-`Work on selected branch` behavior depends on the human decision in this plan's form.
+`Work on selected branch` behavior:
 
-Possible policies:
+- If the selected branch exists locally, use it.
+- If the selected branch is remote-only, create a local tracking branch behind the scenes, then use that local branch.
 
-- local branches only;
-- remote-only branches create a local tracking branch behind the scenes;
-- remote-only branches ask before creating a local tracking branch.
-
-If remote-only branch support is allowed, the backend must own:
+The backend must own:
 
 - deriving the local branch name;
 - creating the tracking branch;
@@ -140,6 +152,9 @@ If remote-only branch support is allowed, the backend must own:
 `Create new workspace branch` behavior:
 
 - Create a new editable workspace branch from the selected base branch.
+- Suggest a workspace branch name from the GitHub target, factoring in the issue or PR title/name.
+- Let the user edit the new workspace branch name on the spot.
+- If VK does not currently accept custom branch names for this operation, add the API support as part of implementation.
 
 Default mode:
 
@@ -151,7 +166,7 @@ Default mode:
 Target-specific defaults:
 
 - Issue URL: default to a new workspace branch from the configured/default target branch.
-- PR URL: if no existing PR workspace exists, default to the PR head branch when safe.
+- PR URL: if no existing PR workspace exists, default to the PR head branch when safe; create a local tracking branch automatically if the head is remote-only.
 - Tree/blob URL: default from the resolved containing branch or permalink rules.
 - Repository root URL: default from the configured/default target branch.
 
@@ -269,7 +284,7 @@ Candidate input:
 ```ts
 type WorkModeChoice =
   | { type: "work-on-selected-branch"; branch: string }
-  | { type: "create-workspace-branch"; baseBranch: string; workspaceName?: string };
+  | { type: "create-workspace-branch"; baseBranch: string; branchName: string };
 ```
 
 ## Acceptance checks
@@ -292,8 +307,8 @@ type WorkModeChoice =
 ### Branch/work mode
 
 - UI says Work on selected branch, not Work directly.
-- Remote-only branch behavior follows the selected human policy.
-- If remote-only tracking is allowed, the system creates a local tracking branch behind the scenes.
+- Remote-only branches create a local tracking branch behind the scenes.
+- New workspace branch mode suggests a branch name from the issue/PR title and lets the user edit it.
 - Local branch collision gives a clear error.
 - Branch checked out elsewhere gives a clear error.
 - Protected/default/unknown branches default to new workspace branch.
@@ -314,21 +329,16 @@ type WorkModeChoice =
 
 ## Suggested implementation slices
 
-1. Add branch backend support for `use-existing-branch` with remote tracking branch creation.
-2. Add a new wizard view model behind the existing entry point.
-3. Implement the new wizard UI for repo/tree/blob first.
-4. Add PR existing-work reuse.
-5. Add issue existing-work reuse and stale mapping repair.
-6. Remove old dialog states after parity tests pass.
+1. Add branch backend support for `work-on-selected-branch` with remote tracking branch creation.
+2. Add VK/API support for custom new workspace branch names if the current API does not support it.
+3. Add a new wizard view model behind the existing entry point.
+4. Implement the new wizard UI for repo/tree/blob first.
+5. Add PR existing-work reuse and PR-head defaults.
+6. Add issue existing-work reuse, stale mapping repair, and explicit-confirmation duplicate creation.
+7. Remove old dialog states after parity tests pass.
 
-## Open decisions for human discussion
+## Remaining implementation questions
 
-1. Should existing work be shown before repository access?
-2. Should existing workspace open skip branch/work-mode steps?
-3. Should remote-only `Work on selected branch` create a local tracking branch automatically, ask first, or stay local-only?
-4. What should the direct-branch option be called?
-5. Should Spaces stay hidden while new workspace crafts are placed in the system/default Space?
-6. Should `Create new workspace instead` be available when an active issue workspace mapping exists?
-7. For PR URLs with no existing workspace, should the default be the PR head branch?
-8. Should `Create new workspace branch` still allow custom workspace branch names in this wizard?
-9. Which Voyage timestamp should decide the default for existing work: Voyage updated time, tab group last visited time, or saved Voyage creation time?
+1. Which VK endpoint should own custom workspace branch names for new workspace branches?
+2. What exact collision policy should apply when deriving a local tracking branch from `origin/feature` and local `feature` already exists with a different upstream?
+3. Which timestamp is authoritative for “most recently used or updated Voyage/location”: tab group last visited, Voyage updated time, or another persisted activity timestamp?
