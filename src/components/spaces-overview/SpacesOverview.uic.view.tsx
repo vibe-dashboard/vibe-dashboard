@@ -94,6 +94,11 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]) {
+  const allowed = new Set(keys);
+  return Object.keys(value).every((key) => allowed.has(key));
+}
+
 function isSafeLifecycleText(value: unknown, maxLength = 120) {
   if (typeof value !== "string" || value.length === 0 || value.length > maxLength || /[<>]|https?:|javascript:/iu.test(value)) return false;
   const lower = value.toLowerCase();
@@ -101,7 +106,7 @@ function isSafeLifecycleText(value: unknown, maxLength = 120) {
 }
 
 function validateUICActionLifecycle(input: unknown): { readonly ok: true; readonly lifecycle: UICActionLifecycle } | { readonly ok: false; readonly diagnostic: UICActionDiagnostic } {
-  if (!isPlainRecord(input) || !isPlainRecord(input.result) || !Array.isArray(input.diagnostics) || !isPlainRecord(input.authorization)) {
+  if (!isPlainRecord(input) || !hasExactKeys(input, ["confirmation", "pending", "result", "diagnostics", "authorization"]) || !isPlainRecord(input.result) || !Array.isArray(input.diagnostics) || !isPlainRecord(input.authorization)) {
     return { ok: false, diagnostic: { code: "uic/action/invalid-lifecycle", message: "UIC action lifecycle metadata is malformed.", recoverable: false } };
   }
   const result = input.result;
@@ -109,11 +114,18 @@ function validateUICActionLifecycle(input: unknown): { readonly ok: true; readon
   if (resultState !== "idle" && resultState !== "pending" && resultState !== "completed" && resultState !== "failed") {
     return { ok: false, diagnostic: { code: "uic/action/invalid-lifecycle", message: "UIC action result state is invalid.", recoverable: false } };
   }
+  let resultEnvelope: UICActionLifecycle["result"];
   if (resultState === "failed") {
     const diagnostic = result.diagnostic;
-    if (!isPlainRecord(diagnostic) || !isSafeLifecycleText(diagnostic.code, 80) || !isSafeLifecycleText(diagnostic.message, 160) || typeof diagnostic.recoverable !== "boolean") {
+    if (!hasExactKeys(result, ["state", "diagnostic"]) || !isPlainRecord(diagnostic) || !hasExactKeys(diagnostic, ["code", "message", "recoverable"]) || !isSafeLifecycleText(diagnostic.code, 80) || !isSafeLifecycleText(diagnostic.message, 160) || typeof diagnostic.recoverable !== "boolean") {
       return { ok: false, diagnostic: { code: "uic/action/invalid-lifecycle", message: "UIC action failure envelope is invalid.", recoverable: false } };
     }
+    resultEnvelope = { state: "failed", diagnostic: { code: diagnostic.code as string, message: diagnostic.message as string, recoverable: diagnostic.recoverable } };
+  } else {
+    if (!hasExactKeys(result, ["state"])) {
+      return { ok: false, diagnostic: { code: "uic/action/invalid-lifecycle", message: "UIC action result state is invalid.", recoverable: false } };
+    }
+    resultEnvelope = { state: resultState };
   }
   if (!input.diagnostics.every((item) => isSafeLifecycleText(item, 80))) {
     return { ok: false, diagnostic: { code: "uic/action/invalid-lifecycle", message: "UIC action diagnostics are invalid.", recoverable: false } };
@@ -122,16 +134,25 @@ function validateUICActionLifecycle(input: unknown): { readonly ok: true; readon
   if (authorization.state !== "allowed" && authorization.state !== "denied") {
     return { ok: false, diagnostic: { code: "uic/action/invalid-lifecycle", message: "UIC action authorization state is invalid.", recoverable: false } };
   }
-  if (authorization.state === "denied" && !isSafeLifecycleText(authorization.reason, 120)) {
+  if (authorization.state === "allowed" && !hasExactKeys(authorization, ["state"])) {
+    return { ok: false, diagnostic: { code: "uic/action/invalid-lifecycle", message: "UIC action authorization state is invalid.", recoverable: false } };
+  }
+  if (authorization.state === "denied" && (!hasExactKeys(authorization, ["state", "reason"]) || !isSafeLifecycleText(authorization.reason, 120))) {
     return { ok: false, diagnostic: { code: "uic/action/invalid-lifecycle", message: "UIC action authorization reason is invalid.", recoverable: false } };
   }
+  const lifecycle: UICActionLifecycle = {
+    result: resultEnvelope,
+    diagnostics: [...input.diagnostics],
+    authorization: authorization.state === "allowed" ? { state: "allowed" } : { state: "denied", reason: authorization.reason as string },
+  };
   if (input.pending !== undefined) {
-    if (!isPlainRecord(input.pending) || !isSafeLifecycleText(input.pending.key, 120) || !isSafeLifecycleText(input.pending.label, 80)) {
+    if (!isPlainRecord(input.pending) || !hasExactKeys(input.pending, ["key", "label"]) || !isSafeLifecycleText(input.pending.key, 120) || !isSafeLifecycleText(input.pending.label, 80)) {
       return { ok: false, diagnostic: { code: "uic/action/invalid-lifecycle", message: "UIC action pending identity is invalid.", recoverable: false } };
     }
+    (lifecycle as { pending?: UICActionLifecycle["pending"] }).pending = { key: input.pending.key as string, label: input.pending.label as string };
   }
   if (input.confirmation !== undefined) {
-    if (!isPlainRecord(input.confirmation) || typeof input.confirmation.required !== "boolean") {
+    if (!isPlainRecord(input.confirmation) || !hasExactKeys(input.confirmation, ["required", "title", "message", "confirmLabel", "tone"]) || typeof input.confirmation.required !== "boolean") {
       return { ok: false, diagnostic: { code: "uic/action/invalid-lifecycle", message: "UIC action confirmation metadata is invalid.", recoverable: false } };
     }
     for (const key of ["title", "message", "confirmLabel"] as const) {
@@ -142,8 +163,15 @@ function validateUICActionLifecycle(input: unknown): { readonly ok: true; readon
     if (input.confirmation.tone !== undefined && input.confirmation.tone !== "neutral" && input.confirmation.tone !== "warning" && input.confirmation.tone !== "destructive") {
       return { ok: false, diagnostic: { code: "uic/action/invalid-lifecycle", message: "UIC action confirmation tone is invalid.", recoverable: false } };
     }
+    (lifecycle as { confirmation?: UICActionLifecycle["confirmation"] }).confirmation = {
+      required: input.confirmation.required,
+      ...(input.confirmation.title !== undefined ? { title: input.confirmation.title as string } : {}),
+      ...(input.confirmation.message !== undefined ? { message: input.confirmation.message as string } : {}),
+      ...(input.confirmation.confirmLabel !== undefined ? { confirmLabel: input.confirmation.confirmLabel as string } : {}),
+      ...(input.confirmation.tone !== undefined ? { tone: input.confirmation.tone } : {}),
+    };
   }
-  return { ok: true, lifecycle: input as UICActionLifecycle };
+  return { ok: true, lifecycle };
 }
 
 export function resolveUICActionLifecycle<T extends UICSpacesOverviewActionDescriptor>(

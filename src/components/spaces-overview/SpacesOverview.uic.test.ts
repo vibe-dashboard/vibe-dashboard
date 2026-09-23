@@ -619,7 +619,9 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     } as const;
 
     expect(resolveUICActionLifecycle(descriptor, lifecycle, { authorized: true, confirmed: false })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/confirmation-required" } });
-    expect(resolveUICActionLifecycle(descriptor, lifecycle, { authorized: true, confirmed: true })).toEqual({ ok: true, descriptor: { ...descriptor, lifecycle } });
+    const resolved = resolveUICActionLifecycle(descriptor, lifecycle, { authorized: true, confirmed: true });
+    expect(resolved).toEqual({ ok: true, descriptor: { ...descriptor, lifecycle } });
+    expect(resolved.ok && resolved.descriptor.lifecycle).not.toBe(lifecycle);
     expect(JSON.stringify(lifecycle)).not.toMatch(/function|=>|appHooks|QueryClient|Promise|https?:|stopDevServer|deleteSession|renameSession/u);
   });
 
@@ -639,6 +641,29 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(resolveUICActionLifecycle(descriptor, { ...lifecycle, result: { state: "failed" } }, { authorized: true })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/invalid-lifecycle" } });
     expect(resolveUICActionLifecycle(descriptor, { ...lifecycle, pending: { key: "https://example.test/action", label: "Bad" } }, { authorized: true })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/invalid-lifecycle" } });
     expect(resolveUICActionLifecycle({ ...descriptor, status: "unavailable" }, lifecycle, { authorized: true })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unavailable" } });
+  });
+
+  it("rejects unknown lifecycle payload keys in every nested object", () => {
+    const descriptor = { event: "activate", id: "spaces.openWorkspace", args: { workspaceId: dashboardWorkspaces[0]!.id }, status: "available" } as const;
+    const lifecycle = {
+      confirmation: { required: false },
+      pending: { key: "workspace:one:proof", label: "Proof pending" },
+      result: { state: "failed", diagnostic: { code: "uic/proof/error", message: "Proof failed", recoverable: true } },
+      diagnostics: [],
+      authorization: { state: "allowed" },
+    } as const;
+    const cases = [
+      { ...lifecycle, extra: () => undefined },
+      { ...lifecycle, confirmation: { ...lifecycle.confirmation, promise: Promise.resolve() } },
+      { ...lifecycle, pending: { ...lifecycle.pending, url: "https://example.test/action" } },
+      { ...lifecycle, result: { ...lifecycle.result, method: "stopDevServer" } },
+      { ...lifecycle, result: { ...lifecycle.result, diagnostic: { ...lifecycle.result.diagnostic, fn: () => undefined } } },
+      { ...lifecycle, authorization: { ...lifecycle.authorization, method: "deleteSession" } },
+    ];
+
+    for (const item of cases) {
+      expect(resolveUICActionLifecycle(descriptor, item, { authorized: true })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/invalid-lifecycle" } });
+    }
   });
 
   it("projects only serializable allowed UIC action descriptors for sibling craft lists", () => {
