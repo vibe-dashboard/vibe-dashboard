@@ -291,7 +291,7 @@ export interface RunConfigStartResponse {
 }
 
 export interface PreviewSlotUrlResponse extends PreviewSlotUrlParts {
-  customerSlug: string;
+  customerSlug?: string;
   host: string;
   url: string;
 }
@@ -602,6 +602,20 @@ export class VKService {
     return this.parseApiResponse<PreviewSlot>(response, 'upsert preview slot');
   }
 
+  async deleteRunConfig(workspaceId: string, runConfigId: string): Promise<void> {
+    const response = await fetch(config.endpoints.runConfig(workspaceId, runConfigId), {
+      method: 'DELETE',
+    });
+    return this.parseApiResponse<void>(response, 'delete run config');
+  }
+
+  async deletePreviewSlot(workspaceId: string, previewSlotId: string): Promise<void> {
+    const response = await fetch(config.endpoints.previewSlot(workspaceId, previewSlotId), {
+      method: 'DELETE',
+    });
+    return this.parseApiResponse<void>(response, 'delete preview slot');
+  }
+
   async startRunConfig(workspaceId: string, runConfigId: string): Promise<RunConfigStartResponse> {
     const response = await fetch(config.endpoints.startRunConfig(workspaceId, runConfigId), {
       method: 'POST',
@@ -619,11 +633,11 @@ export class VKService {
   async getPreviewSlotUrl(
     workspaceId: string,
     previewSlotId: string,
-    args: { customerSlug: string; baseDomain?: string; urlScheme?: 'http' | 'https' },
+    args: { customerSlug?: string; baseDomain?: string },
   ): Promise<PreviewSlotUrlResponse> {
-    const query = new URLSearchParams({ customerSlug: args.customerSlug });
+    const query = new URLSearchParams();
+    if (args.customerSlug) query.set('customerSlug', args.customerSlug);
     if (args.baseDomain) query.set('baseDomain', args.baseDomain);
-    if (args.urlScheme) query.set('urlScheme', args.urlScheme);
     const response = await fetch(config.endpoints.previewSlotUrl(workspaceId, previewSlotId, query.toString()));
     return this.parseApiResponse<PreviewSlotUrlResponse>(response, 'fetch preview slot URL');
   }

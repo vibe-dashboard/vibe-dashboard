@@ -201,6 +201,19 @@ describe('VibeKanbanServerClient', () => {
     });
   });
 
+  it('uses VK error envelope messages for failed HTTP responses', async () => {
+    const client = new VibeKanbanServerClient({
+      baseUrl: 'http://vk.local/api',
+      fetch: async () => jsonResponse({ success: false, message: 'Delete linked preview slots first.' }, { status: 400, statusText: 'Bad Request' }),
+    });
+
+    await expect(client.getWorkspaces()).rejects.toMatchObject({
+      name: 'VkApiError',
+      status: 400,
+      message: 'Delete linked preview slots first.',
+    });
+  });
+
   it('throws VkApiError for unsuccessful VK envelopes', async () => {
     const client = new VibeKanbanServerClient({
       baseUrl: 'http://vk.local/api',

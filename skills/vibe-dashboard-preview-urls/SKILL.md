@@ -48,7 +48,7 @@ Start the slot and retain the returned `execution_process.id` for explicit log o
 
 ```sh
 vk preview-url start-slot <workspace-id> <preview-slot-id> --json
-vk preview-url url <workspace-id> <preview-slot-id> --customer <customer-slug> --json
+vk preview-url url <workspace-id> <preview-slot-id> --json
 ```
 
 The canonical hostname grammar is:
@@ -79,7 +79,7 @@ Local generated `*.localhost` Preview URLs require the dedicated loopback-only C
 
 ```sh
 vk preview-url local-caddy start --dashboard-port <vd-port> --backend-port <vk-port> --caddy-port 3001 --json
-vk preview-url url <workspace-id> <preview-slot-id> --customer preview --local-caddy-port 3001 --json
+vk preview-url url <workspace-id> <preview-slot-id> --local-caddy-port 3001 --json
 vk preview-url local-caddy status --json
 vk preview-url local-caddy stop --json
 ```
