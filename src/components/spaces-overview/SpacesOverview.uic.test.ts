@@ -607,7 +607,7 @@ describe("SpacesOverview UIC pageHeader proof", () => {
   });
 
   it("does not expose or dispatch the starred craft action when XML omits the binding", () => {
-    const xml = spacesOverviewUICLayoutXml.replace(' uic:on-activate="spaces.navigateToCraft"', "");
+    const xml = spacesOverviewUICLayoutXml.replace('  <uic:starredCraft uic:on-activate="spaces.navigateToCraft" />', "  <uic:starredCraft />");
     const region = starredCraftRegion(renderUICLayout(xml));
 
     expect(region).toContain("Read-only UIC list");
@@ -1456,14 +1456,18 @@ describe("SpacesOverview UIC pageHeader proof", () => {
       .replace(' uic:on-resume="spaces.resumeSession"', "")
       .replace(' uic:on-start="spaces.startSession"', "")
       .replace(' uic:on-rename="spaces.renameSession"', "")
-      .replace(' uic:on-delete="spaces.deleteSession"', "");
+      .replace(' uic:on-delete="spaces.deleteSession"', "")
+      .replace(' uic:on-toggle="spaces.toggleSession"', "")
+      .replace(' uic:on-activate="spaces.navigateToCraft"', "");
     const region = recentSessionsRegion(renderUICLayout(xml));
 
     expect(region).toContain("Read-only UIC voyage list");
     expect(region).not.toContain("Resume voyage");
     expect(region).not.toContain("New Voyage");
     expect(region).not.toContain("Delete voyage");
-    expect(projectUICRecentSessionActions({ sortedSessions: storybookSavedSessions }, { resume: false, start: false, rename: false, delete: false })).toEqual([]);
+    expect(region).not.toContain("Expand voyage");
+    expect(region).not.toContain("Open craft");
+    expect(projectUICRecentSessionActions({ sortedSessions: storybookSavedSessions }, { resume: false, start: false, rename: false, delete: false, toggle: false, navigateCraft: false })).toEqual([]);
   });
 
   it("falls back without recent session dispatch when session action validation fails", () => {
@@ -1476,22 +1480,96 @@ describe("SpacesOverview UIC pageHeader proof", () => {
       ["uic:on-rename", "spaces.stopDevServer", "renameSession"],
       ["uic:on-delete", "https://example.test/action", "deleteSession"],
       ["uic:on-delete", "spaces.stopDevServer", "deleteSession"],
+      ["uic:on-toggle", "https://example.test/action", "toggleExpandedSession"],
+      ["uic:on-toggle", "spaces.deleteSession", "toggleExpandedSession"],
+      ["uic:on-activate", "https://example.test/action", "navigateToTabGroup"],
+      ["uic:on-activate", "spaces.stopDevServer", "navigateToTabGroup"],
     ] as const) {
       const resumeSession = vi.fn();
       const startNewSession = vi.fn();
       const renameSession = vi.fn();
       const deleteSession = vi.fn();
+      const toggleExpandedSession = vi.fn();
+      const navigateToTabGroup = vi.fn();
       const html = renderUICPresentationWithModel(
         {},
-        { resumeSession, startNewSession, renameSession, deleteSession },
+        { resumeSession, startNewSession, renameSession, deleteSession, toggleExpandedSession, navigateToTabGroup },
         spacesOverviewUICLayoutXml.replace(new RegExp(`${attr}="[^"]+"`, "u"), `${attr}="${invalid}"`),
       );
 
       expect(html).toContain('data-myne-view-pack="myne.spaces.view-pack.default"');
       expect(html).toContain("uic/xml/unknown-action");
       expect(html).not.toContain('data-uic-owned-region="recent-sessions"');
-      expect({ resumeSession, startNewSession, renameSession, deleteSession }[dispatcher]).not.toHaveBeenCalled();
+      expect({ resumeSession, startNewSession, renameSession, deleteSession, toggleExpandedSession, navigateToTabGroup }[dispatcher]).not.toHaveBeenCalled();
     }
+  });
+
+  it("renders UIC recent session expand/collapse and nested craft navigation from validated XML", () => {
+    const collapsed = recentSessionsRegion(renderUICPresentationWithModel({ expandedSessionId: null }));
+    expect(collapsed).toContain("Expand voyage");
+    expect(collapsed).not.toContain("Open craft");
+
+    const expanded = recentSessionsRegion(renderUICPresentationWithModel({ expandedSessionId: storybookSavedSessions[0]!.id }));
+    expect(expanded).toContain("Collapse voyage");
+    expect(expanded).toContain("Auth bug fix");
+    expect(expanded).toContain("Docs refresh");
+    expect(expanded).toContain("Open craft");
+
+    const withoutToggle = recentSessionsRegion(renderUICPresentationWithModel(
+      { expandedSessionId: storybookSavedSessions[0]!.id },
+      {},
+      spacesOverviewUICLayoutXml.replace(' uic:on-toggle="spaces.toggleSession"', ""),
+    ));
+    expect(withoutToggle).not.toContain("Expand voyage");
+    expect(withoutToggle).not.toContain("Collapse voyage");
+
+    const withoutNavigate = recentSessionsRegion(renderUICPresentationWithModel(
+      { expandedSessionId: storybookSavedSessions[0]!.id },
+      {},
+      spacesOverviewUICLayoutXml.replace(' uic:on-activate="spaces.navigateToCraft"', ""),
+    ));
+    expect(withoutNavigate).toContain("Auth bug fix");
+    expect(withoutNavigate).not.toContain("Open craft");
+  });
+
+  it("dispatches UIC recent session toggle and nested craft navigation through trusted callbacks only", () => {
+    const toggleExpandedSession = vi.fn();
+    const navigateToTabGroup = vi.fn();
+    const descriptors = projectUICRecentSessionActions(
+      { workspace: storybookWorkspace, sortedSessions: storybookSavedSessions, expandedSessionId: storybookSavedSessions[0]!.id },
+      { resume: false, start: false, rename: false, delete: false, toggle: true, navigateCraft: true },
+    );
+    const toggle = descriptors.find((action) => action.id === "spaces.toggleSession")!;
+    const navigate = descriptors.find((action) => action.id === "spaces.navigateToCraft")!;
+    const allowedSessionIds = new Set([storybookSavedSessions[0]!.id]);
+    const allowedCraftTargets = new Set(["space_product:tg_agent"]);
+    const actions = {
+      resumeSession: vi.fn(),
+      startNewSession: vi.fn(),
+      renameSession: vi.fn(),
+      deleteSession: vi.fn(),
+      toggleExpandedSession,
+      navigateToTabGroup,
+    };
+
+    expect(JSON.stringify(descriptors)).not.toMatch(/function|=>|appHooks|QueryClient|Promise|https?:|method/u);
+    expect(invokeUICRecentSessionAction(actions, toggle, allowedSessionIds, false)).toEqual({ ok: true, result: { state: "completed" } });
+    expect(toggleExpandedSession).toHaveBeenCalledWith(storybookSavedSessions[0]!.id);
+    expect(invokeUICRecentSessionAction(actions, navigate, allowedSessionIds, false, { allowedCraftTargets })).toEqual({ ok: true, result: { state: "completed" } });
+    expect(navigateToTabGroup).toHaveBeenCalledWith("space_product", "tg_agent");
+
+    toggleExpandedSession.mockClear();
+    navigateToTabGroup.mockClear();
+    for (const descriptor of [
+      { ...toggle, args: { sessionId: storybookSavedSessions[0]!.id, url: "https://example.test" } },
+      { ...toggle, args: { sessionId: "missing" } },
+      { ...navigate, args: { spaceId: "space_product", tabGroupId: "tg_agent", method: "deleteSession" } },
+      { ...navigate, args: { spaceId: "missing", tabGroupId: "tg_agent" } },
+    ]) {
+      expect(invokeUICRecentSessionAction(actions, descriptor, allowedSessionIds, false, { allowedCraftTargets })).toMatchObject({ ok: false });
+    }
+    expect(toggleExpandedSession).not.toHaveBeenCalled();
+    expect(navigateToTabGroup).not.toHaveBeenCalled();
   });
 
   it("projects confirmation-gated recent session delete descriptors and blocks malformed args", () => {

@@ -12,7 +12,7 @@ export const spacesOverviewUICLayoutXml = `<uic:spaceOverviewPage xmlns:uic="htt
       <uic:pageHeaderAction label="Start voyage" />
     </uic:slot>
   </uic:pageHeader>
-  <uic:recentSessions uic:on-resume="spaces.resumeSession" uic:on-start="spaces.startSession" uic:on-rename="spaces.renameSession" uic:on-delete="spaces.deleteSession" />
+  <uic:recentSessions uic:on-resume="spaces.resumeSession" uic:on-start="spaces.startSession" uic:on-rename="spaces.renameSession" uic:on-delete="spaces.deleteSession" uic:on-toggle="spaces.toggleSession" uic:on-activate="spaces.navigateToCraft" />
   <uic:starredCraft uic:on-activate="spaces.navigateToCraft" />
   <uic:runningDevServers uic:on-stop="spaces.stopDevServer" />
   <uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" />
@@ -41,9 +41,10 @@ type UICReadOnlyListItem = {
   readonly id: string;
   readonly label: string;
   readonly meta: readonly string[];
+  readonly children?: readonly UICReadOnlyListItem[];
 };
 
-type UICSpacesOverviewActionId = "spaces.navigateToCraft" | "spaces.resumeSession" | "spaces.startSession" | "spaces.renameSession" | "spaces.deleteSession" | "spaces.stopDevServer" | "spaces.openWorkspace" | "spaces.filterWorkspaces" | "spaces.pageWorkspaces" | "spaces.dismissPicker" | "spaces.retryOpenWorkspace" | "spaces.selectSpaceForWorkspace";
+type UICSpacesOverviewActionId = "spaces.navigateToCraft" | "spaces.resumeSession" | "spaces.startSession" | "spaces.renameSession" | "spaces.deleteSession" | "spaces.toggleSession" | "spaces.stopDevServer" | "spaces.openWorkspace" | "spaces.filterWorkspaces" | "spaces.pageWorkspaces" | "spaces.dismissPicker" | "spaces.retryOpenWorkspace" | "spaces.selectSpaceForWorkspace";
 type UICCraftActionDescriptor = {
   readonly event: "activate";
   readonly id: "spaces.navigateToCraft";
@@ -75,6 +76,18 @@ type UICRecentSessionDeleteActionDescriptor = {
   readonly args: Readonly<{ sessionId: string }>;
   readonly status: "available" | "unavailable";
   readonly lifecycle: UICActionLifecycle;
+};
+type UICRecentSessionToggleActionDescriptor = {
+  readonly event: "toggle";
+  readonly id: "spaces.toggleSession";
+  readonly args: Readonly<{ sessionId: string }>;
+  readonly status: "available" | "unavailable";
+};
+type UICRecentSessionCraftActionDescriptor = {
+  readonly event: "activate";
+  readonly id: "spaces.navigateToCraft";
+  readonly args: Readonly<{ spaceId: string; tabGroupId: string }>;
+  readonly status: "available" | "unavailable";
 };
 type UICWorkspaceActionDescriptor = {
   readonly event: "activate";
@@ -255,6 +268,7 @@ export const UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET = Object.freeze({
 
 export const UIC_RECENT_SESSIONS_RESOURCE_BUDGET = Object.freeze({
   maxRows: 5,
+  maxNestedCraftRows: 6,
   maxNameLength: 56,
   maxLocationLength: 80,
 });
@@ -311,6 +325,11 @@ export const UIC_SPACES_OVERVIEW_ACTIONS = Object.freeze({
     result: Object.freeze({ state: "completed|failed" }),
     lifecycle: Object.freeze({ confirmation: "required", pending: "sessionId", authorization: "trusted-host" }),
   }),
+  "spaces.toggleSession": Object.freeze({
+    event: "toggle",
+    args: Object.freeze({ sessionId: "string" }),
+    result: Object.freeze({ state: "completed" }),
+  }),
   "spaces.openWorkspace": Object.freeze({
     event: "activate",
     args: Object.freeze({ workspaceId: "string" }),
@@ -350,7 +369,7 @@ export const UIC_SPACES_OVERVIEW_ACTIONS = Object.freeze({
 });
 
 type UICNavigateActions = Pick<SpacesOverviewSlotProps<"starredCraft">["actions"], "navigateToTabGroup">;
-type UICRecentSessionActions = Pick<SpacesOverviewSlotProps<"recentSessions">["actions"], "resumeSession" | "startNewSession" | "renameSession" | "deleteSession">;
+type UICRecentSessionActions = Pick<SpacesOverviewSlotProps<"recentSessions">["actions"], "resumeSession" | "startNewSession" | "renameSession" | "deleteSession"> & Partial<Pick<SpacesOverviewSlotProps<"recentSessions">["actions"], "toggleExpandedSession" | "navigateToTabGroup">>;
 type UICRunningDevServerActions = Pick<SpacesOverviewSlotProps<"runningDevServers">["actions"], "stopDevServer">;
 type UICWorkspaceListActions = Pick<SpacesOverviewSlotProps<"workspaceList">["actions"], "openSpacePickerForWorkspace" | "selectRepo" | "setWorkspacePage">;
 type UICSpacePickerActions = Pick<SpacesOverviewSlotProps<"spacePicker">["actions"], "closeSpacePicker" | "retryOpenCraftRequest" | "runOpenCraftRequest">;
@@ -380,20 +399,37 @@ export function invokeUICRecentSessionAction(
   descriptor: { readonly id: string; readonly event: string; readonly status: string; readonly args: unknown; readonly lifecycle?: unknown },
   allowedSessionIds: ReadonlySet<string>,
   allowStart: boolean,
-  context: Readonly<{ authorized?: boolean; confirmed?: boolean; pendingKeys?: ReadonlySet<string> }> = {},
+  context: Readonly<{ authorized?: boolean; confirmed?: boolean; pendingKeys?: ReadonlySet<string>; allowedCraftTargets?: ReadonlySet<string> }> = {},
 ): { readonly ok: true; readonly result: { readonly state: "completed" } } | { readonly ok: false; readonly diagnostic: { readonly code: string; readonly message: string } } {
   if (
     !(
       (descriptor.id === "spaces.resumeSession" && descriptor.event === "resume") ||
       (descriptor.id === "spaces.startSession" && descriptor.event === "start") ||
       (descriptor.id === "spaces.renameSession" && descriptor.event === "rename") ||
-      (descriptor.id === "spaces.deleteSession" && descriptor.event === "delete")
+      (descriptor.id === "spaces.deleteSession" && descriptor.event === "delete") ||
+      (descriptor.id === "spaces.toggleSession" && descriptor.event === "toggle") ||
+      (descriptor.id === "spaces.navigateToCraft" && descriptor.event === "activate")
     )
   ) {
     return { ok: false, diagnostic: { code: "uic/action/unknown", message: "UIC action is not declared for this surface." } };
   }
   if (descriptor.status !== "available") {
     return { ok: false, diagnostic: { code: "uic/action/unavailable", message: "UIC action is unavailable for the current trusted state." } };
+  }
+  if (descriptor.id === "spaces.navigateToCraft") {
+    const args = descriptor.args;
+    if (!args || typeof args !== "object" || Array.isArray(args) || Object.keys(args).length !== 2 || typeof (args as { spaceId?: unknown }).spaceId !== "string" || typeof (args as { tabGroupId?: unknown }).tabGroupId !== "string") {
+      return { ok: false, diagnostic: { code: "uic/action/invalid-args", message: "UIC action arguments do not match the declared schema." } };
+    }
+    const { spaceId, tabGroupId } = args as { spaceId: string; tabGroupId: string };
+    if (!context.allowedCraftTargets?.has(`${spaceId}:${tabGroupId}`)) {
+      return { ok: false, diagnostic: { code: "uic/action/unavailable", message: "UIC action is unavailable for the current trusted state." } };
+    }
+    if (!actions.navigateToTabGroup) {
+      return { ok: false, diagnostic: { code: "uic/action/unavailable", message: "UIC action is unavailable for the current trusted state." } };
+    }
+    actions.navigateToTabGroup(spaceId, tabGroupId);
+    return { ok: true, result: { state: "completed" } };
   }
   if (descriptor.id === "spaces.startSession") {
     if (!descriptor.args || typeof descriptor.args !== "object" || Object.keys(descriptor.args).length > 0) {
@@ -438,6 +474,13 @@ export function invokeUICRecentSessionAction(
   const sessionId = (args as { sessionId: string }).sessionId;
   if (!allowedSessionIds.has(sessionId)) {
     return { ok: false, diagnostic: { code: "uic/action/unavailable", message: "UIC action is unavailable for the current trusted state." } };
+  }
+  if (descriptor.id === "spaces.toggleSession") {
+    if (!actions.toggleExpandedSession) {
+      return { ok: false, diagnostic: { code: "uic/action/unavailable", message: "UIC action is unavailable for the current trusted state." } };
+    }
+    actions.toggleExpandedSession(sessionId);
+    return { ok: true, result: { state: "completed" } };
   }
   actions.resumeSession(sessionId);
   return { ok: true, result: { state: "completed" } };
@@ -781,6 +824,37 @@ export function UICReadOnlyRunningDevServersSection({ model, actions, enableStop
   );
 }
 
+function projectUICRecentSessionCraftRows(
+  model: Pick<SpacesOverviewSlotProps<"recentSessions">["model"], "workspace">,
+  session: SpacesOverviewSlotProps<"recentSessions">["model"]["sortedSessions"][number],
+  diagnostics: string[] = [],
+): readonly UICReadOnlyListItem[] {
+  const seen = new Set<string>();
+  const tabGroupIds = session.voyageEntries?.map((entry) => entry.tabGroupId) || session.visitedTabGroupIds;
+  const rows = tabGroupIds.flatMap((tabGroupId) => {
+    const tabGroup = model.workspace.tabGroups.find((item) => item.id === tabGroupId);
+    const space = model.workspace.spaces.find((item) => item.tabGroupIds.includes(tabGroupId));
+    if (!tabGroup || !space) return [];
+    const id = `${space.id}:${tabGroup.id}`;
+    if (seen.has(id)) {
+      diagnostics.push("uic/resource/duplicate-row-id");
+      return [];
+    }
+    seen.add(id);
+    return [{
+      id,
+      label: capUICResourceString(tabGroup.label, UIC_RECENT_SESSIONS_RESOURCE_BUDGET.maxNameLength, diagnostics),
+      meta: [
+        capUICResourceString(space.name, UIC_RECENT_SESSIONS_RESOURCE_BUDGET.maxLocationLength, diagnostics),
+        `${tabGroup.tabs.length} view${tabGroup.tabs.length === 1 ? "" : "s"}`,
+        ...(tabGroup.id === session.activeTabGroupId ? ["Active"] : []),
+      ],
+    }];
+  });
+  if (rows.length > UIC_RECENT_SESSIONS_RESOURCE_BUDGET.maxNestedCraftRows) diagnostics.push("uic/resource/rows-truncated");
+  return rows.slice(0, UIC_RECENT_SESSIONS_RESOURCE_BUDGET.maxNestedCraftRows);
+}
+
 export function projectUICRecentSessionsResource(model: Pick<SpacesOverviewSlotProps<"recentSessions">["model"], "workspace" | "currentSessionId" | "expandedSessionId" | "editingSessionId" | "sortedSessions">): UICReadOnlyListResource {
   const diagnostics: string[] = [];
   const seen = new Set<string>();
@@ -801,6 +875,7 @@ export function projectUICRecentSessionsResource(model: Pick<SpacesOverviewSlotP
       const sessionLocation = space && tabGroup
         ? `${space.name} / ${tabGroup.label}`
         : "Recoverable voyage — saved craft is no longer available";
+      const children = session.id === model.expandedSessionId ? projectUICRecentSessionCraftRows(model, session, diagnostics) : [];
       return {
         id: session.id,
         label: capUICResourceString(sessionName, UIC_RECENT_SESSIONS_RESOURCE_BUDGET.maxNameLength, diagnostics),
@@ -811,6 +886,7 @@ export function projectUICRecentSessionsResource(model: Pick<SpacesOverviewSlotP
           ...(session.id === model.expandedSessionId ? ["Expanded"] : []),
           ...(session.id === model.editingSessionId ? ["Editing"] : []),
         ],
+        ...(children.length ? { children } : {}),
       };
     });
   if (sessions.length > UIC_RECENT_SESSIONS_RESOURCE_BUDGET.maxRows) diagnostics.push("uic/resource/rows-truncated");
@@ -829,12 +905,19 @@ function projectUICRecentSessionTargets(model: Pick<SpacesOverviewSlotProps<"rec
 }
 
 export function projectUICRecentSessionActions(
-  model: Pick<SpacesOverviewSlotProps<"recentSessions">["model"], "sortedSessions"> & Partial<Pick<SpacesOverviewSlotProps<"recentSessions">["model"], "editingSessionId" | "sessionNameDraft">>,
-  enabled: Readonly<{ resume: boolean; start: boolean; rename?: boolean; delete?: boolean }> = { resume: true, start: true, rename: true, delete: true },
-): readonly (UICRecentSessionResumeActionDescriptor | UICRecentSessionStartActionDescriptor | UICRecentSessionRenameActionDescriptor | UICRecentSessionDeleteActionDescriptor)[] {
+  model: Pick<SpacesOverviewSlotProps<"recentSessions">["model"], "sortedSessions"> & Partial<Pick<SpacesOverviewSlotProps<"recentSessions">["model"], "workspace" | "expandedSessionId" | "editingSessionId" | "sessionNameDraft">>,
+  enabled: Readonly<{ resume: boolean; start: boolean; rename?: boolean; delete?: boolean; toggle?: boolean; navigateCraft?: boolean }> = { resume: true, start: true, rename: true, delete: true, toggle: true, navigateCraft: true },
+): readonly (UICRecentSessionResumeActionDescriptor | UICRecentSessionStartActionDescriptor | UICRecentSessionRenameActionDescriptor | UICRecentSessionDeleteActionDescriptor | UICRecentSessionToggleActionDescriptor | UICRecentSessionCraftActionDescriptor)[] {
   const renameName = model.sessionNameDraft?.trim();
   const canRename = !!enabled.rename && !!model.editingSessionId && !!renameName && projectUICRecentSessionTargets(model).some((session) => session.id === model.editingSessionId);
   const targets = projectUICRecentSessionTargets(model);
+  const expandedSession = model.sortedSessions.find((session) => session.id === model.expandedSessionId && targets.some((target) => target.id === session.id));
+  const craftTargets = enabled.navigateCraft && model.workspace && expandedSession
+    ? projectUICRecentSessionCraftRows({ workspace: model.workspace }, expandedSession).map((item) => {
+      const [spaceId, tabGroupId] = item.id.split(":");
+      return spaceId && tabGroupId ? { spaceId, tabGroupId } : null;
+    }).filter((item): item is { readonly spaceId: string; readonly tabGroupId: string } => item != null)
+    : [];
   return [
     ...(enabled.start ? [{ event: "start" as const, id: "spaces.startSession" as const, args: {}, status: "available" as const }] : []),
     ...(enabled.resume ? targets.map((session) => ({
@@ -843,6 +926,18 @@ export function projectUICRecentSessionActions(
       args: { sessionId: session.id },
       status: "available" as const,
     })) : []),
+    ...(enabled.toggle ? targets.map((session) => ({
+      event: "toggle" as const,
+      id: "spaces.toggleSession" as const,
+      args: { sessionId: session.id },
+      status: "available" as const,
+    })) : []),
+    ...craftTargets.map((target) => ({
+      event: "activate" as const,
+      id: "spaces.navigateToCraft" as const,
+      args: target,
+      status: "available" as const,
+    })),
     ...(canRename ? [{
       event: "rename" as const,
       id: "spaces.renameSession" as const,
@@ -878,16 +973,20 @@ export function projectUICRecentSessionActions(
   ];
 }
 
-export function UICReadOnlyRecentSessionsSection({ model, actions, enableResumeAction = true, enableStartAction = true, enableRenameAction = true, enableDeleteAction = true }: SpacesOverviewSlotProps<"recentSessions"> & { readonly enableResumeAction?: boolean; readonly enableStartAction?: boolean; readonly enableRenameAction?: boolean; readonly enableDeleteAction?: boolean }) {
+export function UICReadOnlyRecentSessionsSection({ model, actions, enableResumeAction = true, enableStartAction = true, enableRenameAction = true, enableDeleteAction = true, enableToggleAction = true, enableCraftNavigateAction = true }: SpacesOverviewSlotProps<"recentSessions"> & { readonly enableResumeAction?: boolean; readonly enableStartAction?: boolean; readonly enableRenameAction?: boolean; readonly enableDeleteAction?: boolean; readonly enableToggleAction?: boolean; readonly enableCraftNavigateAction?: boolean }) {
   const resource = projectUICRecentSessionsResource(model);
-  const sessionActions = projectUICRecentSessionActions(model, { resume: enableResumeAction, start: enableStartAction, rename: enableRenameAction, delete: enableDeleteAction });
+  const sessionActions = projectUICRecentSessionActions(model, { resume: enableResumeAction, start: enableStartAction, rename: enableRenameAction, delete: enableDeleteAction, toggle: enableToggleAction, navigateCraft: enableCraftNavigateAction });
   const resumeActions = new Map(sessionActions.filter((action): action is UICRecentSessionResumeActionDescriptor => action.id === "spaces.resumeSession").map((action) => [action.args.sessionId, action]));
   const renameActions = new Map(sessionActions.filter((action): action is UICRecentSessionRenameActionDescriptor => action.id === "spaces.renameSession").map((action) => [action.args.sessionId, action]));
   const deleteActions = new Map(sessionActions.filter((action): action is UICRecentSessionDeleteActionDescriptor => action.id === "spaces.deleteSession").map((action) => [action.args.sessionId, action]));
+  const toggleActions = new Map(sessionActions.filter((action): action is UICRecentSessionToggleActionDescriptor => action.id === "spaces.toggleSession").map((action) => [action.args.sessionId, action]));
+  const craftActions = new Map(sessionActions.filter((action): action is UICRecentSessionCraftActionDescriptor => action.id === "spaces.navigateToCraft").map((action) => [`${action.args.spaceId}:${action.args.tabGroupId}`, action]));
   const startAction = sessionActions.find((action): action is UICRecentSessionStartActionDescriptor => action.id === "spaces.startSession");
   const resumableSessionIds = new Set(resumeActions.keys());
   const renameableSessionIds = new Set(renameActions.keys());
   const deletableSessionIds = new Set(deleteActions.keys());
+  const toggleableSessionIds = new Set(toggleActions.keys());
+  const navigableCraftTargets = new Set(craftActions.keys());
   return (
     <section className="mb-8 rounded-xl border p-4" data-myne-slot="recent-sessions" data-uic-owned-region="recent-sessions" aria-busy={false}>
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -932,6 +1031,18 @@ export function UICReadOnlyRecentSessionsSection({ model, actions, enableResumeA
               <MyneText as="span" className="mt-1 block text-xs" tone="muted">
                 {item.meta.join(" · ")}
               </MyneText>
+              {toggleActions.has(item.id) && (
+                <button
+                  type="button"
+                  className="myne-button myne-button--quiet mt-2 text-xs"
+                  onClick={() => {
+                    const action = toggleActions.get(item.id);
+                    if (action) invokeUICRecentSessionAction(actions, action, toggleableSessionIds, !!startAction);
+                  }}
+                >
+                  {item.id === model.expandedSessionId ? "Collapse voyage" : "Expand voyage"}
+                </button>
+              )}
               {resumeActions.has(item.id) && (
                 <button
                   type="button"
@@ -968,6 +1079,32 @@ export function UICReadOnlyRecentSessionsSection({ model, actions, enableResumeA
                   Delete voyage
                 </button>
               )}
+              {item.children?.length ? (
+                <ul className="mt-3 space-y-1 border-t pt-3">
+                  {item.children.map((child) => (
+                    <li key={child.id} className="myne-row rounded border px-3 py-2">
+                      <MyneText as="span" className="block text-sm" tone="primary">
+                        {child.label}
+                      </MyneText>
+                      <MyneText as="span" className="mt-1 block text-xs" tone="muted">
+                        {child.meta.join(" · ")}
+                      </MyneText>
+                      {craftActions.has(child.id) && (
+                        <button
+                          type="button"
+                          className="myne-button myne-button--quiet mt-2 text-xs"
+                          onClick={() => {
+                            const action = craftActions.get(child.id);
+                            if (action) invokeUICRecentSessionAction(actions, action, toggleableSessionIds, !!startAction, { allowedCraftTargets: navigableCraftTargets });
+                          }}
+                        >
+                          Open craft
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </li>
           ))}
         </ul>
@@ -1557,6 +1694,8 @@ export function SpacesOverviewUICLayoutProofPresentation({
   const enableSessionStart = actionBindings.get("recentSessions")?.start === "spaces.startSession";
   const enableSessionRename = actionBindings.get("recentSessions")?.rename === "spaces.renameSession";
   const enableSessionDelete = actionBindings.get("recentSessions")?.delete === "spaces.deleteSession";
+  const enableSessionToggle = actionBindings.get("recentSessions")?.toggle === "spaces.toggleSession";
+  const enableSessionCraftNavigate = actionBindings.get("recentSessions")?.activate === "spaces.navigateToCraft";
   const enableStarredNavigate = actionBindings.get("starredCraft")?.activate === "spaces.navigateToCraft";
   const enableRunningDevServerStop = actionBindings.get("runningDevServers")?.stop === "spaces.stopDevServer";
   const enableRecentlyVisitedNavigate = actionBindings.get("recentlyVisitedCraft")?.activate === "spaces.navigateToCraft";
@@ -1568,7 +1707,7 @@ export function SpacesOverviewUICLayoutProofPresentation({
   const enableSpacePickerClose = actionBindings.get("spacePicker")?.close === "spaces.dismissPicker";
   const enableSpacePickerRetry = actionBindings.get("spacePicker")?.retry === "spaces.retryOpenWorkspace";
   const enableSpacePickerSelect = actionBindings.get("spacePicker")?.select === "spaces.selectSpaceForWorkspace";
-  const ui = diagnostics.length ? defaultSpacesOverviewUI : { ...defaultSpacesOverviewUI, RecentSessionsSection: (slotProps: SpacesOverviewSlotProps<"recentSessions">) => <UICReadOnlyRecentSessionsSection {...slotProps} enableResumeAction={enableSessionResume} enableStartAction={enableSessionStart} enableRenameAction={enableSessionRename} enableDeleteAction={enableSessionDelete} />, StarredCraftSection: (slotProps: SpacesOverviewSlotProps<"starredCraft">) => <UICReadOnlyStarredCraftSection {...slotProps} enableNavigateAction={enableStarredNavigate} />, RunningDevServersSection: (slotProps: SpacesOverviewSlotProps<"runningDevServers">) => <UICReadOnlyRunningDevServersSection {...slotProps} enableStopAction={enableRunningDevServerStop} />, RecentlyVisitedCraftSection: (slotProps: SpacesOverviewSlotProps<"recentlyVisitedCraft">) => <UICReadOnlyRecentlyVisitedCraftSection {...slotProps} enableNavigateAction={enableRecentlyVisitedNavigate} />, RecentlyCreatedCraftSection: (slotProps: SpacesOverviewSlotProps<"recentlyCreatedCraft">) => <UICReadOnlyRecentlyCreatedCraftSection {...slotProps} enableNavigateAction={enableRecentlyCreatedNavigate} />, WorkspaceListSection: (slotProps: SpacesOverviewSlotProps<"workspaceList">) => <UICReadOnlyWorkspaceListSection {...slotProps} enableOpenWorkspaceAction={enableWorkspaceOpen} enableFilterAction={enableWorkspaceFilter} enablePageAction={enableWorkspacePage} />, SpacesSection: (slotProps: SpacesOverviewSlotProps<"spaces">) => <UICReadOnlySpacesSection {...slotProps} enableNavigateAction={enableSpacesNavigate} />, SpacePickerModal: (slotProps: SpacesOverviewSlotProps<"spacePicker">) => <UICSpacePickerModal {...slotProps} enableCloseAction={enableSpacePickerClose} enableRetryAction={enableSpacePickerRetry} enableSelectAction={enableSpacePickerSelect} /> };
+  const ui = diagnostics.length ? defaultSpacesOverviewUI : { ...defaultSpacesOverviewUI, RecentSessionsSection: (slotProps: SpacesOverviewSlotProps<"recentSessions">) => <UICReadOnlyRecentSessionsSection {...slotProps} enableResumeAction={enableSessionResume} enableStartAction={enableSessionStart} enableRenameAction={enableSessionRename} enableDeleteAction={enableSessionDelete} enableToggleAction={enableSessionToggle} enableCraftNavigateAction={enableSessionCraftNavigate} />, StarredCraftSection: (slotProps: SpacesOverviewSlotProps<"starredCraft">) => <UICReadOnlyStarredCraftSection {...slotProps} enableNavigateAction={enableStarredNavigate} />, RunningDevServersSection: (slotProps: SpacesOverviewSlotProps<"runningDevServers">) => <UICReadOnlyRunningDevServersSection {...slotProps} enableStopAction={enableRunningDevServerStop} />, RecentlyVisitedCraftSection: (slotProps: SpacesOverviewSlotProps<"recentlyVisitedCraft">) => <UICReadOnlyRecentlyVisitedCraftSection {...slotProps} enableNavigateAction={enableRecentlyVisitedNavigate} />, RecentlyCreatedCraftSection: (slotProps: SpacesOverviewSlotProps<"recentlyCreatedCraft">) => <UICReadOnlyRecentlyCreatedCraftSection {...slotProps} enableNavigateAction={enableRecentlyCreatedNavigate} />, WorkspaceListSection: (slotProps: SpacesOverviewSlotProps<"workspaceList">) => <UICReadOnlyWorkspaceListSection {...slotProps} enableOpenWorkspaceAction={enableWorkspaceOpen} enableFilterAction={enableWorkspaceFilter} enablePageAction={enableWorkspacePage} />, SpacesSection: (slotProps: SpacesOverviewSlotProps<"spaces">) => <UICReadOnlySpacesSection {...slotProps} enableNavigateAction={enableSpacesNavigate} />, SpacePickerModal: (slotProps: SpacesOverviewSlotProps<"spacePicker">) => <UICSpacePickerModal {...slotProps} enableCloseAction={enableSpacePickerClose} enableRetryAction={enableSpacePickerRetry} enableSelectAction={enableSpacePickerSelect} /> };
 
   return (
     <>
