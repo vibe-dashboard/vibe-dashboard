@@ -140,6 +140,8 @@ export const spacesOverviewPageHeaderUICProof: UICSurfaceDescriptor = Object.fre
       props: Object.freeze([]),
       events: Object.freeze({
         activate: Object.freeze(["spaces.openWorkspace"]),
+        navigate: Object.freeze(["spaces.navigateToCraft"]),
+        stop: Object.freeze(["spaces.stopDevServer"]),
         filter: Object.freeze(["spaces.filterWorkspaces"]),
         page: Object.freeze(["spaces.pageWorkspaces"]),
       }),

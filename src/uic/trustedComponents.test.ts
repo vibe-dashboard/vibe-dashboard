@@ -27,7 +27,7 @@ const fullSpacesOverviewXml = `<uic:spaceOverviewPage xmlns:uic="https://vibedas
   <uic:runningDevServers uic:on-stop="spaces.stopDevServer" uic:on-activate="spaces.navigateToCraft" uic:on-open="spaces.openWorkspace" />
   <uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyVisitedCraft" />
   <uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyCreatedCraft" />
-  <uic:workspaceList uic:on-activate="spaces.openWorkspace" uic:on-filter="spaces.filterWorkspaces" uic:on-page="spaces.pageWorkspaces" />
+  <uic:workspaceList uic:on-activate="spaces.openWorkspace" uic:on-navigate="spaces.navigateToCraft" uic:on-stop="spaces.stopDevServer" uic:on-filter="spaces.filterWorkspaces" uic:on-page="spaces.pageWorkspaces" />
   <uic:spaces uic:on-activate="spaces.navigateToCraft" />
   <uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" uic:on-select="spaces.selectSpaceForWorkspace" />
 </uic:spaceOverviewPage>`;
@@ -53,6 +53,7 @@ describe("UIC trusted component descriptors", () => {
     expect(xsd).toContain('name="uic:on-rename"');
     expect(xsd).toContain('name="uic:on-delete"');
     expect(xsd).toContain('name="uic:on-toggle"');
+    expect(xsd).toContain('name="uic:on-navigate"');
     expect(xsd).toContain('name="uic:on-stop"');
     expect(xsd).toContain('name="uic:on-open"');
     expect(xsd).toContain('name="uic:on-filter"');
@@ -114,7 +115,7 @@ describe("UIC trusted component descriptors", () => {
         { tag: "runningDevServers", componentId: "myne.spaces.running-dev-servers.default", actions: { stop: "spaces.stopDevServer", activate: "spaces.navigateToCraft", open: "spaces.openWorkspace" } },
         { tag: "recentlyVisitedCraft", componentId: "myne.spaces.recently-visited.default", actions: { activate: "spaces.navigateToCraft", page: "spaces.pageRecentlyVisitedCraft" } },
         { tag: "recentlyCreatedCraft", componentId: "myne.spaces.recently-created.default", actions: { activate: "spaces.navigateToCraft", page: "spaces.pageRecentlyCreatedCraft" } },
-        { tag: "workspaceList", componentId: "myne.spaces.workspace-list.default", actions: { activate: "spaces.openWorkspace", filter: "spaces.filterWorkspaces", page: "spaces.pageWorkspaces" } },
+        { tag: "workspaceList", componentId: "myne.spaces.workspace-list.default", actions: { activate: "spaces.openWorkspace", navigate: "spaces.navigateToCraft", stop: "spaces.stopDevServer", filter: "spaces.filterWorkspaces", page: "spaces.pageWorkspaces" } },
         { tag: "spaces", componentId: "myne.spaces.spaces.default", actions: { activate: "spaces.navigateToCraft" } },
         { tag: "spacePicker", componentId: "myne.spaces.space-picker.default", actions: { close: "spaces.dismissPicker", retry: "spaces.retryOpenWorkspace", select: "spaces.selectSpaceForWorkspace" } },
       ],
@@ -124,7 +125,7 @@ describe("UIC trusted component descriptors", () => {
   });
 
   it("requires every SpacesOverview layout-shell tag exactly once before compile", async () => {
-    const missingWorkspace = fullSpacesOverviewXml.replace('  <uic:workspaceList uic:on-activate="spaces.openWorkspace" uic:on-filter="spaces.filterWorkspaces" uic:on-page="spaces.pageWorkspaces" />\n', "");
+    const missingWorkspace = fullSpacesOverviewXml.replace('  <uic:workspaceList uic:on-activate="spaces.openWorkspace" uic:on-navigate="spaces.navigateToCraft" uic:on-stop="spaces.stopDevServer" uic:on-filter="spaces.filterWorkspaces" uic:on-page="spaces.pageWorkspaces" />\n', "");
     const duplicateSpaces = fullSpacesOverviewXml.replace('  <uic:spaces uic:on-activate="spaces.navigateToCraft" />', '  <uic:spaces uic:on-activate="spaces.navigateToCraft" />\n  <uic:spaces uic:on-activate="spaces.navigateToCraft" />');
     const reordered = fullSpacesOverviewXml.replace('  <uic:recentSessions uic:on-resume="spaces.resumeSession" uic:on-start="spaces.startSession" uic:on-rename="spaces.renameSession" uic:on-delete="spaces.deleteSession" uic:on-toggle="spaces.toggleSession" uic:on-activate="spaces.navigateToCraft" />\n  <uic:starredCraft uic:on-activate="spaces.navigateToCraft" />', '  <uic:starredCraft uic:on-activate="spaces.navigateToCraft" />\n  <uic:recentSessions uic:on-resume="spaces.resumeSession" uic:on-start="spaces.startSession" uic:on-rename="spaces.renameSession" uic:on-delete="spaces.deleteSession" uic:on-toggle="spaces.toggleSession" uic:on-activate="spaces.navigateToCraft" />');
     const extra = fullSpacesOverviewXml.replace('  <uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" uic:on-select="spaces.selectSpaceForWorkspace" />', '  <uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" uic:on-select="spaces.selectSpaceForWorkspace" />\n  <uic:unknownSection />');
@@ -193,6 +194,7 @@ describe("UIC trusted component descriptors", () => {
       .replaceAll(' uic:on-stop="spaces.stopDevServer"', "")
       .replaceAll(' uic:on-open="spaces.openWorkspace"', "")
       .replaceAll(' uic:on-activate="spaces.openWorkspace"', "")
+      .replaceAll(' uic:on-navigate="spaces.navigateToCraft"', "")
       .replaceAll(' uic:on-filter="spaces.filterWorkspaces"', "")
       .replaceAll(' uic:on-page="spaces.pageWorkspaces"', "")
       .replaceAll(' uic:on-page="spaces.pageRecentlyVisitedCraft"', "")

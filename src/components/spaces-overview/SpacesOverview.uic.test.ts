@@ -15,6 +15,7 @@ import {
   SpacesOverviewUICPageHeaderProof,
   UICReadOnlyRecentSessionsSection,
   UICReadOnlyRunningDevServersSection,
+  UICReadOnlyWorkspaceListSection,
   resolveUICActionLifecycle,
   invokeUICRecentSessionAction,
   invokeUICRunningDevServerAction,
@@ -225,6 +226,8 @@ function workspaceActionModel(overrides: Partial<Parameters<typeof projectUICWor
     workspacePage: 0,
     workspaceTotalPages: 1,
     canOpenWorkspaceInSpace: true,
+    workspaceTabGroupMap: new Map(),
+    stoppingDevServerIds: new Set<string>(),
     ...overrides,
   };
 }
@@ -234,6 +237,8 @@ function workspaceActionCallbacks(overrides: Partial<Parameters<typeof invokeUIC
     openSpacePickerForWorkspace: vi.fn(),
     selectRepo: vi.fn(),
     setWorkspacePage: vi.fn(),
+    navigateToTabGroup: vi.fn(),
+    stopDevServer: vi.fn(),
     ...overrides,
   };
 }
@@ -1151,19 +1156,18 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(region).toContain(longCraft.slice(0, UIC_SPACES_RESOURCE_BUDGET.maxCraftLabelLength));
   });
 
-  it("uses finite UIC states and typed open/filter actions for workspace list without mutation controls", () => {
+  it("uses finite UIC states and typed workspace-list row/filter actions", () => {
     const readyRegion = workspaceListRegion(renderUICLayout());
 
     expect(readyRegion).toContain("Read-only UIC workspace list");
     expect(readyRegion).toContain("VK Workspaces");
     expect(readyRegion).toContain(dashboardWorkspaces[0]!.name);
-    expect(readyRegion).toContain("Open workspace");
+    expect(readyRegion).toContain("Go to craft");
+    expect(readyRegion).toContain("Stop server");
     expect(readyRegion).toContain("All</");
     expect(readyRegion).toContain(storybookRepos[0]!.display_name);
     expect(readyRegion).not.toContain("Previous");
     expect(readyRegion).not.toContain("Next");
-    expect(readyRegion).not.toContain("Stop server");
-    expect(readyRegion).not.toContain("Go to craft");
     expect(readyRegion).not.toContain(">Open<");
 
     expect(workspaceListRegion(renderUICLayout(undefined, { loading: true, workspaces: [] }))).toContain("Loading workspaces");
@@ -1307,6 +1311,124 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(invokeUICWorkspaceListAction(actions, { id: "spaces.pageWorkspaces", event: "page", status: "available", args: { direction: "sideways", page: 1 } }, new Map(), allowedFilters, allowedPages)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/invalid-args" } });
     expect(selectRepo).not.toHaveBeenCalled();
     expect(setWorkspacePage).not.toHaveBeenCalled();
+  });
+
+  it("binds workspace row craft navigation and stop only from validated XML actions", () => {
+    const workspace = runningWorkspace({ id: "workspace-uic-row", name: "UIC row workspace" });
+    const workspaceTabGroupMap = new Map([[workspace.id, { spaceId: "space-product", tabGroupId: "tg-product", label: "Product craft" }]]);
+    const region = workspaceListRegion(renderUICPresentationWithModel({
+      sortedWorkspaces: [workspace],
+      pagedWorkspaces: [workspace],
+      workspaces: [workspace],
+      workspaceTabGroupMap,
+      stoppingDevServerIds: new Set<string>(),
+    }));
+
+    expect(region).toContain("UIC row workspace");
+    expect(region).toContain("Go to craft");
+    expect(region).toContain("Stop server");
+    expect(region).not.toContain("Open workspace");
+
+    const withoutNavigateAndStop = workspaceListRegion(renderUICPresentationWithModel(
+      {
+        sortedWorkspaces: [workspace],
+        pagedWorkspaces: [workspace],
+        workspaces: [workspace],
+        workspaceTabGroupMap,
+        stoppingDevServerIds: new Set<string>(),
+      },
+      {},
+      spacesOverviewUICLayoutXml.replace(
+        '<uic:workspaceList uic:on-activate="spaces.openWorkspace" uic:on-navigate="spaces.navigateToCraft" uic:on-stop="spaces.stopDevServer" uic:on-filter="spaces.filterWorkspaces" uic:on-page="spaces.pageWorkspaces" />',
+        '<uic:workspaceList uic:on-activate="spaces.openWorkspace" uic:on-filter="spaces.filterWorkspaces" uic:on-page="spaces.pageWorkspaces" />',
+      ),
+    ));
+    expect(withoutNavigateAndStop).not.toContain("Go to craft");
+    expect(withoutNavigateAndStop).not.toContain("Stop server");
+  });
+
+  it("falls back without workspace navigate/stop UI or dispatch when those action bindings are invalid", () => {
+    for (const [attr, invalid] of [
+      ["uic:on-navigate", "https://example.test/action"],
+      ["uic:on-navigate", "spaces.deleteWorkspace"],
+      ["uic:on-stop", "https://example.test/action"],
+      ["uic:on-stop", "spaces.deleteWorkspace"],
+    ] as const) {
+      const navigateToTabGroup = vi.fn();
+      const stopDevServer = vi.fn();
+      const html = renderUICPresentationWithModel(
+        {},
+        { navigateToTabGroup, stopDevServer },
+        spacesOverviewUICLayoutXml.replace(new RegExp(`${attr}="[^"]+"`, "u"), `${attr}="${invalid}"`),
+      );
+
+      expect(html).toContain('data-myne-view-pack="myne.spaces.view-pack.default"');
+      expect(html).toContain("uic/xml/unknown-action");
+      expect(html).not.toContain('data-uic-owned-region="workspace-list"');
+      expect(navigateToTabGroup).not.toHaveBeenCalled();
+      expect(stopDevServer).not.toHaveBeenCalled();
+    }
+  });
+
+  it("projects serializable workspace row navigate/stop descriptors and blocks stale or unavailable targets", () => {
+    const workspace = runningWorkspace({ id: "workspace-uic-actions" });
+    const workspaceTabGroupMap = new Map([[workspace.id, { spaceId: "space-product", tabGroupId: "tg-product", label: "Product craft" }]]);
+    const descriptors = projectUICWorkspaceListActions(workspaceActionModel({
+      sortedWorkspaces: [workspace],
+      workspaceTabGroupMap,
+      stoppingDevServerIds: new Set<string>(),
+    }), { open: true, filter: false, page: false, navigate: true, stop: true });
+    const navigate = descriptors.find((action) => action.id === "spaces.navigateToCraft");
+    const stop = descriptors.find((action) => action.id === "spaces.stopDevServer");
+    const navigateToTabGroup = vi.fn();
+    const stopDevServer = vi.fn();
+    const actions = workspaceActionCallbacks({ navigateToTabGroup, stopDevServer });
+    const allowedCraftTargets = new Set([`${workspace.id}:space-product:tg-product`]);
+    const stopAllowedWorkspaces = new Set([workspace.id]);
+
+    expect(navigate).toMatchObject({ event: "navigate", id: "spaces.navigateToCraft", args: { workspaceId: workspace.id, spaceId: "space-product", tabGroupId: "tg-product" }, status: "available" });
+    expect(stop).toMatchObject({ event: "stop", id: "spaces.stopDevServer", args: { workspaceId: workspace.id }, status: "available" });
+    expect(JSON.stringify(descriptors)).not.toMatch(/function|=>|appHooks|QueryClient|https?:|openSpacePickerForWorkspace|navigateToTabGroup|deleteSession/u);
+
+    expect(invokeUICWorkspaceListAction(actions, navigate!, new Map(), new Set(), new Map(), { allowedCraftTargets })).toEqual({ ok: true, result: { state: "completed" } });
+    expect(navigateToTabGroup).toHaveBeenCalledWith("space-product", "tg-product");
+    expect(invokeUICWorkspaceListAction(actions, stop!, new Map(), new Set(), new Map(), { stopAllowedWorkspaces, authorized: true, confirmed: false })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/confirmation-required" } });
+    expect(stopDevServer).not.toHaveBeenCalled();
+    expect(invokeUICWorkspaceListAction(actions, stop!, new Map(), new Set(), new Map(), { stopAllowedWorkspaces, authorized: true, confirmed: true })).toEqual({ ok: true, result: { state: "completed" } });
+    expect(stopDevServer).toHaveBeenCalledWith(workspace.id);
+
+    expect(invokeUICWorkspaceListAction(actions, { ...navigate!, status: "unavailable" }, new Map(), new Set(), new Map(), { allowedCraftTargets })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unavailable" } });
+    expect(invokeUICWorkspaceListAction(actions, { ...navigate!, args: { workspaceId: workspace.id, spaceId: "space-product", tabGroupId: "stale" } }, new Map(), new Set(), new Map(), { allowedCraftTargets })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unavailable" } });
+    expect(invokeUICWorkspaceListAction(actions, { ...stop!, status: "unavailable" }, new Map(), new Set(), new Map(), { stopAllowedWorkspaces, authorized: true, confirmed: true })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unavailable" } });
+    expect(invokeUICWorkspaceListAction(actions, { ...stop!, args: { workspaceId: "stale" } }, new Map(), new Set(), new Map(), { stopAllowedWorkspaces, authorized: true, confirmed: true })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unavailable" } });
+    expect(invokeUICWorkspaceListAction(actions, { ...stop!, args: { workspaceId: workspace.id, url: "https://example.test" } }, new Map(), new Set(), new Map(), { stopAllowedWorkspaces, authorized: true, confirmed: true })).toMatchObject({ ok: false, diagnostic: { code: "uic/action/invalid-args" } });
+  });
+
+  it("does not dispatch from rendered UIC workspace-list stop control before confirmation", () => {
+    const workspace = runningWorkspace({ id: "workspace-uic-stop-control" });
+    const stopDevServer = vi.fn();
+    const node = UICReadOnlyWorkspaceListSection({
+      model: {
+        loading: false,
+        error: null,
+        sortedWorkspaces: [workspace],
+        pagedWorkspaces: [workspace],
+        effectiveRepos: storybookRepos,
+        selectedRepoId: null,
+        workspacePage: 0,
+        workspaceTotalPages: 1,
+        canOpenWorkspaceInSpace: true,
+        workspaceTabGroupMap: new Map(),
+        stoppingDevServerIds: new Set<string>(),
+      },
+      actions: workspaceActionCallbacks({ stopDevServer }),
+    });
+    const button = findButtonByText(node, "Stop server");
+
+    expect(button).not.toBeNull();
+    button?.props.onClick?.();
+
+    expect(stopDevServer).not.toHaveBeenCalled();
   });
 
   it("renders UIC space-picker close action only from validated XML binding", () => {

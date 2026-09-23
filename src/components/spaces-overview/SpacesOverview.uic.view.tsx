@@ -17,7 +17,7 @@ export const spacesOverviewUICLayoutXml = `<uic:spaceOverviewPage xmlns:uic="htt
   <uic:runningDevServers uic:on-stop="spaces.stopDevServer" uic:on-activate="spaces.navigateToCraft" uic:on-open="spaces.openWorkspace" />
   <uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyVisitedCraft" />
   <uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyCreatedCraft" />
-  <uic:workspaceList uic:on-activate="spaces.openWorkspace" uic:on-filter="spaces.filterWorkspaces" uic:on-page="spaces.pageWorkspaces" />
+  <uic:workspaceList uic:on-activate="spaces.openWorkspace" uic:on-navigate="spaces.navigateToCraft" uic:on-stop="spaces.stopDevServer" uic:on-filter="spaces.filterWorkspaces" uic:on-page="spaces.pageWorkspaces" />
   <uic:spaces uic:on-activate="spaces.navigateToCraft" />
   <uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" uic:on-select="spaces.selectSpaceForWorkspace" />
 </uic:spaceOverviewPage>`;
@@ -101,6 +101,19 @@ type UICWorkspaceActionDescriptor = {
   readonly args: Readonly<{ workspaceId: string }>;
   readonly status: "available" | "unavailable";
 };
+type UICWorkspaceNavigateActionDescriptor = {
+  readonly event: "navigate";
+  readonly id: "spaces.navigateToCraft";
+  readonly args: Readonly<{ workspaceId: string; spaceId: string; tabGroupId: string }>;
+  readonly status: "available" | "unavailable";
+};
+type UICWorkspaceStopActionDescriptor = {
+  readonly event: "stop";
+  readonly id: "spaces.stopDevServer";
+  readonly args: Readonly<{ workspaceId: string }>;
+  readonly status: "available" | "unavailable";
+  readonly lifecycle: UICActionLifecycle;
+};
 type UICRunningDevServerStopActionDescriptor = {
   readonly event: "stop";
   readonly id: "spaces.stopDevServer";
@@ -144,7 +157,7 @@ type UICSpacePickerSelectActionDescriptor = {
   readonly args: Readonly<{ spaceId: string }>;
   readonly status: "available" | "unavailable";
 };
-export type UICSpacesOverviewActionDescriptor = UICCraftActionDescriptor | UICRecentSessionResumeActionDescriptor | UICRecentSessionStartActionDescriptor | UICRecentSessionRenameActionDescriptor | UICRecentSessionDeleteActionDescriptor | UICRunningDevServerStopActionDescriptor | UICWorkspaceActionDescriptor | UICWorkspaceFilterActionDescriptor | UICWorkspacePageActionDescriptor | UICSpacePickerActionDescriptor | UICSpacePickerSelectActionDescriptor;
+export type UICSpacesOverviewActionDescriptor = UICCraftActionDescriptor | UICRecentSessionResumeActionDescriptor | UICRecentSessionStartActionDescriptor | UICRecentSessionRenameActionDescriptor | UICRecentSessionDeleteActionDescriptor | UICRunningDevServerStopActionDescriptor | UICWorkspaceActionDescriptor | UICWorkspaceNavigateActionDescriptor | UICWorkspaceStopActionDescriptor | UICWorkspaceFilterActionDescriptor | UICWorkspacePageActionDescriptor | UICSpacePickerActionDescriptor | UICSpacePickerSelectActionDescriptor;
 type UICActionDiagnostic = Readonly<{ code: string; message: string; recoverable?: boolean }>;
 type UICActionLifecycle = Readonly<{
   confirmation?: Readonly<{ required: boolean; title?: string; message?: string; confirmLabel?: string; tone?: "neutral" | "warning" | "destructive" }>;
@@ -400,7 +413,7 @@ type UICNavigateActions = Pick<SpacesOverviewSlotProps<"starredCraft">["actions"
 type UICCraftListPageActions = Partial<Pick<SpacesOverviewSlotProps<"recentlyVisitedCraft">["actions"], "setRecentlyVisitedPage"> & Pick<SpacesOverviewSlotProps<"recentlyCreatedCraft">["actions"], "setRecentlyCreatedPage">>;
 type UICRecentSessionActions = Pick<SpacesOverviewSlotProps<"recentSessions">["actions"], "resumeSession" | "startNewSession" | "renameSession" | "deleteSession"> & Partial<Pick<SpacesOverviewSlotProps<"recentSessions">["actions"], "toggleExpandedSession" | "navigateToTabGroup">>;
 type UICRunningDevServerActions = Pick<SpacesOverviewSlotProps<"runningDevServers">["actions"], "stopDevServer"> & Partial<Pick<SpacesOverviewSlotProps<"runningDevServers">["actions"], "navigateToTabGroup" | "openSpacePickerForWorkspace">>;
-type UICWorkspaceListActions = Pick<SpacesOverviewSlotProps<"workspaceList">["actions"], "openSpacePickerForWorkspace" | "selectRepo" | "setWorkspacePage">;
+type UICWorkspaceListActions = Pick<SpacesOverviewSlotProps<"workspaceList">["actions"], "openSpacePickerForWorkspace" | "selectRepo" | "setWorkspacePage" | "navigateToTabGroup" | "stopDevServer">;
 type UICSpacePickerActions = Pick<SpacesOverviewSlotProps<"spacePicker">["actions"], "closeSpacePicker" | "retryOpenCraftRequest" | "runOpenCraftRequest">;
 
 export function invokeUICSpacesOverviewAction(
@@ -598,14 +611,17 @@ export function invokeUICRunningDevServerAction(
 
 export function invokeUICWorkspaceListAction(
   actions: UICWorkspaceListActions,
-  descriptor: { readonly id: string; readonly event: string; readonly status: string; readonly args: unknown },
+  descriptor: { readonly id: string; readonly event: string; readonly status: string; readonly args: unknown; readonly lifecycle?: unknown },
   allowedWorkspaces: ReadonlyMap<string, DashboardWorkspace>,
   allowedFilters: ReadonlySet<string> = new Set(),
   allowedPages: ReadonlyMap<string, number> = new Map(),
+  context: Readonly<{ allowedCraftTargets?: ReadonlySet<string>; stopAllowedWorkspaces?: ReadonlySet<string>; authorized?: boolean; confirmed?: boolean; pendingKeys?: ReadonlySet<string> }> = {},
 ): { readonly ok: true; readonly result: { readonly state: "completed" } } | { readonly ok: false; readonly diagnostic: { readonly code: string; readonly message: string } } {
   if (
     !(
       (descriptor.id === "spaces.openWorkspace" && descriptor.event === "activate") ||
+      (descriptor.id === "spaces.navigateToCraft" && descriptor.event === "navigate") ||
+      (descriptor.id === "spaces.stopDevServer" && descriptor.event === "stop") ||
       (descriptor.id === "spaces.filterWorkspaces" && descriptor.event === "filter") ||
       (descriptor.id === "spaces.pageWorkspaces" && descriptor.event === "page")
     )
@@ -617,10 +633,10 @@ export function invokeUICWorkspaceListAction(
     return { ok: false, diagnostic: { code: "uic/action/unavailable", message: "UIC action is unavailable for the current trusted state." } };
   }
   if (descriptor.id === "spaces.filterWorkspaces") {
-    if (!args || typeof args !== "object" || typeof (args as { repoId?: unknown }).repoId !== "string") {
+    if (!isPlainRecord(args) || !hasExactKeys(args, ["repoId"]) || typeof args.repoId !== "string") {
       return { ok: false, diagnostic: { code: "uic/action/invalid-args", message: "UIC action arguments do not match the declared schema." } };
     }
-    const repoId = (args as { repoId: string }).repoId;
+    const repoId = args.repoId;
     if (!allowedFilters.has(repoId)) {
       return { ok: false, diagnostic: { code: "uic/action/unavailable", message: "UIC action is unavailable for the current trusted state." } };
     }
@@ -628,7 +644,7 @@ export function invokeUICWorkspaceListAction(
     return { ok: true, result: { state: "completed" } };
   }
   if (descriptor.id === "spaces.pageWorkspaces") {
-    if (!args || typeof args !== "object" || ((args as { direction?: unknown }).direction !== "previous" && (args as { direction?: unknown }).direction !== "next") || typeof (args as { page?: unknown }).page !== "number") {
+    if (!isPlainRecord(args) || !hasExactKeys(args, ["direction", "page"]) || (args.direction !== "previous" && args.direction !== "next") || typeof args.page !== "number") {
       return { ok: false, diagnostic: { code: "uic/action/invalid-args", message: "UIC action arguments do not match the declared schema." } };
     }
     const { direction, page } = args as { direction: "previous" | "next"; page: number };
@@ -638,10 +654,32 @@ export function invokeUICWorkspaceListAction(
     actions.setWorkspacePage(page);
     return { ok: true, result: { state: "completed" } };
   }
-  if (!args || typeof args !== "object" || typeof (args as { workspaceId?: unknown }).workspaceId !== "string") {
+  if (descriptor.id === "spaces.navigateToCraft") {
+    if (!isPlainRecord(args) || !hasExactKeys(args, ["workspaceId", "spaceId", "tabGroupId"]) || typeof args.workspaceId !== "string" || typeof args.spaceId !== "string" || typeof args.tabGroupId !== "string") {
+      return { ok: false, diagnostic: { code: "uic/action/invalid-args", message: "UIC action arguments do not match the declared schema." } };
+    }
+    if (!context.allowedCraftTargets?.has(`${args.workspaceId}:${args.spaceId}:${args.tabGroupId}`)) {
+      return { ok: false, diagnostic: { code: "uic/action/unavailable", message: "UIC action is unavailable for the current trusted state." } };
+    }
+    actions.navigateToTabGroup(args.spaceId, args.tabGroupId);
+    return { ok: true, result: { state: "completed" } };
+  }
+  if (descriptor.id === "spaces.stopDevServer") {
+    if (!isPlainRecord(args) || !hasExactKeys(args, ["workspaceId"]) || typeof args.workspaceId !== "string") {
+      return { ok: false, diagnostic: { code: "uic/action/invalid-args", message: "UIC action arguments do not match the declared schema." } };
+    }
+    if (!context.stopAllowedWorkspaces?.has(args.workspaceId)) {
+      return { ok: false, diagnostic: { code: "uic/action/unavailable", message: "UIC action is unavailable for the current trusted state." } };
+    }
+    const lifecycle = resolveUICActionLifecycle(descriptor as UICWorkspaceStopActionDescriptor, descriptor.lifecycle, { authorized: context.authorized === true, confirmed: context.confirmed, pendingKeys: context.pendingKeys });
+    if (!lifecycle.ok) return lifecycle;
+    actions.stopDevServer(args.workspaceId);
+    return { ok: true, result: { state: "completed" } };
+  }
+  if (!isPlainRecord(args) || !hasExactKeys(args, ["workspaceId"]) || typeof args.workspaceId !== "string") {
     return { ok: false, diagnostic: { code: "uic/action/invalid-args", message: "UIC action arguments do not match the declared schema." } };
   }
-  const workspace = allowedWorkspaces.get((args as { workspaceId: string }).workspaceId);
+  const workspace = allowedWorkspaces.get(args.workspaceId);
   if (!workspace) {
     return { ok: false, diagnostic: { code: "uic/action/unavailable", message: "UIC action is unavailable for the current trusted state." } };
   }
@@ -1494,17 +1532,48 @@ function projectUICWorkspaceActionTargets(model: Pick<SpacesOverviewSlotProps<"w
 }
 
 export function projectUICWorkspaceListActions(
-  model: Pick<SpacesOverviewSlotProps<"workspaceList">["model"], "effectiveRepos" | "selectedRepoId" | "sortedWorkspaces" | "workspacePage" | "workspaceTotalPages" | "canOpenWorkspaceInSpace">,
-  enabled: Readonly<{ open: boolean; filter: boolean; page: boolean }> = { open: true, filter: true, page: true },
-): readonly (UICWorkspaceActionDescriptor | UICWorkspaceFilterActionDescriptor | UICWorkspacePageActionDescriptor)[] {
-  const actions: (UICWorkspaceActionDescriptor | UICWorkspaceFilterActionDescriptor | UICWorkspacePageActionDescriptor)[] = [];
-  if (enabled.open && model.canOpenWorkspaceInSpace) {
-    actions.push(...projectUICWorkspaceActionTargets(model).map((workspace) => ({
-      event: "activate" as const,
-      id: "spaces.openWorkspace" as const,
-      args: { workspaceId: workspace.id },
-      status: "available" as const,
-    })));
+  model: Pick<SpacesOverviewSlotProps<"workspaceList">["model"], "effectiveRepos" | "selectedRepoId" | "sortedWorkspaces" | "workspacePage" | "workspaceTotalPages" | "canOpenWorkspaceInSpace" | "workspaceTabGroupMap" | "stoppingDevServerIds">,
+  enabled: Readonly<{ open: boolean; filter: boolean; page: boolean; navigate?: boolean; stop?: boolean }> = { open: true, filter: true, page: true, navigate: true, stop: true },
+): readonly (UICWorkspaceActionDescriptor | UICWorkspaceNavigateActionDescriptor | UICWorkspaceStopActionDescriptor | UICWorkspaceFilterActionDescriptor | UICWorkspacePageActionDescriptor)[] {
+  const actions: (UICWorkspaceActionDescriptor | UICWorkspaceNavigateActionDescriptor | UICWorkspaceStopActionDescriptor | UICWorkspaceFilterActionDescriptor | UICWorkspacePageActionDescriptor)[] = [];
+  for (const workspace of projectUICWorkspaceActionTargets(model)) {
+    const nav = model.workspaceTabGroupMap.get(workspace.id);
+    if (enabled.navigate && nav) {
+      actions.push({
+        event: "navigate",
+        id: "spaces.navigateToCraft",
+        args: { workspaceId: workspace.id, spaceId: nav.spaceId, tabGroupId: nav.tabGroupId },
+        status: "available",
+      });
+    } else if (enabled.open && model.canOpenWorkspaceInSpace) {
+      actions.push({
+        event: "activate",
+        id: "spaces.openWorkspace",
+        args: { workspaceId: workspace.id },
+        status: "available",
+      });
+    }
+    if (enabled.stop && workspace.has_running_dev_server && !model.stoppingDevServerIds.has(workspace.id)) {
+      actions.push({
+        event: "stop",
+        id: "spaces.stopDevServer",
+        args: { workspaceId: workspace.id },
+        status: "available",
+        lifecycle: {
+          confirmation: {
+            required: true,
+            title: "Stop development server?",
+            message: "Stop this running development server.",
+            confirmLabel: "Stop server",
+            tone: "destructive",
+          },
+          pending: { key: `workspace:${workspace.id}:stop`, label: "Stopping development server" },
+          result: { state: "idle" },
+          diagnostics: [],
+          authorization: { state: "allowed" },
+        },
+      });
+    }
   }
   if (enabled.filter && model.effectiveRepos.length > 0) {
     actions.push({ event: "filter", id: "spaces.filterWorkspaces", args: { repoId: "__all__" }, status: "available" });
@@ -1522,13 +1591,22 @@ export function projectUICWorkspaceListActions(
   return actions;
 }
 
-function UICReadOnlyWorkspaceListSection({ model, actions, enableOpenWorkspaceAction = true, enableFilterAction = true, enablePageAction = true }: SpacesOverviewSlotProps<"workspaceList"> & { readonly enableOpenWorkspaceAction?: boolean; readonly enableFilterAction?: boolean; readonly enablePageAction?: boolean }) {
+export function UICReadOnlyWorkspaceListSection({ model, actions, enableOpenWorkspaceAction = true, enableNavigateAction = true, enableStopAction = true, enableFilterAction = true, enablePageAction = true }: SpacesOverviewSlotProps<"workspaceList"> & { readonly enableOpenWorkspaceAction?: boolean; readonly enableNavigateAction?: boolean; readonly enableStopAction?: boolean; readonly enableFilterAction?: boolean; readonly enablePageAction?: boolean }) {
   const resource = projectUICWorkspaceListResource(model);
-  const workspaceActions = projectUICWorkspaceListActions(model, { open: enableOpenWorkspaceAction, filter: enableFilterAction, page: enablePageAction });
+  const workspaceActions = projectUICWorkspaceListActions(model, { open: enableOpenWorkspaceAction, navigate: enableNavigateAction, stop: enableStopAction, filter: enableFilterAction, page: enablePageAction });
   const actionDescriptors = new Map(workspaceActions.filter((action): action is UICWorkspaceActionDescriptor => action.id === "spaces.openWorkspace").map((action) => [action.args.workspaceId, action]));
+  const navigateActions = new Map(workspaceActions.filter((action): action is UICWorkspaceNavigateActionDescriptor => action.id === "spaces.navigateToCraft").map((action) => [action.args.workspaceId, action]));
+  const stopActions = new Map(workspaceActions.filter((action): action is UICWorkspaceStopActionDescriptor => action.id === "spaces.stopDevServer").map((action) => [action.args.workspaceId, action]));
   const filterActions = workspaceActions.filter((action): action is UICWorkspaceFilterActionDescriptor => action.id === "spaces.filterWorkspaces");
   const pageActions = workspaceActions.filter((action): action is UICWorkspacePageActionDescriptor => action.id === "spaces.pageWorkspaces");
-  const allowedWorkspaces = new Map(projectUICWorkspaceActionTargets(model).map((workspace) => [workspace.id, workspace]));
+  const workspaceById = new Map(projectUICWorkspaceActionTargets(model).map((workspace) => [workspace.id, workspace]));
+  const allowedWorkspaces = new Map(Array.from(actionDescriptors.keys()).flatMap((id) => {
+    const workspace = workspaceById.get(id);
+    return workspace ? [[id, workspace] as const] : [];
+  }));
+  const allowedCraftTargets = new Set(Array.from(navigateActions.values()).map((action) => `${action.args.workspaceId}:${action.args.spaceId}:${action.args.tabGroupId}`));
+  const stopAllowedWorkspaces = new Set(stopActions.keys());
+  const pendingKeys = new Set(Array.from(model.stoppingDevServerIds).map((id) => `workspace:${id}:stop`));
   const allowedFilters = new Set(filterActions.map((action) => action.args.repoId));
   const allowedPages = new Map(pageActions.map((action) => [action.args.direction, action.args.page]));
   return (
@@ -1603,6 +1681,30 @@ function UICReadOnlyWorkspaceListSection({ model, actions, enableOpenWorkspaceAc
                   }}
                 >
                   Open workspace
+                </button>
+              )}
+              {navigateActions.has(item.id) && (
+                <button
+                  type="button"
+                  className="myne-button myne-button--quiet mt-2 text-xs"
+                  onClick={() => {
+                    const action = navigateActions.get(item.id);
+                    if (action) invokeUICWorkspaceListAction(actions, action, allowedWorkspaces, allowedFilters, allowedPages, { allowedCraftTargets });
+                  }}
+                >
+                  Go to craft
+                </button>
+              )}
+              {stopActions.has(item.id) && (
+                <button
+                  type="button"
+                  className="myne-button myne-button--danger mt-2 text-xs"
+                  onClick={() => {
+                    const action = stopActions.get(item.id);
+                    if (action) invokeUICWorkspaceListAction(actions, action, allowedWorkspaces, allowedFilters, allowedPages, { stopAllowedWorkspaces, pendingKeys, authorized: true, confirmed: false });
+                  }}
+                >
+                  Stop server
                 </button>
               )}
             </li>
@@ -1889,13 +1991,15 @@ export function SpacesOverviewUICLayoutProofPresentation({
   const enableRecentlyVisitedPage = actionBindings.get("recentlyVisitedCraft")?.page === "spaces.pageRecentlyVisitedCraft";
   const enableRecentlyCreatedPage = actionBindings.get("recentlyCreatedCraft")?.page === "spaces.pageRecentlyCreatedCraft";
   const enableWorkspaceOpen = actionBindings.get("workspaceList")?.activate === "spaces.openWorkspace";
+  const enableWorkspaceNavigate = actionBindings.get("workspaceList")?.navigate === "spaces.navigateToCraft";
+  const enableWorkspaceStop = actionBindings.get("workspaceList")?.stop === "spaces.stopDevServer";
   const enableWorkspaceFilter = actionBindings.get("workspaceList")?.filter === "spaces.filterWorkspaces";
   const enableWorkspacePage = actionBindings.get("workspaceList")?.page === "spaces.pageWorkspaces";
   const enableSpacesNavigate = actionBindings.get("spaces")?.activate === "spaces.navigateToCraft";
   const enableSpacePickerClose = actionBindings.get("spacePicker")?.close === "spaces.dismissPicker";
   const enableSpacePickerRetry = actionBindings.get("spacePicker")?.retry === "spaces.retryOpenWorkspace";
   const enableSpacePickerSelect = actionBindings.get("spacePicker")?.select === "spaces.selectSpaceForWorkspace";
-  const ui = diagnostics.length ? defaultSpacesOverviewUI : { ...defaultSpacesOverviewUI, RecentSessionsSection: (slotProps: SpacesOverviewSlotProps<"recentSessions">) => <UICReadOnlyRecentSessionsSection {...slotProps} enableResumeAction={enableSessionResume} enableStartAction={enableSessionStart} enableRenameAction={enableSessionRename} enableDeleteAction={enableSessionDelete} enableToggleAction={enableSessionToggle} enableCraftNavigateAction={enableSessionCraftNavigate} />, StarredCraftSection: (slotProps: SpacesOverviewSlotProps<"starredCraft">) => <UICReadOnlyStarredCraftSection {...slotProps} enableNavigateAction={enableStarredNavigate} />, RunningDevServersSection: (slotProps: SpacesOverviewSlotProps<"runningDevServers">) => <UICReadOnlyRunningDevServersSection {...slotProps} enableStopAction={enableRunningDevServerStop} enableNavigateAction={enableRunningDevServerNavigate} enableOpenAction={enableRunningDevServerOpen} />, RecentlyVisitedCraftSection: (slotProps: SpacesOverviewSlotProps<"recentlyVisitedCraft">) => <UICReadOnlyRecentlyVisitedCraftSection {...slotProps} enableNavigateAction={enableRecentlyVisitedNavigate} enablePageAction={enableRecentlyVisitedPage} />, RecentlyCreatedCraftSection: (slotProps: SpacesOverviewSlotProps<"recentlyCreatedCraft">) => <UICReadOnlyRecentlyCreatedCraftSection {...slotProps} enableNavigateAction={enableRecentlyCreatedNavigate} enablePageAction={enableRecentlyCreatedPage} />, WorkspaceListSection: (slotProps: SpacesOverviewSlotProps<"workspaceList">) => <UICReadOnlyWorkspaceListSection {...slotProps} enableOpenWorkspaceAction={enableWorkspaceOpen} enableFilterAction={enableWorkspaceFilter} enablePageAction={enableWorkspacePage} />, SpacesSection: (slotProps: SpacesOverviewSlotProps<"spaces">) => <UICReadOnlySpacesSection {...slotProps} enableNavigateAction={enableSpacesNavigate} />, SpacePickerModal: (slotProps: SpacesOverviewSlotProps<"spacePicker">) => <UICSpacePickerModal {...slotProps} enableCloseAction={enableSpacePickerClose} enableRetryAction={enableSpacePickerRetry} enableSelectAction={enableSpacePickerSelect} /> };
+  const ui = diagnostics.length ? defaultSpacesOverviewUI : { ...defaultSpacesOverviewUI, RecentSessionsSection: (slotProps: SpacesOverviewSlotProps<"recentSessions">) => <UICReadOnlyRecentSessionsSection {...slotProps} enableResumeAction={enableSessionResume} enableStartAction={enableSessionStart} enableRenameAction={enableSessionRename} enableDeleteAction={enableSessionDelete} enableToggleAction={enableSessionToggle} enableCraftNavigateAction={enableSessionCraftNavigate} />, StarredCraftSection: (slotProps: SpacesOverviewSlotProps<"starredCraft">) => <UICReadOnlyStarredCraftSection {...slotProps} enableNavigateAction={enableStarredNavigate} />, RunningDevServersSection: (slotProps: SpacesOverviewSlotProps<"runningDevServers">) => <UICReadOnlyRunningDevServersSection {...slotProps} enableStopAction={enableRunningDevServerStop} enableNavigateAction={enableRunningDevServerNavigate} enableOpenAction={enableRunningDevServerOpen} />, RecentlyVisitedCraftSection: (slotProps: SpacesOverviewSlotProps<"recentlyVisitedCraft">) => <UICReadOnlyRecentlyVisitedCraftSection {...slotProps} enableNavigateAction={enableRecentlyVisitedNavigate} enablePageAction={enableRecentlyVisitedPage} />, RecentlyCreatedCraftSection: (slotProps: SpacesOverviewSlotProps<"recentlyCreatedCraft">) => <UICReadOnlyRecentlyCreatedCraftSection {...slotProps} enableNavigateAction={enableRecentlyCreatedNavigate} enablePageAction={enableRecentlyCreatedPage} />, WorkspaceListSection: (slotProps: SpacesOverviewSlotProps<"workspaceList">) => <UICReadOnlyWorkspaceListSection {...slotProps} enableOpenWorkspaceAction={enableWorkspaceOpen} enableNavigateAction={enableWorkspaceNavigate} enableStopAction={enableWorkspaceStop} enableFilterAction={enableWorkspaceFilter} enablePageAction={enableWorkspacePage} />, SpacesSection: (slotProps: SpacesOverviewSlotProps<"spaces">) => <UICReadOnlySpacesSection {...slotProps} enableNavigateAction={enableSpacesNavigate} />, SpacePickerModal: (slotProps: SpacesOverviewSlotProps<"spacePicker">) => <UICSpacePickerModal {...slotProps} enableCloseAction={enableSpacePickerClose} enableRetryAction={enableSpacePickerRetry} enableSelectAction={enableSpacePickerSelect} /> };
 
   return (
     <>
