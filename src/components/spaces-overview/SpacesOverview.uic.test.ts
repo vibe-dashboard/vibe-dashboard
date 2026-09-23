@@ -188,6 +188,27 @@ function runningWorkspace(overrides: Partial<DashboardWorkspace> = {}): Dashboar
   return { ...base, id: "uic-running", name: "UIC running", branch: "vk/uic-running", has_running_dev_server: true, ...overrides };
 }
 
+function workspaceActionModel(overrides: Partial<Parameters<typeof projectUICWorkspaceListActions>[0]> = {}): Parameters<typeof projectUICWorkspaceListActions>[0] {
+  return {
+    sortedWorkspaces: [dashboardWorkspaces[0]!],
+    effectiveRepos: storybookRepos,
+    selectedRepoId: null,
+    workspacePage: 0,
+    workspaceTotalPages: 1,
+    canOpenWorkspaceInSpace: true,
+    ...overrides,
+  };
+}
+
+function workspaceActionCallbacks(overrides: Partial<Parameters<typeof invokeUICWorkspaceListAction>[0]> = {}): Parameters<typeof invokeUICWorkspaceListAction>[0] {
+  return {
+    openSpacePickerForWorkspace: vi.fn(),
+    selectRepo: vi.fn(),
+    setWorkspacePage: vi.fn(),
+    ...overrides,
+  };
+}
+
 describe("SpacesOverview UIC pageHeader proof", () => {
   it("renders the dev-only pageHeader proof through existing public Myne hooks", () => {
     const html = renderToStaticMarkup(createElement(SpacesOverviewUICPageHeaderProof));
@@ -770,14 +791,15 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(region).toContain(longCraft.slice(0, UIC_SPACES_RESOURCE_BUDGET.maxCraftLabelLength));
   });
 
-  it("uses finite UIC states and a typed open action for workspace list without filter, pagination, or mutation controls", () => {
+  it("uses finite UIC states and typed open/filter actions for workspace list without mutation controls", () => {
     const readyRegion = workspaceListRegion(renderUICLayout());
 
     expect(readyRegion).toContain("Read-only UIC workspace list");
     expect(readyRegion).toContain("VK Workspaces");
     expect(readyRegion).toContain(dashboardWorkspaces[0]!.name);
     expect(readyRegion).toContain("Open workspace");
-    expect(readyRegion).not.toContain("All</");
+    expect(readyRegion).toContain("All</");
+    expect(readyRegion).toContain(storybookRepos[0]!.display_name);
     expect(readyRegion).not.toContain("Previous");
     expect(readyRegion).not.toContain("Next");
     expect(readyRegion).not.toContain("Stop server");
@@ -790,12 +812,13 @@ describe("SpacesOverview UIC pageHeader proof", () => {
   });
 
   it("does not expose or dispatch the workspace open action when XML omits the binding", () => {
-    const xml = spacesOverviewUICLayoutXml.replace('  <uic:workspaceList uic:on-activate="spaces.openWorkspace" />', "  <uic:workspaceList />");
+    const xml = spacesOverviewUICLayoutXml.replace(' uic:on-activate="spaces.openWorkspace"', "");
     const region = workspaceListRegion(renderUICLayout(xml));
 
     expect(region).toContain("Read-only UIC workspace list");
     expect(region).not.toContain("Open workspace");
-    expect(projectUICWorkspaceListActions({ sortedWorkspaces: [dashboardWorkspaces[0]!], canOpenWorkspaceInSpace: true }, false)).toEqual([]);
+    expect(region).toContain("All</");
+    expect(projectUICWorkspaceListActions(workspaceActionModel(), { open: false, filter: true, page: true }).some((action) => action.id === "spaces.openWorkspace")).toBe(false);
   });
 
   it("does not expose workspace open descriptors when the trusted open capability is unavailable", () => {
@@ -803,15 +826,15 @@ describe("SpacesOverview UIC pageHeader proof", () => {
 
     expect(region).toContain("Read-only UIC workspace list");
     expect(region).not.toContain("Open workspace");
-    expect(projectUICWorkspaceListActions({ sortedWorkspaces: [dashboardWorkspaces[0]!], canOpenWorkspaceInSpace: false })).toEqual([]);
+    expect(projectUICWorkspaceListActions(workspaceActionModel({ canOpenWorkspaceInSpace: false })).some((action) => action.id === "spaces.openWorkspace")).toBe(false);
   });
 
   it("falls back without workspace action UI or dispatch when workspace action validation fails", () => {
     for (const invalid of ["https://example.test/action", "spaces.deleteWorkspace"]) {
       const onOpenWorkspaceInSpace = vi.fn();
       const html = renderUICLayout(spacesOverviewUICLayoutXml.replace(
-        '<uic:workspaceList uic:on-activate="spaces.openWorkspace" />',
-        `<uic:workspaceList uic:on-activate="${invalid}" />`,
+        'uic:on-activate="spaces.openWorkspace"',
+        `uic:on-activate="${invalid}"`,
       ), { onOpenWorkspaceInSpace });
 
       expect(html).toContain('data-myne-view-pack="myne.spaces.view-pack.default"');
@@ -822,8 +845,9 @@ describe("SpacesOverview UIC pageHeader proof", () => {
   });
 
   it("projects serializable workspace open descriptors and blocks invalid workspace targets before dispatch", () => {
-    const descriptors = projectUICWorkspaceListActions({ sortedWorkspaces: [dashboardWorkspaces[0]!], canOpenWorkspaceInSpace: true });
+    const descriptors = projectUICWorkspaceListActions(workspaceActionModel(), { open: true, filter: false, page: false });
     const openSpacePickerForWorkspace = vi.fn();
+    const actions = workspaceActionCallbacks({ openSpacePickerForWorkspace });
     const allowedWorkspaces = new Map([[dashboardWorkspaces[0]!.id, dashboardWorkspaces[0]!]]);
 
     expect(descriptors).toEqual([
@@ -835,12 +859,94 @@ describe("SpacesOverview UIC pageHeader proof", () => {
       },
     ]);
     expect(JSON.stringify(descriptors)).not.toMatch(/function|=>|appHooks|QueryClient|https?:|openSpacePickerForWorkspace|stop|delete/u);
-    expect(invokeUICWorkspaceListAction({ openSpacePickerForWorkspace }, descriptors[0]!, allowedWorkspaces)).toEqual({ ok: true, result: { state: "completed" } });
+    expect(invokeUICWorkspaceListAction(actions, descriptors[0]!, allowedWorkspaces)).toEqual({ ok: true, result: { state: "completed" } });
     expect(openSpacePickerForWorkspace).toHaveBeenCalledWith(dashboardWorkspaces[0]);
 
-    expect(invokeUICWorkspaceListAction({ openSpacePickerForWorkspace }, { id: "spaces.openWorkspace", event: "activate", status: "available", args: { workspaceId: "missing" } }, allowedWorkspaces)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unavailable" } });
-    expect(invokeUICWorkspaceListAction({ openSpacePickerForWorkspace }, { id: "spaces.openWorkspace", event: "activate", status: "available", args: { workspaceId: 1 } }, allowedWorkspaces)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/invalid-args" } });
-    expect(invokeUICWorkspaceListAction({ openSpacePickerForWorkspace }, { id: "spaces.deleteWorkspace", event: "activate", status: "available", args: { workspaceId: dashboardWorkspaces[0]!.id } }, allowedWorkspaces)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unknown" } });
+    expect(invokeUICWorkspaceListAction(actions, { id: "spaces.openWorkspace", event: "activate", status: "available", args: { workspaceId: "missing" } }, allowedWorkspaces)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unavailable" } });
+    expect(invokeUICWorkspaceListAction(actions, { id: "spaces.openWorkspace", event: "activate", status: "available", args: { workspaceId: 1 } }, allowedWorkspaces)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/invalid-args" } });
+    expect(invokeUICWorkspaceListAction(actions, { id: "spaces.deleteWorkspace", event: "activate", status: "available", args: { workspaceId: dashboardWorkspaces[0]!.id } }, allowedWorkspaces)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unknown" } });
+  });
+
+  it("binds workspace repo filters and pagination only from validated XML actions", () => {
+    const selectedRepo = storybookRepos[0]!;
+    const pagedHtml = renderUICPresentationWithModel({ workspacePage: 1, workspaceTotalPages: 3, selectedRepoId: selectedRepo.id });
+    const region = workspaceListRegion(pagedHtml);
+    const descriptors = projectUICWorkspaceListActions(workspaceActionModel({ workspacePage: 1, workspaceTotalPages: 3 }), { open: false, filter: true, page: true });
+
+    expect(region).toContain("All</");
+    expect(region).toContain(selectedRepo.display_name);
+    expect(region).toContain("Previous");
+    expect(region).toContain("Next");
+    expect(JSON.stringify(descriptors)).not.toMatch(/function|=>|appHooks|QueryClient|https?:|stop|delete|session/u);
+
+    const selectRepo = vi.fn();
+    const setWorkspacePage = vi.fn();
+    const actions = workspaceActionCallbacks({ selectRepo, setWorkspacePage });
+    const allowedFilters = new Set(["__all__", selectedRepo.id]);
+    const allowedPages = new Map<"previous" | "next", number>([["previous", 0], ["next", 2]]);
+
+    expect(invokeUICWorkspaceListAction(actions, { id: "spaces.filterWorkspaces", event: "filter", status: "available", args: { repoId: selectedRepo.id } }, new Map(), allowedFilters, allowedPages)).toEqual({ ok: true, result: { state: "completed" } });
+    expect(selectRepo).toHaveBeenCalledWith(selectedRepo.id);
+    expect(invokeUICWorkspaceListAction(actions, { id: "spaces.filterWorkspaces", event: "filter", status: "available", args: { repoId: "__all__" } }, new Map(), allowedFilters, allowedPages)).toEqual({ ok: true, result: { state: "completed" } });
+    expect(selectRepo).toHaveBeenCalledWith(null);
+    expect(invokeUICWorkspaceListAction(actions, { id: "spaces.pageWorkspaces", event: "page", status: "available", args: { direction: "previous", page: 0 } }, new Map(), allowedFilters, allowedPages)).toEqual({ ok: true, result: { state: "completed" } });
+    expect(invokeUICWorkspaceListAction(actions, { id: "spaces.pageWorkspaces", event: "page", status: "available", args: { direction: "next", page: 2 } }, new Map(), allowedFilters, allowedPages)).toEqual({ ok: true, result: { state: "completed" } });
+    expect(setWorkspacePage).toHaveBeenCalledWith(0);
+    expect(setWorkspacePage).toHaveBeenCalledWith(2);
+  });
+
+  it("omits workspace filter and pagination controls when XML omits those bindings", () => {
+    const withoutFilter = workspaceListRegion(renderUICLayout(spacesOverviewUICLayoutXml.replace(' uic:on-filter="spaces.filterWorkspaces"', "")));
+    const withoutPage = workspaceListRegion(renderUICPresentationWithModel(
+      { workspacePage: 1, workspaceTotalPages: 3 },
+      {},
+      spacesOverviewUICLayoutXml.replace(' uic:on-page="spaces.pageWorkspaces"', ""),
+    ));
+
+    expect(withoutFilter).not.toContain("All</");
+    expect(withoutFilter).not.toContain("myne-button rounded border px-3 py-1");
+    expect(withoutPage).not.toContain("Previous");
+    expect(withoutPage).not.toContain("Next");
+    expect(projectUICWorkspaceListActions(workspaceActionModel(), { open: true, filter: false, page: false }).some((action) => action.id === "spaces.filterWorkspaces" || action.id === "spaces.pageWorkspaces")).toBe(false);
+  });
+
+  it("falls back without workspace filter/page dispatch when those action bindings are invalid", () => {
+    for (const [attr, invalid, dispatcher] of [
+      ["uic:on-filter", "https://example.test/action", "selectRepo"],
+      ["uic:on-filter", "spaces.deleteWorkspace", "selectRepo"],
+      ["uic:on-page", "https://example.test/action", "setWorkspacePage"],
+      ["uic:on-page", "spaces.deleteWorkspace", "setWorkspacePage"],
+    ] as const) {
+      const selectRepo = vi.fn();
+      const setWorkspacePage = vi.fn();
+      const html = renderUICPresentationWithModel(
+        {},
+        { selectRepo, setWorkspacePage },
+        spacesOverviewUICLayoutXml.replace(new RegExp(`${attr}="[^"]+"`, "u"), `${attr}="${invalid}"`),
+      );
+
+      expect(html).toContain('data-myne-view-pack="myne.spaces.view-pack.default"');
+      expect(html).toContain("uic/xml/unknown-action");
+      expect(html).not.toContain('data-uic-owned-region="workspace-list"');
+      expect(dispatcher === "selectRepo" ? selectRepo : setWorkspacePage).not.toHaveBeenCalled();
+    }
+  });
+
+  it("blocks unavailable workspace filter/page targets before dispatch", () => {
+    const selectRepo = vi.fn();
+    const setWorkspacePage = vi.fn();
+    const actions = workspaceActionCallbacks({ selectRepo, setWorkspacePage });
+    const allowedFilters = new Set(["__all__", storybookRepos[0]!.id]);
+    const allowedPages = new Map<"previous" | "next", number>([["next", 1]]);
+
+    expect(projectUICWorkspaceListActions(workspaceActionModel({ effectiveRepos: [] }), { open: false, filter: true, page: false })).toEqual([]);
+    expect(projectUICWorkspaceListActions(workspaceActionModel({ workspaceTotalPages: 1 }), { open: false, filter: false, page: true })).toEqual([]);
+    expect(invokeUICWorkspaceListAction(actions, { id: "spaces.filterWorkspaces", event: "filter", status: "available", args: { repoId: "missing" } }, new Map(), allowedFilters, allowedPages)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unavailable" } });
+    expect(invokeUICWorkspaceListAction(actions, { id: "spaces.filterWorkspaces", event: "filter", status: "available", args: { repoId: 1 } }, new Map(), allowedFilters, allowedPages)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/invalid-args" } });
+    expect(invokeUICWorkspaceListAction(actions, { id: "spaces.pageWorkspaces", event: "page", status: "available", args: { direction: "previous", page: 0 } }, new Map(), allowedFilters, allowedPages)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/unavailable" } });
+    expect(invokeUICWorkspaceListAction(actions, { id: "spaces.pageWorkspaces", event: "page", status: "available", args: { direction: "sideways", page: 1 } }, new Map(), allowedFilters, allowedPages)).toMatchObject({ ok: false, diagnostic: { code: "uic/action/invalid-args" } });
+    expect(selectRepo).not.toHaveBeenCalled();
+    expect(setWorkspacePage).not.toHaveBeenCalled();
   });
 
   it("renders UIC space-picker close action only from validated XML binding", () => {
