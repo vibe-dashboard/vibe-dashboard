@@ -274,6 +274,7 @@ Backend or VK client flow must support:
 - using an existing local branch;
 - creating a local tracking branch for a remote-only branch;
 - reporting local branch collision;
+- erroring clearly when the derived local tracking branch already exists but tracks a different upstream;
 - reporting branch already checked out elsewhere;
 - preserving branch protection defaults.
 
@@ -337,8 +338,8 @@ type WorkModeChoice =
 6. Add issue existing-work reuse, stale mapping repair, and explicit-confirmation duplicate creation.
 7. Remove old dialog states after parity tests pass.
 
-## Remaining implementation questions
+## Final implementation decisions
 
-1. Which VK endpoint should own custom workspace branch names for new workspace branches?
-2. What exact collision policy should apply when deriving a local tracking branch from `origin/feature` and local `feature` already exists with a different upstream?
-3. Which timestamp is authoritative for “most recently used or updated Voyage/location”: tab group last visited, Voyage updated time, or another persisted activity timestamp?
+- Custom new workspace branch names: VK should own final branch-name validation and workspace creation support; dashboard suggests the default name from the GitHub target.
+- Remote tracking branch collision: if `origin/feature` maps to local `feature` and local `feature` already exists but tracks a different upstream, return a clear error. Do not silently rename or retarget it.
+- Existing-work Voyage default: use the most specific actual last-used timestamp available for the workspace craft/tab group; if unavailable, fall back to Voyage updated time.
