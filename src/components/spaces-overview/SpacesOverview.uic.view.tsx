@@ -3,7 +3,7 @@ import type { DashboardWorkspace, SpacesOverviewComponentProps, SpacesOverviewPr
 import type { SpacesOverviewSlotProps } from "./SpacesOverview.slots";
 import { formatRelativeTime } from "./workspaceList.view";
 import { MyneHeading, MyneText } from "../../theme/skins";
-import { getUICLayoutTree, getUICValidatedActionBindings, spacesOverviewPageHeaderUICProof, validateUICXml, type UICDiagnostic, type UICLayoutTreeNode } from "../../uic/trustedComponents";
+import { compileUICScopedCss, getUICLayoutTree, getUICValidatedActionBindings, spacesOverviewPageHeaderUICProof, validateUICXml, type UICDiagnostic, type UICLayoutTreeNode } from "../../uic/trustedComponents";
 import { Component, createElement, type ErrorInfo, type ReactNode } from "react";
 import styles from "./SpacesOverview.skin.module.css";
 
@@ -31,6 +31,7 @@ export type SpacesOverviewUICLayoutArtifact = Readonly<{
   description: string;
   sourcePath: string;
   xml: string;
+  scopedCss: string;
   slotOrder: readonly SpacesOverviewUICSlotName[];
   layoutKind?: SpacesOverviewUICLayoutKind;
   isDefault: boolean;
@@ -79,15 +80,18 @@ function parseExactSafeInteger(value: string | undefined): number {
 
 export function parseSpacesOverviewUICLayoutArtifact(sourcePath: string, xml: string): SpacesOverviewUICLayoutArtifact {
   const attrs = parseUICRootAttributes(xml);
+  const id = attrs["uic:id"] ?? "";
+  const scopedCss = compileUICScopedCss(spacesOverviewPageHeaderUICProof, xml, id || sourcePath).css;
   const layoutKind = attrs["uic:layout-kind"] === "command-center" || attrs["uic:layout-kind"] === "stack"
     ? attrs["uic:layout-kind"]
     : undefined;
   return Object.freeze({
-    id: attrs["uic:id"] ?? "",
+    id,
     label: attrs["uic:label"] ?? "",
     description: attrs["uic:description"] ?? "",
     sourcePath,
     xml,
+    scopedCss,
     slotOrder: parseSpacesOverviewUICSlotOrder(attrs["uic:slot-order"]),
     layoutKind,
     isDefault: attrs["uic:default"] === "true",
@@ -2287,8 +2291,10 @@ function SpacesOverviewUICLayoutFrame({
       className={`${styles.surface} h-full w-full overflow-auto p-6 md:p-8`}
       data-myne-surface="spaces-overview"
       data-myne-view-pack={artifact.id}
+      data-uic-artifact={artifact.id}
       data-uic-layout-kind={artifact.layoutKind}
     >
+      {artifact.scopedCss ? createElement("style", { "data-uic-style": artifact.id }, artifact.scopedCss) : null}
       <div className={artifact.layoutKind === "command-center" ? "max-w-7xl mx-auto" : "max-w-4xl mx-auto"}>
         <SpacesOverviewUICLayoutSelector
           selectedLayoutId={selectedLayoutId}

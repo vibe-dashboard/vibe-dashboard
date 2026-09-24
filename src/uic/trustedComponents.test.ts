@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  compileUICScopedCss,
   compileUICXml,
   generateUICXsd,
   getUICLayoutTree,
@@ -223,6 +224,41 @@ describe("UIC trusted component descriptors", () => {
         expect.objectContaining({ code }),
       );
       expect(getUICLayoutTree(spacesOverviewPageHeaderUICProof, xml), name).toEqual([]);
+    }
+  });
+
+  it("compiles top-level UIC CSS to an artifact-scoped stylesheet", () => {
+    const compiled = compileUICScopedCss(spacesOverviewPageHeaderUICProof, structuralSpacesOverviewXml, "uic.spaces.layout-command-center.proof");
+
+    expect(compiled.diagnostics).toEqual([]);
+    expect(compiled.css).toContain('[data-uic-artifact="uic.spaces.layout-command-center.proof"] {');
+    expect(compiled.css).toContain("--myne-slot-page-header-gap: 1rem");
+    expect(compiled.css).not.toContain(":uic-scope");
+  });
+
+  it("rejects unsafe UIC CSS before mount", () => {
+    const cssFor = (css: string) => structuralSpacesOverviewXml.replace(
+      /<uic:css><!\[CDATA\[[\s\S]*?\]\]><\/uic:css>/u,
+      `<uic:css><![CDATA[${css}]]></uic:css>`,
+    );
+    const overBudget = `:uic-scope { ${Array.from({ length: 90 }, (_value, index) => `--myne-over-${index}: ${index}px;`).join(" ")} }`;
+    const cases = [
+      ["global selector", "body { color: red; }", "uic/css/global-selector"],
+      ["protected selector", '[data-uic-fallback-diagnostic] { display: block; }', "uic/css/protected-selector"],
+      ["url value", ":uic-scope { background: url(https://example.test/a.png); }", "uic/css/url-forbidden"],
+      ["import", '@import "https://example.test/x.css";', "uic/css/at-rule-forbidden"],
+      ["unsafe property", ":uic-region(activeRail) { position: fixed; }", "uic/css/property-forbidden"],
+      ["hiding value", ":uic-region(activeRail) { display: none; }", "uic/css/value-forbidden"],
+      ["over budget", overBudget, "uic/css/declaration-budget"],
+    ] as const;
+
+    for (const [name, css, code] of cases) {
+      expect(compileUICScopedCss(spacesOverviewPageHeaderUICProof, cssFor(css), "uic.spaces.bad").diagnostics, name).toContainEqual(
+        expect.objectContaining({ code }),
+      );
+      expect(validateUICXml(spacesOverviewPageHeaderUICProof, cssFor(css)).diagnostics, name).toContainEqual(
+        expect.objectContaining({ code }),
+      );
     }
   });
 

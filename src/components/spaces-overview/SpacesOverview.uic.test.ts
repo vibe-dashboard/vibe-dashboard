@@ -330,6 +330,7 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     ]);
     expect(commandCenter?.xml).toContain("<uic:layout");
     expect(commandCenter?.xml).toContain("<uic:region");
+    expect(commandCenter?.scopedCss).toContain('[data-uic-artifact="uic.spaces.layout-command-center.proof"]');
 
     const html = renderProductionSpacesOverview({
       presentation: createSpacesOverviewProductionView({
@@ -339,11 +340,27 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     });
 
     expect(html).toContain('data-myne-view-pack="uic.spaces.layout-command-center.proof"');
+    expect(html).toContain('data-uic-artifact="uic.spaces.layout-command-center.proof"');
+    expect(html).toContain('data-uic-style="uic.spaces.layout-command-center.proof"');
+    expect(html).toContain('[data-uic-artifact="uic.spaces.layout-command-center.proof"] [data-uic-region="activeRail"]');
     expect(html).toContain('data-uic-layout-kind="command-center"');
     expect(html).toContain('data-uic-primitive="layout"');
     expect(html).toContain('data-uic-region="activeRail"');
     expect(html).toContain("<option");
     expect(html).toContain("Command Center");
+  });
+
+  it("fails built-in layout startup validation on unsafe scoped CSS", () => {
+    const unsafeXml = spacesOverviewUICLayoutXml.replace(
+      /<uic:css><!\[CDATA\[[\s\S]*?\]\]><\/uic:css>/u,
+      '<uic:css><![CDATA[:uic-scope { pointer-events: none; }]]></uic:css>',
+    );
+
+    const diagnostics = validateSpacesOverviewUICLayoutArtifacts([
+      parseSpacesOverviewUICLayoutArtifact("./unsafe-layout.xml", unsafeXml),
+    ]).map((item) => item.code);
+
+    expect(diagnostics).toContain("uic/css/property-forbidden");
   });
 
   it("defaults the production SpacesOverview route to the validated UIC surface", () => {

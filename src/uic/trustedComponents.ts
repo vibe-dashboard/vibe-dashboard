@@ -288,6 +288,169 @@ function isUrlLike(value: string): boolean {
   return /(?:https?:|javascript:|data:)/iu.test(value);
 }
 
+export const UIC_SCOPED_CSS_BUDGET = Object.freeze({
+  maxBytes: 4096,
+  maxSelectors: 24,
+  maxDeclarations: 80,
+  maxSelectorLength: 160,
+});
+
+export type UICCompiledScopedCss = Readonly<{
+  css: string;
+  diagnostics: readonly UICDiagnostic[];
+}>;
+
+const UIC_ALLOWED_CSS_PROPERTIES = new Set([
+  "align-items",
+  "background",
+  "background-color",
+  "border",
+  "border-color",
+  "border-radius",
+  "box-shadow",
+  "color",
+  "column-gap",
+  "display",
+  "font-size",
+  "font-weight",
+  "gap",
+  "grid-template-columns",
+  "grid-template-rows",
+  "justify-content",
+  "letter-spacing",
+  "margin",
+  "margin-bottom",
+  "margin-top",
+  "max-width",
+  "min-height",
+  "padding",
+  "row-gap",
+  "text-transform",
+]);
+
+const UIC_FORBIDDEN_CSS_PROPERTIES = new Set([
+  "clip-path",
+  "filter",
+  "height",
+  "inset",
+  "left",
+  "opacity",
+  "pointer-events",
+  "position",
+  "right",
+  "top",
+  "transform",
+  "visibility",
+  "width",
+  "z-index",
+]);
+
+function cssTextFromRoot(root: ParsedXmlNode): string {
+  return root.children.find((child) => child.name === "uic:css")?.text.trim() ?? "";
+}
+
+function selectorDiagnostic(selector: string): UICDiagnostic | undefined {
+  if (selector.length > UIC_SCOPED_CSS_BUDGET.maxSelectorLength) return diagnostic("uic/css/selector-budget", "UIC CSS selector exceeds the maximum supported length.");
+  if (/(^|[\s>+~,])(?:html|body|:root|\*)(?:$|[\s>+~,#.:[)])/iu.test(selector)) return diagnostic("uic/css/global-selector", `UIC CSS selector "${selector}" cannot target global document roots.`);
+  if (/\[data-uic-fallback-diagnostic\b|\[data-myne-surface\b|data-uic-disable-env/iu.test(selector)) return diagnostic("uic/css/protected-selector", `UIC CSS selector "${selector}" cannot target protected fallback or host UI.`);
+  if (/[+~]|\.\.|:has\b|:not\b|:is\b|:where\b|::/u.test(selector)) return diagnostic("uic/css/selector-forbidden", `UIC CSS selector "${selector}" uses an unsupported combinator or pseudo selector.`);
+  return undefined;
+}
+
+function compileUICSelector(selector: string, descriptor: UICSurfaceDescriptor, regionNames: ReadonlySet<string>, scopeAttrValue: string): { selector: string } | { diagnostic: UICDiagnostic } {
+  const issue = selectorDiagnostic(selector);
+  if (issue) return { diagnostic: issue };
+
+  const regionMatch = selector.match(/^:uic-region\(([A-Za-z][\w-]*)\)$/u);
+  if (regionMatch) {
+    const regionName = regionMatch[1]!;
+    if (!regionNames.has(regionName)) return { diagnostic: diagnostic("uic/css/unknown-selector", `UIC CSS region selector "${regionName}" is not declared by this layout.`) };
+    return { selector: `[data-uic-artifact="${scopeAttrValue}"] [data-uic-region="${regionName}"]` };
+  }
+
+  const slotMatch = selector.match(/^:uic-slot\(([A-Za-z][\w-]*)\)$/u);
+  if (slotMatch) {
+    const slotName = slotMatch[1]!;
+    if (!descriptor.layoutTags.includes(slotName)) return { diagnostic: diagnostic("uic/css/unknown-selector", `UIC CSS slot selector "${slotName}" is not declared by this surface.`) };
+    return { selector: `[data-uic-artifact="${scopeAttrValue}"] [data-uic-slot="${slotName}"]` };
+  }
+
+  if (selector === ":uic-scope") return { selector: `[data-uic-artifact="${scopeAttrValue}"]` };
+  if (/^\.myne-[A-Za-z0-9_-]+$/u.test(selector)) return { selector: `[data-uic-artifact="${scopeAttrValue}"] ${selector}` };
+  return { diagnostic: diagnostic("uic/css/selector-forbidden", `UIC CSS selector "${selector}" is not in the safe selector allowlist.`) };
+}
+
+function validateUICCssDeclaration(property: string, value: string): UICDiagnostic | undefined {
+  const prop = property.toLowerCase();
+  if (!/^--(?:myne|uic)-[a-z0-9-]+$/u.test(prop) && (!UIC_ALLOWED_CSS_PROPERTIES.has(prop) || UIC_FORBIDDEN_CSS_PROPERTIES.has(prop))) {
+    return diagnostic("uic/css/property-forbidden", `UIC CSS property "${property}" is not allowed.`);
+  }
+  if (/url\s*\(|@import|expression\s*\(|javascript:|data:/iu.test(value)) return diagnostic("uic/css/url-forbidden", `UIC CSS property "${property}" cannot reference URLs or executable values.`);
+  if (/!important/iu.test(value)) return diagnostic("uic/css/value-forbidden", `UIC CSS property "${property}" cannot use !important.`);
+  if (prop === "display" && !/^(?:block|flex|grid|inline-flex)$/u.test(value.trim())) return diagnostic("uic/css/value-forbidden", "UIC CSS display values are limited to block, flex, grid, and inline-flex.");
+  if (/\b(?:none|hidden)\b/iu.test(value) && /^(?:display|visibility|overflow|pointer-events)$/u.test(prop)) return diagnostic("uic/css/value-forbidden", `UIC CSS property "${property}" cannot hide or trap owned UI.`);
+  if (/\b(?:100vw|100vh|9999px|999rem)\b/iu.test(value)) return diagnostic("uic/css/value-forbidden", `UIC CSS property "${property}" exceeds safe size bounds.`);
+  return undefined;
+}
+
+export function compileUICScopedCss(descriptor: UICSurfaceDescriptor, xml: string, scopeAttrValue: string): UICCompiledScopedCss {
+  const parsed = parseXmlLite(xml);
+  const diagnostics: UICDiagnostic[] = [...parsed.diagnostics];
+  const root = parsed.roots[0];
+  if (!root) return { css: "", diagnostics };
+  const css = cssTextFromRoot(root);
+  if (!css) return { css: "", diagnostics };
+  if (!/^[A-Za-z0-9_.:-]+$/u.test(scopeAttrValue)) diagnostics.push(diagnostic("uic/css/scope", "UIC CSS scope identity is malformed."));
+  if (new TextEncoder().encode(css).byteLength > UIC_SCOPED_CSS_BUDGET.maxBytes) diagnostics.push(diagnostic("uic/css/byte-budget", "UIC CSS exceeds the maximum supported byte length."));
+  if (/@[A-Za-z-]+/u.test(css)) diagnostics.push(diagnostic("uic/css/at-rule-forbidden", "UIC CSS at-rules are not allowed in built-in layout CSS."));
+  if (/url\s*\(|@import|expression\s*\(|javascript:|data:/iu.test(css)) diagnostics.push(diagnostic("uic/css/url-forbidden", "UIC CSS cannot reference URLs, imports, external assets, or executable values."));
+  const sanitized = css.replace(/\/\*[\s\S]*?\*\//gu, "").trim();
+  const regionNames = new Set<string>();
+  walkNodes(root.children, (node) => {
+    if (node.name === "uic:region" && node.attrs.name) regionNames.add(node.attrs.name);
+  });
+  const chunks: string[] = [];
+  let cursor = 0;
+  let selectorCount = 0;
+  let declarationCount = 0;
+  for (const match of sanitized.matchAll(/([^{}]+)\{([^{}]*)\}/gu)) {
+    if (sanitized.slice(cursor, match.index).trim()) diagnostics.push(diagnostic("uic/css/malformed", "UIC CSS contains unsupported syntax outside a rule."));
+    cursor = match.index + match[0].length;
+    const rawSelectors = match[1]!.split(",").map((item) => item.trim()).filter(Boolean);
+    const rawDeclarations = match[2]!.split(";").map((item) => item.trim()).filter(Boolean);
+    selectorCount += rawSelectors.length;
+    declarationCount += rawDeclarations.length;
+    const selectors = rawSelectors.flatMap((selector) => {
+      const compiled = compileUICSelector(selector, descriptor, regionNames, scopeAttrValue);
+      if ("diagnostic" in compiled) {
+        diagnostics.push(compiled.diagnostic);
+        return [];
+      }
+      return [compiled.selector];
+    });
+    const declarations = rawDeclarations.flatMap((declaration) => {
+      const separator = declaration.indexOf(":");
+      if (separator <= 0) {
+        diagnostics.push(diagnostic("uic/css/malformed", "UIC CSS declaration is malformed."));
+        return [];
+      }
+      const property = declaration.slice(0, separator).trim();
+      const value = declaration.slice(separator + 1).trim();
+      const issue = validateUICCssDeclaration(property, value);
+      if (issue) {
+        diagnostics.push(issue);
+        return [];
+      }
+      return [`${property}: ${value}`];
+    });
+    if (selectors.length && declarations.length) chunks.push(`${selectors.join(", ")} { ${declarations.join("; ")}; }`);
+  }
+  if (sanitized.slice(cursor).trim()) diagnostics.push(diagnostic("uic/css/malformed", "UIC CSS contains unsupported syntax outside a rule."));
+  if (selectorCount > UIC_SCOPED_CSS_BUDGET.maxSelectors) diagnostics.push(diagnostic("uic/css/selector-budget", "UIC CSS exceeds the maximum supported selector count."));
+  if (declarationCount > UIC_SCOPED_CSS_BUDGET.maxDeclarations) diagnostics.push(diagnostic("uic/css/declaration-budget", "UIC CSS exceeds the maximum supported declaration count."));
+  return { css: diagnostics.length ? "" : chunks.join("\n"), diagnostics };
+}
+
 async function sha256(value: string): Promise<`sha256-${string}`> {
   const bytes = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
   return `sha256-${btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/u, "")}`;
@@ -440,6 +603,7 @@ export function validateUICXml(descriptor: UICSurfaceDescriptor, xml: string): {
     diagnostics.push(diagnostic("uic/xml/root-required", `UIC XML root must be uic:${descriptor.rootTag}.`));
     return { diagnostics };
   }
+  diagnostics.push(...compileUICScopedCss(descriptor, xml, "uic-validation-scope").diagnostics);
 
   const rootTags = root.children.map((child) => child.name);
   const cssCount = rootTags.filter((name) => name === "uic:css").length;
@@ -549,7 +713,7 @@ export async function compileUICXml(
   if (diagnostics.length) return { ok: false, diagnostics };
 
   const root = parseXmlLite(xml).roots[0]!;
-  const css = root.children.find((child) => child.name === "uic:css")?.text.trim() ?? "";
+  const css = cssTextFromRoot(root);
   const pageHeader = root.children.find((child) => child.name === "uic:pageHeader")!;
   const actionAttrs = pageHeader.children.find((child) => child.name === "uic:slot")?.children.find((child) => child.name === "uic:pageHeaderAction")?.attrs ?? {};
   const registryDigest = await sha256(stableDescriptorSource(descriptor));
