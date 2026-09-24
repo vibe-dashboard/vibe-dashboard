@@ -26,6 +26,7 @@ import {
   resolveInitialAgentSessionId,
   sortAgentSessions,
 } from '../lib/vkAgentSession';
+import { mergeRetainedIframeTabs } from '../lib/agentComposerState';
 
 const INTERNAL_URL_PREFIX = 'internal://';
 const CADDY_PORT = process.env.CADDY_PORT || '';
@@ -535,12 +536,18 @@ function getTabRenderTarget(url: string): TabRenderTarget {
 
 function getOrCreateIframe(retainedTab: RetainedIframeTab): IframeEntry {
   const { tab, iframeKey } = retainedTab;
+  const target = getTabRenderTargetForTab(tab, retainedTab.tabGroup);
   const existing = iframeStore.get(iframeKey);
   if (existing) {
     normalizeIframeEntry(existing);
+    if (target.kind === 'iframe' && existing.iframe.src !== target.iframeSrc) {
+      resetIframeLoadReadiness(existing);
+      applyIframePolicy(existing.iframe, target.iframeSrc);
+      existing.iframe.title = tab.title;
+      existing.iframe.src = target.iframeSrc;
+    }
     return existing;
   }
-  const target = getTabRenderTargetForTab(tab, retainedTab.tabGroup);
 
   const container = document.createElement('div');
   container.style.width = '100%';
@@ -629,6 +636,12 @@ export const __iframePanelTestUtils = {
     tabGroup?: Pick<TabGroup, 'tabs' | 'workspace'>,
   ) {
     return getTabRenderTargetForTab(tab, tabGroup);
+  },
+  getOrCreateIframeForTest(retainedTab: RetainedIframeTab) {
+    return getOrCreateIframe(retainedTab);
+  },
+  getIframeSrcForTest(iframeKey: string) {
+    return iframeStore.get(iframeKey)?.iframe.src;
   },
   addRetainedIframeForTest(iframeKey: string) {
     const container = typeof document === 'undefined'
@@ -1094,10 +1107,13 @@ export function IframePanel({
   );
   const visibleIframeKeys = new Set(visibleRetainedIframeTabs.map((item) => item.iframeKey));
   const activeIframeKey = activeTab ? getIframeRetentionKey(effectiveTabGroup.id, activeTab.id) : null;
-  const retainedTabs =
+  const retainedTabs = mergeRetainedIframeTabs(
     allKnownIframeTabs?.filter(
       (item) => retainedTabIds.has(item.iframeKey) || visibleIframeKeys.has(item.iframeKey),
-    ) ?? visibleRetainedIframeTabs;
+    ),
+    visibleRetainedIframeTabs,
+    visibleIframeKeys,
+  );
   const allKnownIframeKeys = allKnownIframeTabs
     ? new Set(allKnownIframeTabs.map((item) => item.iframeKey))
     : undefined;

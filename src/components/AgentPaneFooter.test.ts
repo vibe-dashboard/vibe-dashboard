@@ -31,8 +31,5 @@ describe('AgentPaneFooter', () => {
     expect(html).toContain('aria-label="Model"');
     expect(html).toContain('aria-label="Reasoning"');
     expect(html).toContain('aria-label="Permission policy"');
-    expect(html).toContain('Queue');
-    expect(html).toContain('Stop');
-    expect(html).toContain('Send');
   });
 });

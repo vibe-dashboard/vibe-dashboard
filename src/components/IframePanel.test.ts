@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -242,5 +243,39 @@ describe('iframe reveal behavior', () => {
     __iframePanelTestUtils.removeAllIframesForTest();
 
     expect(__iframePanelTestUtils.getActivatedIframeKeys()).toEqual([]);
+  });
+
+  it('updates an existing retained Agent iframe src when session_id changes', () => {
+    const iframeKey = 'craft_workspace:agent';
+    const tabGroup = {
+      id: 'craft_workspace',
+      label: 'Workspace',
+      order: 0,
+      tabs: [],
+      pairs: [],
+    };
+
+    __iframePanelTestUtils.getOrCreateIframeForTest({
+      iframeKey,
+      tab: {
+        id: 'agent',
+        title: 'Agent',
+        url: '/workspaces/ws/vscode?chat_only=true&session_id=s1',
+      },
+      tabGroup,
+    });
+    __iframePanelTestUtils.getOrCreateIframeForTest({
+      iframeKey,
+      tab: {
+        id: 'agent',
+        title: 'Agent',
+        url: '/workspaces/ws/vscode?chat_only=true&session_id=s2',
+      },
+      tabGroup,
+    });
+
+    expect(__iframePanelTestUtils.getIframeSrcForTest(iframeKey)).toContain(
+      'session_id=s2',
+    );
   });
 });
