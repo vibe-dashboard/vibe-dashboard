@@ -687,8 +687,10 @@ export function validateUICXml(descriptor: UICSurfaceDescriptor, xml: string): {
     if (count === 0) diagnostics.push(diagnostic("uic/xml/missing-required-node", `SpacesOverview UIC proof requires uic:${tag}.`));
     if (count > 1) diagnostics.push(diagnostic("uic/xml/duplicate-node", `SpacesOverview UIC proof allows one uic:${tag}.`));
   }
-  const templates = rowTemplateNodes(root);
-  if (templates.length > 1) diagnostics.push(diagnostic("uic/xml/duplicate-node", "UIC recentlyCreatedCraft supports at most one row template."));
+  for (const sectionTag of UIC_CRAFT_LIST_TEMPLATE_SECTION_TAGS) {
+    const templates = rowTemplateNodes(root, sectionTag);
+    if (templates.length > 1) diagnostics.push(diagnostic("uic/xml/duplicate-node", `UIC ${sectionTag} supports at most one row template.`));
+  }
   for (const tag of descriptor.layoutTags) {
     const componentNodes = descendantTags(root, [tag]);
     for (const componentNode of componentNodes) {

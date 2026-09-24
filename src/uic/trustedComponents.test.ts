@@ -354,6 +354,27 @@ describe("UIC trusted component descriptors", () => {
     }
   });
 
+  it("rejects duplicate sibling craft row templates", () => {
+    const template = `<uic:rowTemplate for="item"><uic:row><uic:text bind="item.label" /><uic:action event="activate" label="Open" /></uic:row></uic:rowTemplate>`;
+    const visited = structuralSpacesOverviewXml.replace(
+      '<uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyVisitedCraft" />',
+      `<uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyVisitedCraft">${template}${template}</uic:recentlyVisitedCraft>`,
+    );
+    const starred = structuralSpacesOverviewXml.replace(
+      '<uic:starredCraft uic:on-activate="spaces.navigateToCraft" />',
+      `<uic:starredCraft uic:on-activate="spaces.navigateToCraft">${template}${template}</uic:starredCraft>`,
+    );
+
+    expect(validateUICXml(spacesOverviewPageHeaderUICProof, visited).diagnostics).toContainEqual(
+      expect.objectContaining({ code: "uic/xml/duplicate-node" }),
+    );
+    expect(getUICCraftListRowTemplate(spacesOverviewPageHeaderUICProof, visited, "recentlyVisitedCraft")).toBeUndefined();
+    expect(validateUICXml(spacesOverviewPageHeaderUICProof, starred).diagnostics).toContainEqual(
+      expect.objectContaining({ code: "uic/xml/duplicate-node" }),
+    );
+    expect(getUICCraftListRowTemplate(spacesOverviewPageHeaderUICProof, starred, "starredCraft")).toBeUndefined();
+  });
+
   it("rejects unsafe or malformed recently-created row templates", () => {
     const templated = (body: string) => structuralSpacesOverviewXml.replace(
       '<uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyCreatedCraft" />',
