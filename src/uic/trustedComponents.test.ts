@@ -3,6 +3,7 @@ import {
   compileUICScopedCss,
   compileUICXml,
   generateUICXsd,
+  getUICCraftListRowTemplate,
   getUICLayoutTree,
   spacesOverviewPageHeaderUICProof,
   validateUICXml,
@@ -264,6 +265,58 @@ describe("UIC trusted component descriptors", () => {
       expect(validateUICXml(spacesOverviewPageHeaderUICProof, cssFor(css)).diagnostics, name).toContainEqual(
         expect.objectContaining({ code }),
       );
+    }
+  });
+
+  it("accepts a bounded recently-created craft row template", () => {
+    const templated = structuralSpacesOverviewXml.replace(
+      '<uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyCreatedCraft" />',
+      `<uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyCreatedCraft">
+        <uic:rowTemplate for="item">
+          <uic:row variant="featured">
+            <uic:text bind="item.label" tone="primary" />
+            <uic:text bind="item.meta" tone="secondary" />
+            <uic:action event="activate" label="Open recent craft" />
+          </uic:row>
+        </uic:rowTemplate>
+      </uic:recentlyCreatedCraft>`,
+    );
+
+    expect(validateUICXml(spacesOverviewPageHeaderUICProof, templated).diagnostics).toEqual([]);
+    expect(getUICCraftListRowTemplate(spacesOverviewPageHeaderUICProof, templated, "recentlyCreatedCraft")).toMatchObject({
+      sectionTag: "recentlyCreatedCraft",
+      row: {
+        variant: "featured",
+        children: [
+          { kind: "text", bind: "item.label", tone: "primary" },
+          { kind: "text", bind: "item.meta", tone: "secondary" },
+          { kind: "action", event: "activate", label: "Open recent craft" },
+        ],
+      },
+    });
+  });
+
+  it("rejects unsafe or malformed recently-created row templates", () => {
+    const templated = (body: string) => structuralSpacesOverviewXml.replace(
+      '<uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyCreatedCraft" />',
+      `<uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyCreatedCraft">${body}</uic:recentlyCreatedCraft>`,
+    );
+    const validTemplate = `<uic:rowTemplate for="item"><uic:row variant="featured"><uic:text bind="item.label" tone="primary" /><uic:action event="activate" label="Open" /></uic:row></uic:rowTemplate>`;
+    const cases = [
+      ["invalid binding", validTemplate.replace('bind="item.label"', 'bind="model.appHooks"'), "uic/xml/invalid-binding"],
+      ["unknown attr", validTemplate.replace("<uic:row ", '<uic:row onclick="x" '), "uic/xml/unknown-attribute"],
+      ["unknown tag", validTemplate.replace("<uic:text ", "<uic:image "), "uic/xml/unknown-tag"],
+      ["unsafe url", validTemplate.replace('label="Open"', 'label="https://example.test"'), "uic/xml/url-forbidden"],
+      ["too deep", `<uic:rowTemplate for="item"><uic:row><uic:row><uic:row><uic:row><uic:text bind="item.label" /></uic:row></uic:row></uic:row></uic:row></uic:rowTemplate>`, "uic/xml/template-depth-budget"],
+      ["too many nodes", `<uic:rowTemplate for="item"><uic:row>${'<uic:text bind="item.label" />'.repeat(9)}</uic:row></uic:rowTemplate>`, "uic/xml/template-node-budget"],
+      ["forged action outside row", `<uic:action event="activate" label="Open" />${validTemplate}`, "uic/xml/unsupported-structure"],
+    ] as const;
+
+    for (const [name, xml, code] of cases) {
+      expect(validateUICXml(spacesOverviewPageHeaderUICProof, templated(xml)).diagnostics, name).toContainEqual(
+        expect.objectContaining({ code }),
+      );
+      expect(getUICCraftListRowTemplate(spacesOverviewPageHeaderUICProof, templated(xml), "recentlyCreatedCraft"), name).toBeUndefined();
     }
   });
 

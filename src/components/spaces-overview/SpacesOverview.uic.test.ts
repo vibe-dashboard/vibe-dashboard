@@ -476,7 +476,7 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     const region = runningDevServersRegion(html);
 
     expect(html).toContain("data-uic-owned-region=\"running-dev-servers\"");
-    expect(region).toContain("Read-only UIC resource");
+    expect(region).toContain("Active development servers");
     expect(region).toContain("Auth bug fix");
     expect(region).toContain("Stop server");
     expect(region).not.toContain("Go to craft");
@@ -486,7 +486,7 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     const html = renderUICLayout(spacesOverviewUICLayoutXml.replace(' uic:on-stop="spaces.stopDevServer"', ""));
     const region = runningDevServersRegion(html);
 
-    expect(region).toContain("Read-only UIC resource");
+    expect(region).toContain("Active development servers");
     expect(region).not.toContain("Stop server");
     expect(projectUICRunningDevServerActions({ workspaces: [runningWorkspace()], stoppingDevServerIds: new Set() }, false)).toEqual([]);
   });
@@ -726,7 +726,7 @@ describe("SpacesOverview UIC pageHeader proof", () => {
   it("uses finite UIC empty/ready/list semantics and navigation action for recently visited craft", () => {
     const readyRegion = recentlyVisitedRegion(renderUICLayout());
 
-    expect(readyRegion).toContain("Read-only UIC list");
+    expect(readyRegion).toContain("Recently opened craft");
     expect(readyRegion).toContain("3 craft");
     expect(readyRegion).toContain("Auth bug fix");
     expect(readyRegion).toContain("Product");
@@ -822,7 +822,7 @@ describe("SpacesOverview UIC pageHeader proof", () => {
   it("uses finite UIC empty/ready/list semantics and navigation action for recently created craft", () => {
     const readyRegion = recentlyCreatedRegion(renderUICLayout());
 
-    expect(readyRegion).toContain("Read-only UIC list");
+    expect(readyRegion).toContain("Recently created craft");
     expect(readyRegion).toContain("3 craft");
     expect(readyRegion).toContain("Auth bug fix");
     expect(readyRegion).toContain("Product");
@@ -835,6 +835,46 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     const emptyWorkspace = { ...storybookWorkspace, tabGroups: storybookWorkspace.tabGroups.map((tabGroup) => ({ ...tabGroup, createdAt: undefined })) };
     const emptyRegion = recentlyCreatedRegion(renderUICLayout(undefined, { workspace: emptyWorkspace }));
     expect(emptyRegion).toContain("No recently created craft");
+  });
+
+  it("renders Recently Created Craft rows from a bounded XML row template", () => {
+    const templatedXml = spacesOverviewUICLayoutXml.replace(
+      '<uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyCreatedCraft" />',
+      `<uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyCreatedCraft">
+        <uic:rowTemplate for="item">
+          <uic:row variant="featured">
+            <uic:text bind="item.label" tone="primary" />
+            <uic:text bind="item.meta" tone="secondary" />
+            <uic:action event="activate" label="Launch created craft" />
+          </uic:row>
+        </uic:rowTemplate>
+      </uic:recentlyCreatedCraft>`,
+    );
+    const region = recentlyCreatedRegion(renderUICPresentationWithModel({
+      recentlyCreated: {
+        items: [{ space: storybookWorkspace.spaces[0]!, tg: storybookWorkspace.tabGroups[0]! }],
+        page: 0,
+        totalPages: 1,
+      },
+    }, {}, templatedXml));
+
+    expect(region).toContain('data-uic-row-template="recentlyCreatedCraft"');
+    expect(region).toContain("Launch created craft");
+    expect(region).toContain("Overview");
+    expect(region).toContain("Home");
+    expect(region).not.toContain("Open craft");
+  });
+
+  it("falls back when Recently Created Craft row template validation fails", () => {
+    const invalidXml = spacesOverviewUICLayoutXml.replace(
+      '<uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyCreatedCraft" />',
+      '<uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyCreatedCraft"><uic:rowTemplate for="item"><uic:row><uic:text bind="model.appHooks" /></uic:row></uic:rowTemplate></uic:recentlyCreatedCraft>',
+    );
+
+    const html = renderUICLayout(invalidXml);
+
+    expect(html).toContain('data-myne-view-pack="myne.spaces.view-pack.default"');
+    expect(html).not.toContain('data-uic-row-template="recentlyCreatedCraft"');
   });
 
   it("binds UIC recently created pagination only from validated XML and current page state", () => {
@@ -918,7 +958,7 @@ describe("SpacesOverview UIC pageHeader proof", () => {
   it("uses a typed UIC navigation action for starred craft without mutation controls", () => {
     const readyRegion = starredCraftRegion(renderUICLayout());
 
-    expect(readyRegion).toContain("Read-only UIC list");
+    expect(readyRegion).toContain("Pinned craft");
     expect(readyRegion).toContain("1 craft");
     expect(readyRegion).toContain("Auth bug fix");
     expect(readyRegion).toContain("Product");
@@ -935,7 +975,7 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     const xml = spacesOverviewUICLayoutXml.replace('  <uic:starredCraft uic:on-activate="spaces.navigateToCraft" />', "  <uic:starredCraft />");
     const region = starredCraftRegion(renderUICLayout(xml));
 
-    expect(region).toContain("Read-only UIC list");
+    expect(region).toContain("Pinned craft");
     expect(region).not.toContain("Open craft");
     expect(projectUICStarredCraftActions({
       starredTabGroups: [{ space: storybookWorkspace.spaces[1]!, tg: storybookWorkspace.tabGroups[1]! }],
@@ -1273,7 +1313,7 @@ describe("SpacesOverview UIC pageHeader proof", () => {
   it("uses finite UIC grouped-list semantics and navigation action for spaces", () => {
     const readyRegion = spacesRegion(renderUICLayout());
 
-    expect(readyRegion).toContain("Read-only UIC grouped list");
+    expect(readyRegion).toContain("Spaces and craft");
     expect(readyRegion).toContain("2 spaces");
     expect(readyRegion).toContain("Product");
     expect(readyRegion).toContain("Auth bug fix");
@@ -1352,7 +1392,7 @@ describe("SpacesOverview UIC pageHeader proof", () => {
   it("uses finite UIC states and typed workspace-list row/filter actions", () => {
     const readyRegion = workspaceListRegion(renderUICLayout());
 
-    expect(readyRegion).toContain("Read-only UIC workspace list");
+    expect(readyRegion).toContain("Workspace queue");
     expect(readyRegion).toContain("VK Workspaces");
     expect(readyRegion).toContain(dashboardWorkspaces[0]!.name);
     expect(readyRegion).toContain("Go to craft");
@@ -1372,7 +1412,7 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     const xml = spacesOverviewUICLayoutXml.replace(' uic:on-activate="spaces.openWorkspace"', "");
     const region = workspaceListRegion(renderUICLayout(xml));
 
-    expect(region).toContain("Read-only UIC workspace list");
+    expect(region).toContain("Workspace queue");
     expect(region).not.toContain("Open workspace");
     expect(region).toContain("All</");
     expect(projectUICWorkspaceListActions(workspaceActionModel(), { open: false, filter: true, page: true }).some((action) => action.id === "spaces.openWorkspace")).toBe(false);
@@ -1381,7 +1421,7 @@ describe("SpacesOverview UIC pageHeader proof", () => {
   it("does not expose workspace open descriptors when the trusted open capability is unavailable", () => {
     const region = workspaceListRegion(renderUICLayout(undefined, { onOpenWorkspaceInSpace: undefined }));
 
-    expect(region).toContain("Read-only UIC workspace list");
+    expect(region).toContain("Workspace queue");
     expect(region).not.toContain("Open workspace");
     expect(projectUICWorkspaceListActions(workspaceActionModel({ canOpenWorkspaceInSpace: false })).some((action) => action.id === "spaces.openWorkspace")).toBe(false);
   });
@@ -1869,7 +1909,7 @@ describe("SpacesOverview UIC pageHeader proof", () => {
   it("uses finite UIC states and typed resume/start actions for recent sessions", () => {
     const readyRegion = recentSessionsRegion(renderUICLayout());
 
-    expect(readyRegion).toContain("Read-only UIC voyage list");
+    expect(readyRegion).toContain("Recent voyages");
     expect(readyRegion).toContain("All Voyages");
     expect(readyRegion).toContain("Current launch");
     expect(readyRegion).toContain("Current");
@@ -1952,7 +1992,7 @@ describe("SpacesOverview UIC pageHeader proof", () => {
       .replace(' uic:on-activate="spaces.navigateToCraft"', "");
     const region = recentSessionsRegion(renderUICLayout(xml));
 
-    expect(region).toContain("Read-only UIC voyage list");
+    expect(region).toContain("Recent voyages");
     expect(region).not.toContain("Resume voyage");
     expect(region).not.toContain("New Voyage");
     expect(region).not.toContain("Delete voyage");

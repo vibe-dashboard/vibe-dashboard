@@ -3,7 +3,7 @@ import type { DashboardWorkspace, SpacesOverviewComponentProps, SpacesOverviewPr
 import type { SpacesOverviewSlotProps } from "./SpacesOverview.slots";
 import { formatRelativeTime } from "./workspaceList.view";
 import { MyneHeading, MyneText } from "../../theme/skins";
-import { compileUICScopedCss, getUICLayoutTree, getUICValidatedActionBindings, spacesOverviewPageHeaderUICProof, validateUICXml, type UICDiagnostic, type UICLayoutTreeNode } from "../../uic/trustedComponents";
+import { compileUICScopedCss, getUICCraftListRowTemplate, getUICLayoutTree, getUICValidatedActionBindings, spacesOverviewPageHeaderUICProof, validateUICXml, type UICCraftListRowTemplate, type UICDiagnostic, type UICLayoutTreeNode } from "../../uic/trustedComponents";
 import { Component, createElement, type ErrorInfo, type ReactNode } from "react";
 import styles from "./SpacesOverview.skin.module.css";
 
@@ -1059,6 +1059,7 @@ function UICReadOnlyListSection({
   trustedActions,
   pageActions,
   trustedPageActions,
+  rowTemplate,
 }: {
   readonly slot: string;
   readonly title: string;
@@ -1072,6 +1073,7 @@ function UICReadOnlyListSection({
   readonly trustedActions?: UICNavigateActions;
   readonly pageActions?: readonly UICCraftListPageActionDescriptor[];
   readonly trustedPageActions?: UICCraftListPageActions;
+  readonly rowTemplate?: UICCraftListRowTemplate;
 }) {
   const allowedTargets = new Set(Array.from(actionsByItemId?.values() ?? []).map((action) => `${action.args.spaceId}:${action.args.tabGroupId}`));
   const pageActionsByDirection = new Map((pageActions ?? []).map((action) => [action.args.direction, action]));
@@ -1108,30 +1110,47 @@ function UICReadOnlyListSection({
               {resource.diagnostics.join(", ")}
             </li>
           )}
-          {resource.items.map((item) => (
-            <li key={item.id} className="myne-row rounded-lg border px-4 py-3">
-              <MyneText as="span" className="block text-sm font-medium" tone="primary">
-                {item.label}
-              </MyneText>
-              {item.meta.length > 0 && (
-                <MyneText as="span" className="mt-1 block text-xs" tone="secondary">
-                  {item.meta.join(" · ")}
+          {resource.items.map((item) => {
+            const action = actionsByItemId?.get(item.id);
+            const invoke = () => {
+              if (trustedActions && action) invokeUICSpacesOverviewAction(trustedActions, action, allowedTargets);
+            };
+            return rowTemplate ? (
+              <li key={item.id} className={rowTemplate.row.variant === "featured" ? "myne-row rounded-xl border px-4 py-3" : "myne-row rounded-lg border px-4 py-3"} data-uic-row-template={rowTemplate.sectionTag}>
+                {rowTemplate.row.children.map((child, index) => {
+                  if (child.kind === "text") {
+                    const value = child.bind === "item.label" ? item.label : item.meta.join(" · ");
+                    return value ? (
+                      <MyneText key={`${child.bind}-${index}`} as="span" className={child.bind === "item.label" ? "block text-sm font-medium" : "mt-1 block text-xs"} tone={child.tone}>
+                        {value}
+                      </MyneText>
+                    ) : null;
+                  }
+                  return trustedActions && action ? (
+                    <button key={`action-${index}`} type="button" className="myne-button myne-button--quiet mt-2 text-xs" onClick={invoke}>
+                      {child.label}
+                    </button>
+                  ) : null;
+                })}
+              </li>
+            ) : (
+              <li key={item.id} className="myne-row rounded-lg border px-4 py-3">
+                <MyneText as="span" className="block text-sm font-medium" tone="primary">
+                  {item.label}
                 </MyneText>
-              )}
-              {trustedActions && actionsByItemId?.has(item.id) && (
-                <button
-                  type="button"
-                  className="myne-button myne-button--quiet mt-2 text-xs"
-                  onClick={() => {
-                    const action = actionsByItemId.get(item.id);
-                    if (action) invokeUICSpacesOverviewAction(trustedActions, action, allowedTargets);
-                  }}
-                >
-                  Open craft
-                </button>
-              )}
-            </li>
-          ))}
+                {item.meta.length > 0 && (
+                  <MyneText as="span" className="mt-1 block text-xs" tone="secondary">
+                    {item.meta.join(" · ")}
+                  </MyneText>
+                )}
+                {trustedActions && action && (
+                  <button type="button" className="myne-button myne-button--quiet mt-2 text-xs" onClick={invoke}>
+                    Open craft
+                  </button>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
       {trustedPageActions && pageActionsByDirection.size > 0 && (
@@ -1178,7 +1197,7 @@ export function UICReadOnlyRunningDevServersSection({ model, actions, enableStop
             Running Dev Servers
           </MyneHeading>
           <MyneText as="p" className="mt-1 text-xs" tone="muted">
-            Read-only UIC resource
+            Active development servers
           </MyneText>
         </div>
         {resource.state === "ready" && (
@@ -1427,7 +1446,7 @@ export function UICReadOnlyRecentSessionsSection({ model, actions, enableResumeA
             All Voyages
           </MyneHeading>
           <MyneText as="p" className="mt-1 text-xs" tone="muted">
-            Read-only UIC voyage list
+            Recent voyages
           </MyneText>
         </div>
         {startAction && (
@@ -1654,7 +1673,7 @@ function UICReadOnlyStarredCraftSection({ model, actions, enableNavigateAction =
     <UICReadOnlyListSection
       slot="starred-craft"
       title="Starred"
-      subtitle="Read-only UIC list"
+      subtitle="Pinned craft"
       emptyLabel="No starred craft"
       countNoun="craft"
       countNounPlural="craft"
@@ -1671,7 +1690,7 @@ function UICReadOnlyRecentlyVisitedCraftSection({ model, actions, enableNavigate
     <UICReadOnlyListSection
       slot="recently-visited-craft"
       title="Recently Visited"
-      subtitle="Read-only UIC list"
+      subtitle="Recently opened craft"
       emptyLabel="No recently visited craft"
       countNoun="craft"
       countNounPlural="craft"
@@ -1693,13 +1712,13 @@ export function projectUICRecentlyCreatedCraftResource(model: SpacesOverviewSlot
   });
 }
 
-function UICReadOnlyRecentlyCreatedCraftSection({ model, actions, enableNavigateAction = true, enablePageAction = true }: SpacesOverviewSlotProps<"recentlyCreatedCraft"> & { readonly enableNavigateAction?: boolean; readonly enablePageAction?: boolean }) {
+function UICReadOnlyRecentlyCreatedCraftSection({ model, actions, enableNavigateAction = true, enablePageAction = true, rowTemplate }: SpacesOverviewSlotProps<"recentlyCreatedCraft"> & { readonly enableNavigateAction?: boolean; readonly enablePageAction?: boolean; readonly rowTemplate?: UICCraftListRowTemplate }) {
   const actionDescriptors = new Map(projectUICRecentlyCreatedCraftActions(model, enableNavigateAction).map((action) => [action.args.tabGroupId, action]));
   return (
     <UICReadOnlyListSection
       slot="recently-created-craft"
       title="Recently Created"
-      subtitle="Read-only UIC list"
+      subtitle="Recently created craft"
       emptyLabel="No recently created craft"
       countNoun="craft"
       countNounPlural="craft"
@@ -1708,6 +1727,7 @@ function UICReadOnlyRecentlyCreatedCraftSection({ model, actions, enableNavigate
       trustedActions={actions}
       pageActions={projectUICRecentlyCreatedCraftPageActions(model, enablePageAction)}
       trustedPageActions={actions}
+      rowTemplate={rowTemplate}
     />
   );
 }
@@ -1847,7 +1867,7 @@ export function UICReadOnlyWorkspaceListSection({ model, actions, enableOpenWork
             VK Workspaces
           </MyneHeading>
           <MyneText as="p" className="mt-1 text-xs" tone="muted">
-            Read-only UIC workspace list
+            Workspace queue
           </MyneText>
         </div>
         {resource.state === "ready" && (
@@ -2041,7 +2061,7 @@ function UICReadOnlySpacesSection({ model, actions, enableNavigateAction = true 
             All Spaces
           </MyneHeading>
           <MyneText as="p" className="mt-1 text-xs" tone="muted">
-            Read-only UIC grouped list
+            Spaces and craft
           </MyneText>
         </div>
         {resource.state === "ready" && (
@@ -2369,7 +2389,8 @@ export function SpacesOverviewUICLayoutProofPresentation({
   const enableSpacePickerClose = actionBindings.get("spacePicker")?.close === "spaces.dismissPicker";
   const enableSpacePickerRetry = actionBindings.get("spacePicker")?.retry === "spaces.retryOpenWorkspace";
   const enableSpacePickerSelect = actionBindings.get("spacePicker")?.select === "spaces.selectSpaceForWorkspace";
-  const ui = diagnostics.length ? defaultSpacesOverviewUI : { ...defaultSpacesOverviewUI, RecentSessionsSection: (slotProps: SpacesOverviewSlotProps<"recentSessions">) => <UICReadOnlyRecentSessionsSection {...slotProps} enableResumeAction={enableSessionResume} enableStartAction={enableSessionStart} enableRenameAction={enableSessionRename} enableDeleteAction={enableSessionDelete} enableToggleAction={enableSessionToggle} enableCraftNavigateAction={enableSessionCraftNavigate} />, StarredCraftSection: (slotProps: SpacesOverviewSlotProps<"starredCraft">) => <UICReadOnlyStarredCraftSection {...slotProps} enableNavigateAction={enableStarredNavigate} />, RunningDevServersSection: (slotProps: SpacesOverviewSlotProps<"runningDevServers">) => <UICReadOnlyRunningDevServersSection {...slotProps} enableStopAction={enableRunningDevServerStop} enableNavigateAction={enableRunningDevServerNavigate} enableOpenAction={enableRunningDevServerOpen} />, RecentlyVisitedCraftSection: (slotProps: SpacesOverviewSlotProps<"recentlyVisitedCraft">) => <UICReadOnlyRecentlyVisitedCraftSection {...slotProps} enableNavigateAction={enableRecentlyVisitedNavigate} enablePageAction={enableRecentlyVisitedPage} />, RecentlyCreatedCraftSection: (slotProps: SpacesOverviewSlotProps<"recentlyCreatedCraft">) => <UICReadOnlyRecentlyCreatedCraftSection {...slotProps} enableNavigateAction={enableRecentlyCreatedNavigate} enablePageAction={enableRecentlyCreatedPage} />, WorkspaceListSection: (slotProps: SpacesOverviewSlotProps<"workspaceList">) => <UICReadOnlyWorkspaceListSection {...slotProps} enableOpenWorkspaceAction={enableWorkspaceOpen} enableNavigateAction={enableWorkspaceNavigate} enableStopAction={enableWorkspaceStop} enableFilterAction={enableWorkspaceFilter} enablePageAction={enableWorkspacePage} />, SpacesSection: (slotProps: SpacesOverviewSlotProps<"spaces">) => <UICReadOnlySpacesSection {...slotProps} enableNavigateAction={enableSpacesNavigate} />, SpacePickerModal: (slotProps: SpacesOverviewSlotProps<"spacePicker">) => <UICSpacePickerModal {...slotProps} enableCloseAction={enableSpacePickerClose} enableRetryAction={enableSpacePickerRetry} enableSelectAction={enableSpacePickerSelect} /> };
+  const recentlyCreatedRowTemplate = diagnostics.length ? undefined : getUICCraftListRowTemplate(spacesOverviewPageHeaderUICProof, selectedXml, "recentlyCreatedCraft");
+  const ui = diagnostics.length ? defaultSpacesOverviewUI : { ...defaultSpacesOverviewUI, RecentSessionsSection: (slotProps: SpacesOverviewSlotProps<"recentSessions">) => <UICReadOnlyRecentSessionsSection {...slotProps} enableResumeAction={enableSessionResume} enableStartAction={enableSessionStart} enableRenameAction={enableSessionRename} enableDeleteAction={enableSessionDelete} enableToggleAction={enableSessionToggle} enableCraftNavigateAction={enableSessionCraftNavigate} />, StarredCraftSection: (slotProps: SpacesOverviewSlotProps<"starredCraft">) => <UICReadOnlyStarredCraftSection {...slotProps} enableNavigateAction={enableStarredNavigate} />, RunningDevServersSection: (slotProps: SpacesOverviewSlotProps<"runningDevServers">) => <UICReadOnlyRunningDevServersSection {...slotProps} enableStopAction={enableRunningDevServerStop} enableNavigateAction={enableRunningDevServerNavigate} enableOpenAction={enableRunningDevServerOpen} />, RecentlyVisitedCraftSection: (slotProps: SpacesOverviewSlotProps<"recentlyVisitedCraft">) => <UICReadOnlyRecentlyVisitedCraftSection {...slotProps} enableNavigateAction={enableRecentlyVisitedNavigate} enablePageAction={enableRecentlyVisitedPage} />, RecentlyCreatedCraftSection: (slotProps: SpacesOverviewSlotProps<"recentlyCreatedCraft">) => <UICReadOnlyRecentlyCreatedCraftSection {...slotProps} enableNavigateAction={enableRecentlyCreatedNavigate} enablePageAction={enableRecentlyCreatedPage} rowTemplate={recentlyCreatedRowTemplate} />, WorkspaceListSection: (slotProps: SpacesOverviewSlotProps<"workspaceList">) => <UICReadOnlyWorkspaceListSection {...slotProps} enableOpenWorkspaceAction={enableWorkspaceOpen} enableNavigateAction={enableWorkspaceNavigate} enableStopAction={enableWorkspaceStop} enableFilterAction={enableWorkspaceFilter} enablePageAction={enableWorkspacePage} />, SpacesSection: (slotProps: SpacesOverviewSlotProps<"spaces">) => <UICReadOnlySpacesSection {...slotProps} enableNavigateAction={enableSpacesNavigate} />, SpacePickerModal: (slotProps: SpacesOverviewSlotProps<"spacePicker">) => <UICSpacePickerModal {...slotProps} enableCloseAction={enableSpacePickerClose} enableRetryAction={enableSpacePickerRetry} enableSelectAction={enableSpacePickerSelect} /> };
 
   return (
     <>

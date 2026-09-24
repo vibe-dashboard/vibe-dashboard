@@ -56,11 +56,25 @@ export type UICLayoutPrimitiveTag = "layout" | "region" | "stack" | "grid" | "sp
 export type UICLayoutTreeNode =
   | Readonly<{ kind: "slot"; tag: string }>
   | Readonly<{ kind: "primitive"; tag: UICLayoutPrimitiveTag; attrs: Readonly<Record<string, string>>; children: readonly UICLayoutTreeNode[] }>;
+export type UICCraftListRowTemplate = Readonly<{
+  sectionTag: "recentlyCreatedCraft";
+  row: Readonly<{
+    variant: "standard" | "featured";
+    children: readonly UICCraftListRowTemplateChild[];
+  }>;
+}>;
+export type UICCraftListRowTemplateChild =
+  | Readonly<{ kind: "text"; bind: "item.label" | "item.meta"; tone: "primary" | "secondary" | "muted" }>
+  | Readonly<{ kind: "action"; event: "activate"; label: string }>;
 
 const UIC_STRUCTURAL_TAGS = Object.freeze(["layout", "region", "stack", "grid", "split", "card"] satisfies readonly UICLayoutPrimitiveTag[]);
 const UIC_STRUCTURAL_TAG_SET = new Set<string>(UIC_STRUCTURAL_TAGS);
-const UIC_LAYOUT_MAX_DEPTH = 6;
+const UIC_ROW_TEMPLATE_TAGS = Object.freeze(["rowTemplate", "row", "text", "action"] as const);
+const UIC_ROW_TEMPLATE_TAG_SET = new Set<string>(UIC_ROW_TEMPLATE_TAGS);
+const UIC_LAYOUT_MAX_DEPTH = 8;
 const UIC_LAYOUT_MAX_NODES = 40;
+const UIC_ROW_TEMPLATE_MAX_DEPTH = 3;
+const UIC_ROW_TEMPLATE_MAX_NODES = 8;
 
 export const spacesOverviewPageHeaderUICProof: UICSurfaceDescriptor = Object.freeze({
   artifactVersion: 1,
@@ -277,10 +291,31 @@ function collectLayoutTreeSlotTags(nodes: readonly UICLayoutTreeNode[], tags: st
   return tags;
 }
 
+function rowTemplateNodes(root: ParsedXmlNode, sectionTag = "recentlyCreatedCraft"): ParsedXmlNode[] {
+  const section = descendantTags(root, [sectionTag]).find((node) => node.name === `uic:${sectionTag}`);
+  return section?.children.filter((child) => child.name === "uic:rowTemplate") ?? [];
+}
+
+function templateDepth(node: ParsedXmlNode, depth = 1): number {
+  return Math.max(depth, ...node.children.map((child) => templateDepth(child, depth + 1)));
+}
+
+function templateNodeCount(node: ParsedXmlNode): number {
+  return 1 + node.children.reduce((sum, child) => sum + templateNodeCount(child), 0);
+}
+
 function structuralAllowedAttrs(tag: string): ReadonlySet<string> | undefined {
   if (tag === "layout") return new Set(["variant", "name", "aria-label"]);
   if (tag === "region") return new Set(["name", "as", "aria-label"]);
   if (tag === "stack" || tag === "grid" || tag === "split" || tag === "card") return new Set(["name", "aria-label"]);
+  return undefined;
+}
+
+function templateAllowedAttrs(tag: string): ReadonlySet<string> | undefined {
+  if (tag === "rowTemplate") return new Set(["for"]);
+  if (tag === "row") return new Set(["variant"]);
+  if (tag === "text") return new Set(["bind", "tone"]);
+  if (tag === "action") return new Set(["event", "label"]);
   return undefined;
 }
 
@@ -525,7 +560,7 @@ export function validateUICXml(descriptor: UICSurfaceDescriptor, xml: string): {
 
   const pageHeaderDescriptor = requireComponent(descriptor, "pageHeader");
   const pageHeaderAction = requireComponent(descriptor, "pageHeaderAction");
-  const allowedTags = new Set([descriptor.rootTag, "css", "slot", pageHeaderAction.tag, ...descriptor.layoutTags, ...UIC_STRUCTURAL_TAGS]);
+  const allowedTags = new Set([descriptor.rootTag, "css", "slot", pageHeaderAction.tag, ...descriptor.layoutTags, ...UIC_STRUCTURAL_TAGS, ...UIC_ROW_TEMPLATE_TAGS]);
   let nodeCount = 0;
   let totalNodeCount = 0;
   const regionNames = new Set<string>();
@@ -543,11 +578,13 @@ export function validateUICXml(descriptor: UICSurfaceDescriptor, xml: string): {
       ? new Set(["xmlns:uic", "artifactVersion", "uic:id", "uic:label", "uic:description", "uic:default", "uic:availability", "uic:layout-kind", "uic:order", "uic:slot-order"])
       : tag === "slot"
         ? new Set(["name"])
-        : structuralAllowedAttrs(tag)
-          ? structuralAllowedAttrs(tag)!
-        : descriptor.components[tag]
-          ? new Set([...descriptor.components[tag]!.props, ...Object.keys(descriptor.components[tag]!.events ?? {}).map((event) => `uic:on-${event}`)])
-            : new Set<string>();
+      : structuralAllowedAttrs(tag)
+        ? structuralAllowedAttrs(tag)!
+        : templateAllowedAttrs(tag)
+          ? templateAllowedAttrs(tag)!
+          : descriptor.components[tag]
+            ? new Set([...descriptor.components[tag]!.props, ...Object.keys(descriptor.components[tag]!.events ?? {}).map((event) => `uic:on-${event}`)])
+              : new Set<string>();
     const forbidden = descriptor.components[tag]?.forbidden ?? [];
     for (const attr of Object.keys(node.attrs)) {
       if (attr === "version" && descriptor.components[tag]) diagnostics.push(diagnostic("uic/xml/component-version-forbidden", "App-local generated UIC component tags are unversioned."));
@@ -574,6 +611,32 @@ export function validateUICXml(descriptor: UICSurfaceDescriptor, xml: string): {
         else regionNames.add(name);
         if (node.attrs.as && !["div", "section", "aside"].includes(node.attrs.as)) diagnostics.push(diagnostic("uic/xml/unknown-attribute", "UIC region as must be div, section, or aside."));
         if ((node.attrs.as === "section" || node.attrs.as === "aside") && !node.attrs["aria-label"]) diagnostics.push(diagnostic("uic/xml/landmark-label", "UIC landmark regions require aria-label."));
+      }
+    }
+    if (UIC_ROW_TEMPLATE_TAG_SET.has(tag)) {
+      if (tag === "rowTemplate") {
+        if (parent?.name !== "uic:recentlyCreatedCraft") diagnostics.push(diagnostic("uic/xml/unsupported-structure", "UIC row templates are only supported inside uic:recentlyCreatedCraft for this slice."));
+        if (node.attrs.for !== "item") diagnostics.push(diagnostic("uic/xml/invalid-binding", "UIC row templates must bind the item context exactly."));
+        if (node.children.length !== 1 || node.children[0]?.name !== "uic:row") diagnostics.push(diagnostic("uic/xml/unsupported-structure", "UIC row templates must contain exactly one uic:row."));
+        if (templateDepth(node) > UIC_ROW_TEMPLATE_MAX_DEPTH) diagnostics.push(diagnostic("uic/xml/template-depth-budget", "UIC row template exceeds the maximum supported depth."));
+        if (templateNodeCount(node) > UIC_ROW_TEMPLATE_MAX_NODES) diagnostics.push(diagnostic("uic/xml/template-node-budget", "UIC row template exceeds the maximum supported node count."));
+      }
+      if (tag === "row") {
+        if (parent?.name !== "uic:rowTemplate") diagnostics.push(diagnostic("uic/xml/unsupported-structure", "UIC row nodes are only supported inside uic:rowTemplate."));
+        if (node.attrs.variant && node.attrs.variant !== "standard" && node.attrs.variant !== "featured") diagnostics.push(diagnostic("uic/xml/unknown-attribute", "UIC row variant is unsupported."));
+        if (node.children.some((child) => child.name !== "uic:text" && child.name !== "uic:action")) diagnostics.push(diagnostic("uic/xml/unsupported-structure", "UIC rows may contain text and action nodes only."));
+      }
+      if (tag === "text") {
+        if (parent?.name !== "uic:row") diagnostics.push(diagnostic("uic/xml/unsupported-structure", "UIC text nodes are only supported inside uic:row."));
+        if (node.attrs.bind !== "item.label" && node.attrs.bind !== "item.meta") diagnostics.push(diagnostic("uic/xml/invalid-binding", "UIC text bind must be item.label or item.meta."));
+        if (node.attrs.tone && node.attrs.tone !== "primary" && node.attrs.tone !== "secondary" && node.attrs.tone !== "muted") diagnostics.push(diagnostic("uic/xml/unknown-attribute", "UIC text tone is unsupported."));
+        if (node.children.length || node.text.trim()) diagnostics.push(diagnostic("uic/xml/default-children-forbidden", "UIC text template nodes cannot contain children."));
+      }
+      if (tag === "action") {
+        if (parent?.name !== "uic:row") diagnostics.push(diagnostic("uic/xml/unsupported-structure", "UIC action nodes are only supported inside uic:row."));
+        if (node.attrs.event !== "activate") diagnostics.push(diagnostic("uic/xml/unknown-action", "UIC row template action must be activate."));
+        if (node.attrs.label && (node.attrs.label.length > 48 || /[<>]/u.test(node.attrs.label))) diagnostics.push(diagnostic("uic/xml/invalid-binding", "UIC row template action label is invalid."));
+        if (node.children.length || node.text.trim()) diagnostics.push(diagnostic("uic/xml/default-children-forbidden", "UIC action template nodes cannot contain children."));
       }
     }
     if (tag === descriptor.rootTag && node.attrs["xmlns:uic"] !== descriptor.namespace) diagnostics.push(diagnostic("uic/xml/namespace-mismatch", "UIC namespace is missing or unsupported."));
@@ -618,6 +681,18 @@ export function validateUICXml(descriptor: UICSurfaceDescriptor, xml: string): {
     const count = topLevelTags.filter((candidate) => candidate === tag).length;
     if (count === 0) diagnostics.push(diagnostic("uic/xml/missing-required-node", `SpacesOverview UIC proof requires uic:${tag}.`));
     if (count > 1) diagnostics.push(diagnostic("uic/xml/duplicate-node", `SpacesOverview UIC proof allows one uic:${tag}.`));
+  }
+  const templates = rowTemplateNodes(root);
+  if (templates.length > 1) diagnostics.push(diagnostic("uic/xml/duplicate-node", "UIC recentlyCreatedCraft supports at most one row template."));
+  for (const tag of descriptor.layoutTags) {
+    const componentNodes = descendantTags(root, [tag]);
+    for (const componentNode of componentNodes) {
+      if (tag === "recentlyCreatedCraft") {
+        if (componentNode.children.some((child) => child.name !== "uic:rowTemplate")) diagnostics.push(diagnostic("uic/xml/unsupported-structure", "UIC recentlyCreatedCraft supports rowTemplate children only."));
+      } else if (tag !== "pageHeader" && componentNode.children.length > 0) {
+        diagnostics.push(diagnostic("uic/xml/unsupported-structure", `uic:${tag} does not support XML-authored children in this slice.`));
+      }
+    }
   }
   root.children.forEach((child, index) => {
     if (child.name === "uic:css" && index !== 0) diagnostics.push(diagnostic("uic/xml/css-position", "UIC CSS must be the first top-level child when present."));
@@ -695,6 +770,35 @@ export function getUICLayoutTree(descriptor: UICSurfaceDescriptor, xml: string):
   const root = parseXmlLite(xml).roots[0];
   if (!root) return [];
   return getUICLayoutTreeUnchecked(descriptor, root);
+}
+
+export function getUICCraftListRowTemplate(
+  descriptor: UICSurfaceDescriptor,
+  xml: string,
+  sectionTag: "recentlyCreatedCraft",
+): UICCraftListRowTemplate | undefined {
+  if (validateUICXml(descriptor, xml).diagnostics.length) return undefined;
+  const root = parseXmlLite(xml).roots[0];
+  if (!root) return undefined;
+  const template = rowTemplateNodes(root, sectionTag)[0];
+  const row = template?.children[0];
+  if (!template || !row || row.name !== "uic:row") return undefined;
+  return {
+    sectionTag,
+    row: {
+      variant: row.attrs.variant === "featured" ? "featured" : "standard",
+      children: row.children.flatMap((child): UICCraftListRowTemplateChild[] => {
+        if (child.name === "uic:text" && (child.attrs.bind === "item.label" || child.attrs.bind === "item.meta")) {
+          const tone = child.attrs.tone === "secondary" || child.attrs.tone === "muted" ? child.attrs.tone : "primary";
+          return [{ kind: "text" as const, bind: child.attrs.bind, tone }];
+        }
+        if (child.name === "uic:action" && child.attrs.event === "activate") {
+          return [{ kind: "action" as const, event: "activate" as const, label: child.attrs.label ?? "Open craft" }];
+        }
+        return [];
+      }),
+    },
+  };
 }
 
 export async function compileUICXml(
