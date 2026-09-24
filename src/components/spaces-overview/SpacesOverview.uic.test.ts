@@ -335,7 +335,7 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(commandCenter?.xml).toContain("<uic:recentlyCreatedCraft");
     expect(commandCenter?.xml.match(/<uic:rowTemplate for="item">/gu)?.length).toBeGreaterThanOrEqual(3);
     expect(commandCenter?.scopedCss).toContain('[data-uic-artifact="uic.spaces.layout-command-center.proof"]');
-    expect(commandCenter?.scopedCss).toContain('[data-uic-slot="workspaceList"]');
+    expect(commandCenter?.scopedCss).toContain('[data-myne-slot="workspace-list"]');
     expect(commandCenter?.xml.replace(/<[^>]+>/gu, " ")).not.toMatch(/\b(?:UIC|read-only|proof)\b/u);
 
     const html = renderProductionSpacesOverview({
@@ -349,6 +349,8 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(html).toContain('data-uic-artifact="uic.spaces.layout-command-center.proof"');
     expect(html).toContain('data-uic-style="uic.spaces.layout-command-center.proof"');
     expect(html).toContain('[data-uic-artifact="uic.spaces.layout-command-center.proof"] [data-uic-region="activeRail"]');
+    expect(html).toContain('[data-uic-artifact="uic.spaces.layout-command-center.proof"] [data-myne-slot="workspace-list"]');
+    expect(html).toContain('data-myne-slot="workspace-list"');
     expect(html).toContain('data-uic-layout-kind="command-center"');
     expect(html).toContain('data-uic-primitive="layout"');
     expect(html).toContain('data-uic-region="activeRail"');

@@ -402,7 +402,10 @@ function compileUICSelector(selector: string, descriptor: UICSurfaceDescriptor, 
   if (slotMatch) {
     const slotName = slotMatch[1]!;
     if (!descriptor.layoutTags.includes(slotName)) return { diagnostic: diagnostic("uic/css/unknown-selector", `UIC CSS slot selector "${slotName}" is not declared by this surface.`) };
-    return { selector: `[data-uic-artifact="${scopeAttrValue}"] [data-uic-slot="${slotName}"]` };
+    const renderedSlot = slotName === "spaces"
+      ? "spaces-list"
+      : slotName.replace(/[A-Z]/gu, (letter) => `-${letter.toLowerCase()}`);
+    return { selector: `[data-uic-artifact="${scopeAttrValue}"] [data-myne-slot="${renderedSlot}"]` };
   }
 
   if (selector === ":uic-scope") return { selector: `[data-uic-artifact="${scopeAttrValue}"]` };
