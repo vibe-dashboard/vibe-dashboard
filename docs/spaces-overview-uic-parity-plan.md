@@ -201,8 +201,9 @@ The attached form must answer:
 4. Hidden optional sections vs visible empty copy.
 5. Ban all production-visible internal `UIC` labels.
 6. Row/resource budget policy.
-7. Exact DOM/classes vs user-visible parity.
-8. Visual acceptance gate and dense view-pack scope.
+7. `pageHeaderAction` fixture disposition: remove for parity, promote to a real header action, or keep dev-only.
+8. Exact DOM/classes vs user-visible parity.
+9. Visual acceptance gate and dense view-pack scope.
 
 Form authoring note: the current BeadsForm standard choices renderer emits
 checkbox controls, so every mutually exclusive decision in the attached form
