@@ -4,26 +4,67 @@
   --myne-slot-page-header-gap: 0.5rem;
   --myne-command-center-rail: 18rem;
   --myne-command-center-main: minmax(24rem, 1fr);
-  background: linear-gradient(135deg, var(--myne-color-background), color-mix(in oklab, var(--myne-color-accent) 10%, var(--myne-color-background)));
+  background: linear-gradient(135deg, color-mix(in oklab, var(--myne-color-background) 88%, var(--myne-color-accent)), var(--myne-color-background));
+  border: 1px solid color-mix(in oklab, var(--myne-color-border) 78%, var(--myne-color-accent));
+  border-radius: var(--myne-radius-lg);
+  padding: var(--myne-spacing-md);
+  box-shadow: var(--myne-shadow-panel);
 }
 :uic-region(activeRail) {
-  background: color-mix(in oklab, var(--myne-color-panel) 88%, var(--myne-color-accent));
+  background: linear-gradient(180deg, color-mix(in oklab, var(--myne-color-panel) 78%, var(--myne-color-accent)), var(--myne-color-panel));
   border: 1px solid var(--myne-color-border);
   border-radius: var(--myne-radius-lg);
   padding: var(--myne-spacing-md);
   box-shadow: var(--myne-shadow-panel);
 }
 :uic-region(mainQueue) {
-  background: var(--myne-color-panel);
+  background: color-mix(in oklab, var(--myne-color-panel) 92%, var(--myne-color-accent));
+  border: 1px solid color-mix(in oklab, var(--myne-color-border) 72%, var(--myne-color-accent));
+  border-radius: var(--myne-radius-lg);
+  padding: var(--myne-spacing-md);
+  box-shadow: var(--myne-shadow-panel);
+}
+:uic-region(memoryRail) {
+  background: linear-gradient(180deg, color-mix(in oklab, var(--myne-color-panel) 84%, var(--myne-color-warning)), var(--myne-color-panel));
   border: 1px solid var(--myne-color-border);
   border-radius: var(--myne-radius-lg);
   padding: var(--myne-spacing-md);
 }
-:uic-region(memoryRail) {
-  background: color-mix(in oklab, var(--myne-color-panel) 92%, var(--myne-color-warning));
+:uic-slot(workspaceList) {
+  background: color-mix(in oklab, var(--myne-color-panel) 86%, var(--myne-color-accent));
   border: 1px solid var(--myne-color-border);
   border-radius: var(--myne-radius-lg);
   padding: var(--myne-spacing-md);
+}
+:uic-slot(runningDevServers) {
+  background: color-mix(in oklab, var(--myne-color-panel) 82%, var(--myne-color-success));
+  border: 1px solid var(--myne-color-border);
+  border-radius: var(--myne-radius-md);
+  padding: var(--myne-spacing-sm);
+}
+:uic-slot(recentSessions) {
+  background: color-mix(in oklab, var(--myne-color-panel) 90%, var(--myne-color-accent));
+  border: 1px solid var(--myne-color-border);
+  border-radius: var(--myne-radius-md);
+  padding: var(--myne-spacing-sm);
+}
+:uic-slot(starredCraft) {
+  background: color-mix(in oklab, var(--myne-color-panel) 84%, var(--myne-color-warning));
+  border: 1px solid var(--myne-color-border);
+  border-radius: var(--myne-radius-md);
+  padding: var(--myne-spacing-sm);
+}
+:uic-slot(recentlyVisitedCraft) {
+  background: color-mix(in oklab, var(--myne-color-panel) 88%, var(--myne-color-accent));
+  border: 1px solid var(--myne-color-border);
+  border-radius: var(--myne-radius-md);
+  padding: var(--myne-spacing-sm);
+}
+:uic-slot(recentlyCreatedCraft) {
+  background: color-mix(in oklab, var(--myne-color-panel) 88%, var(--myne-color-success));
+  border: 1px solid var(--myne-color-border);
+  border-radius: var(--myne-radius-md);
+  padding: var(--myne-spacing-sm);
 }
 ]]></uic:css>
   <uic:pageHeader title="{model.title}" subtitle="{model.subtitle}">
@@ -41,9 +82,33 @@
     </uic:region>
     <uic:region name="memoryRail" as="aside" aria-label="Space memory">
       <uic:spaces uic:on-activate="spaces.navigateToCraft" />
-      <uic:starredCraft uic:on-activate="spaces.navigateToCraft" />
-      <uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyVisitedCraft" />
-      <uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyCreatedCraft" />
+      <uic:starredCraft uic:on-activate="spaces.navigateToCraft">
+        <uic:rowTemplate for="item">
+          <uic:row variant="featured">
+            <uic:text bind="item.label" tone="primary" />
+            <uic:text bind="item.meta" tone="secondary" />
+            <uic:action event="activate" label="Open pinned craft" />
+          </uic:row>
+        </uic:rowTemplate>
+      </uic:starredCraft>
+      <uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyVisitedCraft">
+        <uic:rowTemplate for="item">
+          <uic:row>
+            <uic:text bind="item.label" tone="primary" />
+            <uic:text bind="item.meta" tone="muted" />
+            <uic:action event="activate" label="Resume craft" />
+          </uic:row>
+        </uic:rowTemplate>
+      </uic:recentlyVisitedCraft>
+      <uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyCreatedCraft">
+        <uic:rowTemplate for="item">
+          <uic:row>
+            <uic:text bind="item.label" tone="primary" />
+            <uic:text bind="item.meta" tone="secondary" />
+            <uic:action event="activate" label="Open new craft" />
+          </uic:row>
+        </uic:rowTemplate>
+      </uic:recentlyCreatedCraft>
     </uic:region>
   </uic:layout>
   <uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" uic:on-select="spaces.selectSpaceForWorkspace" />

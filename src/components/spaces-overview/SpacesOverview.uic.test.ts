@@ -330,7 +330,13 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     ]);
     expect(commandCenter?.xml).toContain("<uic:layout");
     expect(commandCenter?.xml).toContain("<uic:region");
+    expect(commandCenter?.xml).toContain("<uic:starredCraft");
+    expect(commandCenter?.xml).toContain("<uic:recentlyVisitedCraft");
+    expect(commandCenter?.xml).toContain("<uic:recentlyCreatedCraft");
+    expect(commandCenter?.xml.match(/<uic:rowTemplate for="item">/gu)?.length).toBeGreaterThanOrEqual(3);
     expect(commandCenter?.scopedCss).toContain('[data-uic-artifact="uic.spaces.layout-command-center.proof"]');
+    expect(commandCenter?.scopedCss).toContain('[data-uic-slot="workspaceList"]');
+    expect(commandCenter?.xml.replace(/<[^>]+>/gu, " ")).not.toMatch(/\b(?:UIC|read-only|proof)\b/u);
 
     const html = renderProductionSpacesOverview({
       presentation: createSpacesOverviewProductionView({
