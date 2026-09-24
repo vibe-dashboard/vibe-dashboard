@@ -21,12 +21,12 @@
 	@port_forward header_regexp port Host ^port-([0-9]+)\.
 
 	handle @port_forward {
-		# Keep /vk-api/* on the dashboard app so its Hono route owns the VK proxy.
-		handle /vk-api/* {
-			reverse_proxy localhost:{$DASHBOARD_PORT:3005} {
-				header_up Host {upstream_hostport}
-				header_up Upgrade {http.request.header.Upgrade}
-				header_up Connection {http.request.header.Connection}
+		# /vk-api/* is proxied to main vibe-kanban instance (localhost:{$BACKEND_PORT:3007})
+		# with the prefix stripped so /vk-api/repos -> /api/repos on the backend
+		handle_path /vk-api/* {
+			rewrite * /api{uri}
+			reverse_proxy localhost:{$BACKEND_PORT:3007} {
+				header_up Host {http.request.host}
 			}
 		}
 
@@ -111,10 +111,6 @@
 		path /manifest.json
 	}
 
-	@vibe_dashboard_api {
-		path /vk-api/*
-	}
-
 	# Wrapper app — root page (no folder= query)
 	handle @vibe_dashboard_root {
 		reverse_proxy localhost:{$DASHBOARD_PORT:3005} {
@@ -173,15 +169,6 @@
 		}
 	}
 
-	# Wrapper app — VK API proxy routes implemented by Hono.
-	handle @vibe_dashboard_api {
-		reverse_proxy localhost:{$DASHBOARD_PORT:3005} {
-			header_up Host {upstream_hostport}
-			header_up Upgrade {http.request.header.Upgrade}
-			header_up Connection {http.request.header.Connection}
-		}
-	}
-
 	# Route to VSCode Server if URL has "folder" query parameter
 	@vscode_query {
 		query folder=*
@@ -224,6 +211,14 @@
 		reverse_proxy localhost:{$CODE_PORT:3008} {
 			header_up Host {upstream_hostport}
 			header_up Accept-Encoding identity
+		}
+	}
+
+	# VK API — strip /vk-api prefix and proxy to vibe-kanban backend as /api/*
+	handle_path /vk-api/* {
+		rewrite * /api{uri}
+		reverse_proxy localhost:{$BACKEND_PORT:3007} {
+			header_up Host {http.request.host}
 		}
 	}
 

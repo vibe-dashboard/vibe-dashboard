@@ -155,14 +155,14 @@ describe('VK mocked sandbox helpers', () => {
     );
   });
 
-  it('loads the committed Caddy front door with /vk-api routed to the dashboard Hono proxy', async () => {
+  it('loads the committed Caddy front door with /vk-api routed to VK backend', async () => {
     const caddyfile = await loadSandboxCaddyfile(process.cwd());
 
     expect(caddyfile).toContain('admin {$CADDY_ADMIN:localhost:2019}');
     expect(caddyfile).toContain(':{$CADDY_PORT:3001}');
-    expect(caddyfile).toContain('handle /vk-api/*');
-    expect(caddyfile).toContain('path /vk-api/*');
+    expect(caddyfile).toContain('handle_path /vk-api/*');
     expect(caddyfile).toContain('handle_path /vk-static/*');
+    expect(caddyfile).toContain('rewrite * /api{uri}');
     expect(caddyfile).toContain('reverse_proxy localhost:{$BACKEND_PORT:3007}');
     expect(caddyfile).toContain('reverse_proxy localhost:{$DASHBOARD_PORT:3005}');
     expect(caddyfile).toContain('reverse_proxy localhost:{$CODE_PORT:3008}');
