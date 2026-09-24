@@ -615,6 +615,7 @@ export function validateUICXml(descriptor: UICSurfaceDescriptor, xml: string): {
     }
     if (UIC_ROW_TEMPLATE_TAG_SET.has(tag)) {
       if (tag === "rowTemplate") {
+        if (node.text.trim()) diagnostics.push(diagnostic("uic/xml/default-children-forbidden", "UIC row templates cannot contain default text."));
         if (parent?.name !== "uic:recentlyCreatedCraft") diagnostics.push(diagnostic("uic/xml/unsupported-structure", "UIC row templates are only supported inside uic:recentlyCreatedCraft for this slice."));
         if (node.attrs.for !== "item") diagnostics.push(diagnostic("uic/xml/invalid-binding", "UIC row templates must bind the item context exactly."));
         if (node.children.length !== 1 || node.children[0]?.name !== "uic:row") diagnostics.push(diagnostic("uic/xml/unsupported-structure", "UIC row templates must contain exactly one uic:row."));
@@ -622,6 +623,7 @@ export function validateUICXml(descriptor: UICSurfaceDescriptor, xml: string): {
         if (templateNodeCount(node) > UIC_ROW_TEMPLATE_MAX_NODES) diagnostics.push(diagnostic("uic/xml/template-node-budget", "UIC row template exceeds the maximum supported node count."));
       }
       if (tag === "row") {
+        if (node.text.trim()) diagnostics.push(diagnostic("uic/xml/default-children-forbidden", "UIC row template rows cannot contain default text."));
         if (parent?.name !== "uic:rowTemplate") diagnostics.push(diagnostic("uic/xml/unsupported-structure", "UIC row nodes are only supported inside uic:rowTemplate."));
         if (node.attrs.variant && node.attrs.variant !== "standard" && node.attrs.variant !== "featured") diagnostics.push(diagnostic("uic/xml/unknown-attribute", "UIC row variant is unsupported."));
         if (node.children.some((child) => child.name !== "uic:text" && child.name !== "uic:action")) diagnostics.push(diagnostic("uic/xml/unsupported-structure", "UIC rows may contain text and action nodes only."));
@@ -688,6 +690,7 @@ export function validateUICXml(descriptor: UICSurfaceDescriptor, xml: string): {
     const componentNodes = descendantTags(root, [tag]);
     for (const componentNode of componentNodes) {
       if (tag === "recentlyCreatedCraft") {
+        if (componentNode.text.trim()) diagnostics.push(diagnostic("uic/xml/default-children-forbidden", "UIC recentlyCreatedCraft cannot contain default text."));
         if (componentNode.children.some((child) => child.name !== "uic:rowTemplate")) diagnostics.push(diagnostic("uic/xml/unsupported-structure", "UIC recentlyCreatedCraft supports rowTemplate children only."));
       } else if (tag !== "pageHeader" && componentNode.children.length > 0) {
         diagnostics.push(diagnostic("uic/xml/unsupported-structure", `uic:${tag} does not support XML-authored children in this slice.`));

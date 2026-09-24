@@ -310,6 +310,9 @@ describe("UIC trusted component descriptors", () => {
       ["too deep", `<uic:rowTemplate for="item"><uic:row><uic:row><uic:row><uic:row><uic:text bind="item.label" /></uic:row></uic:row></uic:row></uic:row></uic:rowTemplate>`, "uic/xml/template-depth-budget"],
       ["too many nodes", `<uic:rowTemplate for="item"><uic:row>${'<uic:text bind="item.label" />'.repeat(9)}</uic:row></uic:rowTemplate>`, "uic/xml/template-node-budget"],
       ["forged action outside row", `<uic:action event="activate" label="Open" />${validTemplate}`, "uic/xml/unsupported-structure"],
+      ["section raw text", `model.appHooks${validTemplate}`, "uic/xml/default-children-forbidden"],
+      ["template raw text", validTemplate.replace("<uic:row ", "arbitrary text<uic:row "), "uic/xml/default-children-forbidden"],
+      ["row raw text", validTemplate.replace("<uic:text ", "arbitrary text<uic:text "), "uic/xml/default-children-forbidden"],
     ] as const;
 
     for (const [name, xml, code] of cases) {
