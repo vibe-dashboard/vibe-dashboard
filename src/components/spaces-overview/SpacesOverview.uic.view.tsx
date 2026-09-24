@@ -6,9 +6,6 @@ import { MyneHeading, MyneText } from "../../theme/skins";
 import { getUICValidatedActionBindings, spacesOverviewPageHeaderUICProof, validateUICXml, type UICDiagnostic } from "../../uic/trustedComponents";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import styles from "./SpacesOverview.skin.module.css";
-import spacesOverviewUICCommandCenterLayoutXmlText from "./uic-layouts/command-center.xml?raw";
-import spacesOverviewUICFocusLayoutXmlText from "./uic-layouts/focus.xml?raw";
-import spacesOverviewUICLayoutXmlText from "./uic-layouts/standard.xml?raw";
 
 type SpacesOverviewUICEnv = Readonly<Record<string, string | undefined>>;
 type SpacesOverviewUICRenderer = (props: SpacesOverviewComponentProps & { readonly initialLayoutId?: string }) => ReactNode;
@@ -20,84 +17,87 @@ export const spacesOverviewUICFallbackDiagnostics = {
   renderException: "uic/render-exception",
 } as const;
 
-export const spacesOverviewUICLayoutXml = spacesOverviewUICLayoutXmlText;
-export const spacesOverviewUICCommandCenterLayoutXml = spacesOverviewUICCommandCenterLayoutXmlText;
-export const spacesOverviewUICFocusLayoutXml = spacesOverviewUICFocusLayoutXmlText;
-
 type SpacesOverviewUICSlotName = Exclude<keyof SpacesOverviewUIPack, "SpacePickerModal">;
+type SpacesOverviewUICLayoutKind = "stack" | "command-center";
 
 export const UIC_SPACES_OVERVIEW_DEFAULT_LAYOUT_ID = "uic.spaces.layout-shell.proof";
 export const UIC_SPACES_OVERVIEW_ALTERNATE_LAYOUT_ID = "uic.spaces.layout-focus.proof";
 export const UIC_SPACES_OVERVIEW_COMMAND_CENTER_LAYOUT_ID = "uic.spaces.layout-command-center.proof";
 
 export type SpacesOverviewUICLayoutArtifact = Readonly<{
-  id: typeof UIC_SPACES_OVERVIEW_DEFAULT_LAYOUT_ID | typeof UIC_SPACES_OVERVIEW_ALTERNATE_LAYOUT_ID | typeof UIC_SPACES_OVERVIEW_COMMAND_CENTER_LAYOUT_ID;
+  id: string;
   label: string;
   description: string;
+  sourcePath: string;
   xml: string;
   slotOrder: readonly SpacesOverviewUICSlotName[];
-  layoutKind: "stack" | "command-center";
+  layoutKind: SpacesOverviewUICLayoutKind;
+  isDefault: boolean;
+  availability: "production";
+  order: number;
 }>;
 
-const defaultUICSlotOrder = Object.freeze([
-  "PageHeader",
-  "RecentSessionsSection",
-  "StarredCraftSection",
-  "RunningDevServersSection",
-  "RecentlyVisitedCraftSection",
-  "RecentlyCreatedCraftSection",
-  "WorkspaceListSection",
-  "SpacesSection",
-] satisfies readonly SpacesOverviewUICSlotName[]);
+const UIC_LAYOUT_SLOT_BY_TAG = Object.freeze({
+  pageHeader: "PageHeader",
+  recentSessions: "RecentSessionsSection",
+  starredCraft: "StarredCraftSection",
+  runningDevServers: "RunningDevServersSection",
+  recentlyVisitedCraft: "RecentlyVisitedCraftSection",
+  recentlyCreatedCraft: "RecentlyCreatedCraftSection",
+  workspaceList: "WorkspaceListSection",
+  spaces: "SpacesSection",
+} satisfies Readonly<Record<string, SpacesOverviewUICSlotName>>);
+const UIC_LAYOUT_SLOT_BY_TAG_LOOKUP: Readonly<Record<string, SpacesOverviewUICSlotName>> = UIC_LAYOUT_SLOT_BY_TAG;
 
-const focusUICSlotOrder = Object.freeze([
-  "PageHeader",
-  "RunningDevServersSection",
-  "WorkspaceListSection",
-  "RecentSessionsSection",
-  "StarredCraftSection",
-  "RecentlyVisitedCraftSection",
-  "RecentlyCreatedCraftSection",
-  "SpacesSection",
-] satisfies readonly SpacesOverviewUICSlotName[]);
+const spacesOverviewUICLayoutXmlModules = import.meta.glob("./uic-layouts/*.xml", {
+  eager: true,
+  query: "?raw",
+  import: "default",
+});
 
-const commandCenterUICSlotOrder = Object.freeze([
-  "PageHeader",
-  "RunningDevServersSection",
-  "RecentSessionsSection",
-  "WorkspaceListSection",
-  "SpacesSection",
-  "StarredCraftSection",
-  "RecentlyVisitedCraftSection",
-  "RecentlyCreatedCraftSection",
-] satisfies readonly SpacesOverviewUICSlotName[]);
+function parseUICRootAttributes(xml: string): Readonly<Record<string, string>> {
+  const root = xml.match(/<uic:spaceOverviewPage\b([^>]*)>/u)?.[1] ?? "";
+  return Object.fromEntries([...root.matchAll(/\s([A-Za-z_:][\w:.-]*)="([^"]*)"/g)].map((match) => [match[1]!, match[2]!]));
+}
 
-export const UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS: readonly SpacesOverviewUICLayoutArtifact[] = Object.freeze([
-  Object.freeze({
-    id: UIC_SPACES_OVERVIEW_DEFAULT_LAYOUT_ID,
-    label: "Standard",
-    description: "Original SpacesOverview order for parity review.",
-    xml: spacesOverviewUICLayoutXml,
-    slotOrder: defaultUICSlotOrder,
-    layoutKind: "stack",
-  }),
-  Object.freeze({
-    id: UIC_SPACES_OVERVIEW_ALTERNATE_LAYOUT_ID,
-    label: "Focus",
-    description: "Prioritizes active workspaces and running servers before history.",
-    xml: spacesOverviewUICFocusLayoutXml,
-    slotOrder: focusUICSlotOrder,
-    layoutKind: "stack",
-  }),
-  Object.freeze({
-    id: UIC_SPACES_OVERVIEW_COMMAND_CENTER_LAYOUT_ID,
-    label: "Command Center",
-    description: "Splits active work, workspace queue, and knowledge rails into a cockpit layout.",
-    xml: spacesOverviewUICCommandCenterLayoutXml,
-    slotOrder: commandCenterUICSlotOrder,
-    layoutKind: "command-center",
-  }),
-]);
+function parseSpacesOverviewUICSlotOrder(value: string | undefined): readonly SpacesOverviewUICSlotName[] {
+  const tags = value?.trim().split(/\s+/u).filter(Boolean) ?? [];
+  return Object.freeze(tags.flatMap((tag) => {
+    const slot = UIC_LAYOUT_SLOT_BY_TAG_LOOKUP[tag];
+    return slot ? [slot] : [];
+  }));
+}
+
+function parseSpacesOverviewUICLayoutArtifact(sourcePath: string, xml: string): SpacesOverviewUICLayoutArtifact {
+  const attrs = parseUICRootAttributes(xml);
+  const layoutKind = attrs["uic:layout-kind"] === "command-center" ? "command-center" : "stack";
+  return Object.freeze({
+    id: attrs["uic:id"] ?? sourcePath,
+    label: attrs["uic:label"] ?? sourcePath.split("/").at(-1) ?? sourcePath,
+    description: attrs["uic:description"] ?? "",
+    sourcePath,
+    xml,
+    slotOrder: parseSpacesOverviewUICSlotOrder(attrs["uic:slot-order"]),
+    layoutKind,
+    isDefault: attrs["uic:default"] === "true",
+    availability: "production",
+    order: Number.parseInt(attrs["uic:order"] ?? "9999", 10),
+  });
+}
+
+export const UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS: readonly SpacesOverviewUICLayoutArtifact[] = Object.freeze(
+  Object.entries(spacesOverviewUICLayoutXmlModules)
+    .map(([sourcePath, xml]) => parseSpacesOverviewUICLayoutArtifact(sourcePath, xml))
+    .sort((a, b) => (Number(b.isDefault) - Number(a.isDefault)) || (a.order - b.order) || a.sourcePath.localeCompare(b.sourcePath)),
+);
+
+export const spacesOverviewUICLayoutXml = UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS.find((artifact) => artifact.id === UIC_SPACES_OVERVIEW_DEFAULT_LAYOUT_ID)?.xml
+  ?? UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS[0]?.xml
+  ?? "";
+export const spacesOverviewUICCommandCenterLayoutXml = UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS.find((artifact) => artifact.id === UIC_SPACES_OVERVIEW_COMMAND_CENTER_LAYOUT_ID)?.xml
+  ?? "";
+export const spacesOverviewUICFocusLayoutXml = UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS.find((artifact) => artifact.id === UIC_SPACES_OVERVIEW_ALTERNATE_LAYOUT_ID)?.xml
+  ?? "";
 
 function resolveSpacesOverviewUICLayoutArtifact(layoutId: string | undefined): SpacesOverviewUICLayoutArtifact {
   return UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS.find((artifact) => artifact.id === layoutId)
@@ -105,12 +105,25 @@ function resolveSpacesOverviewUICLayoutArtifact(layoutId: string | undefined): S
 }
 
 function validateSpacesOverviewUICLayoutArtifacts(): readonly UICDiagnostic[] {
-  return UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS.flatMap((artifact) =>
-    validateUICXml(spacesOverviewPageHeaderUICProof, artifact.xml).diagnostics.map((diagnostic) => ({
+  const diagnostics: UICDiagnostic[] = [];
+  const ids = new Set<string>();
+  let defaultCount = 0;
+  for (const artifact of UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS) {
+    if (ids.has(artifact.id)) diagnostics.push({ code: "uic/layout/duplicate-id", message: `${artifact.sourcePath}: duplicate layout id "${artifact.id}".` });
+    ids.add(artifact.id);
+    if (artifact.isDefault) defaultCount += 1;
+    if (!artifact.id || !artifact.label || !artifact.description) diagnostics.push({ code: "uic/layout/metadata", message: `${artifact.sourcePath}: built-in UIC layout metadata is incomplete.` });
+    if (!Number.isFinite(artifact.order)) diagnostics.push({ code: "uic/layout/order", message: `${artifact.sourcePath}: built-in UIC layout order must be finite.` });
+    if (artifact.slotOrder.length !== Object.keys(UIC_LAYOUT_SLOT_BY_TAG_LOOKUP).length || new Set(artifact.slotOrder).size !== artifact.slotOrder.length) {
+      diagnostics.push({ code: "uic/layout/slot-order", message: `${artifact.sourcePath}: built-in UIC layout slot order must name each SpacesOverview slot once.` });
+    }
+    diagnostics.push(...validateUICXml(spacesOverviewPageHeaderUICProof, artifact.xml).diagnostics.map((diagnostic) => ({
       code: diagnostic.code,
       message: `${artifact.id}: ${diagnostic.message}`,
-    })),
-  );
+    })));
+  }
+  if (defaultCount !== 1) diagnostics.push({ code: "uic/layout/default", message: "Exactly one built-in SpacesOverview UIC layout must be marked as default." });
+  return diagnostics;
 }
 
 export const spacesOverviewUICStartupValidation = validateSpacesOverviewUICLayoutArtifacts();

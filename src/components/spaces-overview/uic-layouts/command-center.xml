@@ -1,4 +1,4 @@
-<uic:spaceOverviewPage xmlns:uic="https://vibedashboard.dev/uic/xml/v1" artifactVersion="1">
+<uic:spaceOverviewPage xmlns:uic="https://vibedashboard.dev/uic/xml/v1" artifactVersion="1" uic:id="uic.spaces.layout-command-center.proof" uic:label="Command Center" uic:description="Splits active work, workspace queue, and knowledge rails into a cockpit layout." uic:default="false" uic:availability="production" uic:layout-kind="command-center" uic:order="30" uic:slot-order="pageHeader runningDevServers recentSessions workspaceList spaces starredCraft recentlyVisitedCraft recentlyCreatedCraft">
   <uic:css><![CDATA[:uic-scope { --myne-slot-page-header-gap: 0.5rem; --myne-command-center-rail: 18rem; --myne-command-center-main: minmax(24rem, 1fr); }]]></uic:css>
   <uic:pageHeader title="{model.title}" subtitle="{model.subtitle}">
     <uic:slot name="actions">

@@ -1,4 +1,4 @@
-<uic:spaceOverviewPage xmlns:uic="https://vibedashboard.dev/uic/xml/v1" artifactVersion="1">
+<uic:spaceOverviewPage xmlns:uic="https://vibedashboard.dev/uic/xml/v1" artifactVersion="1" uic:id="uic.spaces.layout-focus.proof" uic:label="Focus" uic:description="Prioritizes active workspaces and running servers before history." uic:default="false" uic:availability="production" uic:layout-kind="stack" uic:order="20" uic:slot-order="pageHeader runningDevServers workspaceList recentSessions starredCraft recentlyVisitedCraft recentlyCreatedCraft spaces">
   <uic:css><![CDATA[:uic-scope { --myne-slot-page-header-gap: 0.75rem; }]]></uic:css>
   <uic:pageHeader title="{model.title}" subtitle="{model.subtitle}">
     <uic:slot name="actions">

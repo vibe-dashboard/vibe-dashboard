@@ -282,6 +282,10 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     for (const artifact of UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS) {
       expect(ids.has(artifact.id)).toBe(false);
       ids.add(artifact.id);
+      expect(artifact.sourcePath).toMatch(/\.xml$/u);
+      expect(artifact.xml).toContain(`uic:id="${artifact.id}"`);
+      expect(artifact.xml).toContain(`uic:label="${artifact.label}"`);
+      expect(artifact.xml).toContain(`uic:description="${artifact.description}"`);
       expect(validateUICXml(spacesOverviewPageHeaderUICProof, artifact.xml).diagnostics).toEqual([]);
       const xmlWithoutUICNamespace = artifact.xml.replace('xmlns:uic="https://vibedashboard.dev/uic/xml/v1"', "");
       expect(xmlWithoutUICNamespace).not.toMatch(/https?:|function|=>|appHooks|QueryClient|Promise|onClick|href=/u);

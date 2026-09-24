@@ -1,4 +1,4 @@
-<uic:spaceOverviewPage xmlns:uic="https://vibedashboard.dev/uic/xml/v1" artifactVersion="1">
+<uic:spaceOverviewPage xmlns:uic="https://vibedashboard.dev/uic/xml/v1" artifactVersion="1" uic:id="uic.spaces.layout-shell.proof" uic:label="Standard" uic:description="Original SpacesOverview order for parity review." uic:default="true" uic:availability="production" uic:layout-kind="stack" uic:order="10" uic:slot-order="pageHeader recentSessions starredCraft runningDevServers recentlyVisitedCraft recentlyCreatedCraft workspaceList spaces">
   <uic:css><![CDATA[:uic-scope { --myne-slot-page-header-gap: 1rem; }]]></uic:css>
   <uic:pageHeader title="{model.title}" subtitle="{model.subtitle}">
     <uic:slot name="actions">

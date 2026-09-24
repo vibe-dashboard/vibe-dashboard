@@ -288,6 +288,14 @@ ${eventAttrs}
 ${topLevel}
       </xs:sequence>
       <xs:attribute name="artifactVersion" type="xs:positiveInteger" use="required" fixed="1" />
+      <xs:attribute name="uic:id" type="xs:string" use="optional" />
+      <xs:attribute name="uic:label" type="xs:string" use="optional" />
+      <xs:attribute name="uic:description" type="xs:string" use="optional" />
+      <xs:attribute name="uic:default" type="xs:boolean" use="optional" />
+      <xs:attribute name="uic:availability" type="xs:string" use="optional" />
+      <xs:attribute name="uic:layout-kind" type="xs:string" use="optional" />
+      <xs:attribute name="uic:order" type="xs:integer" use="optional" />
+      <xs:attribute name="uic:slot-order" type="xs:string" use="optional" />
     </xs:complexType>
   </xs:element>
   <xs:element name="css" type="xs:string" />
@@ -328,7 +336,7 @@ export function validateUICXml(descriptor: UICSurfaceDescriptor, xml: string): {
     if (!allowedTags.has(tag)) diagnostics.push(diagnostic("uic/xml/unknown-tag", `Unknown UIC tag "${tag}".`));
 
     const allowedAttrs = tag === descriptor.rootTag
-      ? new Set(["xmlns:uic", "artifactVersion"])
+      ? new Set(["xmlns:uic", "artifactVersion", "uic:id", "uic:label", "uic:description", "uic:default", "uic:availability", "uic:layout-kind", "uic:order", "uic:slot-order"])
       : tag === "slot"
         ? new Set(["name"])
         : descriptor.components[tag]
