@@ -6,6 +6,7 @@ import { MyneHeading, MyneText } from "../../theme/skins";
 import { getUICValidatedActionBindings, spacesOverviewPageHeaderUICProof, validateUICXml, type UICDiagnostic } from "../../uic/trustedComponents";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import styles from "./SpacesOverview.skin.module.css";
+import spacesOverviewUICCommandCenterLayoutXmlText from "./uic-layouts/command-center.xml?raw";
 import spacesOverviewUICFocusLayoutXmlText from "./uic-layouts/focus.xml?raw";
 import spacesOverviewUICLayoutXmlText from "./uic-layouts/standard.xml?raw";
 
@@ -20,19 +21,22 @@ export const spacesOverviewUICFallbackDiagnostics = {
 } as const;
 
 export const spacesOverviewUICLayoutXml = spacesOverviewUICLayoutXmlText;
+export const spacesOverviewUICCommandCenterLayoutXml = spacesOverviewUICCommandCenterLayoutXmlText;
 export const spacesOverviewUICFocusLayoutXml = spacesOverviewUICFocusLayoutXmlText;
 
 type SpacesOverviewUICSlotName = Exclude<keyof SpacesOverviewUIPack, "SpacePickerModal">;
 
 export const UIC_SPACES_OVERVIEW_DEFAULT_LAYOUT_ID = "uic.spaces.layout-shell.proof";
 export const UIC_SPACES_OVERVIEW_ALTERNATE_LAYOUT_ID = "uic.spaces.layout-focus.proof";
+export const UIC_SPACES_OVERVIEW_COMMAND_CENTER_LAYOUT_ID = "uic.spaces.layout-command-center.proof";
 
 export type SpacesOverviewUICLayoutArtifact = Readonly<{
-  id: typeof UIC_SPACES_OVERVIEW_DEFAULT_LAYOUT_ID | typeof UIC_SPACES_OVERVIEW_ALTERNATE_LAYOUT_ID;
+  id: typeof UIC_SPACES_OVERVIEW_DEFAULT_LAYOUT_ID | typeof UIC_SPACES_OVERVIEW_ALTERNATE_LAYOUT_ID | typeof UIC_SPACES_OVERVIEW_COMMAND_CENTER_LAYOUT_ID;
   label: string;
   description: string;
   xml: string;
   slotOrder: readonly SpacesOverviewUICSlotName[];
+  layoutKind: "stack" | "command-center";
 }>;
 
 const defaultUICSlotOrder = Object.freeze([
@@ -57,6 +61,17 @@ const focusUICSlotOrder = Object.freeze([
   "SpacesSection",
 ] satisfies readonly SpacesOverviewUICSlotName[]);
 
+const commandCenterUICSlotOrder = Object.freeze([
+  "PageHeader",
+  "RunningDevServersSection",
+  "RecentSessionsSection",
+  "WorkspaceListSection",
+  "SpacesSection",
+  "StarredCraftSection",
+  "RecentlyVisitedCraftSection",
+  "RecentlyCreatedCraftSection",
+] satisfies readonly SpacesOverviewUICSlotName[]);
+
 export const UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS: readonly SpacesOverviewUICLayoutArtifact[] = Object.freeze([
   Object.freeze({
     id: UIC_SPACES_OVERVIEW_DEFAULT_LAYOUT_ID,
@@ -64,6 +79,7 @@ export const UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS: readonly SpacesOverviewUICLay
     description: "Original SpacesOverview order for parity review.",
     xml: spacesOverviewUICLayoutXml,
     slotOrder: defaultUICSlotOrder,
+    layoutKind: "stack",
   }),
   Object.freeze({
     id: UIC_SPACES_OVERVIEW_ALTERNATE_LAYOUT_ID,
@@ -71,6 +87,15 @@ export const UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS: readonly SpacesOverviewUICLay
     description: "Prioritizes active workspaces and running servers before history.",
     xml: spacesOverviewUICFocusLayoutXml,
     slotOrder: focusUICSlotOrder,
+    layoutKind: "stack",
+  }),
+  Object.freeze({
+    id: UIC_SPACES_OVERVIEW_COMMAND_CENTER_LAYOUT_ID,
+    label: "Command Center",
+    description: "Splits active work, workspace queue, and knowledge rails into a cockpit layout.",
+    xml: spacesOverviewUICCommandCenterLayoutXml,
+    slotOrder: commandCenterUICSlotOrder,
+    layoutKind: "command-center",
   }),
 ]);
 
@@ -2196,18 +2221,39 @@ function SpacesOverviewUICLayoutFrame({
     const Slot = ui[slot];
     return <Slot key={slot} {...slotProps} />;
   };
+  const body = artifact.layoutKind === "command-center" ? (
+    <div className="grid gap-4 xl:grid-cols-[var(--myne-command-center-rail)_var(--myne-command-center-main)_var(--myne-command-center-rail)]">
+      <section className="space-y-4 xl:sticky xl:top-4 xl:self-start" aria-label="Active work rail">
+        {renderSlot("RunningDevServersSection")}
+        {renderSlot("RecentSessionsSection")}
+      </section>
+      <section className="min-w-0 space-y-4" aria-label="Workspace command queue">
+        {renderSlot("WorkspaceListSection")}
+      </section>
+      <section className="space-y-4 xl:sticky xl:top-4 xl:self-start" aria-label="Space memory rail">
+        {renderSlot("SpacesSection")}
+        {renderSlot("StarredCraftSection")}
+        {renderSlot("RecentlyVisitedCraftSection")}
+        {renderSlot("RecentlyCreatedCraftSection")}
+      </section>
+    </div>
+  ) : (
+    artifact.slotOrder.filter((slot) => slot !== "PageHeader").map(renderSlot)
+  );
   return (
     <main
       className={`${styles.surface} h-full w-full overflow-auto p-6 md:p-8`}
       data-myne-surface="spaces-overview"
       data-myne-view-pack={artifact.id}
+      data-uic-layout-kind={artifact.layoutKind}
     >
-      <div className="max-w-4xl mx-auto">
+      <div className={artifact.layoutKind === "command-center" ? "max-w-7xl mx-auto" : "max-w-4xl mx-auto"}>
         <SpacesOverviewUICLayoutSelector
           selectedLayoutId={selectedLayoutId}
           onSelectLayout={onSelectLayout}
         />
-        {artifact.slotOrder.map(renderSlot)}
+        {renderSlot("PageHeader")}
+        {body}
       </div>
       <ui.SpacePickerModal model={model} actions={actions} />
     </main>

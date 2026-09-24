@@ -277,7 +277,7 @@ function workspaceActionCallbacks(overrides: Partial<Parameters<typeof invokeUIC
 
 describe("SpacesOverview UIC pageHeader proof", () => {
   it("declares only validated built-in UIC layout artifacts with safe XML", () => {
-    expect(UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS.length).toBeGreaterThanOrEqual(2);
+    expect(UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS.length).toBeGreaterThanOrEqual(3);
     const ids = new Set<string>();
     for (const artifact of UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS) {
       expect(ids.has(artifact.id)).toBe(false);
@@ -286,6 +286,37 @@ describe("SpacesOverview UIC pageHeader proof", () => {
       const xmlWithoutUICNamespace = artifact.xml.replace('xmlns:uic="https://vibedashboard.dev/uic/xml/v1"', "");
       expect(xmlWithoutUICNamespace).not.toMatch(/https?:|function|=>|appHooks|QueryClient|Promise|onClick|href=/u);
     }
+  });
+
+  it("includes a distinct command-center UIC layout as a selectable version", () => {
+    const commandCenter = UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS.find((artifact) => artifact.id === "uic.spaces.layout-command-center.proof");
+
+    expect(commandCenter).toMatchObject({
+      label: "Command Center",
+      layoutKind: "command-center",
+    });
+    expect(commandCenter?.slotOrder).toEqual([
+      "PageHeader",
+      "RunningDevServersSection",
+      "RecentSessionsSection",
+      "WorkspaceListSection",
+      "SpacesSection",
+      "StarredCraftSection",
+      "RecentlyVisitedCraftSection",
+      "RecentlyCreatedCraftSection",
+    ]);
+
+    const html = renderProductionSpacesOverview({
+      presentation: createSpacesOverviewProductionView({
+        env: {},
+        initialLayoutId: "uic.spaces.layout-command-center.proof",
+      }),
+    });
+
+    expect(html).toContain('data-myne-view-pack="uic.spaces.layout-command-center.proof"');
+    expect(html).toContain('data-uic-layout-kind="command-center"');
+    expect(html).toContain("<option");
+    expect(html).toContain("Command Center");
   });
 
   it("defaults the production SpacesOverview route to the validated UIC surface", () => {
