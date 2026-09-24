@@ -203,3 +203,7 @@ The attached form must answer:
 6. Row/resource budget policy.
 7. Exact DOM/classes vs user-visible parity.
 8. Visual acceptance gate and dense view-pack scope.
+
+Form authoring note: the current BeadsForm standard choices renderer emits
+checkbox controls, so every mutually exclusive decision in the attached form
+explicitly says “choose exactly one” and recommends only one option.
