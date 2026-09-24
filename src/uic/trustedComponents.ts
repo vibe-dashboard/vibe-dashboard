@@ -269,6 +269,14 @@ function descendantTags(root: ParsedXmlNode, names: readonly string[]): ParsedXm
   return found;
 }
 
+function collectLayoutTreeSlotTags(nodes: readonly UICLayoutTreeNode[], tags: string[] = []): string[] {
+  for (const node of nodes) {
+    if (node.kind === "slot") tags.push(node.tag);
+    else collectLayoutTreeSlotTags(node.children, tags);
+  }
+  return tags;
+}
+
 function structuralAllowedAttrs(tag: string): ReadonlySet<string> | undefined {
   if (tag === "layout") return new Set(["variant", "name", "aria-label"]);
   if (tag === "region") return new Set(["name", "as", "aria-label"]);
@@ -399,6 +407,10 @@ export function validateUICXml(descriptor: UICSurfaceDescriptor, xml: string): {
     }
     if (UIC_STRUCTURAL_TAG_SET.has(tag)) {
       nodeCount += 1;
+      const allowedChildren = new Set([...UIC_STRUCTURAL_TAGS.map((childTag) => `uic:${childTag}`), ...descriptor.layoutTags.filter((slotTag) => slotTag !== "pageHeader" && slotTag !== "spacePicker").map((slotTag) => `uic:${slotTag}`)]);
+      for (const child of node.children) {
+        if (!allowedChildren.has(child.name)) diagnostics.push(diagnostic("uic/xml/unsupported-structure", `uic:${tag} contains unsupported child "${child.name}".`));
+      }
       if (tag === "layout" && node.attrs.variant && !["stack", "command-center"].includes(node.attrs.variant)) diagnostics.push(diagnostic("uic/xml/unknown-attribute", "UIC layout variant is unsupported."));
       if (tag === "region") {
         const name = node.attrs.name;
@@ -436,8 +448,13 @@ export function validateUICXml(descriptor: UICSurfaceDescriptor, xml: string): {
   if (cssCount > 1) diagnostics.push(diagnostic("uic/xml/duplicate-node", "UIC proof allows at most one top-level css node."));
   if (pageHeaderChildren.length !== 1) diagnostics.push(diagnostic(pageHeaderChildren.length ? "uic/xml/duplicate-node" : "uic/xml/missing-required-node", "SpacesOverview UIC proof requires exactly one uic:pageHeader."));
   const layoutNodes = root.children.filter((child) => child.name === "uic:layout");
+  const structuralTree = hasStructuralLayout ? getUICLayoutTreeUnchecked(descriptor, root) : [];
   const topLevelTags = hasStructuralLayout
-    ? descendantTags(root, descriptor.layoutTags).map((node) => node.name.replace(/^uic:/, ""))
+    ? [
+        ...root.children.filter((child) => child.name === "uic:pageHeader").map((child) => child.name.replace(/^uic:/, "")),
+        ...collectLayoutTreeSlotTags(structuralTree),
+        ...root.children.filter((child) => child.name === "uic:spacePicker").map((child) => child.name.replace(/^uic:/, "")),
+      ]
     : rootTags.filter((name) => name !== "uic:css").map((name) => name.replace(/^uic:/, ""));
   if (!hasStructuralLayout && topLevelTags.join("\0") !== descriptor.layoutTags.join("\0")) diagnostics.push(diagnostic("uic/xml/slot-order", "SpacesOverview UIC layout tags must appear once in descriptor order."));
   if (hasStructuralLayout && layoutNodes.length !== 1) diagnostics.push(diagnostic(layoutNodes.length ? "uic/xml/duplicate-node" : "uic/xml/missing-required-node", "Structural SpacesOverview UIC layout requires exactly one uic:layout."));
@@ -506,10 +523,7 @@ function toUICLayoutTreeNode(descriptor: UICSurfaceDescriptor, node: ParsedXmlNo
   return undefined;
 }
 
-export function getUICLayoutTree(descriptor: UICSurfaceDescriptor, xml: string): readonly UICLayoutTreeNode[] {
-  if (validateUICXml(descriptor, xml).diagnostics.length) return [];
-  const root = parseXmlLite(xml).roots[0];
-  if (!root) return [];
+function getUICLayoutTreeUnchecked(descriptor: UICSurfaceDescriptor, root: ParsedXmlNode): readonly UICLayoutTreeNode[] {
   const layout = root.children.find((child) => child.name === "uic:layout");
   if (layout) {
     const converted = toUICLayoutTreeNode(descriptor, layout);
@@ -518,6 +532,13 @@ export function getUICLayoutTree(descriptor: UICSurfaceDescriptor, xml: string):
   return descriptor.layoutTags
     .filter((tag) => tag !== "pageHeader" && tag !== "spacePicker")
     .map((tag) => ({ kind: "slot", tag }) satisfies UICLayoutTreeNode);
+}
+
+export function getUICLayoutTree(descriptor: UICSurfaceDescriptor, xml: string): readonly UICLayoutTreeNode[] {
+  if (validateUICXml(descriptor, xml).diagnostics.length) return [];
+  const root = parseXmlLite(xml).roots[0];
+  if (!root) return [];
+  return getUICLayoutTreeUnchecked(descriptor, root);
 }
 
 export async function compileUICXml(

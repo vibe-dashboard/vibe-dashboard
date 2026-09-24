@@ -202,6 +202,30 @@ describe("UIC trusted component descriptors", () => {
     }
   });
 
+  it("rejects body slots hidden under non-rendered generated tags in structural layouts", () => {
+    const hiddenRunning = structuralSpacesOverviewXml
+      .replace('<uic:runningDevServers uic:on-stop="spaces.stopDevServer" uic:on-activate="spaces.navigateToCraft" uic:on-open="spaces.openWorkspace" />', "")
+      .replace('<uic:pageHeaderAction label="Start voyage" />', '<uic:pageHeaderAction label="hidden"><uic:runningDevServers uic:on-stop="spaces.stopDevServer" uic:on-activate="spaces.navigateToCraft" uic:on-open="spaces.openWorkspace" /></uic:pageHeaderAction>');
+    const slotInLayout = structuralSpacesOverviewXml.replace("<uic:workspaceList ", '<uic:slot name="actions"></uic:slot><uic:workspaceList ');
+    const nestedPageHeader = structuralSpacesOverviewXml.replace("<uic:workspaceList ", '<uic:pageHeader title="{model.title}" subtitle="{model.subtitle}" /><uic:workspaceList ');
+    const movedSpacePicker = structuralSpacesOverviewXml
+      .replace('  <uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" uic:on-select="spaces.selectSpaceForWorkspace" />\n', "")
+      .replace("<uic:workspaceList ", '<uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" uic:on-select="spaces.selectSpaceForWorkspace" /><uic:workspaceList ');
+    const cases = [
+      ["hidden required slot", hiddenRunning, "uic/xml/missing-required-node"],
+      ["slot inside layout", slotInLayout, "uic/xml/unsupported-structure"],
+      ["nested pageHeader", nestedPageHeader, "uic/xml/unsupported-structure"],
+      ["moved spacePicker", movedSpacePicker, "uic/xml/unsupported-structure"],
+    ] as const;
+
+    for (const [name, xml, code] of cases) {
+      expect(validateUICXml(spacesOverviewPageHeaderUICProof, xml).diagnostics, name).toContainEqual(
+        expect.objectContaining({ code }),
+      );
+      expect(getUICLayoutTree(spacesOverviewPageHeaderUICProof, xml), name).toEqual([]);
+    }
+  });
+
   it("rejects generic component refs, unknown slots, raw styling, and default children before mount", () => {
     expect(validateUICXml(spacesOverviewPageHeaderUICProof, '<uic:component ref="x" />').diagnostics).toContainEqual(
       expect.objectContaining({ code: "uic/xml/generic-component-forbidden" }),
