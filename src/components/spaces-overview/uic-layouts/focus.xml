@@ -1,0 +1,16 @@
+<uic:spaceOverviewPage xmlns:uic="https://vibedashboard.dev/uic/xml/v1" artifactVersion="1">
+  <uic:css><![CDATA[:uic-scope { --myne-slot-page-header-gap: 0.75rem; }]]></uic:css>
+  <uic:pageHeader title="{model.title}" subtitle="{model.subtitle}">
+    <uic:slot name="actions">
+      <uic:pageHeaderAction label="Start voyage" />
+    </uic:slot>
+  </uic:pageHeader>
+  <uic:recentSessions uic:on-resume="spaces.resumeSession" uic:on-start="spaces.startSession" uic:on-rename="spaces.renameSession" uic:on-delete="spaces.deleteSession" uic:on-toggle="spaces.toggleSession" uic:on-activate="spaces.navigateToCraft" />
+  <uic:starredCraft uic:on-activate="spaces.navigateToCraft" />
+  <uic:runningDevServers uic:on-stop="spaces.stopDevServer" uic:on-activate="spaces.navigateToCraft" uic:on-open="spaces.openWorkspace" />
+  <uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyVisitedCraft" />
+  <uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyCreatedCraft" />
+  <uic:workspaceList uic:on-activate="spaces.openWorkspace" uic:on-navigate="spaces.navigateToCraft" uic:on-stop="spaces.stopDevServer" uic:on-filter="spaces.filterWorkspaces" uic:on-page="spaces.pageWorkspaces" />
+  <uic:spaces uic:on-activate="spaces.navigateToCraft" />
+  <uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" uic:on-select="spaces.selectSpaceForWorkspace" />
+</uic:spaceOverviewPage>

@@ -6,6 +6,8 @@ import { MyneHeading, MyneText } from "../../theme/skins";
 import { getUICValidatedActionBindings, spacesOverviewPageHeaderUICProof, validateUICXml, type UICDiagnostic } from "../../uic/trustedComponents";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import styles from "./SpacesOverview.skin.module.css";
+import spacesOverviewUICFocusLayoutXmlText from "./uic-layouts/focus.xml?raw";
+import spacesOverviewUICLayoutXmlText from "./uic-layouts/standard.xml?raw";
 
 type SpacesOverviewUICEnv = Readonly<Record<string, string | undefined>>;
 type SpacesOverviewUICRenderer = (props: SpacesOverviewComponentProps & { readonly initialLayoutId?: string }) => ReactNode;
@@ -17,39 +19,8 @@ export const spacesOverviewUICFallbackDiagnostics = {
   renderException: "uic/render-exception",
 } as const;
 
-export const spacesOverviewUICLayoutXml = `<uic:spaceOverviewPage xmlns:uic="https://vibedashboard.dev/uic/xml/v1" artifactVersion="1">
-  <uic:css><![CDATA[:uic-scope { --myne-slot-page-header-gap: 1rem; }]]></uic:css>
-  <uic:pageHeader title="{model.title}" subtitle="{model.subtitle}">
-    <uic:slot name="actions">
-      <uic:pageHeaderAction label="Start voyage" />
-    </uic:slot>
-  </uic:pageHeader>
-  <uic:recentSessions uic:on-resume="spaces.resumeSession" uic:on-start="spaces.startSession" uic:on-rename="spaces.renameSession" uic:on-delete="spaces.deleteSession" uic:on-toggle="spaces.toggleSession" uic:on-activate="spaces.navigateToCraft" />
-  <uic:starredCraft uic:on-activate="spaces.navigateToCraft" />
-  <uic:runningDevServers uic:on-stop="spaces.stopDevServer" uic:on-activate="spaces.navigateToCraft" uic:on-open="spaces.openWorkspace" />
-  <uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyVisitedCraft" />
-  <uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyCreatedCraft" />
-  <uic:workspaceList uic:on-activate="spaces.openWorkspace" uic:on-navigate="spaces.navigateToCraft" uic:on-stop="spaces.stopDevServer" uic:on-filter="spaces.filterWorkspaces" uic:on-page="spaces.pageWorkspaces" />
-  <uic:spaces uic:on-activate="spaces.navigateToCraft" />
-  <uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" uic:on-select="spaces.selectSpaceForWorkspace" />
-</uic:spaceOverviewPage>`;
-
-export const spacesOverviewUICFocusLayoutXml = `<uic:spaceOverviewPage xmlns:uic="https://vibedashboard.dev/uic/xml/v1" artifactVersion="1">
-  <uic:css><![CDATA[:uic-scope { --myne-slot-page-header-gap: 0.75rem; }]]></uic:css>
-  <uic:pageHeader title="{model.title}" subtitle="{model.subtitle}">
-    <uic:slot name="actions">
-      <uic:pageHeaderAction label="Start voyage" />
-    </uic:slot>
-  </uic:pageHeader>
-  <uic:recentSessions uic:on-resume="spaces.resumeSession" uic:on-start="spaces.startSession" uic:on-rename="spaces.renameSession" uic:on-delete="spaces.deleteSession" uic:on-toggle="spaces.toggleSession" uic:on-activate="spaces.navigateToCraft" />
-  <uic:starredCraft uic:on-activate="spaces.navigateToCraft" />
-  <uic:runningDevServers uic:on-stop="spaces.stopDevServer" uic:on-activate="spaces.navigateToCraft" uic:on-open="spaces.openWorkspace" />
-  <uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyVisitedCraft" />
-  <uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyCreatedCraft" />
-  <uic:workspaceList uic:on-activate="spaces.openWorkspace" uic:on-navigate="spaces.navigateToCraft" uic:on-stop="spaces.stopDevServer" uic:on-filter="spaces.filterWorkspaces" uic:on-page="spaces.pageWorkspaces" />
-  <uic:spaces uic:on-activate="spaces.navigateToCraft" />
-  <uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" uic:on-select="spaces.selectSpaceForWorkspace" />
-</uic:spaceOverviewPage>`;
+export const spacesOverviewUICLayoutXml = spacesOverviewUICLayoutXmlText;
+export const spacesOverviewUICFocusLayoutXml = spacesOverviewUICFocusLayoutXmlText;
 
 type SpacesOverviewUICSlotName = Exclude<keyof SpacesOverviewUIPack, "SpacePickerModal">;
 
