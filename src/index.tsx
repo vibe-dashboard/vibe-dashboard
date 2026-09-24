@@ -31,6 +31,7 @@ import "./modules/MainUIShellModule";
 
 // @platform "node"
 import "./modules/WorkflowServerModule";
+import "./server/vk-proxy";
 // @platform end
 
 import "./modules/BeadsFormModule";
