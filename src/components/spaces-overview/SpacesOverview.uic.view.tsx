@@ -3,8 +3,8 @@ import type { DashboardWorkspace, SpacesOverviewComponentProps, SpacesOverviewPr
 import type { SpacesOverviewSlotProps } from "./SpacesOverview.slots";
 import { formatRelativeTime } from "./workspaceList.view";
 import { MyneHeading, MyneText } from "../../theme/skins";
-import { getUICValidatedActionBindings, spacesOverviewPageHeaderUICProof, validateUICXml, type UICDiagnostic } from "../../uic/trustedComponents";
-import { Component, type ErrorInfo, type ReactNode } from "react";
+import { getUICLayoutTree, getUICValidatedActionBindings, spacesOverviewPageHeaderUICProof, validateUICXml, type UICDiagnostic, type UICLayoutTreeNode } from "../../uic/trustedComponents";
+import { Component, createElement, type ErrorInfo, type ReactNode } from "react";
 import styles from "./SpacesOverview.skin.module.css";
 
 type SpacesOverviewUICEnv = Readonly<Record<string, string | undefined>>;
@@ -50,6 +50,7 @@ const UIC_LAYOUT_SLOT_BY_TAG = Object.freeze({
   spaces: "SpacesSection",
 } satisfies Readonly<Record<string, SpacesOverviewUICSlotName>>);
 const UIC_LAYOUT_SLOT_BY_TAG_LOOKUP: Readonly<Record<string, SpacesOverviewUICSlotName>> = UIC_LAYOUT_SLOT_BY_TAG;
+const UIC_SLOT_BY_LAYOUT_TAG_LOOKUP: Readonly<Record<string, SpacesOverviewUICSlotName>> = UIC_LAYOUT_SLOT_BY_TAG;
 
 const spacesOverviewUICLayoutXmlModules = import.meta.glob("./uic-layouts/*.xml", {
   eager: true,
@@ -2249,25 +2250,38 @@ function SpacesOverviewUICLayoutFrame({
     const Slot = ui[slot];
     return <Slot key={slot} {...slotProps} />;
   };
-  const body = artifact.layoutKind === "command-center" ? (
-    <div className="grid gap-4 xl:grid-cols-[var(--myne-command-center-rail)_var(--myne-command-center-main)_var(--myne-command-center-rail)]">
-      <section className="space-y-4 xl:sticky xl:top-4 xl:self-start" aria-label="Active work rail">
-        {renderSlot("RunningDevServersSection")}
-        {renderSlot("RecentSessionsSection")}
-      </section>
-      <section className="min-w-0 space-y-4" aria-label="Workspace command queue">
-        {renderSlot("WorkspaceListSection")}
-      </section>
-      <section className="space-y-4 xl:sticky xl:top-4 xl:self-start" aria-label="Space memory rail">
-        {renderSlot("SpacesSection")}
-        {renderSlot("StarredCraftSection")}
-        {renderSlot("RecentlyVisitedCraftSection")}
-        {renderSlot("RecentlyCreatedCraftSection")}
-      </section>
-    </div>
-  ) : (
-    artifact.slotOrder.filter((slot) => slot !== "PageHeader").map(renderSlot)
-  );
+  const renderTreeNode = (node: UICLayoutTreeNode, index: number): ReactNode => {
+    if (node.kind === "slot") {
+      const slot = UIC_SLOT_BY_LAYOUT_TAG_LOOKUP[node.tag];
+      return slot ? renderSlot(slot) : null;
+    }
+    const children = node.children.map((child, childIndex) => renderTreeNode(child, childIndex));
+    if (node.tag === "layout") {
+      const className = node.attrs.variant === "command-center"
+        ? "grid gap-4 xl:grid-cols-[var(--myne-command-center-rail)_var(--myne-command-center-main)_var(--myne-command-center-rail)]"
+        : "space-y-4";
+      return <div key={`${node.tag}-${index}`} className={className} data-uic-primitive={node.tag}>{children}</div>;
+    }
+    if (node.tag === "region") {
+      const element = node.attrs.as === "aside" ? "aside" : node.attrs.as === "section" ? "section" : "div";
+      const sticky = node.attrs.name?.endsWith("Rail") ? " xl:sticky xl:top-4 xl:self-start" : "";
+      const className = `${node.attrs.name === "mainQueue" ? "min-w-0 " : ""}space-y-4${sticky}`;
+      return createElement(element, { key: `${node.tag}-${node.attrs.name ?? index}`, className, "aria-label": node.attrs["aria-label"], "data-uic-region": node.attrs.name, "data-uic-primitive": node.tag }, children);
+    }
+    const primitiveClasses = {
+      stack: "space-y-4",
+      grid: "grid gap-4 md:grid-cols-2",
+      split: "grid gap-4 lg:grid-cols-2",
+      card: "rounded-xl border p-4",
+    } as const;
+    return <div key={`${node.tag}-${node.attrs.name ?? index}`} className={primitiveClasses[node.tag]} aria-label={node.attrs["aria-label"]} data-uic-primitive={node.tag}>{children}</div>;
+  };
+  const bodyTree = artifact.xml.includes("<uic:layout")
+    ? getUICLayoutTree(spacesOverviewPageHeaderUICProof, artifact.xml)
+    : [];
+  const body = bodyTree.length
+    ? bodyTree.map(renderTreeNode)
+    : artifact.slotOrder.filter((slot) => slot !== "PageHeader").map(renderSlot);
   return (
     <main
       className={`${styles.surface} h-full w-full overflow-auto p-6 md:p-8`}

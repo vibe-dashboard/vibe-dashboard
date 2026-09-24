@@ -52,6 +52,16 @@ export interface UICTemplateIR {
   readonly nodes: readonly UICIRNode[];
 }
 
+export type UICLayoutPrimitiveTag = "layout" | "region" | "stack" | "grid" | "split" | "card";
+export type UICLayoutTreeNode =
+  | Readonly<{ kind: "slot"; tag: string }>
+  | Readonly<{ kind: "primitive"; tag: UICLayoutPrimitiveTag; attrs: Readonly<Record<string, string>>; children: readonly UICLayoutTreeNode[] }>;
+
+const UIC_STRUCTURAL_TAGS = Object.freeze(["layout", "region", "stack", "grid", "split", "card"] satisfies readonly UICLayoutPrimitiveTag[]);
+const UIC_STRUCTURAL_TAG_SET = new Set<string>(UIC_STRUCTURAL_TAGS);
+const UIC_LAYOUT_MAX_DEPTH = 6;
+const UIC_LAYOUT_MAX_NODES = 40;
+
 export const spacesOverviewPageHeaderUICProof: UICSurfaceDescriptor = Object.freeze({
   artifactVersion: 1,
   surface: "spaces-overview",
@@ -243,6 +253,33 @@ function requireComponent(descriptor: UICSurfaceDescriptor, tag: string): UICCom
   return component;
 }
 
+function walkNodes(nodes: readonly ParsedXmlNode[], visit: (node: ParsedXmlNode, parent: ParsedXmlNode | undefined, depth: number) => void, parent?: ParsedXmlNode, depth = 1) {
+  for (const node of nodes) {
+    visit(node, parent, depth);
+    walkNodes(node.children, visit, node, depth + 1);
+  }
+}
+
+function descendantTags(root: ParsedXmlNode, names: readonly string[]): ParsedXmlNode[] {
+  const wanted = new Set(names.map((name) => `uic:${name}`));
+  const found: ParsedXmlNode[] = [];
+  walkNodes(root.children, (node) => {
+    if (wanted.has(node.name)) found.push(node);
+  });
+  return found;
+}
+
+function structuralAllowedAttrs(tag: string): ReadonlySet<string> | undefined {
+  if (tag === "layout") return new Set(["variant", "name", "aria-label"]);
+  if (tag === "region") return new Set(["name", "as", "aria-label"]);
+  if (tag === "stack" || tag === "grid" || tag === "split" || tag === "card") return new Set(["name", "aria-label"]);
+  return undefined;
+}
+
+function isUrlLike(value: string): boolean {
+  return /(?:https?:|javascript:|data:)/iu.test(value);
+}
+
 async function sha256(value: string): Promise<`sha256-${string}`> {
   const bytes = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
   return `sha256-${btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/u, "")}`;
@@ -325,9 +362,13 @@ export function validateUICXml(descriptor: UICSurfaceDescriptor, xml: string): {
 
   const pageHeaderDescriptor = requireComponent(descriptor, "pageHeader");
   const pageHeaderAction = requireComponent(descriptor, "pageHeaderAction");
-  const allowedTags = new Set([descriptor.rootTag, "css", "slot", pageHeaderAction.tag, ...descriptor.layoutTags]);
+  const allowedTags = new Set([descriptor.rootTag, "css", "slot", pageHeaderAction.tag, ...descriptor.layoutTags, ...UIC_STRUCTURAL_TAGS]);
+  let nodeCount = 0;
+  let totalNodeCount = 0;
+  const regionNames = new Set<string>();
 
   function checkNode(node: ParsedXmlNode, parent?: ParsedXmlNode) {
+    totalNodeCount += 1;
     if (!node.name.startsWith("uic:")) {
       diagnostics.push(diagnostic(node.name.includes(":") ? "uic/xml/unsupported-namespace" : "uic/xml/non-uic-element", `Unsupported element "${node.name}".`));
       return;
@@ -339,6 +380,8 @@ export function validateUICXml(descriptor: UICSurfaceDescriptor, xml: string): {
       ? new Set(["xmlns:uic", "artifactVersion", "uic:id", "uic:label", "uic:description", "uic:default", "uic:availability", "uic:layout-kind", "uic:order", "uic:slot-order"])
       : tag === "slot"
         ? new Set(["name"])
+        : structuralAllowedAttrs(tag)
+          ? structuralAllowedAttrs(tag)!
         : descriptor.components[tag]
           ? new Set([...descriptor.components[tag]!.props, ...Object.keys(descriptor.components[tag]!.events ?? {}).map((event) => `uic:on-${event}`)])
             : new Set<string>();
@@ -352,12 +395,32 @@ export function validateUICXml(descriptor: UICSurfaceDescriptor, xml: string): {
         const allowedActions = descriptor.components[tag]?.events?.[event] ?? [];
         if (!allowedActions.includes(node.attrs[attr]!)) diagnostics.push(diagnostic("uic/xml/unknown-action", `Action "${node.attrs[attr]}" is not declared for uic:${tag}.`));
       }
+      if (attr !== "xmlns:uic" && isUrlLike(node.attrs[attr]!)) diagnostics.push(diagnostic("uic/xml/url-forbidden", `URL-like value is not allowed on uic:${tag}.`));
+    }
+    if (UIC_STRUCTURAL_TAG_SET.has(tag)) {
+      nodeCount += 1;
+      if (tag === "layout" && node.attrs.variant && !["stack", "command-center"].includes(node.attrs.variant)) diagnostics.push(diagnostic("uic/xml/unknown-attribute", "UIC layout variant is unsupported."));
+      if (tag === "region") {
+        const name = node.attrs.name;
+        if (!name) diagnostics.push(diagnostic("uic/xml/region-name", "UIC region primitives require a name."));
+        else if (regionNames.has(name)) diagnostics.push(diagnostic("uic/xml/duplicate-region", `UIC region "${name}" is declared more than once.`));
+        else regionNames.add(name);
+        if (node.attrs.as && !["div", "section", "aside"].includes(node.attrs.as)) diagnostics.push(diagnostic("uic/xml/unknown-attribute", "UIC region as must be div, section, or aside."));
+        if ((node.attrs.as === "section" || node.attrs.as === "aside") && !node.attrs["aria-label"]) diagnostics.push(diagnostic("uic/xml/landmark-label", "UIC landmark regions require aria-label."));
+      }
     }
     if (tag === descriptor.rootTag && node.attrs["xmlns:uic"] !== descriptor.namespace) diagnostics.push(diagnostic("uic/xml/namespace-mismatch", "UIC namespace is missing or unsupported."));
     if (tag === "css" && parent?.name !== `uic:${descriptor.rootTag}`) diagnostics.push(diagnostic("uic/xml/css-position", "UIC CSS is only allowed as a top-level root child."));
     node.children.forEach((child) => checkNode(child, node));
   }
   parsed.roots.forEach((root) => checkNode(root));
+
+  let maxDepth = 0;
+  walkNodes(parsed.roots, (_node, _parent, depth) => {
+    maxDepth = Math.max(maxDepth, depth);
+  });
+  if (maxDepth > UIC_LAYOUT_MAX_DEPTH) diagnostics.push(diagnostic("uic/xml/depth-budget", "UIC structural layout exceeds the maximum supported depth."));
+  if (nodeCount > UIC_LAYOUT_MAX_NODES || totalNodeCount > UIC_LAYOUT_MAX_NODES + descriptor.layoutTags.length + 4) diagnostics.push(diagnostic("uic/xml/node-budget", "UIC structural layout exceeds the maximum supported node count."));
 
   if (parsed.roots.length !== 1) diagnostics.push(diagnostic("uic/xml/single-root-required", "UIC XML must contain exactly one root element."));
   const root = parsed.roots[0];
@@ -369,10 +432,15 @@ export function validateUICXml(descriptor: UICSurfaceDescriptor, xml: string): {
   const rootTags = root.children.map((child) => child.name);
   const cssCount = rootTags.filter((name) => name === "uic:css").length;
   const pageHeaderChildren = root.children.filter((child) => child.name === "uic:pageHeader");
+  const hasStructuralLayout = root.children.some((child) => child.name === "uic:layout");
   if (cssCount > 1) diagnostics.push(diagnostic("uic/xml/duplicate-node", "UIC proof allows at most one top-level css node."));
   if (pageHeaderChildren.length !== 1) diagnostics.push(diagnostic(pageHeaderChildren.length ? "uic/xml/duplicate-node" : "uic/xml/missing-required-node", "SpacesOverview UIC proof requires exactly one uic:pageHeader."));
-  const topLevelTags = rootTags.filter((name) => name !== "uic:css").map((name) => name.replace(/^uic:/, ""));
-  if (topLevelTags.join("\0") !== descriptor.layoutTags.join("\0")) diagnostics.push(diagnostic("uic/xml/slot-order", "SpacesOverview UIC layout tags must appear once in descriptor order."));
+  const layoutNodes = root.children.filter((child) => child.name === "uic:layout");
+  const topLevelTags = hasStructuralLayout
+    ? descendantTags(root, descriptor.layoutTags).map((node) => node.name.replace(/^uic:/, ""))
+    : rootTags.filter((name) => name !== "uic:css").map((name) => name.replace(/^uic:/, ""));
+  if (!hasStructuralLayout && topLevelTags.join("\0") !== descriptor.layoutTags.join("\0")) diagnostics.push(diagnostic("uic/xml/slot-order", "SpacesOverview UIC layout tags must appear once in descriptor order."));
+  if (hasStructuralLayout && layoutNodes.length !== 1) diagnostics.push(diagnostic(layoutNodes.length ? "uic/xml/duplicate-node" : "uic/xml/missing-required-node", "Structural SpacesOverview UIC layout requires exactly one uic:layout."));
   for (const tag of descriptor.layoutTags) {
     const count = topLevelTags.filter((candidate) => candidate === tag).length;
     if (count === 0) diagnostics.push(diagnostic("uic/xml/missing-required-node", `SpacesOverview UIC proof requires uic:${tag}.`));
@@ -380,7 +448,10 @@ export function validateUICXml(descriptor: UICSurfaceDescriptor, xml: string): {
   }
   root.children.forEach((child, index) => {
     if (child.name === "uic:css" && index !== 0) diagnostics.push(diagnostic("uic/xml/css-position", "UIC CSS must be the first top-level child when present."));
-    if (!["uic:css", ...descriptor.layoutTags.map((tag) => `uic:${tag}`)].includes(child.name)) diagnostics.push(diagnostic("uic/xml/unsupported-structure", `Unsupported top-level element "${child.name}".`));
+    const allowedTopLevel = hasStructuralLayout
+      ? ["uic:css", "uic:pageHeader", "uic:layout", "uic:spacePicker"]
+      : ["uic:css", ...descriptor.layoutTags.map((tag) => `uic:${tag}`)];
+    if (!allowedTopLevel.includes(child.name)) diagnostics.push(diagnostic("uic/xml/unsupported-structure", `Unsupported top-level element "${child.name}".`));
   });
 
   const pageHeader = pageHeaderChildren[0];
@@ -404,7 +475,9 @@ export function getUICValidatedActionBindings(descriptor: UICSurfaceDescriptor, 
   if (validateUICXml(descriptor, xml).diagnostics.length) return new Map();
   const root = parseXmlLite(xml).roots[0];
   if (!root) return new Map();
-  return new Map(root.children.flatMap((node) => {
+  const nodes: ParsedXmlNode[] = [];
+  walkNodes(root.children, (node) => nodes.push(node));
+  return new Map(nodes.flatMap((node) => {
     const tag = node.name.replace(/^uic:/, "");
     const component = descriptor.components[tag];
     if (!component?.events) return [];
@@ -414,6 +487,37 @@ export function getUICValidatedActionBindings(descriptor: UICSurfaceDescriptor, 
     }));
     return Object.keys(actions).length ? [[tag, actions]] : [];
   }));
+}
+
+function toUICLayoutTreeNode(descriptor: UICSurfaceDescriptor, node: ParsedXmlNode): UICLayoutTreeNode | undefined {
+  const tag = node.name.replace(/^uic:/, "");
+  if (UIC_STRUCTURAL_TAG_SET.has(tag)) {
+    return {
+      kind: "primitive",
+      tag: tag as UICLayoutPrimitiveTag,
+      attrs: node.attrs,
+      children: node.children.flatMap((child) => {
+        const converted = toUICLayoutTreeNode(descriptor, child);
+        return converted ? [converted] : [];
+      }),
+    };
+  }
+  if (descriptor.layoutTags.includes(tag) && tag !== "pageHeader" && tag !== "spacePicker") return { kind: "slot", tag };
+  return undefined;
+}
+
+export function getUICLayoutTree(descriptor: UICSurfaceDescriptor, xml: string): readonly UICLayoutTreeNode[] {
+  if (validateUICXml(descriptor, xml).diagnostics.length) return [];
+  const root = parseXmlLite(xml).roots[0];
+  if (!root) return [];
+  const layout = root.children.find((child) => child.name === "uic:layout");
+  if (layout) {
+    const converted = toUICLayoutTreeNode(descriptor, layout);
+    return converted ? [converted] : [];
+  }
+  return descriptor.layoutTags
+    .filter((tag) => tag !== "pageHeader" && tag !== "spacePicker")
+    .map((tag) => ({ kind: "slot", tag }) satisfies UICLayoutTreeNode);
 }
 
 export async function compileUICXml(
@@ -458,7 +562,7 @@ export async function compileUICXml(
         },
       }, ...descriptor.layoutTags.filter((tag) => tag !== "pageHeader").map((tag) => {
         const component = requireComponent(descriptor, tag);
-        const node = root.children.find((child) => child.name === `uic:${tag}`);
+        const node = descendantTags(root, [tag])[0];
         const actions = Object.fromEntries(Object.keys(component.events ?? {}).flatMap((event) => {
           const value = node?.attrs[`uic:on-${event}`];
           return value ? [[event, value]] : [];

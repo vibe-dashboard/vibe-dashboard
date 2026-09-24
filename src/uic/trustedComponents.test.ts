@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   compileUICXml,
   generateUICXsd,
+  getUICLayoutTree,
   spacesOverviewPageHeaderUICProof,
   validateUICXml,
 } from "./trustedComponents";
@@ -29,6 +30,31 @@ const fullSpacesOverviewXml = `<uic:spaceOverviewPage xmlns:uic="https://vibedas
   <uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyCreatedCraft" />
   <uic:workspaceList uic:on-activate="spaces.openWorkspace" uic:on-navigate="spaces.navigateToCraft" uic:on-stop="spaces.stopDevServer" uic:on-filter="spaces.filterWorkspaces" uic:on-page="spaces.pageWorkspaces" />
   <uic:spaces uic:on-activate="spaces.navigateToCraft" />
+  <uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" uic:on-select="spaces.selectSpaceForWorkspace" />
+</uic:spaceOverviewPage>`;
+
+const structuralSpacesOverviewXml = `<uic:spaceOverviewPage xmlns:uic="https://vibedashboard.dev/uic/xml/v1" artifactVersion="1">
+  <uic:css><![CDATA[:uic-scope { --myne-slot-page-header-gap: 1rem; }]]></uic:css>
+  <uic:pageHeader title="{model.title}" subtitle="{model.subtitle}">
+    <uic:slot name="actions">
+      <uic:pageHeaderAction label="Start voyage" />
+    </uic:slot>
+  </uic:pageHeader>
+  <uic:layout variant="command-center">
+    <uic:region name="activeRail" as="aside" aria-label="Active work">
+      <uic:runningDevServers uic:on-stop="spaces.stopDevServer" uic:on-activate="spaces.navigateToCraft" uic:on-open="spaces.openWorkspace" />
+      <uic:recentSessions uic:on-resume="spaces.resumeSession" uic:on-start="spaces.startSession" uic:on-rename="spaces.renameSession" uic:on-delete="spaces.deleteSession" uic:on-toggle="spaces.toggleSession" uic:on-activate="spaces.navigateToCraft" />
+    </uic:region>
+    <uic:region name="mainQueue" as="section" aria-label="Workspace command queue">
+      <uic:workspaceList uic:on-activate="spaces.openWorkspace" uic:on-navigate="spaces.navigateToCraft" uic:on-stop="spaces.stopDevServer" uic:on-filter="spaces.filterWorkspaces" uic:on-page="spaces.pageWorkspaces" />
+    </uic:region>
+    <uic:region name="memoryRail" as="aside" aria-label="Space memory">
+      <uic:spaces uic:on-activate="spaces.navigateToCraft" />
+      <uic:starredCraft uic:on-activate="spaces.navigateToCraft" />
+      <uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyVisitedCraft" />
+      <uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyCreatedCraft" />
+    </uic:region>
+  </uic:layout>
   <uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" uic:on-select="spaces.selectSpaceForWorkspace" />
 </uic:spaceOverviewPage>`;
 
@@ -134,6 +160,46 @@ describe("UIC trusted component descriptors", () => {
     await expect(compileUICXml(spacesOverviewPageHeaderUICProof, duplicateSpaces)).resolves.toMatchObject({ ok: false, diagnostics: expect.arrayContaining([expect.objectContaining({ code: "uic/xml/duplicate-node" })]) });
     await expect(compileUICXml(spacesOverviewPageHeaderUICProof, reordered)).resolves.toMatchObject({ ok: false, diagnostics: expect.arrayContaining([expect.objectContaining({ code: "uic/xml/slot-order" })]) });
     await expect(compileUICXml(spacesOverviewPageHeaderUICProof, extra)).resolves.toMatchObject({ ok: false, diagnostics: expect.arrayContaining([expect.objectContaining({ code: "uic/xml/unknown-tag" })]) });
+  });
+
+  it("accepts a safe structural primitive tree around trusted SpacesOverview slots", async () => {
+    expect(validateUICXml(spacesOverviewPageHeaderUICProof, structuralSpacesOverviewXml).diagnostics).toEqual([]);
+    const tree = getUICLayoutTree(spacesOverviewPageHeaderUICProof, structuralSpacesOverviewXml);
+    expect(tree[0]).toMatchObject({ kind: "primitive", tag: "layout" });
+    expect(tree[0]?.kind === "primitive" ? tree[0].children[0] : undefined).toMatchObject({
+      kind: "primitive",
+      tag: "region",
+      attrs: expect.objectContaining({ name: "activeRail", as: "aside", "aria-label": "Active work" }),
+    });
+
+    const compiled = await compileUICXml(spacesOverviewPageHeaderUICProof, structuralSpacesOverviewXml);
+    expect(compiled).toMatchObject({ ok: true });
+  });
+
+  it("rejects unsafe or malformed structural primitive trees", () => {
+    const tooDeep = structuralSpacesOverviewXml.replace(
+      '<uic:runningDevServers uic:on-stop="spaces.stopDevServer" uic:on-activate="spaces.navigateToCraft" uic:on-open="spaces.openWorkspace" />',
+      '<uic:stack><uic:stack><uic:stack><uic:stack><uic:stack><uic:runningDevServers uic:on-stop="spaces.stopDevServer" uic:on-activate="spaces.navigateToCraft" uic:on-open="spaces.openWorkspace" /></uic:stack></uic:stack></uic:stack></uic:stack></uic:stack>',
+    );
+    const tooManyNodes = structuralSpacesOverviewXml.replace("<uic:workspaceList ", `${"<uic:card></uic:card>".repeat(48)}<uic:workspaceList `);
+    const cases = [
+      ["unknown tag", structuralSpacesOverviewXml.replace("<uic:region", "<uic:blink"), "uic/xml/unknown-tag"],
+      ["unknown attr", structuralSpacesOverviewXml.replace("<uic:layout ", '<uic:layout onclick="x" '), "uic/xml/unknown-attribute"],
+      ["unsafe namespace", structuralSpacesOverviewXml.replace("<uic:region", "<x:region"), "uic/xml/unsupported-namespace"],
+      ["duplicate slot", structuralSpacesOverviewXml.replace("</uic:region>", '<uic:runningDevServers /></uic:region>'), "uic/xml/duplicate-node"],
+      ["missing slot", structuralSpacesOverviewXml.replace(/<uic:workspaceList[^>]+\/>/u, ""), "uic/xml/missing-required-node"],
+      ["duplicate region", structuralSpacesOverviewXml.replace('name="mainQueue"', 'name="activeRail"'), "uic/xml/duplicate-region"],
+      ["missing label", structuralSpacesOverviewXml.replace(' aria-label="Active work"', ""), "uic/xml/landmark-label"],
+      ["depth", tooDeep, "uic/xml/depth-budget"],
+      ["node budget", tooManyNodes, "uic/xml/node-budget"],
+      ["url attr", structuralSpacesOverviewXml.replace('aria-label="Active work"', 'aria-label="https://example.test"'), "uic/xml/url-forbidden"],
+    ] as const;
+
+    for (const [name, xml, code] of cases) {
+      expect(validateUICXml(spacesOverviewPageHeaderUICProof, xml).diagnostics, name).toContainEqual(
+        expect.objectContaining({ code }),
+      );
+    }
   });
 
   it("rejects generic component refs, unknown slots, raw styling, and default children before mount", () => {

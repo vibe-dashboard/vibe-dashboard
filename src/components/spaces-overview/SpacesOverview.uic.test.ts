@@ -328,6 +328,8 @@ describe("SpacesOverview UIC pageHeader proof", () => {
       "RecentlyVisitedCraftSection",
       "RecentlyCreatedCraftSection",
     ]);
+    expect(commandCenter?.xml).toContain("<uic:layout");
+    expect(commandCenter?.xml).toContain("<uic:region");
 
     const html = renderProductionSpacesOverview({
       presentation: createSpacesOverviewProductionView({
@@ -338,6 +340,8 @@ describe("SpacesOverview UIC pageHeader proof", () => {
 
     expect(html).toContain('data-myne-view-pack="uic.spaces.layout-command-center.proof"');
     expect(html).toContain('data-uic-layout-kind="command-center"');
+    expect(html).toContain('data-uic-primitive="layout"');
+    expect(html).toContain('data-uic-region="activeRail"');
     expect(html).toContain("<option");
     expect(html).toContain("Command Center");
   });
