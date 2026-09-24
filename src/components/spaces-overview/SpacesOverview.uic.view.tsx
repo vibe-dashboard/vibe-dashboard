@@ -19,6 +19,7 @@ export const spacesOverviewUICFallbackDiagnostics = {
 
 type SpacesOverviewUICSlotName = Exclude<keyof SpacesOverviewUIPack, "SpacePickerModal">;
 type SpacesOverviewUICLayoutKind = "stack" | "command-center";
+type SpacesOverviewUICAvailability = "production";
 
 export const UIC_SPACES_OVERVIEW_DEFAULT_LAYOUT_ID = "uic.spaces.layout-shell.proof";
 export const UIC_SPACES_OVERVIEW_ALTERNATE_LAYOUT_ID = "uic.spaces.layout-focus.proof";
@@ -31,10 +32,11 @@ export type SpacesOverviewUICLayoutArtifact = Readonly<{
   sourcePath: string;
   xml: string;
   slotOrder: readonly SpacesOverviewUICSlotName[];
-  layoutKind: SpacesOverviewUICLayoutKind;
+  layoutKind?: SpacesOverviewUICLayoutKind;
   isDefault: boolean;
-  availability: "production";
+  availability?: SpacesOverviewUICAvailability;
   order: number;
+  metadata: Readonly<Record<string, string>>;
 }>;
 
 const UIC_LAYOUT_SLOT_BY_TAG = Object.freeze({
@@ -68,20 +70,29 @@ function parseSpacesOverviewUICSlotOrder(value: string | undefined): readonly Sp
   }));
 }
 
-function parseSpacesOverviewUICLayoutArtifact(sourcePath: string, xml: string): SpacesOverviewUICLayoutArtifact {
+function parseExactSafeInteger(value: string | undefined): number {
+  if (!value || !/^-?(?:0|[1-9]\d*)$/u.test(value)) return Number.NaN;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : Number.NaN;
+}
+
+export function parseSpacesOverviewUICLayoutArtifact(sourcePath: string, xml: string): SpacesOverviewUICLayoutArtifact {
   const attrs = parseUICRootAttributes(xml);
-  const layoutKind = attrs["uic:layout-kind"] === "command-center" ? "command-center" : "stack";
+  const layoutKind = attrs["uic:layout-kind"] === "command-center" || attrs["uic:layout-kind"] === "stack"
+    ? attrs["uic:layout-kind"]
+    : undefined;
   return Object.freeze({
-    id: attrs["uic:id"] ?? sourcePath,
-    label: attrs["uic:label"] ?? sourcePath.split("/").at(-1) ?? sourcePath,
+    id: attrs["uic:id"] ?? "",
+    label: attrs["uic:label"] ?? "",
     description: attrs["uic:description"] ?? "",
     sourcePath,
     xml,
     slotOrder: parseSpacesOverviewUICSlotOrder(attrs["uic:slot-order"]),
     layoutKind,
     isDefault: attrs["uic:default"] === "true",
-    availability: "production",
-    order: Number.parseInt(attrs["uic:order"] ?? "9999", 10),
+    availability: attrs["uic:availability"] === "production" ? "production" : undefined,
+    order: parseExactSafeInteger(attrs["uic:order"]),
+    metadata: attrs,
   });
 }
 
@@ -104,16 +115,20 @@ function resolveSpacesOverviewUICLayoutArtifact(layoutId: string | undefined): S
     ?? UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS[0]!;
 }
 
-function validateSpacesOverviewUICLayoutArtifacts(): readonly UICDiagnostic[] {
+export function validateSpacesOverviewUICLayoutArtifacts(
+  artifacts: readonly SpacesOverviewUICLayoutArtifact[] = UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS,
+): readonly UICDiagnostic[] {
   const diagnostics: UICDiagnostic[] = [];
   const ids = new Set<string>();
   let defaultCount = 0;
-  for (const artifact of UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS) {
-    if (ids.has(artifact.id)) diagnostics.push({ code: "uic/layout/duplicate-id", message: `${artifact.sourcePath}: duplicate layout id "${artifact.id}".` });
-    ids.add(artifact.id);
+  for (const artifact of artifacts) {
+    if (artifact.id && ids.has(artifact.id)) diagnostics.push({ code: "uic/layout/duplicate-id", message: `${artifact.sourcePath}: duplicate layout id "${artifact.id}".` });
+    if (artifact.id) ids.add(artifact.id);
     if (artifact.isDefault) defaultCount += 1;
     if (!artifact.id || !artifact.label || !artifact.description) diagnostics.push({ code: "uic/layout/metadata", message: `${artifact.sourcePath}: built-in UIC layout metadata is incomplete.` });
-    if (!Number.isFinite(artifact.order)) diagnostics.push({ code: "uic/layout/order", message: `${artifact.sourcePath}: built-in UIC layout order must be finite.` });
+    if (artifact.metadata["uic:availability"] !== "production") diagnostics.push({ code: "uic/layout/availability", message: `${artifact.sourcePath}: built-in UIC layout availability must be production.` });
+    if (artifact.metadata["uic:layout-kind"] !== "stack" && artifact.metadata["uic:layout-kind"] !== "command-center") diagnostics.push({ code: "uic/layout/layout-kind", message: `${artifact.sourcePath}: built-in UIC layout kind is unsupported.` });
+    if (!Number.isSafeInteger(artifact.order)) diagnostics.push({ code: "uic/layout/order", message: `${artifact.sourcePath}: built-in UIC layout order must be an exact safe integer.` });
     if (artifact.slotOrder.length !== Object.keys(UIC_LAYOUT_SLOT_BY_TAG_LOOKUP).length || new Set(artifact.slotOrder).size !== artifact.slotOrder.length) {
       diagnostics.push({ code: "uic/layout/slot-order", message: `${artifact.sourcePath}: built-in UIC layout slot order must name each SpacesOverview slot once.` });
     }

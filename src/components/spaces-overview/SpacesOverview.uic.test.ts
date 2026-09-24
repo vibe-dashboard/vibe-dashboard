@@ -43,7 +43,9 @@ import {
   projectUICSpacePickerActions,
   projectUICWorkspaceListActions,
   projectUICWorkspaceListResource,
+  parseSpacesOverviewUICLayoutArtifact,
   spacesOverviewUICLayoutXml,
+  validateSpacesOverviewUICLayoutArtifacts,
 } from "./SpacesOverview.uic.view";
 import { validateUICXml, spacesOverviewPageHeaderUICProof } from "../../uic/trustedComponents";
 import {
@@ -289,6 +291,23 @@ describe("SpacesOverview UIC pageHeader proof", () => {
       expect(validateUICXml(spacesOverviewPageHeaderUICProof, artifact.xml).diagnostics).toEqual([]);
       const xmlWithoutUICNamespace = artifact.xml.replace('xmlns:uic="https://vibedashboard.dev/uic/xml/v1"', "");
       expect(xmlWithoutUICNamespace).not.toMatch(/https?:|function|=>|appHooks|QueryClient|Promise|onClick|href=/u);
+    }
+  });
+
+  it("fails closed on malformed built-in layout metadata", () => {
+    const diagnosticsFor = (xml: string) =>
+      validateSpacesOverviewUICLayoutArtifacts([parseSpacesOverviewUICLayoutArtifact("./test-layout.xml", xml)]).map((diagnostic) => diagnostic.code);
+    const cases = [
+      ["missing id", spacesOverviewUICLayoutXml.replace(' uic:id="uic.spaces.layout-shell.proof"', ""), "uic/layout/metadata"],
+      ["missing label", spacesOverviewUICLayoutXml.replace(' uic:label="Standard"', ""), "uic/layout/metadata"],
+      ["missing availability", spacesOverviewUICLayoutXml.replace(' uic:availability="production"', ""), "uic/layout/availability"],
+      ["bad availability", spacesOverviewUICLayoutXml.replace('uic:availability="production"', 'uic:availability="preview"'), "uic/layout/availability"],
+      ["bad layout kind", spacesOverviewUICLayoutXml.replace('uic:layout-kind="stack"', 'uic:layout-kind="cards"'), "uic/layout/layout-kind"],
+      ["partial order", spacesOverviewUICLayoutXml.replace('uic:order="10"', 'uic:order="10abc"'), "uic/layout/order"],
+    ] as const;
+
+    for (const [name, xml, code] of cases) {
+      expect(diagnosticsFor(xml), name).toContain(code);
     }
   });
 
