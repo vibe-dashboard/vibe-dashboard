@@ -296,6 +296,64 @@ describe("UIC trusted component descriptors", () => {
     });
   });
 
+  it("accepts bounded sibling craft row templates", () => {
+    const visited = structuralSpacesOverviewXml.replace(
+      '<uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyVisitedCraft" />',
+      `<uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyVisitedCraft">
+        <uic:rowTemplate for="item">
+          <uic:row variant="featured">
+            <uic:text bind="item.label" tone="primary" />
+            <uic:action event="activate" label="Reopen visited craft" />
+          </uic:row>
+        </uic:rowTemplate>
+      </uic:recentlyVisitedCraft>`,
+    );
+    const starred = structuralSpacesOverviewXml.replace(
+      '<uic:starredCraft uic:on-activate="spaces.navigateToCraft" />',
+      `<uic:starredCraft uic:on-activate="spaces.navigateToCraft">
+        <uic:rowTemplate for="item">
+          <uic:row>
+            <uic:text bind="item.label" tone="primary" />
+            <uic:text bind="item.meta" tone="muted" />
+            <uic:action event="activate" label="Open pinned craft" />
+          </uic:row>
+        </uic:rowTemplate>
+      </uic:starredCraft>`,
+    );
+
+    expect(validateUICXml(spacesOverviewPageHeaderUICProof, visited).diagnostics).toEqual([]);
+    expect(getUICCraftListRowTemplate(spacesOverviewPageHeaderUICProof, visited, "recentlyVisitedCraft")).toMatchObject({
+      sectionTag: "recentlyVisitedCraft",
+      row: { variant: "featured", children: [{ kind: "text", bind: "item.label" }, { kind: "action", label: "Reopen visited craft" }] },
+    });
+    expect(validateUICXml(spacesOverviewPageHeaderUICProof, starred).diagnostics).toEqual([]);
+    expect(getUICCraftListRowTemplate(spacesOverviewPageHeaderUICProof, starred, "starredCraft")).toMatchObject({
+      sectionTag: "starredCraft",
+      row: { variant: "standard", children: [{ kind: "text", bind: "item.label" }, { kind: "text", bind: "item.meta" }, { kind: "action", label: "Open pinned craft" }] },
+    });
+  });
+
+  it("rejects unsafe sibling craft row templates", () => {
+    const templated = (body: string) => structuralSpacesOverviewXml.replace(
+      '<uic:starredCraft uic:on-activate="spaces.navigateToCraft" />',
+      `<uic:starredCraft uic:on-activate="spaces.navigateToCraft">${body}</uic:starredCraft>`,
+    );
+    const validTemplate = `<uic:rowTemplate for="item"><uic:row><uic:text bind="item.label" /><uic:action event="activate" label="Open" /></uic:row></uic:rowTemplate>`;
+    const cases = [
+      ["invalid binding", validTemplate.replace('bind="item.label"', 'bind="item.href"'), "uic/xml/invalid-binding"],
+      ["unknown attr", validTemplate.replace("<uic:row>", '<uic:row style="display:none">'), "uic/xml/raw-style-forbidden"],
+      ["raw section text", `model.appHooks${validTemplate}`, "uic/xml/default-children-forbidden"],
+      ["forged action outside row", `<uic:action event="activate" label="Open" />${validTemplate}`, "uic/xml/unsupported-structure"],
+    ] as const;
+
+    for (const [name, xml, code] of cases) {
+      expect(validateUICXml(spacesOverviewPageHeaderUICProof, templated(xml)).diagnostics, name).toContainEqual(
+        expect.objectContaining({ code }),
+      );
+      expect(getUICCraftListRowTemplate(spacesOverviewPageHeaderUICProof, templated(xml), "starredCraft"), name).toBeUndefined();
+    }
+  });
+
   it("rejects unsafe or malformed recently-created row templates", () => {
     const templated = (body: string) => structuralSpacesOverviewXml.replace(
       '<uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyCreatedCraft" />',

@@ -757,6 +757,34 @@ describe("SpacesOverview UIC pageHeader proof", () => {
     expect(projectUICRecentlyVisitedCraftPageActions({ recentlyVisited: { items: [], page: 1, totalPages: 3 }, tabGroupDisplayLabelById: new Map() }, false)).toEqual([]);
   });
 
+  it("renders Recently Visited Craft rows from a bounded XML row template", () => {
+    const templatedXml = spacesOverviewUICLayoutXml.replace(
+      '<uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyVisitedCraft" />',
+      `<uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyVisitedCraft">
+        <uic:rowTemplate for="item">
+          <uic:row variant="featured">
+            <uic:text bind="item.label" tone="primary" />
+            <uic:text bind="item.meta" tone="secondary" />
+            <uic:action event="activate" label="Reopen visited craft" />
+          </uic:row>
+        </uic:rowTemplate>
+      </uic:recentlyVisitedCraft>`,
+    );
+    const region = recentlyVisitedRegion(renderUICPresentationWithModel({
+      recentlyVisited: {
+        items: [{ space: storybookWorkspace.spaces[0]!, tg: storybookWorkspace.tabGroups[0]! }],
+        page: 0,
+        totalPages: 1,
+      },
+    }, {}, templatedXml));
+
+    expect(region).toContain('data-uic-row-template="recentlyVisitedCraft"');
+    expect(region).toContain("Reopen visited craft");
+    expect(region).toContain("Overview");
+    expect(region).toContain("Home");
+    expect(region).not.toContain("Open craft");
+  });
+
   it("caps UIC recently visited craft rows deterministically before rendering", () => {
     const tabGroups = Array.from({ length: UIC_RECENTLY_VISITED_CRAFT_RESOURCE_BUDGET.maxRows + 2 }, (_, index) => ({
       ...storybookWorkspace.tabGroups[1]!,
@@ -981,6 +1009,30 @@ describe("SpacesOverview UIC pageHeader proof", () => {
       starredTabGroups: [{ space: storybookWorkspace.spaces[1]!, tg: storybookWorkspace.tabGroups[1]! }],
       tabGroupDisplayLabelById: new Map(),
     }, false)).toEqual([]);
+  });
+
+  it("renders Starred Craft rows from a bounded XML row template", () => {
+    const templatedXml = spacesOverviewUICLayoutXml.replace(
+      '<uic:starredCraft uic:on-activate="spaces.navigateToCraft" />',
+      `<uic:starredCraft uic:on-activate="spaces.navigateToCraft">
+        <uic:rowTemplate for="item">
+          <uic:row>
+            <uic:text bind="item.label" tone="primary" />
+            <uic:text bind="item.meta" tone="muted" />
+            <uic:action event="activate" label="Open pinned craft" />
+          </uic:row>
+        </uic:rowTemplate>
+      </uic:starredCraft>`,
+    );
+    const region = starredCraftRegion(renderUICPresentationWithModel({
+      starredTabGroups: [{ space: storybookWorkspace.spaces[0]!, tg: storybookWorkspace.tabGroups[0]! }],
+    }, {}, templatedXml));
+
+    expect(region).toContain('data-uic-row-template="starredCraft"');
+    expect(region).toContain("Open pinned craft");
+    expect(region).toContain("Overview");
+    expect(region).toContain("Home");
+    expect(region).not.toContain("Open craft");
   });
 
   it("does not expose sibling craft-list actions when XML omits their bindings", () => {

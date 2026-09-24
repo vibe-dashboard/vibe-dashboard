@@ -56,8 +56,9 @@ export type UICLayoutPrimitiveTag = "layout" | "region" | "stack" | "grid" | "sp
 export type UICLayoutTreeNode =
   | Readonly<{ kind: "slot"; tag: string }>
   | Readonly<{ kind: "primitive"; tag: UICLayoutPrimitiveTag; attrs: Readonly<Record<string, string>>; children: readonly UICLayoutTreeNode[] }>;
+export type UICCraftListTemplateSectionTag = "starredCraft" | "recentlyVisitedCraft" | "recentlyCreatedCraft";
 export type UICCraftListRowTemplate = Readonly<{
-  sectionTag: "recentlyCreatedCraft";
+  sectionTag: UICCraftListTemplateSectionTag;
   row: Readonly<{
     variant: "standard" | "featured";
     children: readonly UICCraftListRowTemplateChild[];
@@ -71,6 +72,8 @@ const UIC_STRUCTURAL_TAGS = Object.freeze(["layout", "region", "stack", "grid", 
 const UIC_STRUCTURAL_TAG_SET = new Set<string>(UIC_STRUCTURAL_TAGS);
 const UIC_ROW_TEMPLATE_TAGS = Object.freeze(["rowTemplate", "row", "text", "action"] as const);
 const UIC_ROW_TEMPLATE_TAG_SET = new Set<string>(UIC_ROW_TEMPLATE_TAGS);
+const UIC_CRAFT_LIST_TEMPLATE_SECTION_TAGS = Object.freeze(["starredCraft", "recentlyVisitedCraft", "recentlyCreatedCraft"] satisfies readonly UICCraftListTemplateSectionTag[]);
+const UIC_CRAFT_LIST_TEMPLATE_SECTION_TAG_SET = new Set<string>(UIC_CRAFT_LIST_TEMPLATE_SECTION_TAGS);
 const UIC_LAYOUT_MAX_DEPTH = 8;
 const UIC_LAYOUT_MAX_NODES = 40;
 const UIC_ROW_TEMPLATE_MAX_DEPTH = 3;
@@ -291,7 +294,7 @@ function collectLayoutTreeSlotTags(nodes: readonly UICLayoutTreeNode[], tags: st
   return tags;
 }
 
-function rowTemplateNodes(root: ParsedXmlNode, sectionTag = "recentlyCreatedCraft"): ParsedXmlNode[] {
+function rowTemplateNodes(root: ParsedXmlNode, sectionTag: UICCraftListTemplateSectionTag = "recentlyCreatedCraft"): ParsedXmlNode[] {
   const section = descendantTags(root, [sectionTag]).find((node) => node.name === `uic:${sectionTag}`);
   return section?.children.filter((child) => child.name === "uic:rowTemplate") ?? [];
 }
@@ -616,7 +619,7 @@ export function validateUICXml(descriptor: UICSurfaceDescriptor, xml: string): {
     if (UIC_ROW_TEMPLATE_TAG_SET.has(tag)) {
       if (tag === "rowTemplate") {
         if (node.text.trim()) diagnostics.push(diagnostic("uic/xml/default-children-forbidden", "UIC row templates cannot contain default text."));
-        if (parent?.name !== "uic:recentlyCreatedCraft") diagnostics.push(diagnostic("uic/xml/unsupported-structure", "UIC row templates are only supported inside uic:recentlyCreatedCraft for this slice."));
+        if (!parent || !UIC_CRAFT_LIST_TEMPLATE_SECTION_TAG_SET.has(parent.name.replace(/^uic:/, ""))) diagnostics.push(diagnostic("uic/xml/unsupported-structure", "UIC row templates are only supported inside craft-list sections for this slice."));
         if (node.attrs.for !== "item") diagnostics.push(diagnostic("uic/xml/invalid-binding", "UIC row templates must bind the item context exactly."));
         if (node.children.length !== 1 || node.children[0]?.name !== "uic:row") diagnostics.push(diagnostic("uic/xml/unsupported-structure", "UIC row templates must contain exactly one uic:row."));
         if (templateDepth(node) > UIC_ROW_TEMPLATE_MAX_DEPTH) diagnostics.push(diagnostic("uic/xml/template-depth-budget", "UIC row template exceeds the maximum supported depth."));
@@ -689,9 +692,9 @@ export function validateUICXml(descriptor: UICSurfaceDescriptor, xml: string): {
   for (const tag of descriptor.layoutTags) {
     const componentNodes = descendantTags(root, [tag]);
     for (const componentNode of componentNodes) {
-      if (tag === "recentlyCreatedCraft") {
-        if (componentNode.text.trim()) diagnostics.push(diagnostic("uic/xml/default-children-forbidden", "UIC recentlyCreatedCraft cannot contain default text."));
-        if (componentNode.children.some((child) => child.name !== "uic:rowTemplate")) diagnostics.push(diagnostic("uic/xml/unsupported-structure", "UIC recentlyCreatedCraft supports rowTemplate children only."));
+      if (UIC_CRAFT_LIST_TEMPLATE_SECTION_TAG_SET.has(tag)) {
+        if (componentNode.text.trim()) diagnostics.push(diagnostic("uic/xml/default-children-forbidden", `uic:${tag} cannot contain default text.`));
+        if (componentNode.children.some((child) => child.name !== "uic:rowTemplate")) diagnostics.push(diagnostic("uic/xml/unsupported-structure", `uic:${tag} supports rowTemplate children only.`));
       } else if (tag !== "pageHeader" && componentNode.children.length > 0) {
         diagnostics.push(diagnostic("uic/xml/unsupported-structure", `uic:${tag} does not support XML-authored children in this slice.`));
       }
@@ -778,7 +781,7 @@ export function getUICLayoutTree(descriptor: UICSurfaceDescriptor, xml: string):
 export function getUICCraftListRowTemplate(
   descriptor: UICSurfaceDescriptor,
   xml: string,
-  sectionTag: "recentlyCreatedCraft",
+  sectionTag: UICCraftListTemplateSectionTag,
 ): UICCraftListRowTemplate | undefined {
   if (validateUICXml(descriptor, xml).diagnostics.length) return undefined;
   const root = parseXmlLite(xml).roots[0];

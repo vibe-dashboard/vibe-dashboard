@@ -1667,7 +1667,7 @@ export function projectUICRecentlyCreatedCraftPageActions(model: SpacesOverviewS
   return projectUICCraftListPageActions("spaces.pageRecentlyCreatedCraft", model.recentlyCreated.page, model.recentlyCreated.totalPages, enabled);
 }
 
-function UICReadOnlyStarredCraftSection({ model, actions, enableNavigateAction = true }: SpacesOverviewSlotProps<"starredCraft"> & { readonly enableNavigateAction?: boolean }) {
+function UICReadOnlyStarredCraftSection({ model, actions, enableNavigateAction = true, rowTemplate }: SpacesOverviewSlotProps<"starredCraft"> & { readonly enableNavigateAction?: boolean; readonly rowTemplate?: UICCraftListRowTemplate }) {
   const actionDescriptors = new Map(projectUICStarredCraftActions(model, enableNavigateAction).map((action) => [action.args.tabGroupId, action]));
   return (
     <UICReadOnlyListSection
@@ -1680,11 +1680,12 @@ function UICReadOnlyStarredCraftSection({ model, actions, enableNavigateAction =
       resource={projectUICStarredCraftResource(model)}
       actionsByItemId={actionDescriptors}
       trustedActions={actions}
+      rowTemplate={rowTemplate}
     />
   );
 }
 
-function UICReadOnlyRecentlyVisitedCraftSection({ model, actions, enableNavigateAction = true, enablePageAction = true }: SpacesOverviewSlotProps<"recentlyVisitedCraft"> & { readonly enableNavigateAction?: boolean; readonly enablePageAction?: boolean }) {
+function UICReadOnlyRecentlyVisitedCraftSection({ model, actions, enableNavigateAction = true, enablePageAction = true, rowTemplate }: SpacesOverviewSlotProps<"recentlyVisitedCraft"> & { readonly enableNavigateAction?: boolean; readonly enablePageAction?: boolean; readonly rowTemplate?: UICCraftListRowTemplate }) {
   const actionDescriptors = new Map(projectUICRecentlyVisitedCraftActions(model, enableNavigateAction).map((action) => [action.args.tabGroupId, action]));
   return (
     <UICReadOnlyListSection
@@ -1699,6 +1700,7 @@ function UICReadOnlyRecentlyVisitedCraftSection({ model, actions, enableNavigate
       trustedActions={actions}
       pageActions={projectUICRecentlyVisitedCraftPageActions(model, enablePageAction)}
       trustedPageActions={actions}
+      rowTemplate={rowTemplate}
     />
   );
 }
@@ -2389,8 +2391,10 @@ export function SpacesOverviewUICLayoutProofPresentation({
   const enableSpacePickerClose = actionBindings.get("spacePicker")?.close === "spaces.dismissPicker";
   const enableSpacePickerRetry = actionBindings.get("spacePicker")?.retry === "spaces.retryOpenWorkspace";
   const enableSpacePickerSelect = actionBindings.get("spacePicker")?.select === "spaces.selectSpaceForWorkspace";
+  const starredRowTemplate = diagnostics.length ? undefined : getUICCraftListRowTemplate(spacesOverviewPageHeaderUICProof, selectedXml, "starredCraft");
+  const recentlyVisitedRowTemplate = diagnostics.length ? undefined : getUICCraftListRowTemplate(spacesOverviewPageHeaderUICProof, selectedXml, "recentlyVisitedCraft");
   const recentlyCreatedRowTemplate = diagnostics.length ? undefined : getUICCraftListRowTemplate(spacesOverviewPageHeaderUICProof, selectedXml, "recentlyCreatedCraft");
-  const ui = diagnostics.length ? defaultSpacesOverviewUI : { ...defaultSpacesOverviewUI, RecentSessionsSection: (slotProps: SpacesOverviewSlotProps<"recentSessions">) => <UICReadOnlyRecentSessionsSection {...slotProps} enableResumeAction={enableSessionResume} enableStartAction={enableSessionStart} enableRenameAction={enableSessionRename} enableDeleteAction={enableSessionDelete} enableToggleAction={enableSessionToggle} enableCraftNavigateAction={enableSessionCraftNavigate} />, StarredCraftSection: (slotProps: SpacesOverviewSlotProps<"starredCraft">) => <UICReadOnlyStarredCraftSection {...slotProps} enableNavigateAction={enableStarredNavigate} />, RunningDevServersSection: (slotProps: SpacesOverviewSlotProps<"runningDevServers">) => <UICReadOnlyRunningDevServersSection {...slotProps} enableStopAction={enableRunningDevServerStop} enableNavigateAction={enableRunningDevServerNavigate} enableOpenAction={enableRunningDevServerOpen} />, RecentlyVisitedCraftSection: (slotProps: SpacesOverviewSlotProps<"recentlyVisitedCraft">) => <UICReadOnlyRecentlyVisitedCraftSection {...slotProps} enableNavigateAction={enableRecentlyVisitedNavigate} enablePageAction={enableRecentlyVisitedPage} />, RecentlyCreatedCraftSection: (slotProps: SpacesOverviewSlotProps<"recentlyCreatedCraft">) => <UICReadOnlyRecentlyCreatedCraftSection {...slotProps} enableNavigateAction={enableRecentlyCreatedNavigate} enablePageAction={enableRecentlyCreatedPage} rowTemplate={recentlyCreatedRowTemplate} />, WorkspaceListSection: (slotProps: SpacesOverviewSlotProps<"workspaceList">) => <UICReadOnlyWorkspaceListSection {...slotProps} enableOpenWorkspaceAction={enableWorkspaceOpen} enableNavigateAction={enableWorkspaceNavigate} enableStopAction={enableWorkspaceStop} enableFilterAction={enableWorkspaceFilter} enablePageAction={enableWorkspacePage} />, SpacesSection: (slotProps: SpacesOverviewSlotProps<"spaces">) => <UICReadOnlySpacesSection {...slotProps} enableNavigateAction={enableSpacesNavigate} />, SpacePickerModal: (slotProps: SpacesOverviewSlotProps<"spacePicker">) => <UICSpacePickerModal {...slotProps} enableCloseAction={enableSpacePickerClose} enableRetryAction={enableSpacePickerRetry} enableSelectAction={enableSpacePickerSelect} /> };
+  const ui = diagnostics.length ? defaultSpacesOverviewUI : { ...defaultSpacesOverviewUI, RecentSessionsSection: (slotProps: SpacesOverviewSlotProps<"recentSessions">) => <UICReadOnlyRecentSessionsSection {...slotProps} enableResumeAction={enableSessionResume} enableStartAction={enableSessionStart} enableRenameAction={enableSessionRename} enableDeleteAction={enableSessionDelete} enableToggleAction={enableSessionToggle} enableCraftNavigateAction={enableSessionCraftNavigate} />, StarredCraftSection: (slotProps: SpacesOverviewSlotProps<"starredCraft">) => <UICReadOnlyStarredCraftSection {...slotProps} enableNavigateAction={enableStarredNavigate} rowTemplate={starredRowTemplate} />, RunningDevServersSection: (slotProps: SpacesOverviewSlotProps<"runningDevServers">) => <UICReadOnlyRunningDevServersSection {...slotProps} enableStopAction={enableRunningDevServerStop} enableNavigateAction={enableRunningDevServerNavigate} enableOpenAction={enableRunningDevServerOpen} />, RecentlyVisitedCraftSection: (slotProps: SpacesOverviewSlotProps<"recentlyVisitedCraft">) => <UICReadOnlyRecentlyVisitedCraftSection {...slotProps} enableNavigateAction={enableRecentlyVisitedNavigate} enablePageAction={enableRecentlyVisitedPage} rowTemplate={recentlyVisitedRowTemplate} />, RecentlyCreatedCraftSection: (slotProps: SpacesOverviewSlotProps<"recentlyCreatedCraft">) => <UICReadOnlyRecentlyCreatedCraftSection {...slotProps} enableNavigateAction={enableRecentlyCreatedNavigate} enablePageAction={enableRecentlyCreatedPage} rowTemplate={recentlyCreatedRowTemplate} />, WorkspaceListSection: (slotProps: SpacesOverviewSlotProps<"workspaceList">) => <UICReadOnlyWorkspaceListSection {...slotProps} enableOpenWorkspaceAction={enableWorkspaceOpen} enableNavigateAction={enableWorkspaceNavigate} enableStopAction={enableWorkspaceStop} enableFilterAction={enableWorkspaceFilter} enablePageAction={enableWorkspacePage} />, SpacesSection: (slotProps: SpacesOverviewSlotProps<"spaces">) => <UICReadOnlySpacesSection {...slotProps} enableNavigateAction={enableSpacesNavigate} />, SpacePickerModal: (slotProps: SpacesOverviewSlotProps<"spacePicker">) => <UICSpacePickerModal {...slotProps} enableCloseAction={enableSpacePickerClose} enableRetryAction={enableSpacePickerRetry} enableSelectAction={enableSpacePickerSelect} /> };
 
   return (
     <>
