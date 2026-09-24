@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SpacesOverviewView, type DashboardWorkspace } from "../SpacesOverview";
 import {
   SPACES_OVERVIEW_UIC_DISABLE_ENV,
+  UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS,
   createSpacesOverviewProductionView,
   spacesOverviewUICFallbackDiagnostics,
   UIC_RECENTLY_CREATED_CRAFT_RESOURCE_BUDGET,
@@ -44,6 +45,7 @@ import {
   projectUICWorkspaceListResource,
   spacesOverviewUICLayoutXml,
 } from "./SpacesOverview.uic.view";
+import { validateUICXml, spacesOverviewPageHeaderUICProof } from "../../uic/trustedComponents";
 import {
   storybookRepoBranches,
   storybookRepos,
@@ -274,6 +276,18 @@ function workspaceActionCallbacks(overrides: Partial<Parameters<typeof invokeUIC
 }
 
 describe("SpacesOverview UIC pageHeader proof", () => {
+  it("declares only validated built-in UIC layout artifacts with safe XML", () => {
+    expect(UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS.length).toBeGreaterThanOrEqual(2);
+    const ids = new Set<string>();
+    for (const artifact of UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS) {
+      expect(ids.has(artifact.id)).toBe(false);
+      ids.add(artifact.id);
+      expect(validateUICXml(spacesOverviewPageHeaderUICProof, artifact.xml).diagnostics).toEqual([]);
+      const xmlWithoutUICNamespace = artifact.xml.replace('xmlns:uic="https://vibedashboard.dev/uic/xml/v1"', "");
+      expect(xmlWithoutUICNamespace).not.toMatch(/https?:|function|=>|appHooks|QueryClient|Promise|onClick|href=/u);
+    }
+  });
+
   it("defaults the production SpacesOverview route to the validated UIC surface", () => {
     vi.stubEnv(SPACES_OVERVIEW_UIC_DISABLE_ENV, "");
 

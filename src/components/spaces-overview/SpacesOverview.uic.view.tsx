@@ -1,13 +1,14 @@
 import { DefaultPageHeader, DefaultSpacesOverviewLayout, defaultSpacesOverviewUI } from "./DefaultSpacesOverview.view";
-import type { DashboardWorkspace, SpacesOverviewComponentProps, SpacesOverviewPresentation, TabGroupWithSpace } from "./SpacesOverview.contracts";
+import type { DashboardWorkspace, SpacesOverviewComponentProps, SpacesOverviewPresentation, SpacesOverviewUIPack, TabGroupWithSpace } from "./SpacesOverview.contracts";
 import type { SpacesOverviewSlotProps } from "./SpacesOverview.slots";
 import { formatRelativeTime } from "./workspaceList.view";
 import { MyneHeading, MyneText } from "../../theme/skins";
 import { getUICValidatedActionBindings, spacesOverviewPageHeaderUICProof, validateUICXml, type UICDiagnostic } from "../../uic/trustedComponents";
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import styles from "./SpacesOverview.skin.module.css";
 
 type SpacesOverviewUICEnv = Readonly<Record<string, string | undefined>>;
-type SpacesOverviewUICRenderer = (props: SpacesOverviewComponentProps) => ReactNode;
+type SpacesOverviewUICRenderer = (props: SpacesOverviewComponentProps & { readonly initialLayoutId?: string }) => ReactNode;
 
 export const SPACES_OVERVIEW_UIC_DISABLE_ENV = "VD_DISABLE_SPACES_OVERVIEW_UIC";
 export const spacesOverviewUICFallbackDiagnostics = {
@@ -33,10 +34,90 @@ export const spacesOverviewUICLayoutXml = `<uic:spaceOverviewPage xmlns:uic="htt
   <uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" uic:on-select="spaces.selectSpaceForWorkspace" />
 </uic:spaceOverviewPage>`;
 
-export const spacesOverviewUICStartupValidation = validateUICXml(
-  spacesOverviewPageHeaderUICProof,
-  spacesOverviewUICLayoutXml,
-).diagnostics;
+export const spacesOverviewUICFocusLayoutXml = `<uic:spaceOverviewPage xmlns:uic="https://vibedashboard.dev/uic/xml/v1" artifactVersion="1">
+  <uic:css><![CDATA[:uic-scope { --myne-slot-page-header-gap: 0.75rem; }]]></uic:css>
+  <uic:pageHeader title="{model.title}" subtitle="{model.subtitle}">
+    <uic:slot name="actions">
+      <uic:pageHeaderAction label="Start voyage" />
+    </uic:slot>
+  </uic:pageHeader>
+  <uic:recentSessions uic:on-resume="spaces.resumeSession" uic:on-start="spaces.startSession" uic:on-rename="spaces.renameSession" uic:on-delete="spaces.deleteSession" uic:on-toggle="spaces.toggleSession" uic:on-activate="spaces.navigateToCraft" />
+  <uic:starredCraft uic:on-activate="spaces.navigateToCraft" />
+  <uic:runningDevServers uic:on-stop="spaces.stopDevServer" uic:on-activate="spaces.navigateToCraft" uic:on-open="spaces.openWorkspace" />
+  <uic:recentlyVisitedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyVisitedCraft" />
+  <uic:recentlyCreatedCraft uic:on-activate="spaces.navigateToCraft" uic:on-page="spaces.pageRecentlyCreatedCraft" />
+  <uic:workspaceList uic:on-activate="spaces.openWorkspace" uic:on-navigate="spaces.navigateToCraft" uic:on-stop="spaces.stopDevServer" uic:on-filter="spaces.filterWorkspaces" uic:on-page="spaces.pageWorkspaces" />
+  <uic:spaces uic:on-activate="spaces.navigateToCraft" />
+  <uic:spacePicker uic:on-close="spaces.dismissPicker" uic:on-retry="spaces.retryOpenWorkspace" uic:on-select="spaces.selectSpaceForWorkspace" />
+</uic:spaceOverviewPage>`;
+
+type SpacesOverviewUICSlotName = Exclude<keyof SpacesOverviewUIPack, "SpacePickerModal">;
+
+export const UIC_SPACES_OVERVIEW_DEFAULT_LAYOUT_ID = "uic.spaces.layout-shell.proof";
+export const UIC_SPACES_OVERVIEW_ALTERNATE_LAYOUT_ID = "uic.spaces.layout-focus.proof";
+
+export type SpacesOverviewUICLayoutArtifact = Readonly<{
+  id: typeof UIC_SPACES_OVERVIEW_DEFAULT_LAYOUT_ID | typeof UIC_SPACES_OVERVIEW_ALTERNATE_LAYOUT_ID;
+  label: string;
+  description: string;
+  xml: string;
+  slotOrder: readonly SpacesOverviewUICSlotName[];
+}>;
+
+const defaultUICSlotOrder = Object.freeze([
+  "PageHeader",
+  "RecentSessionsSection",
+  "StarredCraftSection",
+  "RunningDevServersSection",
+  "RecentlyVisitedCraftSection",
+  "RecentlyCreatedCraftSection",
+  "WorkspaceListSection",
+  "SpacesSection",
+] satisfies readonly SpacesOverviewUICSlotName[]);
+
+const focusUICSlotOrder = Object.freeze([
+  "PageHeader",
+  "RunningDevServersSection",
+  "WorkspaceListSection",
+  "RecentSessionsSection",
+  "StarredCraftSection",
+  "RecentlyVisitedCraftSection",
+  "RecentlyCreatedCraftSection",
+  "SpacesSection",
+] satisfies readonly SpacesOverviewUICSlotName[]);
+
+export const UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS: readonly SpacesOverviewUICLayoutArtifact[] = Object.freeze([
+  Object.freeze({
+    id: UIC_SPACES_OVERVIEW_DEFAULT_LAYOUT_ID,
+    label: "Standard",
+    description: "Original SpacesOverview order for parity review.",
+    xml: spacesOverviewUICLayoutXml,
+    slotOrder: defaultUICSlotOrder,
+  }),
+  Object.freeze({
+    id: UIC_SPACES_OVERVIEW_ALTERNATE_LAYOUT_ID,
+    label: "Focus",
+    description: "Prioritizes active workspaces and running servers before history.",
+    xml: spacesOverviewUICFocusLayoutXml,
+    slotOrder: focusUICSlotOrder,
+  }),
+]);
+
+function resolveSpacesOverviewUICLayoutArtifact(layoutId: string | undefined): SpacesOverviewUICLayoutArtifact {
+  return UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS.find((artifact) => artifact.id === layoutId)
+    ?? UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS[0]!;
+}
+
+function validateSpacesOverviewUICLayoutArtifacts(): readonly UICDiagnostic[] {
+  return UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS.flatMap((artifact) =>
+    validateUICXml(spacesOverviewPageHeaderUICProof, artifact.xml).diagnostics.map((diagnostic) => ({
+      code: diagnostic.code,
+      message: `${artifact.id}: ${diagnostic.message}`,
+    })),
+  );
+}
+
+export const spacesOverviewUICStartupValidation = validateSpacesOverviewUICLayoutArtifacts();
 
 function getDefaultSpacesOverviewUICEnv(): SpacesOverviewUICEnv {
   return {
@@ -99,10 +180,12 @@ class SpacesOverviewUICRenderBoundary extends Component<
 
 export function createSpacesOverviewProductionView({
   env,
+  initialLayoutId,
   startupDiagnostics = spacesOverviewUICStartupValidation,
   uicPresentation = SpacesOverviewUICLayoutProofPresentation,
 }: {
   readonly env?: SpacesOverviewUICEnv;
+  readonly initialLayoutId?: string;
   readonly startupDiagnostics?: readonly UICDiagnostic[];
   readonly uicPresentation?: SpacesOverviewUICRenderer;
 } = {}): SpacesOverviewPresentation {
@@ -128,7 +211,7 @@ export function createSpacesOverviewProductionView({
             spacesOverviewUICFallbackDiagnostics.renderException,
           )}
         >
-          {uicPresentation(props)}
+          {uicPresentation({ ...props, initialLayoutId })}
         </SpacesOverviewUICRenderBoundary>
       );
     } catch {
@@ -2088,12 +2171,116 @@ function UICSpacePickerModal({ model, actions, enableCloseAction = true, enableR
   );
 }
 
+function SpacesOverviewUICLayoutSelector({
+  selectedLayoutId,
+  onSelectLayout,
+}: {
+  readonly selectedLayoutId: string;
+  readonly onSelectLayout: (layoutId: string) => void;
+}) {
+  return (
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 myne-card" data-uic-layout-selector="spaces-overview">
+      <div>
+        <MyneText as="p" className="text-sm font-medium" tone="primary">
+          Layout
+        </MyneText>
+        <MyneText as="p" className="mt-1 text-xs" tone="muted">
+          Choose a built-in SpacesOverview arrangement for this session.
+        </MyneText>
+      </div>
+      <label className="flex items-center gap-2 text-xs myne-text myne-text--muted">
+        <span>SpacesOverview UIC layout</span>
+        <select
+          aria-label="SpacesOverview UIC layout"
+          className="myne-button rounded border px-3 py-1.5 text-xs"
+          value={selectedLayoutId}
+          onChange={(event) => onSelectLayout(event.currentTarget.value)}
+        >
+          {UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS.map((artifact) => (
+            <option key={artifact.id} value={artifact.id}>
+              {artifact.label}
+            </option>
+          ))}
+        </select>
+      </label>
+    </div>
+  );
+}
+
+function SpacesOverviewUICLayoutFrame({
+  model,
+  actions,
+  ui,
+  artifact,
+  selectedLayoutId,
+  onSelectLayout,
+}: SpacesOverviewComponentProps & {
+  readonly ui: SpacesOverviewUIPack;
+  readonly artifact: SpacesOverviewUICLayoutArtifact;
+  readonly selectedLayoutId: string;
+  readonly onSelectLayout: (layoutId: string) => void;
+}) {
+  const slotProps = { model, actions };
+  const renderSlot = (slot: SpacesOverviewUICSlotName) => {
+    const Slot = ui[slot];
+    return <Slot key={slot} {...slotProps} />;
+  };
+  return (
+    <main
+      className={`${styles.surface} h-full w-full overflow-auto p-6 md:p-8`}
+      data-myne-surface="spaces-overview"
+      data-myne-view-pack={artifact.id}
+    >
+      <div className="max-w-4xl mx-auto">
+        <SpacesOverviewUICLayoutSelector
+          selectedLayoutId={selectedLayoutId}
+          onSelectLayout={onSelectLayout}
+        />
+        {artifact.slotOrder.map(renderSlot)}
+      </div>
+      <ui.SpacePickerModal model={model} actions={actions} />
+    </main>
+  );
+}
+
+class SpacesOverviewUICSelectableLayout extends Component<
+  SpacesOverviewComponentProps & {
+    readonly ui: SpacesOverviewUIPack;
+    readonly initialLayoutId?: string;
+  },
+  { readonly selectedLayoutId: string }
+> {
+  constructor(props: SpacesOverviewComponentProps & { readonly ui: SpacesOverviewUIPack; readonly initialLayoutId?: string }) {
+    super(props);
+    this.state = {
+      selectedLayoutId: resolveSpacesOverviewUICLayoutArtifact(props.initialLayoutId).id,
+    };
+  }
+
+  render() {
+    const artifact = resolveSpacesOverviewUICLayoutArtifact(this.state.selectedLayoutId);
+    return (
+      <SpacesOverviewUICLayoutFrame
+        {...this.props}
+        artifact={artifact}
+        selectedLayoutId={artifact.id}
+        onSelectLayout={(layoutId) => {
+          this.setState({ selectedLayoutId: resolveSpacesOverviewUICLayoutArtifact(layoutId).id });
+        }}
+      />
+    );
+  }
+}
+
 export function SpacesOverviewUICLayoutProofPresentation({
-  xml = spacesOverviewUICLayoutXml,
+  xml,
+  initialLayoutId,
   ...props
-}: SpacesOverviewComponentProps & { readonly xml?: string }) {
-  const diagnostics = validateUICXml(spacesOverviewPageHeaderUICProof, xml).diagnostics;
-  const actionBindings = diagnostics.length ? new Map() : getUICValidatedActionBindings(spacesOverviewPageHeaderUICProof, xml);
+}: SpacesOverviewComponentProps & { readonly xml?: string; readonly initialLayoutId?: string }) {
+  const selectedArtifact = resolveSpacesOverviewUICLayoutArtifact(initialLayoutId);
+  const selectedXml = xml ?? selectedArtifact.xml;
+  const diagnostics = validateUICXml(spacesOverviewPageHeaderUICProof, selectedXml).diagnostics;
+  const actionBindings = diagnostics.length ? new Map() : getUICValidatedActionBindings(spacesOverviewPageHeaderUICProof, selectedXml);
   const enableSessionResume = actionBindings.get("recentSessions")?.resume === "spaces.resumeSession";
   const enableSessionStart = actionBindings.get("recentSessions")?.start === "spaces.startSession";
   const enableSessionRename = actionBindings.get("recentSessions")?.rename === "spaces.renameSession";
@@ -2121,11 +2308,19 @@ export function SpacesOverviewUICLayoutProofPresentation({
 
   return (
     <>
-      <DefaultSpacesOverviewLayout
-        {...props}
-        ui={ui}
-        viewPackId={diagnostics.length ? "myne.spaces.view-pack.default" : "uic.spaces.layout-shell.proof"}
-      />
+      {diagnostics.length ? (
+        <DefaultSpacesOverviewLayout
+          {...props}
+          ui={ui}
+          viewPackId="myne.spaces.view-pack.default"
+        />
+      ) : (
+        <SpacesOverviewUICSelectableLayout
+          {...props}
+          ui={ui}
+          initialLayoutId={selectedArtifact.id}
+        />
+      )}
       {diagnostics.length > 0 && (
         <p className="myne-status myne-status--warning">
           {diagnostics.map((item) => item.code).join(", ")}

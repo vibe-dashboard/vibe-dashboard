@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SpacesOverviewView, type DashboardWorkspace } from "../SpacesOverview";
@@ -7,6 +7,8 @@ import { DefaultSpacesOverviewLayout, defaultSpacesOverviewUI } from "./DefaultS
 import type { SpacesOverviewSlotProps } from "./SpacesOverview.slots";
 import {
   SPACES_OVERVIEW_UIC_DISABLE_ENV,
+  UIC_SPACES_OVERVIEW_ALTERNATE_LAYOUT_ID,
+  UIC_SPACES_OVERVIEW_DEFAULT_LAYOUT_ID,
   createSpacesOverviewProductionView,
   isSpacesOverviewUICDisabled,
   spacesOverviewUICFallbackDiagnostics,
@@ -108,5 +110,40 @@ describe("SpacesOverview production UIC fallback", () => {
     expect(screen.getByText(/SpacesOverview UIC fallback active/)).toBeTruthy();
     expect(container.innerHTML).toContain('data-myne-view-pack="myne.spaces.view-pack.default"');
     expect(container.innerHTML).toContain(`data-uic-fallback-diagnostic="${spacesOverviewUICFallbackDiagnostics.renderException}"`);
+  });
+
+  it("defaults to the built-in default UIC layout and switches to the alternate layout for this mount", () => {
+    const { container } = renderProductionSpacesOverview();
+
+    const selector = screen.getByLabelText("SpacesOverview UIC layout") as HTMLSelectElement;
+    expect(selector.value).toBe(UIC_SPACES_OVERVIEW_DEFAULT_LAYOUT_ID);
+    expect(container.innerHTML).toContain(`data-myne-view-pack="${UIC_SPACES_OVERVIEW_DEFAULT_LAYOUT_ID}"`);
+
+    const defaultRecentIndex = container.innerHTML.indexOf('data-uic-owned-region="recent-sessions"');
+    const defaultWorkspaceIndex = container.innerHTML.indexOf('data-uic-owned-region="workspace-list"');
+    expect(defaultRecentIndex).toBeGreaterThan(-1);
+    expect(defaultWorkspaceIndex).toBeGreaterThan(defaultRecentIndex);
+
+    fireEvent.change(selector, { target: { value: UIC_SPACES_OVERVIEW_ALTERNATE_LAYOUT_ID } });
+
+    expect(selector.value).toBe(UIC_SPACES_OVERVIEW_ALTERNATE_LAYOUT_ID);
+    expect(container.innerHTML).toContain(`data-myne-view-pack="${UIC_SPACES_OVERVIEW_ALTERNATE_LAYOUT_ID}"`);
+    const alternateWorkspaceIndex = container.innerHTML.indexOf('data-uic-owned-region="workspace-list"');
+    const alternateRecentIndex = container.innerHTML.indexOf('data-uic-owned-region="recent-sessions"');
+    expect(alternateWorkspaceIndex).toBeGreaterThan(-1);
+    expect(alternateRecentIndex).toBeGreaterThan(alternateWorkspaceIndex);
+  });
+
+  it("falls back to the default UIC layout when the selected built-in layout id is invalid", () => {
+    const presentation = createSpacesOverviewProductionView({
+      env: {},
+      initialLayoutId: "uic.spaces.layout.missing",
+    });
+
+    const { container } = renderProductionSpacesOverview({ presentation });
+
+    expect(screen.getByLabelText("SpacesOverview UIC layout")).toHaveProperty("value", UIC_SPACES_OVERVIEW_DEFAULT_LAYOUT_ID);
+    expect(container.innerHTML).toContain(`data-myne-view-pack="${UIC_SPACES_OVERVIEW_DEFAULT_LAYOUT_ID}"`);
+    expect(container.innerHTML).not.toContain("SpacesOverview UIC fallback active");
   });
 });
