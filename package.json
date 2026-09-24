@@ -4,7 +4,7 @@
   "type": "module",
   "packageManager": "pnpm@10.13.1",
   "scripts": {
-    "dev": "vite",
+    "dev": "node --experimental-strip-types scripts/preview-run-bootstrap.ts -- vite",
     "dev:vk-mocked-sandbox": "node --experimental-strip-types scripts/vk-mocked-sandbox.ts start",
     "dev:vk-mocked-sandbox:ci-release": "VK_MOCKED_VK_BACKEND=ci-release node --experimental-strip-types scripts/vk-mocked-sandbox.ts start",
     "e2e:vk-mocked-sandbox:reset": "node --experimental-strip-types scripts/e2e-vk-mocked-sandbox-fixtures.ts reset",
