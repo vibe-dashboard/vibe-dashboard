@@ -311,21 +311,13 @@ const UIC_ALLOWED_CSS_PROPERTIES = new Set([
   "color",
   "column-gap",
   "display",
-  "font-size",
-  "font-weight",
   "gap",
   "grid-template-columns",
   "grid-template-rows",
   "justify-content",
-  "letter-spacing",
-  "margin",
-  "margin-bottom",
-  "margin-top",
-  "max-width",
   "min-height",
   "padding",
   "row-gap",
-  "text-transform",
 ]);
 
 const UIC_FORBIDDEN_CSS_PROPERTIES = new Set([
@@ -376,7 +368,6 @@ function compileUICSelector(selector: string, descriptor: UICSurfaceDescriptor, 
   }
 
   if (selector === ":uic-scope") return { selector: `[data-uic-artifact="${scopeAttrValue}"]` };
-  if (/^\.myne-[A-Za-z0-9_-]+$/u.test(selector)) return { selector: `[data-uic-artifact="${scopeAttrValue}"] ${selector}` };
   return { diagnostic: diagnostic("uic/css/selector-forbidden", `UIC CSS selector "${selector}" is not in the safe selector allowlist.`) };
 }
 
@@ -387,9 +378,10 @@ function validateUICCssDeclaration(property: string, value: string): UICDiagnost
   }
   if (/url\s*\(|@import|expression\s*\(|javascript:|data:/iu.test(value)) return diagnostic("uic/css/url-forbidden", `UIC CSS property "${property}" cannot reference URLs or executable values.`);
   if (/!important/iu.test(value)) return diagnostic("uic/css/value-forbidden", `UIC CSS property "${property}" cannot use !important.`);
+  if (/\btransparent\b/iu.test(value)) return diagnostic("uic/css/value-forbidden", `UIC CSS property "${property}" cannot make inherited content transparent.`);
   if (prop === "display" && !/^(?:block|flex|grid|inline-flex)$/u.test(value.trim())) return diagnostic("uic/css/value-forbidden", "UIC CSS display values are limited to block, flex, grid, and inline-flex.");
   if (/\b(?:none|hidden)\b/iu.test(value) && /^(?:display|visibility|overflow|pointer-events)$/u.test(prop)) return diagnostic("uic/css/value-forbidden", `UIC CSS property "${property}" cannot hide or trap owned UI.`);
-  if (/\b(?:100vw|100vh|9999px|999rem)\b/iu.test(value)) return diagnostic("uic/css/value-forbidden", `UIC CSS property "${property}" exceeds safe size bounds.`);
+  if (/(?:^|\s)-\d/u.test(value) || /\b(?:100vw|100vh|9999px|999rem)\b/iu.test(value)) return diagnostic("uic/css/value-forbidden", `UIC CSS property "${property}" exceeds safe layout bounds.`);
   return undefined;
 }
 

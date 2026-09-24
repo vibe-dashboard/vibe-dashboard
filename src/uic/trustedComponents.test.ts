@@ -249,6 +249,11 @@ describe("UIC trusted component descriptors", () => {
       ["import", '@import "https://example.test/x.css";', "uic/css/at-rule-forbidden"],
       ["unsafe property", ":uic-region(activeRail) { position: fixed; }", "uic/css/property-forbidden"],
       ["hiding value", ":uic-region(activeRail) { display: none; }", "uic/css/value-forbidden"],
+      ["generic Myne selector hiding controls", ".myne-button { font-size: 0; color: transparent; max-width: 0; margin: -10000px; }", "uic/css/selector-forbidden"],
+      ["transparent inherited text", ":uic-region(activeRail) { color: transparent; }", "uic/css/value-forbidden"],
+      ["zero font", ":uic-region(activeRail) { font-size: 0; }", "uic/css/property-forbidden"],
+      ["negative margin", ":uic-region(activeRail) { margin: -1rem; }", "uic/css/property-forbidden"],
+      ["zero max width", ":uic-region(activeRail) { max-width: 0; }", "uic/css/property-forbidden"],
       ["over budget", overBudget, "uic/css/declaration-budget"],
     ] as const;
 
