@@ -18,7 +18,11 @@ export function GlobalAppearanceTheme({
     : undefined;
 
   return (
-    <SkinRoot className="h-full min-h-full" state={skinState}>
+    <SkinRoot
+      artifact={value?.artifact}
+      className="h-full min-h-full"
+      state={skinState}
+    >
       {children}
     </SkinRoot>
   );

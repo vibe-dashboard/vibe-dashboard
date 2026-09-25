@@ -64,4 +64,41 @@ describe("GlobalAppearanceTheme", () => {
       ).toBe(lightStudioSkin.id);
     });
   });
+
+  it("applies the compiled appearance artifact to the global shell root", () => {
+    const host = createFakeAppHooksV1Host({
+      appearanceState: {
+        snapshot: {
+          schemaVersion: 1,
+          value: {
+            version: 1,
+            userSkins: [],
+            activeGlobalSkinId: lightStudioSkin.id,
+          },
+        },
+        artifact: {
+          scope: "myne-scope-test",
+          digest: "sha256-test",
+          cssText:
+            '[data-myne-package-scope="myne-scope-test"] .shell-probe{color:var(--myne-color-accent);}',
+        },
+      },
+    });
+
+    const { container } = render(
+      React.createElement(
+        GlobalAppearanceTheme,
+        { appHooks: host.appHooks },
+        React.createElement("main", { className: "shell-probe" }, "Dashboard"),
+      ),
+    );
+
+    const root = container.querySelector(".myne-theme") as HTMLElement;
+    const style = container.querySelector("style[data-myne-compiled-artifact]");
+    expect(root?.getAttribute("data-myne-package-scope")).toBe("myne-scope-test");
+    expect(style?.getAttribute("data-myne-compiled-artifact")).toBe(
+      "myne-scope-test",
+    );
+    expect(style?.textContent).toContain(".shell-probe");
+  });
 });
