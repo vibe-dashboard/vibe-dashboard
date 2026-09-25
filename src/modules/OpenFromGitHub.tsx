@@ -1770,27 +1770,7 @@ async function getIssueTargetBranch(match: MatchingRepoRemote): Promise<string> 
   );
 }
 
-function OpenFromGithubDialog({
-  state,
-  workspace,
-  savedVoyages,
-  onClose,
-  onSelectRepo,
-  onSelectPrWorkspace,
-  onSelectCloneIntent,
-  onSelectFork,
-  onRecheckFork,
-  onSelectVoyage,
-  onSelectBranch,
-  onConfirmWorkMode,
-  onCreateVoyage,
-  onConfirmReopenArchived,
-  onForgetStaleIssueMapping,
-  onOpenExistingIssueWorkspace,
-  onCreateDuplicateIssueWorkspace,
-  onSelectAssociatedPr,
-  onContinueIssue,
-}: {
+type OpenFromGithubDialogProps = {
   state: DialogState;
   workspace: WorkspaceState;
   savedVoyages: SavedWorkspaceSession[];
@@ -1814,7 +1794,28 @@ function OpenFromGithubDialog({
   onCreateDuplicateIssueWorkspace: () => void;
   onSelectAssociatedPr: (url: string) => void;
   onContinueIssue: () => void;
-}) {
+};
+
+type WizardStageView = {
+  title: string;
+  message: string;
+  body: React.ReactNode;
+  actions?: React.ReactNode;
+  closeLabel?: string;
+};
+
+type BranchChoiceViewModel = {
+  workModeBranch: string;
+  createWorkBranch: boolean;
+  branchProtectionStatus: "protected" | "unprotected" | "unknown";
+  workspaceName: string;
+  setCreateWorkBranch: (value: boolean) => void;
+  setWorkspaceName: (value: string) => void;
+  selectWorkModeBranch: (branch: string) => Promise<void>;
+};
+
+function OpenFromGithubDialog(props: OpenFromGithubDialogProps) {
+  const { state, onClose } = props;
   const [newVoyageName, setNewVoyageName] = useState("");
   const [workModeBranch, setWorkModeBranch] = useState("");
   const [createWorkBranch, setCreateWorkBranch] = useState(true);
@@ -1834,8 +1835,8 @@ function OpenFromGithubDialog({
         ? `Issue #${state.target.issue.number}`
         : `GitHub ${state.target.target.kind} ${state.target.target.ref}`,
     );
-    setNewVoyageName(savedVoyages.length ? "" : "GitHub work");
-  }, [state, savedVoyages, workspace.spaces]);
+    setNewVoyageName(props.savedVoyages.length ? "" : "GitHub work");
+  }, [state, props.savedVoyages.length]);
 
   if (!state) return null;
 
@@ -1864,385 +1865,238 @@ function OpenFromGithubDialog({
         protectionStatus !== "unprotected",
     );
   };
-  const selectedWorkModeBranch = state.type === "choose-work-mode"
-    ? state.branches.find((branch) => branch.name === workModeBranch)
-    : undefined;
-  const selectedBranchIsRemote = selectedWorkModeBranch?.is_remote === true;
-  const title =
-    state.type === "choose-repo"
-      ? "Choose repository"
-      : state.type === "choose-pr-workspace"
-        ? "Choose PR workspace"
-      : state.type === "choose-clone-intent"
-        ? "Would you like to fork or just clone this repository?"
-      : state.type === "choose-fork"
-        ? "Choose a writable fork"
-      : state.type === "await-fork"
-        ? "Create a GitHub fork"
-      : state.type === "choose-work-mode"
-        ? "How should this workspace work?"
-      : state.type === "choose-associated-pr"
-        ? "Related pull request found"
-      : state.type === "existing-issue-workspace"
-        ? "Existing issue workspace found"
-      : state.type === "confirm-reopen-archived"
-          ? "Reopen archived issue workspace?"
-          : state.type === "stale-issue-mapping"
-            ? "Issue workspace no longer exists"
-            : state.type === "choose-voyage"
-              ? state.title
-              : state.type === "choose-branch"
-              ? "Choose branch base"
-              : state.title;
-  const message =
-    state.type === "choose-repo"
-      ? state.target.type === "pr"
-        ? `Multiple VK repos match PR #${state.target.prInfo.number}: ${state.target.prInfo.title}`
-        : state.target.type === "issue"
-          ? `Multiple VK repos match issue #${state.target.issue.number}: ${state.target.issue.normalizedIssueUrl}`
-          : `Multiple VK repos match ${state.target.target.normalizedUrl}`
-      : state.type === "choose-pr-workspace"
-        ? `Multiple workspaces match PR #${state.prInfo.number}. Choose the workspace to open.`
-      : state.type === "choose-clone-intent"
-        ? "This only shows for new repositories that haven't been cloned on this machine yet."
-      : state.type === "choose-fork"
-        ? "Several writable forks are available to your authenticated gh CLI account."
-      : state.type === "await-fork"
-        ? `No writable fork was found for ${state.viewer}. Create one on GitHub, then return to this window. VD rechecks automatically on focus.`
-      : state.type === "choose-work-mode"
-        ? "Choose a branch. Non-default, unprotected branches default to working on the selected branch. Protected, default, or unknown-protection branches default to a new editable workspace branch."
-      : state.type === "choose-associated-pr"
-        ? `Issue #${state.issue.number} has related pull request work. Choose a PR or continue with the issue.`
-      : state.type === "existing-issue-workspace"
-        ? `GitHub issue ${state.issue.normalizedIssueUrl} already has an active workspace. Open it, or explicitly create a separate workspace.`
-      : state.type === "confirm-reopen-archived"
-          ? `GitHub issue ${state.issue.normalizedIssueUrl} is mapped to archived workspace ${state.workspace.name || state.workspace.branch}. Reopen and unarchive it instead of creating a duplicate branch?`
-          : state.type === "stale-issue-mapping"
-            ? `GitHub issue ${state.issue.normalizedIssueUrl} was mapped to deleted workspace ${state.workspaceId}. Forget the stale mapping before creating a replacement workspace.`
-            : state.message;
+
+  const stage = buildOpenFromGithubStage({
+    ...props,
+    state,
+    newVoyageName,
+    setNewVoyageName,
+    branchChoice: state.type === "choose-work-mode" ? {
+      workModeBranch,
+      createWorkBranch,
+      branchProtectionStatus,
+      workspaceName,
+      setCreateWorkBranch,
+      setWorkspaceName,
+      selectWorkModeBranch,
+    } : undefined,
+  });
 
   return (
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 px-4"
-      onClick={onClose}
+    <DialogFrame
+      title={stage.title}
+      message={stage.message}
+      actions={stage.actions}
+      closeLabel={stage.closeLabel}
+      onClose={onClose}
     >
-      <div
-        className="w-full max-w-lg rounded-xl border border-neutral-700 bg-neutral-900 p-5 text-neutral-100 shadow-2xl"
-        onClick={(event) => event.stopPropagation()}
-      >
+      {stage.body}
+    </DialogFrame>
+  );
+}
+
+type BuildOpenFromGithubStageArgs = Omit<OpenFromGithubDialogProps, "state"> & {
+  state: NonNullable<DialogState>;
+  newVoyageName: string;
+  setNewVoyageName: (value: string) => void;
+  branchChoice?: BranchChoiceViewModel;
+};
+
+function buildOpenFromGithubStage(args: BuildOpenFromGithubStageArgs): WizardStageView {
+  const { state } = args;
+  switch (state.type) {
+    case "processing":
+    case "opening":
+      return { title: state.title, message: state.message, body: <RunningStage /> };
+    case "error":
+      return { title: state.title, message: state.message, body: <ErrorStage message={state.message} />, closeLabel: "Close" };
+    case "choose-repo":
+      return { title: "Choose repository", message: repositoryChoiceMessage(state), body: <RepositoryChoiceStage state={state} onSelectRepo={args.onSelectRepo} /> };
+    case "choose-pr-workspace":
+      return {
+        title: "Choose PR workspace",
+        message: `Multiple workspaces match PR #${state.prInfo.number}. Choose the workspace to open.`,
+        body: <ExistingPrWorkspaceStage state={state} workspace={args.workspace} savedVoyages={args.savedVoyages} onSelectPrWorkspace={args.onSelectPrWorkspace} />,
+      };
+    case "choose-clone-intent":
+      return {
+        title: "Would you like to fork or just clone this repository?",
+        message: "This only shows for new repositories that haven't been cloned on this machine yet.",
+        body: <RepositoryAccessStage onSelectCloneIntent={args.onSelectCloneIntent} />,
+      };
+    case "choose-fork":
+      return { title: "Choose a writable fork", message: "Several writable forks are available to your authenticated gh CLI account.", body: <ForkChoiceStage state={state} onSelectFork={args.onSelectFork} /> };
+    case "await-fork":
+      return {
+        title: "Create a GitHub fork",
+        message: `No writable fork was found for ${state.viewer}. Create one on GitHub, then return to this window. VD rechecks automatically on focus.`,
+        body: <AwaitForkStage state={state} onRecheckFork={args.onRecheckFork} onSelectCloneIntent={args.onSelectCloneIntent} />,
+      };
+    case "choose-associated-pr":
+      return {
+        title: "Related pull request found",
+        message: `Issue #${state.issue.number} has related pull request work. Choose a PR or continue with the issue.`,
+        body: <AssociatedPrStage state={state} onSelectAssociatedPr={args.onSelectAssociatedPr} onContinueIssue={args.onContinueIssue} />,
+      };
+    case "choose-work-mode":
+      if (!args.branchChoice) throw new Error("Branch choice state is required.");
+      return {
+        title: "How should this workspace work?",
+        message: "Choose a branch. Non-default, unprotected branches default to working on the selected branch. Protected, default, or unknown-protection branches default to a new editable workspace branch.",
+        body: <BranchChoiceStage state={state} branchChoice={args.branchChoice} onConfirmWorkMode={args.onConfirmWorkMode} />,
+      };
+    case "choose-branch":
+      return { title: "Choose branch base", message: state.message, body: <BranchBaseStage state={state} onSelectBranch={args.onSelectBranch} /> };
+    case "confirm-reopen-archived":
+      return {
+        title: "Reopen archived issue workspace?",
+        message: `GitHub issue ${state.issue.normalizedIssueUrl} is mapped to archived workspace ${state.workspace.name || state.workspace.branch}. Reopen and unarchive it instead of creating a duplicate branch?`,
+        body: <ReopenArchivedStage state={state} />,
+        actions: <StageButton tone="warning" onClick={args.onConfirmReopenArchived}>Reopen workspace</StageButton>,
+      };
+    case "stale-issue-mapping":
+      return {
+        title: "Issue workspace no longer exists",
+        message: `GitHub issue ${state.issue.normalizedIssueUrl} was mapped to deleted workspace ${state.workspaceId}. Forget the stale mapping before creating a replacement workspace.`,
+        body: <StaleIssueMappingStage />,
+        actions: <StageButton tone="warning" onClick={args.onForgetStaleIssueMapping}>Forget mapping and create replacement</StageButton>,
+      };
+    case "existing-issue-workspace":
+      return {
+        title: "Existing issue workspace found",
+        message: `GitHub issue ${state.issue.normalizedIssueUrl} already has an active workspace. Open it, or explicitly create a separate workspace.`,
+        body: <ExistingIssueWorkspaceStage state={state} />,
+        actions: (
+          <>
+            <StageButton tone="secondary" onClick={args.onCreateDuplicateIssueWorkspace}>Create new workspace instead</StageButton>
+            <StageButton tone="primary" onClick={args.onOpenExistingIssueWorkspace}>Open existing workspace</StageButton>
+          </>
+        ),
+      };
+    case "choose-voyage":
+      return {
+        title: state.title,
+        message: state.message,
+        body: <VoyageStage state={state} newVoyageName={args.newVoyageName} setNewVoyageName={args.setNewVoyageName} onSelectVoyage={args.onSelectVoyage} onCreateVoyage={args.onCreateVoyage} />,
+      };
+  }
+}
+
+function DialogFrame({ title, message, children, actions, closeLabel, onClose }: {
+  title: string;
+  message: string;
+  children: React.ReactNode;
+  actions?: React.ReactNode;
+  closeLabel?: string;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 px-4" onClick={onClose}>
+      <div className="w-full max-w-lg rounded-xl border border-neutral-700 bg-neutral-900 p-5 text-neutral-100 shadow-2xl" onClick={(event) => event.stopPropagation()}>
         <div className="mb-4">
           <h2 className="text-lg font-semibold text-white">{title}</h2>
           <p className="mt-1 text-sm text-neutral-400">{message}</p>
         </div>
-
-        {state.type === "processing" || state.type === "opening" ? (
-          <div className="py-6 text-sm text-neutral-300">Working…</div>
-        ) : null}
-
-        {state.type === "error" ? (
-          <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
-            {state.message}
-          </div>
-        ) : null}
-
-        {state.type === "choose-repo" ? (
-          <div className="space-y-2">
-            {state.matches.map((match) => (
-              <button
-                key={`${match.repo.id}:${match.remote.name}`}
-                type="button"
-                className="w-full rounded-lg border border-neutral-700 bg-neutral-800 p-3 text-left transition-colors hover:bg-neutral-700"
-                onClick={() => onSelectRepo(match)}
-              >
-                <div className="text-sm font-medium text-white">
-                  {match.repo.display_name || match.repo.name}
-                </div>
-                <div className="mt-1 text-xs text-neutral-400">
-                  {match.remote.name} · {match.remote.url}
-                </div>
-              </button>
-            ))}
-          </div>
-        ) : null}
-
-        {state.type === "choose-pr-workspace" ? (
-          <div className="space-y-2">
-            {state.candidates.map(({ workspace: candidate, summary }) => {
-              const openLocation = findOpenWorkspaceLocation(workspace, candidate.id);
-              const voyageNames = openLocation
-                ? findSavedVoyagesForTabGroup(savedVoyages, openLocation.tabGroupId)
-                    .map((choice) => choice.savedVoyage.name)
-                : [];
-              return (
-              <button
-                key={candidate.id}
-                type="button"
-                className="w-full rounded-lg border border-neutral-700 bg-neutral-800 p-3 text-left transition-colors hover:bg-neutral-700"
-                onClick={() => onSelectPrWorkspace(candidate)}
-              >
-                <div className="text-sm font-medium text-white">
-                  {candidate.name || candidate.branch}
-                </div>
-                <div className="mt-1 text-xs text-neutral-400">
-                  {candidate.archived ? "Archived" : "Active"} · {candidate.branch}
-                </div>
-                <div className="mt-1 text-xs text-neutral-500">
-                  Updated {formatVoyageTimestamp(candidate.updated_at)}
-                  {summary?.latest_process_status ? ` · ${summary.latest_process_status}` : ""}
-                  {voyageNames.length ? ` · ${voyageNames.join(", ")}` : ""}
-                </div>
-              </button>
-            );})}
-          </div>
-        ) : null}
-
-        {state.type === "choose-clone-intent" ? (
-          <div className="space-y-2">
-            <button type="button" className="w-full rounded-lg border border-neutral-700 bg-neutral-800 p-3 text-left hover:bg-neutral-700" onClick={() => onSelectCloneIntent("changes")}>
-              <div className="text-sm font-medium text-white">Fork</div>
-              <div className="mt-1 text-xs text-neutral-400">This allows you to make changes and push to GitHub.</div>
-            </button>
-            <button type="button" className="w-full rounded-lg border border-neutral-700 bg-neutral-800 p-3 text-left hover:bg-neutral-700" onClick={() => onSelectCloneIntent("analysis")}>
-              <div className="text-sm font-medium text-white">Clone without fork</div>
-              <div className="mt-1 text-xs text-neutral-400">This is useful for general analysis of the code and local-only development. You can always fork later if you decide you want to push changes.</div>
-            </button>
-          </div>
-        ) : null}
-
-        {state.type === "choose-fork" ? (
-          <div className="space-y-2">
-            {state.forks.map((fork) => (
-              <button key={fork.fullName} type="button" className="w-full rounded-lg border border-neutral-700 bg-neutral-800 p-3 text-left hover:bg-neutral-700" onClick={() => onSelectFork(fork)}>
-                <div className="text-sm font-medium text-white">{fork.fullName}</div>
-              </button>
-            ))}
-          </div>
-        ) : null}
-
-        {state.type === "choose-associated-pr" ? (
-          <div className="space-y-2">
-            {state.pullRequests.map((pr) => (
-              <button
-                key={pr.url}
-                type="button"
-                className="w-full rounded-lg border border-neutral-700 bg-neutral-800 p-3 text-left hover:bg-neutral-700"
-                onClick={() => onSelectAssociatedPr(pr.url)}
-              >
-                <div className="text-sm font-medium text-white">
-                  PR #{pr.number}: {pr.title}
-                </div>
-                <div className="mt-1 text-xs uppercase text-neutral-400">
-                  {pr.state}
-                </div>
-              </button>
-            ))}
-            <button
-              type="button"
-              className="w-full rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800"
-              onClick={onContinueIssue}
-            >
-              Continue with issue #{state.issue.number}
-            </button>
-          </div>
-        ) : null}
-
-        {state.type === "await-fork" ? (
-          <div className="space-y-2">
-            <a href={state.forkUrl} target="_blank" rel="noreferrer" className="block w-full rounded-lg bg-blue-600 px-3 py-2 text-center text-sm font-medium text-white hover:bg-blue-500">Open GitHub fork page</a>
-            <button type="button" className="w-full rounded-lg border border-neutral-700 px-3 py-2 text-sm text-white hover:bg-neutral-800" onClick={onRecheckFork}>Check again</button>
-            <button type="button" className="w-full rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800" onClick={() => onSelectCloneIntent("analysis")}>Continue as analysis only</button>
-          </div>
-        ) : null}
-
-        {state.type === "choose-work-mode" ? (
-          <div className="space-y-3">
-            <label className="block text-sm text-neutral-300">
-              Branch
-              <select value={workModeBranch} onChange={(event) => void selectWorkModeBranch(event.target.value)} className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-800 p-2 text-white">
-                {state.branches.map((branch) => <option key={branch.name} value={branch.name}>{branch.name}</option>)}
-              </select>
-            </label>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <button type="button" aria-pressed={!createWorkBranch} className={`rounded-lg border p-3 text-left ${!createWorkBranch ? "border-blue-500 bg-blue-500/10" : "border-neutral-700 bg-neutral-800"}`} onClick={() => setCreateWorkBranch(false)}>
-                <div className="text-sm font-medium text-white">Work on selected branch</div>
-                <div className="mt-1 text-xs text-neutral-400">
-                  {selectedBranchIsRemote
-                    ? `Create a local tracking branch for ${workModeBranch}, then work there.`
-                    : `Commit on ${workModeBranch}.`}
-                </div>
-              </button>
-              <button type="button" aria-pressed={createWorkBranch} className={`rounded-lg border p-3 text-left ${createWorkBranch ? "border-blue-500 bg-blue-500/10" : "border-neutral-700 bg-neutral-800"}`} onClick={() => setCreateWorkBranch(true)}>
-                <div className="text-sm font-medium text-white">Create new workspace branch</div>
-                <div className="mt-1 text-xs text-neutral-400">Start an editable workspace branch from {workModeBranch}.</div>
-              </button>
-            </div>
-            {branchProtectionStatus === "unknown" ? (
-              <div className="text-xs text-amber-300">Branch protection could not be verified. Creating a new branch is the safe default; working on the selected branch remains available when you choose it deliberately.</div>
-            ) : null}
-            {createWorkBranch ? (
-              <label className="block text-sm text-neutral-300">
-                Suggested workspace branch name
-                <input value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-800 p-2 text-white" />
-              </label>
-            ) : null}
-            <div className="rounded-lg border border-neutral-700 bg-neutral-950 p-3 text-xs text-neutral-300">
-              <div><span className="text-neutral-500">Repository:</span> {state.target.match.repo.display_name || state.target.match.repo.name}</div>
-              <div><span className="text-neutral-500">Remote:</span> {state.target.match.remote.name} ({state.target.match.remote.url})</div>
-              <div><span className="text-neutral-500">Checkout:</span> {createWorkBranch ? "new workspace branch" : workModeBranch}</div>
-              <div><span className="text-neutral-500">Base/target:</span> {createWorkBranch ? workModeBranch : getRemoteDefaultBranch(state.target.match.repo.default_target_branch, state.target.match.remote.name) || `${state.target.match.remote.name}/main`}</div>
-            </div>
-            <button type="button" className="w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50" disabled={!workModeBranch || (createWorkBranch && !workspaceName.trim())} onClick={() => onConfirmWorkMode({ branch: workModeBranch, createBranch: createWorkBranch, workspaceName: workspaceName.trim() || `Selected ${workModeBranch}` })}>Continue</button>
-          </div>
-        ) : null}
-
-        {state.type === "choose-branch" ? (
-          <div className="space-y-2">
-            {state.branches.map((branch) => (
-              <button
-                key={branch}
-                type="button"
-                className="w-full rounded-lg border border-neutral-700 bg-neutral-800 p-3 text-left font-mono text-sm text-white transition-colors hover:bg-neutral-700"
-                onClick={() => onSelectBranch(branch)}
-              >
-                {branch}
-              </button>
-            ))}
-          </div>
-        ) : null}
-
-        {state.type === "confirm-reopen-archived" ? (
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">
-            Reopening will make the prior workspace active again and reuse
-            branch <span className="font-mono">{state.workspace.branch}</span>.
-          </div>
-        ) : null}
-
-        {state.type === "stale-issue-mapping" ? (
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">
-            The previous workspace record is gone. Forgetting this mapping lets
-            VD create and store a replacement issue workspace.
-          </div>
-        ) : null}
-
-        {state.type === "existing-issue-workspace" ? (
-          <div className="space-y-3">
-            <div className="rounded-lg border border-neutral-700 bg-neutral-950 p-3 text-sm text-neutral-200">
-              <div className="font-medium text-white">
-                {state.workspace.name || state.workspace.branch}
-              </div>
-              <div className="mt-1 text-xs text-neutral-400">
-                Active · {state.workspace.branch}
-                {state.openLocation ? " · already open in VD" : ""}
-              </div>
-            </div>
-            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-100">
-              Creating another workspace for the same issue is allowed only when
-              you explicitly choose it here.
-            </div>
-          </div>
-        ) : null}
-
-        {state.type === "choose-voyage" ? (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              {state.choices.length === 0 ? (
-                <div className="rounded-lg border border-neutral-800 bg-neutral-950 p-3 text-sm text-neutral-500">
-                  No recently opened Voyages yet. Create one below.
-                </div>
-              ) : (
-                state.choices.map((choice) => (
-                  <button
-                    key={`${choice.savedVoyage.id}:${choice.voyageEntryId || "active"}`}
-                    type="button"
-                    className="w-full rounded-lg border border-neutral-700 bg-neutral-800 p-3 text-left transition-colors hover:bg-neutral-700"
-                    onClick={() => onSelectVoyage(choice)}
-                  >
-                    <div className="text-sm font-medium text-white">
-                      {choice.savedVoyage.name}
-                    </div>
-                    <div className="mt-1 text-xs text-neutral-400">
-                      Updated {formatVoyageTimestamp(choice.savedVoyage.updatedAt)}
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
-
-            <div className="flex gap-2 border-t border-neutral-800 pt-4">
-              <input
-                className="min-w-0 flex-1 rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-white outline-none focus:border-neutral-500"
-                placeholder="New Voyage name"
-                value={newVoyageName}
-                onChange={(event) => setNewVoyageName(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && newVoyageName.trim()) {
-                    onCreateVoyage(newVoyageName.trim());
-                    setNewVoyageName("");
-                  }
-                }}
-              />
-              <button
-                type="button"
-                disabled={!newVoyageName.trim()}
-                className="rounded-lg border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
-                onClick={() => {
-                  if (!newVoyageName.trim()) return;
-                  onCreateVoyage(newVoyageName.trim());
-                  setNewVoyageName("");
-                }}
-              >
-                Create
-              </button>
-            </div>
-          </div>
-        ) : null}
-
+        {children}
         <div className="mt-5 flex justify-end gap-2">
-          {state.type === "confirm-reopen-archived" ? (
-            <button
-              type="button"
-              className="rounded-lg border border-amber-500/50 bg-amber-500/20 px-3 py-2 text-sm font-medium text-amber-100 hover:bg-amber-500/30"
-              onClick={onConfirmReopenArchived}
-            >
-              Reopen workspace
-            </button>
-          ) : null}
-          {state.type === "stale-issue-mapping" ? (
-            <button
-              type="button"
-              className="rounded-lg border border-amber-500/50 bg-amber-500/20 px-3 py-2 text-sm font-medium text-amber-100 hover:bg-amber-500/30"
-              onClick={onForgetStaleIssueMapping}
-            >
-              Forget mapping and create replacement
-            </button>
-          ) : null}
-          {state.type === "existing-issue-workspace" ? (
-            <>
-              <button
-                type="button"
-                className="rounded-lg border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm font-medium text-neutral-100 hover:bg-neutral-700"
-                onClick={onCreateDuplicateIssueWorkspace}
-              >
-                Create new workspace instead
-              </button>
-              <button
-                type="button"
-                className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-500"
-                onClick={onOpenExistingIssueWorkspace}
-              >
-                Open existing workspace
-              </button>
-            </>
-          ) : null}
-          <button
-            type="button"
-            className="rounded-lg border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-700"
-            onClick={onClose}
-          >
-            {state.type === "error" ? "Close" : "Cancel"}
+          {actions}
+          <button type="button" className="rounded-lg border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-700" onClick={onClose}>
+            {closeLabel || "Cancel"}
           </button>
         </div>
       </div>
     </div>
+  );
+}
+
+function StageButton({ tone, onClick, children }: { tone: "primary" | "secondary" | "warning"; onClick: () => void; children: React.ReactNode }) {
+  const className = tone === "primary"
+    ? "rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-500"
+    : tone === "warning"
+      ? "rounded-lg border border-amber-500/50 bg-amber-500/20 px-3 py-2 text-sm font-medium text-amber-100 hover:bg-amber-500/30"
+      : "rounded-lg border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm font-medium text-neutral-100 hover:bg-neutral-700";
+  return <button type="button" className={className} onClick={onClick}>{children}</button>;
+}
+
+function repositoryChoiceMessage(state: Extract<DialogState, { type: "choose-repo" }>): string {
+  if (state.target.type === "pr") return `Multiple VK repos match PR #${state.target.prInfo.number}: ${state.target.prInfo.title}`;
+  if (state.target.type === "issue") return `Multiple VK repos match issue #${state.target.issue.number}: ${state.target.issue.normalizedIssueUrl}`;
+  return `Multiple VK repos match ${state.target.target.normalizedUrl}`;
+}
+
+function RunningStage() {
+  return <div className="py-6 text-sm text-neutral-300">Working…</div>;
+}
+
+function ErrorStage({ message }: { message: string }) {
+  return <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{message}</div>;
+}
+
+function RepositoryChoiceStage({ state, onSelectRepo }: { state: Extract<DialogState, { type: "choose-repo" }>; onSelectRepo: (match: MatchingRepoRemote) => void }) {
+  return <div className="space-y-2">{state.matches.map((match) => <button key={`${match.repo.id}:${match.remote.name}`} type="button" className="w-full rounded-lg border border-neutral-700 bg-neutral-800 p-3 text-left transition-colors hover:bg-neutral-700" onClick={() => onSelectRepo(match)}><div className="text-sm font-medium text-white">{match.repo.display_name || match.repo.name}</div><div className="mt-1 text-xs text-neutral-400">{match.remote.name} · {match.remote.url}</div></button>)}</div>;
+}
+
+function ExistingPrWorkspaceStage({ state, workspace, savedVoyages, onSelectPrWorkspace }: { state: Extract<DialogState, { type: "choose-pr-workspace" }>; workspace: WorkspaceState; savedVoyages: SavedWorkspaceSession[]; onSelectPrWorkspace: (workspace: VkWorkspace) => void }) {
+  return (
+    <div className="space-y-2">
+      {state.candidates.map(({ workspace: candidate, summary }) => {
+        const openLocation = findOpenWorkspaceLocation(workspace, candidate.id);
+        const voyageNames = openLocation ? findSavedVoyagesForTabGroup(savedVoyages, openLocation.tabGroupId).map((choice) => choice.savedVoyage.name) : [];
+        return <button key={candidate.id} type="button" className="w-full rounded-lg border border-neutral-700 bg-neutral-800 p-3 text-left transition-colors hover:bg-neutral-700" onClick={() => onSelectPrWorkspace(candidate)}><div className="text-sm font-medium text-white">{candidate.name || candidate.branch}</div><div className="mt-1 text-xs text-neutral-400">{candidate.archived ? "Archived" : "Active"} · {candidate.branch}</div><div className="mt-1 text-xs text-neutral-500">Updated {formatVoyageTimestamp(candidate.updated_at)}{summary?.latest_process_status ? ` · ${summary.latest_process_status}` : ""}{voyageNames.length ? ` · ${voyageNames.join(", ")}` : ""}</div></button>;
+      })}
+    </div>
+  );
+}
+
+function RepositoryAccessStage({ onSelectCloneIntent }: { onSelectCloneIntent: (intent: "analysis" | "changes") => void }) {
+  return <div className="space-y-2"><button type="button" className="w-full rounded-lg border border-neutral-700 bg-neutral-800 p-3 text-left hover:bg-neutral-700" onClick={() => onSelectCloneIntent("changes")}><div className="text-sm font-medium text-white">Fork</div><div className="mt-1 text-xs text-neutral-400">This allows you to make changes and push to GitHub.</div></button><button type="button" className="w-full rounded-lg border border-neutral-700 bg-neutral-800 p-3 text-left hover:bg-neutral-700" onClick={() => onSelectCloneIntent("analysis")}><div className="text-sm font-medium text-white">Clone without fork</div><div className="mt-1 text-xs text-neutral-400">This is useful for general analysis of the code and local-only development. You can always fork later if you decide you want to push changes.</div></button></div>;
+}
+
+function ForkChoiceStage({ state, onSelectFork }: { state: Extract<DialogState, { type: "choose-fork" }>; onSelectFork: (fork: { fullName: string; cloneUrl: string }) => void }) {
+  return <div className="space-y-2">{state.forks.map((fork) => <button key={fork.fullName} type="button" className="w-full rounded-lg border border-neutral-700 bg-neutral-800 p-3 text-left hover:bg-neutral-700" onClick={() => onSelectFork(fork)}><div className="text-sm font-medium text-white">{fork.fullName}</div></button>)}</div>;
+}
+
+function AwaitForkStage({ state, onRecheckFork, onSelectCloneIntent }: { state: Extract<DialogState, { type: "await-fork" }>; onRecheckFork: () => void; onSelectCloneIntent: (intent: "analysis" | "changes") => void }) {
+  return <div className="space-y-2"><a href={state.forkUrl} target="_blank" rel="noreferrer" className="block w-full rounded-lg bg-blue-600 px-3 py-2 text-center text-sm font-medium text-white hover:bg-blue-500">Open GitHub fork page</a><button type="button" className="w-full rounded-lg border border-neutral-700 px-3 py-2 text-sm text-white hover:bg-neutral-800" onClick={onRecheckFork}>Check again</button><button type="button" className="w-full rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800" onClick={() => onSelectCloneIntent("analysis")}>Continue as analysis only</button></div>;
+}
+
+function AssociatedPrStage({ state, onSelectAssociatedPr, onContinueIssue }: { state: Extract<DialogState, { type: "choose-associated-pr" }>; onSelectAssociatedPr: (url: string) => void; onContinueIssue: () => void }) {
+  return <div className="space-y-2">{state.pullRequests.map((pr) => <button key={pr.url} type="button" className="w-full rounded-lg border border-neutral-700 bg-neutral-800 p-3 text-left hover:bg-neutral-700" onClick={() => onSelectAssociatedPr(pr.url)}><div className="text-sm font-medium text-white">PR #{pr.number}: {pr.title}</div><div className="mt-1 text-xs uppercase text-neutral-400">{pr.state}</div></button>)}<button type="button" className="w-full rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800" onClick={onContinueIssue}>Continue with issue #{state.issue.number}</button></div>;
+}
+
+function BranchChoiceStage({ state, branchChoice, onConfirmWorkMode }: { state: Extract<DialogState, { type: "choose-work-mode" }>; branchChoice: BranchChoiceViewModel; onConfirmWorkMode: (args: { branch: string; createBranch: boolean; workspaceName: string }) => void }) {
+  const selectedWorkModeBranch = state.branches.find((branch) => branch.name === branchChoice.workModeBranch);
+  const selectedBranchIsRemote = selectedWorkModeBranch?.is_remote === true;
+  return (
+    <div className="space-y-3">
+      <label className="block text-sm text-neutral-300">Branch<select value={branchChoice.workModeBranch} onChange={(event) => void branchChoice.selectWorkModeBranch(event.target.value)} className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-800 p-2 text-white">{state.branches.map((branch) => <option key={branch.name} value={branch.name}>{branch.name}</option>)}</select></label>
+      <div className="grid gap-2 sm:grid-cols-2"><button type="button" aria-pressed={!branchChoice.createWorkBranch} className={`rounded-lg border p-3 text-left ${!branchChoice.createWorkBranch ? "border-blue-500 bg-blue-500/10" : "border-neutral-700 bg-neutral-800"}`} onClick={() => branchChoice.setCreateWorkBranch(false)}><div className="text-sm font-medium text-white">Work on selected branch</div><div className="mt-1 text-xs text-neutral-400">{selectedBranchIsRemote ? `Create a local tracking branch for ${branchChoice.workModeBranch}, then work there.` : `Commit on ${branchChoice.workModeBranch}.`}</div></button><button type="button" aria-pressed={branchChoice.createWorkBranch} className={`rounded-lg border p-3 text-left ${branchChoice.createWorkBranch ? "border-blue-500 bg-blue-500/10" : "border-neutral-700 bg-neutral-800"}`} onClick={() => branchChoice.setCreateWorkBranch(true)}><div className="text-sm font-medium text-white">Create new workspace branch</div><div className="mt-1 text-xs text-neutral-400">Start an editable workspace branch from {branchChoice.workModeBranch}.</div></button></div>
+      {branchChoice.branchProtectionStatus === "unknown" ? <div className="text-xs text-amber-300">Branch protection could not be verified. Creating a new branch is the safe default; working on the selected branch remains available when you choose it deliberately.</div> : null}
+      {branchChoice.createWorkBranch ? <label className="block text-sm text-neutral-300">Suggested workspace branch name<input value={branchChoice.workspaceName} onChange={(event) => branchChoice.setWorkspaceName(event.target.value)} className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-800 p-2 text-white" /></label> : null}
+      <div className="rounded-lg border border-neutral-700 bg-neutral-950 p-3 text-xs text-neutral-300"><div><span className="text-neutral-500">Repository:</span> {state.target.match.repo.display_name || state.target.match.repo.name}</div><div><span className="text-neutral-500">Remote:</span> {state.target.match.remote.name} ({state.target.match.remote.url})</div><div><span className="text-neutral-500">Checkout:</span> {branchChoice.createWorkBranch ? "new workspace branch" : branchChoice.workModeBranch}</div><div><span className="text-neutral-500">Base/target:</span> {branchChoice.createWorkBranch ? branchChoice.workModeBranch : getRemoteDefaultBranch(state.target.match.repo.default_target_branch, state.target.match.remote.name) || `${state.target.match.remote.name}/main`}</div></div>
+      <button type="button" className="w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50" disabled={!branchChoice.workModeBranch || (branchChoice.createWorkBranch && !branchChoice.workspaceName.trim())} onClick={() => onConfirmWorkMode({ branch: branchChoice.workModeBranch, createBranch: branchChoice.createWorkBranch, workspaceName: branchChoice.workspaceName.trim() || `Selected ${branchChoice.workModeBranch}` })}>Continue</button>
+    </div>
+  );
+}
+
+function BranchBaseStage({ state, onSelectBranch }: { state: Extract<DialogState, { type: "choose-branch" }>; onSelectBranch: (branch: string) => void }) {
+  return <div className="space-y-2">{state.branches.map((branch) => <button key={branch} type="button" className="w-full rounded-lg border border-neutral-700 bg-neutral-800 p-3 text-left font-mono text-sm text-white transition-colors hover:bg-neutral-700" onClick={() => onSelectBranch(branch)}>{branch}</button>)}</div>;
+}
+
+function ReopenArchivedStage({ state }: { state: Extract<DialogState, { type: "confirm-reopen-archived" }> }) {
+  return <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">Reopening will make the prior workspace active again and reuse branch <span className="font-mono">{state.workspace.branch}</span>.</div>;
+}
+
+function StaleIssueMappingStage() {
+  return <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">The previous workspace record is gone. Forgetting this mapping lets VD create and store a replacement issue workspace.</div>;
+}
+
+function ExistingIssueWorkspaceStage({ state }: { state: Extract<DialogState, { type: "existing-issue-workspace" }> }) {
+  return <div className="space-y-3"><div className="rounded-lg border border-neutral-700 bg-neutral-950 p-3 text-sm text-neutral-200"><div className="font-medium text-white">{state.workspace.name || state.workspace.branch}</div><div className="mt-1 text-xs text-neutral-400">Active · {state.workspace.branch}{state.openLocation ? " · already open in VD" : ""}</div></div><div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-100">Creating another workspace for the same issue is allowed only when you explicitly choose it here.</div></div>;
+}
+
+function VoyageStage({ state, newVoyageName, setNewVoyageName, onSelectVoyage, onCreateVoyage }: { state: Extract<DialogState, { type: "choose-voyage" }>; newVoyageName: string; setNewVoyageName: (value: string) => void; onSelectVoyage: (choice: ExistingVoyageChoice) => void; onCreateVoyage: (name: string) => void }) {
+  return (
+    <div className="space-y-4"><div className="space-y-2">{state.choices.length === 0 ? <div className="rounded-lg border border-neutral-800 bg-neutral-950 p-3 text-sm text-neutral-500">No recently opened Voyages yet. Create one below.</div> : state.choices.map((choice) => <button key={`${choice.savedVoyage.id}:${choice.voyageEntryId || "active"}`} type="button" className="w-full rounded-lg border border-neutral-700 bg-neutral-800 p-3 text-left transition-colors hover:bg-neutral-700" onClick={() => onSelectVoyage(choice)}><div className="text-sm font-medium text-white">{choice.savedVoyage.name}</div><div className="mt-1 text-xs text-neutral-400">Updated {formatVoyageTimestamp(choice.savedVoyage.updatedAt)}</div></button>)}</div><div className="flex gap-2 border-t border-neutral-800 pt-4"><input className="min-w-0 flex-1 rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-white outline-none focus:border-neutral-500" placeholder="New Voyage name" value={newVoyageName} onChange={(event) => setNewVoyageName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && newVoyageName.trim()) { onCreateVoyage(newVoyageName.trim()); setNewVoyageName(""); } }} /><button type="button" disabled={!newVoyageName.trim()} className="rounded-lg border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50" onClick={() => { if (!newVoyageName.trim()) return; onCreateVoyage(newVoyageName.trim()); setNewVoyageName(""); }}>Create</button></div></div>
   );
 }
