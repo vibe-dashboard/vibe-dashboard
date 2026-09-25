@@ -92,6 +92,7 @@ export interface UserSystemInfo {
 
 export interface CreateAndStartWorkspaceRequest {
   name: string | null;
+  branch_name?: string | null;
   repos: Array<{
     repo_id: string;
     target_branch: string;

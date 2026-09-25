@@ -207,6 +207,7 @@ export function registerWorkflowRoutes(
           externalCreateStarted = true;
           const response = await issueWorkspaceVkClient.createAndStartWorkspace({
             name: reserved.name ?? `Issue #${identity.number}`,
+            branch_name: reserved.branchName ?? null,
             repos: [{
               repo_id: reserved.repoId,
               target_branch: reserved.targetBranch,
@@ -624,9 +625,11 @@ function parseIssueWorkspaceReservationRequest(
   const createBranch = value?.createBranch;
   const checkoutBranch = value?.checkoutBranch;
   const name = value?.name;
+  const branchName = value?.branchName;
   if (!(repoId && targetBranch && typeof createBranch === 'boolean')) return null;
   if (!createBranch && !(typeof checkoutBranch === 'string' && checkoutBranch.trim())) return null;
   if (!(name === undefined || name === null || typeof name === 'string')) return null;
+  if (!(branchName === undefined || branchName === null || typeof branchName === 'string')) return null;
   return {
     repoId,
     targetBranch,
@@ -636,6 +639,10 @@ function parseIssueWorkspaceReservationRequest(
         ? checkoutBranch.trim()
         : null,
     name: typeof name === 'string' && name.trim() ? name.trim() : null,
+    branchName:
+      typeof branchName === 'string' && branchName.trim()
+        ? branchName.trim()
+        : null,
   };
 }
 

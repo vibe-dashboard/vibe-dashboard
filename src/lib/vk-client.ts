@@ -132,6 +132,7 @@ export interface CreateWorkspaceFromIssueBody {
   create_branch?: boolean;
   checkout_branch?: string | null;
   name?: string;
+  branch_name?: string | null;
 }
 
 export class VkClientHttpError extends Error {
@@ -165,6 +166,7 @@ export interface CreateWorkspaceFromTreeBlobBody {
   create_branch?: boolean;
   checkout_branch?: string | null;
   name?: string;
+  branch_name?: string | null;
 }
 
 export interface GitBranchesContainingCommitResponse {
@@ -363,6 +365,7 @@ export class VibeKanbanClient {
         createBranch: body.create_branch ?? true,
         checkoutBranch: body.checkout_branch ?? null,
         name: body.name ?? null,
+        branchName: body.branch_name ?? null,
       });
       if (result.status === "ready" && result.workspace) {
         return { workspace: result.workspace };
@@ -425,6 +428,7 @@ export class VibeKanbanClient {
   ): Promise<CreateWorkspaceFromIssueResponse> {
     return this.post<{ workspace: Workspace }>("/workspaces/start", {
       name: body.name ?? `Issue #${body.issue_number}`,
+      branch_name: body.branch_name ?? null,
       repos: [
         {
           repo_id: body.repo_id,
@@ -454,6 +458,7 @@ export class VibeKanbanClient {
 
     return this.post<{ workspace: Workspace }>("/workspaces/start", {
       name: body.name ?? `GitHub ${body.kind} ${body.ref}`,
+      branch_name: body.branch_name ?? null,
       repos: [
         {
           repo_id: body.repo_id,

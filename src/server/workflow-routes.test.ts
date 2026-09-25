@@ -194,12 +194,19 @@ describe("registerWorkflowRoutes", () => {
           createBranch: true,
           checkoutBranch: null,
           name: "Issue #42",
+          branchName: "feature/issue-42-exact",
         }),
       },
     );
 
     const owner = request();
     await vi.waitFor(() => expect(createAndStartWorkspace).toHaveBeenCalledTimes(1));
+    expect(createAndStartWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "Issue #42",
+        branch_name: "feature/issue-42-exact",
+      }),
+    );
     const concurrent = await request();
     expect(concurrent.status).toBe(202);
     creation.resolve({ workspace, execution_process: undefined as never });
