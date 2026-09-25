@@ -7,16 +7,14 @@ import {
 } from "../theme/skins/appearanceRevisions";
 import { parseAppearanceSnapshot } from "../theme/skins/appearanceSnapshot";
 import { verifyAppearanceCandidateBinding } from "../theme/skins/appearanceCandidate";
-import type { AppearanceMutationPrincipal } from "./appearance-auth.node";
 
 interface AppearanceRouteOptions {
   getService: () => Promise<AppearanceRevisionService>;
-  authenticateMutation: (context: Context) => AppearanceMutationPrincipal | undefined | Promise<AppearanceMutationPrincipal | undefined>;
-  authenticateRead?: (context: Context) => AppearanceMutationPrincipal | undefined | Promise<AppearanceMutationPrincipal | undefined>;
-  allowRead?: (context: Context, principal: AppearanceMutationPrincipal) => boolean | Promise<boolean>;
+  allowRead?: (context: Context) => boolean | Promise<boolean>;
   allowMutation?: (context: Context, trusted: { actor: AppearanceActor; source: "user" | "cli" | "import" }) => boolean | Promise<boolean>;
 }
 type JsonRecord = Record<string, unknown>;
+const localAppearanceActor: AppearanceActor = Object.freeze({ id: "local-user", kind: "user" });
 
 function record(value: unknown): JsonRecord | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : undefined;
@@ -31,21 +29,18 @@ function commandStatus(code: string): 400 | 403 | 404 | 409 | 503 {
 }
 
 export function registerAppearanceRoutes(app: Hono, options: AppearanceRouteOptions): void {
-  const authorizeRead = async (context: Context) => {
-    const principal = await (options.authenticateRead ?? options.authenticateMutation)(context);
-    return principal && (!options.allowRead || await options.allowRead(context, principal)) ? principal : undefined;
-  };
+  const authorizeRead = async (context: Context) => !options.allowRead || await options.allowRead(context);
   app.get("/dashboard/api/appearance", async (context) => {
-    if (!await authorizeRead(context)) return context.json({ error: "unauthorized" }, 403);
+    if (!await authorizeRead(context)) return context.json({ error: "read-disabled" }, 403);
     return context.json(await (await options.getService()).inspectFresh());
   });
   app.get("/dashboard/api/appearance/revisions/:revisionId/snapshot", async (context) => {
-    if (!await authorizeRead(context)) return context.json({ error: "unauthorized" }, 403);
+    if (!await authorizeRead(context)) return context.json({ error: "read-disabled" }, 403);
     const revision = (await (await options.getService()).inspectFresh()).revisions.find((candidate) => candidate.revisionId === context.req.param("revisionId"));
     return revision ? context.json({ revisionId: revision.revisionId, snapshot: revision.snapshot }) : context.json({ error: "unknown-revision" }, 404);
   });
   app.get("/dashboard/api/appearance/diff", async (context) => {
-    if (!await authorizeRead(context)) return context.json({ error: "unauthorized" }, 403);
+    if (!await authorizeRead(context)) return context.json({ error: "read-disabled" }, 403);
     const service = await options.getService();
     const revisions = (await service.inspectFresh()).revisions;
     const from = revisions.find((revision) => revision.revisionId === context.req.query("from"));
@@ -54,8 +49,6 @@ export function registerAppearanceRoutes(app: Hono, options: AppearanceRouteOpti
     return context.json(diffAppearanceSnapshots(from.snapshot, to.snapshot));
   });
   const execute = async (context: Context) => {
-    const principal = await options.authenticateMutation(context);
-    if (!principal) return context.json({ error: "unauthorized" }, 403);
     let body: JsonRecord | undefined;
     try { body = record(await context.req.json()); } catch { body = undefined; }
     if (!body || typeof body.type !== "string" || typeof body.expectedCurrentRevisionId !== "string"
@@ -64,10 +57,10 @@ export function registerAppearanceRoutes(app: Hono, options: AppearanceRouteOpti
       return context.json({ error: "invalid-command" }, 400);
     }
     const isImport = body.operation === "import";
-    if (isImport && (principal.channel !== "browser" || body.type !== "apply")) return context.json({ error: "invalid-command" }, 400);
-    const trusted = { actor: principal.actor, source: (isImport ? "import" : principal.channel === "cli" ? "cli" : "user") as "user" | "cli" | "import" };
-    if (options.allowMutation && !await options.allowMutation(context, trusted)) return context.json({ error: "unauthorized" }, 403);
-    const actor = principal.actor;
+    if (isImport && body.type !== "apply") return context.json({ error: "invalid-command" }, 400);
+    const trusted = { actor: localAppearanceActor, source: (isImport ? "import" : "user") as "user" | "import" };
+    if (options.allowMutation && !await options.allowMutation(context, trusted)) return context.json({ error: "mutation-disabled" }, 403);
+    const actor = localAppearanceActor;
     const service = await options.getService();
     let result;
     if (body.type === "apply" && typeof body.snapshot === "string") {

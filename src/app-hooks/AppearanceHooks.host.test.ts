@@ -43,7 +43,8 @@ describe("production appearance AppHooks", () => {
         artifactDigest: null,
       },
     });
-    expect(fetcher.mock.calls[1]?.[1]?.headers).toMatchObject({ "X-VK-Appearance-CSRF": "1" });
+    expect(fetcher.mock.calls[1]?.[1]?.headers).toMatchObject({ "Content-Type": "application/json", Accept: "application/json" });
+    expect(fetcher.mock.calls[1]?.[1]?.headers).not.toHaveProperty("X-VK-Appearance-CSRF");
     expect(rendered.result.current).toMatchObject({ available: true, value: { headRevisionId: "rev-2" } });
   });
 

@@ -3,10 +3,9 @@ import { describe, expect, it } from "vitest";
 import { AppearanceRevisionService, MemoryAppearanceRevisionStore } from "../theme/skins/appearanceRevisions";
 import { createDefaultAppearanceSnapshot } from "../theme/skins/defaultAppearanceSnapshot";
 import { compileAppearanceSnapshotCandidate } from "../theme/skins/appearanceCandidate";
-import { createAppearanceMutationAuthenticator, createAppearanceReadAuthenticator } from "./appearance-auth.node";
 import { registerAppearanceRoutes } from "./appearance-routes";
 
-const browserHeaders = { "Content-Type": "application/json", Origin: "http://localhost", "X-VK-Appearance-CSRF": "1" };
+const browserHeaders = { "Content-Type": "application/json" };
 const cliHeaders = { "Content-Type": "application/json", Authorization: "Bearer test-cli-token-0123456789" };
 
 async function fixture() {
@@ -17,8 +16,6 @@ async function fixture() {
   const app = new Hono();
   registerAppearanceRoutes(app, {
     getService: async () => service,
-    authenticateMutation: createAppearanceMutationAuthenticator({ browserOrigin: "http://localhost", cliToken: "test-cli-token-0123456789" }),
-    authenticateRead: createAppearanceReadAuthenticator({ browserOrigin: "http://localhost", cliToken: "test-cli-token-0123456789" }),
   });
   return { app, service };
 }
@@ -30,23 +27,20 @@ async function candidateFor(snapshot: string) {
 }
 
 describe("appearance history API", () => {
-  it("authenticates and separately authorizes every private read", async () => {
+  it("allows normal in-app reads without bespoke Appearance auth headers", async () => {
     const { app } = await fixture();
     for (const path of ["/dashboard/api/appearance", "/dashboard/api/appearance/revisions/missing/snapshot", "/dashboard/api/appearance/diff?from=x&to=y"]) {
-      expect((await app.request(path)).status).toBe(403);
-      expect((await app.request(path, { headers: { ...browserHeaders, Origin: "https://evil.example" } })).status).toBe(403);
-      expect((await app.request(path, { headers: { ...cliHeaders, Authorization: "Bearer invalid" } })).status).toBe(403);
+      expect((await app.request(path)).status).not.toBe(403);
+      expect((await app.request(path, { headers: { Origin: "https://proxy.example" } })).status).not.toBe(403);
     }
     const deniedService = await AppearanceRevisionService.open({ store: new MemoryAppearanceRevisionStore(), genesisSnapshot: createDefaultAppearanceSnapshot() });
     const denied = new Hono();
     registerAppearanceRoutes(denied, {
       getService: async () => deniedService,
-      authenticateMutation: createAppearanceMutationAuthenticator({ browserOrigin: "http://localhost", cliToken: "test-cli-token-0123456789" }),
       allowRead: () => false,
     });
-    expect((await denied.request("/dashboard/api/appearance", { headers: browserHeaders })).status).toBe(403);
+    expect(await (await denied.request("/dashboard/api/appearance", { headers: browserHeaders })).json()).toEqual({ error: "read-disabled" });
     expect((await app.request("/dashboard/api/appearance", { headers: cliHeaders })).status).toBe(200);
-    expect((await app.request("/dashboard/api/appearance", { headers: { "X-VK-Appearance-CSRF": "1", "Sec-Fetch-Site": "same-origin" } })).status).toBe(200);
   });
 
   it("uses one command service for inspect, snapshot, mutation, diff, and undo", async () => {
@@ -77,7 +71,7 @@ describe("appearance history API", () => {
     expect(service.inspect().head?.snapshot).toBe(genesis.snapshot);
   });
 
-  it("derives CLI identity and source from a host credential rather than route or caller JSON", async () => {
+  it("uses the local app identity for command provenance and ignores caller credentials", async () => {
     const { app, service } = await fixture();
     const head = service.inspect().head!;
     const changed = JSON.parse(head.snapshot); changed.provenance.generator = "cli-route";
@@ -86,7 +80,7 @@ describe("appearance history API", () => {
       body: JSON.stringify({ type: "apply", expectedCurrentRevisionId: head.revisionId, snapshot: JSON.stringify(changed), candidate: await candidateFor(JSON.stringify(changed)), summary: "CLI" }),
     });
     expect(response.status).toBe(201);
-    expect((await response.json()).revision).toMatchObject({ actor: { id: "local-cli", kind: "cli" }, source: "cli" });
+    expect((await response.json()).revision).toMatchObject({ actor: { id: "local-user", kind: "user" }, source: "user" });
   });
 
   it("derives import provenance from the authenticated browser operation", async () => {
@@ -98,20 +92,14 @@ describe("appearance history API", () => {
     expect((await response.json()).revision).toMatchObject({ actor: { id: "local-user", kind: "user" }, source: "import" });
   });
 
-  it.each([
-    ["missing browser CSRF", { Origin: "http://localhost", "Content-Type": "application/json" }],
-    ["foreign browser origin", { ...browserHeaders, Origin: "https://evil.example" }],
-    ["missing CLI credential", { "Content-Type": "application/json" }],
-    ["invalid CLI credential", { ...cliHeaders, Authorization: "Bearer wrong" }],
-  ])("rejects %s without mutating history", async (_label, headers) => {
+  it("runs normal in-app commands without bespoke Appearance auth headers", async () => {
     const { app, service } = await fixture();
     const head = service.inspect().head!;
     const response = await app.request("/dashboard/api/appearance/commands", {
-      method: "POST", headers,
+      method: "POST", headers: { "Content-Type": "application/json", Origin: "https://proxy.example" },
       body: JSON.stringify({ type: "undo", expectedCurrentRevisionId: head.revisionId, summary: "forged" }),
     });
-    expect(response.status).toBe(403);
-    expect(service.inspect().revisions).toHaveLength(1);
+    expect(response.status).not.toBe(403);
   });
 
   it("rejects caller-selected actor/source provenance and legacy provenance routes", async () => {
@@ -151,7 +139,6 @@ describe("appearance history API", () => {
     const app = new Hono();
     registerAppearanceRoutes(app, {
       getService: async () => service,
-      authenticateMutation: createAppearanceMutationAuthenticator({ browserOrigin: "http://localhost", cliToken: "test-cli-token-0123456789" }),
       allowMutation: () => false,
     });
     const head = service.inspect().head!;
@@ -166,7 +153,6 @@ describe("appearance history API", () => {
     const app = new Hono();
     registerAppearanceRoutes(app, {
       getService: async () => service,
-      authenticateMutation: createAppearanceMutationAuthenticator({ browserOrigin: "http://localhost", cliToken: "test-cli-token-0123456789" }),
     });
     const before = service.inspect().head!;
     const changed = JSON.parse(before.snapshot); changed.provenance.generator = "failed-activation";

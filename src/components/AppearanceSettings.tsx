@@ -45,7 +45,7 @@ export function AppearanceSettings({ appHooks, fetcher = fetch, onHistoryChanged
     const head = history?.head;
     if (!head || !window.confirm(`${type[0]!.toUpperCase()}${type.slice(1)} appearance by creating a new revision?`)) return;
     const response = await fetcher("/dashboard/api/appearance/commands", {
-      method: "POST", headers: { "Content-Type": "application/json", "X-VK-Appearance-CSRF": "1" },
+      method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ type, expectedCurrentRevisionId: head.revisionId, ...(targetRevisionId ? { targetRevisionId } : {}), summary: `${type} from Appearance settings` }),
     });
     if (!response.ok) {
@@ -68,7 +68,7 @@ export function AppearanceSettings({ appHooks, fetcher = fetch, onHistoryChanged
     } : entry), provenance: { source: "user-export" as const, createdAt: new Date().toISOString(), generator: "vibe-kanban-appearance-settings" } };
     const candidate = await compileAppearanceSnapshotCandidate(next);
     if (!candidate.ok) { setError(candidate.diagnostics.map((item) => item.code).join(", ") || "Candidate compilation failed."); return; }
-    const response = await fetcher("/dashboard/api/appearance/commands", { method: "POST", headers: { "Content-Type": "application/json", "X-VK-Appearance-CSRF": "1" }, body: JSON.stringify({ type: "apply", expectedCurrentRevisionId: head.revisionId, snapshot: canonicalizeAppearanceSnapshot(next), candidate: { sourceDigest: candidate.sourceDigest, artifactDigest: candidate.artifact?.digest ?? null }, summary: `Select ${viewPackId}` }) });
+    const response = await fetcher("/dashboard/api/appearance/commands", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "apply", expectedCurrentRevisionId: head.revisionId, snapshot: canonicalizeAppearanceSnapshot(next), candidate: { sourceDigest: candidate.sourceDigest, artifactDigest: candidate.artifact?.digest ?? null }, summary: `Select ${viewPackId}` }) });
     if (!response.ok) { const body = await response.json().catch(() => ({})) as { diagnostic?: { message?: string } }; setError(body.diagnostic?.message ?? `View pack save failed (HTTP ${response.status})`); return; }
     await onHistoryChanged(); await load();
   };

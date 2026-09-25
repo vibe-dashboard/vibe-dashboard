@@ -8,7 +8,6 @@ import { registerPluginAssetRoutes } from '../server/plugin-asset-routes';
 import { registerPluginAdminRoutes } from '../server/plugin-admin-routes';
 import { registerPreviewResolverRoutes } from '../server/preview-resolver-routes';
 import { registerAppearanceRoutes } from '../server/appearance-routes';
-import { createAppearanceMutationAuthenticator, createAppearanceReadAuthenticator } from '../server/appearance-auth.node';
 import { FileAppearanceRevisionStore } from '../server/appearance-revision-store.node';
 import { AppearanceRevisionService } from '../theme/skins/appearanceRevisions';
 import { createDefaultAppearanceSnapshot } from '../theme/skins/defaultAppearanceSnapshot';
@@ -20,7 +19,6 @@ const execFileAsync = promisify(execFile);
 const reposRoot = process.env.VK_REPOS_ROOT || join(process.env.HOME || '/home/vkuser', 'repos');
 const pluginInstallRoot = process.env.VD_PLUGIN_INSTALL_ROOT || join(process.cwd(), 'plugins');
 const appearanceHistoryPath = process.env.VK_APPEARANCE_HISTORY_PATH || join(process.env.HOME || '/home/vkuser', '.config', 'vibe-kanban', 'appearance-history.json');
-const appearanceBrowserOrigin = process.env.VK_APPEARANCE_BROWSER_ORIGIN || process.env.VK_DASHBOARD_URL || process.env.VIBE_API_URL || process.env.VK_API_URL || 'http://localhost:3007';
 let cachedGitRepos: CachedRepoAlias[] | null = null;
 let appearanceService: Promise<AppearanceRevisionService> | undefined;
 
@@ -49,14 +47,6 @@ async function openAppearanceService(): Promise<AppearanceRevisionService> {
 }
 
 serverRegistry.registerServerModule((api) => {
-  const authenticateAppearance = createAppearanceMutationAuthenticator({
-    browserOrigin: appearanceBrowserOrigin,
-    cliToken: process.env.VK_APPEARANCE_CLI_TOKEN,
-  });
-  const authenticateAppearanceRead = createAppearanceReadAuthenticator({
-    browserOrigin: appearanceBrowserOrigin,
-    cliToken: process.env.VK_APPEARANCE_CLI_TOKEN,
-  });
   registerWorkflowRoutes(api.hono, {
     registry: workflowRegistry,
     repoAliasCache: {
@@ -70,15 +60,11 @@ serverRegistry.registerServerModule((api) => {
   registerPreviewResolverRoutes(api.hono);
   registerAppearanceRoutes(api.hono, {
     getService: () => appearanceService ??= openAppearanceService(),
-    authenticateMutation: authenticateAppearance,
-    authenticateRead: authenticateAppearanceRead,
-    allowRead: (_context, principal) => process.env.VK_APPEARANCE_READ_DISABLED !== 'true'
-      && (principal.actor.id === 'local-user' || principal.actor.id === 'local-cli'),
-    // Current deployments are single-user. The node host, not request JSON,
-    // establishes these local principals; read-only mode revokes mutations at
-    // command execution without changing future authenticated-host semantics.
-    allowMutation: (_context, trusted) => process.env.VK_APPEARANCE_READ_ONLY !== 'true'
-      && (trusted.actor.id === 'local-user' || trusted.actor.id === 'local-cli' || trusted.actor.id === 'local-import'),
+    allowRead: () => process.env.VK_APPEARANCE_READ_DISABLED !== 'true',
+    // Current deployments are single-user. Appearance routes intentionally use
+    // the normal local app route boundary instead of a bespoke skin-editor
+    // auth header; read-only mode still revokes mutations at command execution.
+    allowMutation: () => process.env.VK_APPEARANCE_READ_ONLY !== 'true',
   });
 });
 

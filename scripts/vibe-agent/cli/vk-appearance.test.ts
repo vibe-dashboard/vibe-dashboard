@@ -89,17 +89,16 @@ describe('vk appearance commands', () => {
     expect(service.commandAppearance).not.toHaveBeenCalled();
   });
 
-  it('surfaces stale-head and authentication failures from the command boundary', async () => {
+  it('surfaces stale-head and command failures from the command boundary', async () => {
     const { service, run } = fixture();
     vi.mocked(service.commandAppearance)
       .mockRejectedValueOnce(new Error('stale expected head'))
-      .mockRejectedValueOnce(new Error('appearance CLI authentication required'));
+      .mockRejectedValueOnce(new Error('appearance command failed'));
     await expect(run(['undo'], { yes: true, expected: 'stale' })).rejects.toThrow('stale expected head');
-    await expect(run(['undo'], { yes: true })).rejects.toThrow('authentication required');
+    await expect(run(['undo'], { yes: true })).rejects.toThrow('appearance command failed');
   });
 
-  it('sends CLI mutations to the unified command boundary with a host-issued credential', async () => {
-    vi.stubEnv('VK_APPEARANCE_CLI_TOKEN', 'cli-token-0123456789');
+  it('sends CLI mutations to the unified command boundary without Appearance-specific auth', async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({
       ok: true,
       revision: revision('rev-3', 'rev-2'),
@@ -118,7 +117,6 @@ describe('vk appearance commands', () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: 'Bearer cli-token-0123456789',
         },
       }),
     );
@@ -130,17 +128,18 @@ describe('vk appearance commands', () => {
     });
   });
 
-  it('refuses CLI mutations before network I/O when the host credential is absent', async () => {
+  it('does not require Appearance-specific CLI auth before network I/O', async () => {
     const fetchMock = vi.fn();
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, revision: revision('rev-3', 'rev-2') }), { status: 201, headers: { 'Content-Type': 'application/json' } }));
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(new VKService().commandAppearance({
       type: 'undo',
       expectedCurrentRevisionId: 'rev-2',
       summary: 'Undo via test',
-    })).rejects.toThrow('appearance CLI authentication required');
+    })).resolves.toMatchObject({ ok: true });
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('rejects malformed direct command usage', async () => {
@@ -150,20 +149,18 @@ describe('vk appearance commands', () => {
     await expect(run(['unknown'])).rejects.toThrow('Unknown appearance command');
   });
 
-  it('conforms through VKService, authenticated Hono routes, and the real revision path', async () => {
+  it('conforms through VKService, unauthenticated Hono routes, and the real revision path', async () => {
     const dynamicImport = (path: string): Promise<any> => import(/* @vite-ignore */ path);
     const revisions = await dynamicImport('../../../src/theme/skins/appearanceRevisions.ts');
     const defaults = await dynamicImport('../../../src/theme/skins/defaultAppearanceSnapshot.ts');
-    const authentication = await dynamicImport('../../../src/server/appearance-auth.node.ts');
     const routes = await dynamicImport('../../../src/server/appearance-routes.ts');
-    vi.stubEnv('VK_APPEARANCE_CLI_TOKEN', 'route-cli-token-0123456789');
     const revisionService = await revisions.AppearanceRevisionService.open({ store: new revisions.MemoryAppearanceRevisionStore(), genesisSnapshot: defaults.createDefaultAppearanceSnapshot() });
     const genesis = revisionService.inspect().head;
     const changed = JSON.parse(genesis.snapshot); changed.provenance.generator = 'route-backed-cli';
     const seeded = await revisionService.apply({ expectedCurrentRevisionId: genesis.revisionId, snapshot: JSON.stringify(changed), actor: { id: 'seed', kind: 'user' }, source: 'user', summary: 'seed' });
     expect(seeded.ok).toBe(true);
     const app = new Hono();
-    routes.registerAppearanceRoutes(app, { getService: async () => revisionService, authenticateMutation: authentication.createAppearanceMutationAuthenticator({ browserOrigin: 'http://localhost', cliToken: 'route-cli-token-0123456789' }) });
+    routes.registerAppearanceRoutes(app, { getService: async () => revisionService });
     vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => app.request(String(input), init));
     const actual = new VKService(); const output: string[] = [];
     const run = (args: string[], flags: FlagMap = {}) => commandAppearance(args, flags, actual, value => output.push(value));
@@ -176,11 +173,7 @@ describe('vk appearance commands', () => {
     await run(['redo', seeded.revision.revisionId], { yes: true, expected: head.revisionId }); head = revisionService.inspect().head;
     await run(['revert', head.revisionId], { yes: true, expected: head.revisionId }); head = revisionService.inspect().head;
     await run(['restore', genesis.revisionId], { yes: true, expected: head.revisionId });
-    expect(revisionService.inspect().revisions.every((item: any) => item.actor.kind === 'system' || item.actor.id === 'seed' || item.actor.id === 'local-cli')).toBe(true);
-    vi.stubEnv('VK_APPEARANCE_CLI_TOKEN', 'wrong-route-credential');
-    await expect(new VKService().inspectAppearance()).rejects.toMatchObject({ code: 'unauthorized', status: 403 });
-    vi.stubEnv('VK_APPEARANCE_CLI_TOKEN', '');
-    await expect(new VKService().inspectAppearance()).rejects.toThrow('appearance CLI authentication required');
+    expect(revisionService.inspect().revisions.every((item: any) => item.actor.kind === 'system' || item.actor.id === 'seed' || item.actor.id === 'local-user')).toBe(true);
   });
 
 });

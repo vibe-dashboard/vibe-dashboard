@@ -355,19 +355,15 @@ export class VKService {
     return this.parseDirectJson(await this.appearanceFetch(config.endpoints.appearanceDiff(from, to)), 'diff appearance');
   }
   async commandAppearance(command: Record<string, unknown>): Promise<{ ok: true; revision: AppearanceRevisionDto }> {
-    const cliToken = process.env.VK_APPEARANCE_CLI_TOKEN;
-    if (!cliToken) throw new Error('appearance CLI authentication required; set VK_APPEARANCE_CLI_TOKEN from the host');
     return this.parseDirectJson(await fetch(config.endpoints.appearanceCommands, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cliToken}` },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(command),
     }), 'mutate appearance');
   }
 
   private appearanceFetch(url: string): Promise<Response> {
-    const cliToken = process.env.VK_APPEARANCE_CLI_TOKEN;
-    if (!cliToken) throw new Error('appearance CLI authentication required; set VK_APPEARANCE_CLI_TOKEN from the host');
-    return fetch(url, { headers: { Accept: 'application/json', Authorization: `Bearer ${cliToken}` } });
+    return fetch(url, { headers: { Accept: 'application/json' } });
   }
   private getPromptFromProcess(process: ExecutionProcess): string | null {
     return process.executor_action?.typ?.prompt || null;

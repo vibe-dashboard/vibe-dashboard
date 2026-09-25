@@ -42,7 +42,7 @@ export function createProductionAppearanceModule(options: {
   const load = async () => {
     const previous = state.snapshot;
     try {
-      const response = await fetcher(endpoint, { headers: { Accept: "application/json", "X-VK-Appearance-CSRF": "1", ...(typeof location !== "undefined" ? { Origin: location.origin } : {}) } });
+      const response = await fetcher(endpoint, { headers: { Accept: "application/json" } });
       if (!response.ok) throw new Error(`appearance history returned HTTP ${response.status}`);
       const envelope = await response.json() as HistoryEnvelope;
       if (typeof envelope.head?.revisionId !== "string" || typeof envelope.head.snapshot !== "string") throw new Error("appearance history response is malformed");
@@ -99,7 +99,7 @@ export function createProductionAppearanceModule(options: {
         }
         const nextCanonical = canonicalizeAppearanceSnapshot(next);
         const response = await fetcher(`${endpoint}/commands`, {
-          method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json", "X-VK-Appearance-CSRF": "1" },
+          method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" },
           body: JSON.stringify({
             type: "apply",
             ...(source === "import" ? { operation: "import" } : {}),
