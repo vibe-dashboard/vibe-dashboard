@@ -19,6 +19,10 @@ Caddy forwards `port-<port>.*` subdomains to `localhost:<port>` inside the conta
 
 - `http://port-12345.localhost:3001`
 
+Opening a `port-*` URL does not start an app. If no process is listening on
+that port, Caddy returns a plain "Nothing is listening on this port" response
+instead of a startup page.
+
 ## Configuration
 
 ### Local dev container (`docker-compose.yaml`)
