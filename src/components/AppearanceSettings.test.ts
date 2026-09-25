@@ -20,6 +20,28 @@ describe("production Appearance settings", () => {
     expect(container.querySelector('[data-myne-surface="skin-editor"]')).toBeTruthy();
   });
 
+  it("opens the skin editor before revision history so the action has visible feedback", async () => {
+    const canonical = createDefaultAppearanceSnapshot();
+    const revisions = Array.from({ length: 12 }, (_, index) => ({
+      revisionId: `r${index + 1}`,
+      summary: `Revision ${index + 1}`,
+      committedAt: `2026-09-16T00:${String(index).padStart(2, "0")}:00Z`,
+      source: "user",
+      snapshot: canonical,
+    }));
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ head: revisions.at(-1), revisions }), { status: 200 }));
+    const { container } = render(React.createElement(AppearanceSettings, { appHooks: createFakeAppHooksV1({ appearanceSnapshot: { schemaVersion: 1, value: JSON.parse(canonical).skin } }), fetcher }));
+
+    await waitFor(() => expect(screen.getByText(/saved revision r12/i)).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /open skin editor/i }));
+
+    const editor = container.querySelector('[data-myne-surface="skin-editor"]');
+    const history = container.querySelector("#appearance-history-heading");
+    expect(editor).toBeTruthy();
+    expect(history).toBeTruthy();
+    expect(Boolean(editor!.compareDocumentPosition(history!) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+  });
+
   it("requires confirmation and routes undo through history before reloading", async () => {
     const canonical = createDefaultAppearanceSnapshot();
     const fetcher = vi.fn()

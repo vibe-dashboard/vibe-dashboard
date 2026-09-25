@@ -74,6 +74,9 @@ export function AppearanceSettings({ appHooks, fetcher = fetch, onHistoryChanged
   };
   const value = appearanceResult.available ? appearanceResult.value : undefined;
   const redoTarget = history?.head?.source === "undo" ? history.head.targetRevisionId : undefined;
+  const skinEditor = value?.artifact
+    ? <div data-myne-package-scope={value.artifact.scope}><style data-myne-compiled-artifact={value.artifact.digest}>{value.artifact.cssText}</style><SkinEditorContainer appHooks={confirmedHooks} onClose={() => setEditorOpen(false)} open={editorOpen} viewPackId={value?.viewPacks?.["skin-editor"]} /></div>
+    : <SkinEditorContainer appHooks={confirmedHooks} onClose={() => setEditorOpen(false)} open={editorOpen} viewPackId={value?.viewPacks?.["skin-editor"]} />;
   return (
     <main className={styles.page}>
       <header className={styles.header}>
@@ -96,6 +99,7 @@ export function AppearanceSettings({ appHooks, fetcher = fetch, onHistoryChanged
         {value?.safeMode && <p className={styles.error}>Safe mode is active. The last-known-good appearance remains active.</p>}
         {(error || value?.error) && <p className={styles.error} role="alert">{error ?? value?.error}</p>}
       </ProtectedAppearanceBoundary>
+      {skinEditor}
       <section aria-labelledby="appearance-history-heading">
         <h2 id="appearance-history-heading">Revision history</h2>
         {history?.head && <p>Saved revision {history.head.revisionId}</p>}
@@ -108,8 +112,6 @@ export function AppearanceSettings({ appHooks, fetcher = fetch, onHistoryChanged
           </li>
         ))}</ol>
       </section>
-      {value?.artifact ? <div data-myne-package-scope={value.artifact.scope}><style data-myne-compiled-artifact={value.artifact.digest}>{value.artifact.cssText}</style><SkinEditorContainer appHooks={confirmedHooks} onClose={() => setEditorOpen(false)} open={editorOpen} viewPackId={value?.viewPacks?.["skin-editor"]} /></div>
-        : <SkinEditorContainer appHooks={confirmedHooks} onClose={() => setEditorOpen(false)} open={editorOpen} viewPackId={value?.viewPacks?.["skin-editor"]} />}
     </main>
   );
 }
