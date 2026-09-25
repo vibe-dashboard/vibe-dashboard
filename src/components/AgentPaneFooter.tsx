@@ -313,7 +313,15 @@ export function AgentPaneFooter(props: Props) {
     async (kind: 'send' | 'queue' | 'cancel' | 'stop') => {
       const id = props.selectedSessionId;
       const prompt = message.trim();
-      if (!id || sending || ((kind === 'send' || kind === 'queue') && !prompt)) {
+      const allowed =
+        kind === 'send'
+          ? canSend
+          : kind === 'queue'
+            ? canQueue
+            : kind === 'cancel'
+              ? canCancelQueue
+              : canStop;
+      if (!id || !allowed) {
         return;
       }
       setBusy(
@@ -357,6 +365,10 @@ export function AgentPaneFooter(props: Props) {
       }
     },
     [
+      canCancelQueue,
+      canQueue,
+      canSend,
+      canStop,
       clearDraft,
       config,
       message,
@@ -369,8 +381,13 @@ export function AgentPaneFooter(props: Props) {
     ],
   );
 
-  submitRef.current = () =>
-    void act(executionState === 'running' ? 'queue' : 'send');
+  submitRef.current = () => {
+    if (canQueue) {
+      void act('queue');
+    } else if (canSend) {
+      void act('send');
+    }
+  };
   const mount: OnMount = useCallback(
     (editor, monaco) =>
       editor.addAction({

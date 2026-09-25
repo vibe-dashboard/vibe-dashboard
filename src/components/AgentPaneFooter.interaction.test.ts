@@ -11,11 +11,20 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentPaneFooter } from "./AgentPaneFooter";
 
+const monacoActions = vi.hoisted(() => ({
+  current: [] as Array<() => unknown>,
+}));
+
 vi.mock("@monaco-editor/react", () => ({
   default: ({ value, onChange, onMount, options }: any) => {
     React.useEffect(() => {
       onMount?.(
-        { addAction: vi.fn() },
+        {
+          addAction: vi.fn((action) => {
+            monacoActions.current.push(action.run);
+            return { dispose: vi.fn() };
+          }),
+        },
         { KeyMod: { CtrlCmd: 1 }, KeyCode: { Enter: 2 } },
       );
     }, [onMount]);
@@ -86,6 +95,30 @@ function renderFooter(selectedSessionId = "session-1") {
   );
 }
 
+function renderFooterWithProps(
+  props: Partial<React.ComponentProps<typeof AgentPaneFooter>>,
+) {
+  return render(
+    React.createElement(AgentPaneFooter, {
+      workspaceId: "workspace-1",
+      sessions: [session("session-1"), session("session-2")],
+      selectedSessionId: "session-1",
+      loading: false,
+      error: null,
+      onSelect: vi.fn(),
+      onRetry: vi.fn(),
+      style: { left: 0, right: 0 },
+      ...props,
+    }),
+  );
+}
+
+async function runShortcut() {
+  await act(async () => {
+    await monacoActions.current.at(-1)?.();
+  });
+}
+
 describe("AgentPaneFooter interactions", () => {
   let calls: FetchCall[];
 
@@ -93,6 +126,7 @@ describe("AgentPaneFooter interactions", () => {
     calls = [];
     localStorage.clear();
     FakeWebSocket.instances = [];
+    monacoActions.current = [];
     vi.stubGlobal("WebSocket", FakeWebSocket);
     vi.stubGlobal(
       "fetch",
@@ -183,6 +217,98 @@ describe("AgentPaneFooter interactions", () => {
     expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
     expect(
       screen.getByRole<HTMLButtonElement>("button", { name: "Stop" }).disabled,
+    ).toBe(false);
+  });
+
+  it("uses the same gates for Ctrl/Cmd+Enter as the action buttons", async () => {
+    renderFooter();
+    const editor = await screen.findByLabelText("Follow-up message");
+    fireEvent.change(editor, { target: { value: "hello" } });
+
+    await runShortcut();
+    expect(
+      calls.some(
+        (call) =>
+          call.url.includes("/follow-up") && call.method === "POST",
+      ),
+    ).toBe(false);
+
+    act(() => {
+      FakeWebSocket.instances[0]?.emit({
+        JsonPatch: [{ op: "replace", path: "/execution_processes", value: {} }],
+      });
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByRole<HTMLButtonElement>("button", { name: "Send" })
+          .disabled,
+      ).toBe(false),
+    );
+    await runShortcut();
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (call) =>
+            call.url.includes("/follow-up") && call.method === "POST",
+        ),
+      ).toBe(true),
+    );
+
+    calls = [];
+    fireEvent.change(editor, { target: { value: "queued hello" } });
+    act(() => {
+      FakeWebSocket.instances[0]?.emit({
+        JsonPatch: [
+          {
+            op: "replace",
+            path: "/execution_processes",
+            value: {
+              p1: {
+                id: "p1",
+                session_id: "session-1",
+                run_reason: "codingagent",
+                status: "running",
+              },
+            },
+          },
+        ],
+      });
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByRole<HTMLButtonElement>("button", { name: "Queue" })
+          .disabled,
+      ).toBe(false),
+    );
+    await runShortcut();
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (call) => call.url.includes("/queue") && call.method === "POST",
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it("does not run the Ctrl/Cmd+Enter shortcut while disabled by a route error", async () => {
+    renderFooterWithProps({ error: "Could not load sessions" });
+    fireEvent.change(await screen.findByLabelText("Follow-up message"), {
+      target: { value: "hello" },
+    });
+    act(() => {
+      FakeWebSocket.instances[0]?.emit({
+        JsonPatch: [{ op: "replace", path: "/execution_processes", value: {} }],
+      });
+    });
+
+    await runShortcut();
+
+    expect(
+      calls.some(
+        (call) =>
+          (call.url.includes("/follow-up") || call.url.includes("/queue")) &&
+          call.method === "POST",
+      ),
     ).toBe(false);
   });
 
