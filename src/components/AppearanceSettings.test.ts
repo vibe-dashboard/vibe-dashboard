@@ -35,11 +35,11 @@ describe("production Appearance settings", () => {
     await waitFor(() => expect(screen.getByText(/saved revision r12/i)).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: /open skin editor/i }));
 
-    const editor = container.querySelector('[data-myne-surface="skin-editor"]');
-    const history = container.querySelector("#appearance-history-heading");
-    expect(editor).toBeTruthy();
-    expect(history).toBeTruthy();
-    expect(Boolean(editor!.compareDocumentPosition(history!) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    const dialog = screen.getByRole("dialog", { name: /skin editor/i });
+    expect(dialog.contains(screen.getByRole("button", { name: /create editable copy/i }))).toBe(true);
+    expect(dialog.contains(screen.getByRole("button", { name: /close skin editor/i }))).toBe(true);
+    expect(dialog.contains(screen.getByRole("heading", { name: /token editor/i }))).toBe(true);
+    expect(container.querySelector('[data-myne-surface="skin-editor"]')).toBeTruthy();
   });
 
   it("requires confirmation and routes undo through history before reloading", async () => {

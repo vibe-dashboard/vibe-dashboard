@@ -74,9 +74,13 @@ export function AppearanceSettings({ appHooks, fetcher = fetch, onHistoryChanged
   };
   const value = appearanceResult.available ? appearanceResult.value : undefined;
   const redoTarget = history?.head?.source === "undo" ? history.head.targetRevisionId : undefined;
-  const skinEditor = value?.artifact
-    ? <div data-myne-package-scope={value.artifact.scope}><style data-myne-compiled-artifact={value.artifact.digest}>{value.artifact.cssText}</style><SkinEditorContainer appHooks={confirmedHooks} onClose={() => setEditorOpen(false)} open={editorOpen} viewPackId={value?.viewPacks?.["skin-editor"]} /></div>
-    : <SkinEditorContainer appHooks={confirmedHooks} onClose={() => setEditorOpen(false)} open={editorOpen} viewPackId={value?.viewPacks?.["skin-editor"]} />;
+  const skinEditor = editorOpen ? (
+    <div aria-label="Skin editor" className={styles.editorDialog} role="dialog">
+      {value?.artifact
+        ? <div data-myne-package-scope={value.artifact.scope}><style data-myne-compiled-artifact={value.artifact.digest}>{value.artifact.cssText}</style><SkinEditorContainer appHooks={confirmedHooks} onClose={() => setEditorOpen(false)} open={editorOpen} viewPackId={value?.viewPacks?.["skin-editor"]} /></div>
+        : <SkinEditorContainer appHooks={confirmedHooks} onClose={() => setEditorOpen(false)} open={editorOpen} viewPackId={value?.viewPacks?.["skin-editor"]} />}
+    </div>
+  ) : null;
   return (
     <main className={styles.page}>
       <header className={styles.header}>

@@ -8,4 +8,5 @@
 .revision { padding: .75rem; border: 1px solid var(--myne-color-border); border-radius: .5rem; background: var(--myne-color-panel); }
 .revisionMeta { display: block; color: var(--myne-color-muted); font-size: .8rem; }
 .error { color: var(--myne-protected-danger, #f87171); }
+.editorDialog { position: fixed; inset: 1rem; z-index: 80; overflow: auto; padding: .75rem; border: 1px solid var(--myne-color-border); border-radius: 1rem; background: var(--myne-color-background); box-shadow: var(--myne-shadow-panel, 0 24px 80px rgb(0 0 0 / .45)); }
 @media (max-width: 40rem) { .page { padding: .75rem; } .controls, .button { width: 100%; } }
