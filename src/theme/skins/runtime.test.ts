@@ -111,6 +111,11 @@ describe("VD global skin runtime", () => {
     );
     expect(runtime.style["--myne-component-row-gap"]).toBe("0.5rem");
     expect(runtime.style["--myne-slot-workspace-row-radius"]).toBe("0.5rem");
+    expect(runtime.style["--heroui-background"]).toMatch(
+      /^\d+(?:\.\d+)? \d+(?:\.\d+)?% \d+(?:\.\d+)?%$/,
+    );
+    expect(runtime.style["--heroui-foreground"]).not.toContain("#");
+    expect(runtime.style["--heroui-primary"]).not.toContain("#");
   });
 
   it("resolves active built-in skins through the same global runtime path", () => {

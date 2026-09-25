@@ -2157,7 +2157,15 @@ export function WorkspaceShell({
   }, [desktopTabMenuTarget, isSidebarOpen, voyagePlusMenuOpen]);
 
   return (
-    <div className="w-full h-full flex bg-neutral-950">
+    <div
+      className="w-full h-full flex"
+      style={{
+        background:
+          "var(--myne-surface-app-shell-background, var(--myne-color-background, #09090b))",
+        color:
+          "var(--myne-surface-app-shell-foreground, var(--myne-color-foreground, #f4f4f5))",
+      }}
+    >
       {isSidebarOpen && (
         <button
           className="fixed inset-0 z-[60] cursor-default bg-black/40 md:bg-transparent"

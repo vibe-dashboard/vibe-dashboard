@@ -11,8 +11,10 @@ import type {
 } from "./types";
 
 export type MyneCSSVariableName = `--myne-${string}`;
+export type HeroUICSSVariableName = `--heroui-${string}`;
+type ThemeCSSVariableName = MyneCSSVariableName | HeroUICSSVariableName;
 export type MyneStyleVariables = CSSProperties &
-  Partial<Record<MyneCSSVariableName, string | number>>;
+  Partial<Record<ThemeCSSVariableName, string | number>>;
 
 export interface MyneSkinRuntimeOptions {
   state?: unknown;
@@ -61,11 +63,86 @@ function missingSkinDiagnostic(requestedSkinId: string): MyneSkinDiagnostic {
 
 function setVariable(
   style: MyneStyleVariables,
-  name: MyneCSSVariableName,
+  name: ThemeCSSVariableName,
   value: number | string | undefined,
 ): void {
   if (value == null || value === "") return;
   style[name] = value;
+}
+
+function hexToHeroUIHsl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const match = value.trim().match(/^#([0-9a-f]{6})$/i);
+  if (!match) return undefined;
+  const intValue = Number.parseInt(match[1] ?? "", 16);
+  const red = ((intValue >> 16) & 255) / 255;
+  const green = ((intValue >> 8) & 255) / 255;
+  const blue = (intValue & 255) / 255;
+  const max = Math.max(red, green, blue);
+  const min = Math.min(red, green, blue);
+  const lightness = (max + min) / 2;
+  const delta = max - min;
+  const saturation =
+    delta === 0 ? 0 : delta / (1 - Math.abs(2 * lightness - 1));
+  const hue =
+    delta === 0
+      ? 0
+      : max === red
+        ? 60 * (((green - blue) / delta) % 6)
+        : max === green
+          ? 60 * ((blue - red) / delta + 2)
+          : 60 * ((red - green) / delta + 4);
+  const normalizedHue = hue < 0 ? hue + 360 : hue;
+  const round = (number: number) =>
+    Number.isInteger(number)
+      ? String(number)
+      : number.toFixed(2).replace(/\.?0+$/, "");
+  return `${round(normalizedHue)} ${round(saturation * 100)}% ${round(lightness * 100)}%`;
+}
+
+function projectHeroUIBridge(
+  style: MyneStyleVariables,
+  colors: MyneSkinPrimitiveTokens["colors"],
+  skin: MyneSkinManifestV1,
+): void {
+  const appShell = skin.surfaces["app-shell"];
+  const modal = skin.surfaces.modal;
+  const button = skin.components.button;
+  setVariable(
+    style,
+    "--heroui-background",
+    hexToHeroUIHsl(appShell?.background ?? colors.background),
+  );
+  setVariable(
+    style,
+    "--heroui-foreground",
+    hexToHeroUIHsl(appShell?.foreground ?? colors.foreground),
+  );
+  setVariable(
+    style,
+    "--heroui-content1",
+    hexToHeroUIHsl(modal?.background ?? colors.panel),
+  );
+  setVariable(style, "--heroui-content2", hexToHeroUIHsl(colors.panel));
+  setVariable(
+    style,
+    "--heroui-default",
+    hexToHeroUIHsl(button?.background ?? colors.border),
+  );
+  setVariable(
+    style,
+    "--heroui-default-foreground",
+    hexToHeroUIHsl(button?.foreground ?? colors.foreground),
+  );
+  setVariable(style, "--heroui-primary", hexToHeroUIHsl(colors.accent));
+  setVariable(
+    style,
+    "--heroui-primary-foreground",
+    hexToHeroUIHsl(colors.background),
+  );
+  setVariable(style, "--heroui-danger", hexToHeroUIHsl(colors.danger));
+  setVariable(style, "--heroui-success", hexToHeroUIHsl(colors.success));
+  setVariable(style, "--heroui-warning", hexToHeroUIHsl(colors.warning));
 }
 
 function projectTokenMap(
@@ -143,6 +220,7 @@ function buildSkinStyleVariables(skin: MyneSkinManifestV1): MyneStyleVariables {
   projectRecipes(style, "surface", skin.surfaces);
   projectRecipes(style, "component", skin.components);
   projectRecipes(style, "slot", skin.slots);
+  projectHeroUIBridge(style, colors, skin);
 
   return style;
 }

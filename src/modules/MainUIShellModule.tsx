@@ -5,7 +5,9 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { HeroUIProvider } from "@heroui/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { hostAppHooksV1 } from "../app-hooks/AppHooks.host";
 import { AppLoadingScreen } from "../components/AppLoadingScreen";
+import { GlobalAppearanceTheme } from "../components/GlobalAppearanceTheme";
 import { WorkspaceShell } from "../components/WorkspaceShell";
 import { useSessionWorkspaceNav } from "../sessionState";
 import type { NewSessionInitialSelection } from "../sessionState";
@@ -1219,7 +1221,9 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
     Provider: (props: React.PropsWithChildren) => {
       return (
         <QueryClientProvider client={queryClient}>
-          <HeroUIProvider>{props.children}</HeroUIProvider>
+          <GlobalAppearanceTheme appHooks={hostAppHooksV1}>
+            <HeroUIProvider>{props.children}</HeroUIProvider>
+          </GlobalAppearanceTheme>
         </QueryClientProvider>
       );
     },
