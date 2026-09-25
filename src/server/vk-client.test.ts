@@ -129,6 +129,10 @@ describe('VibeKanbanServerClient', () => {
         expect(JSON.parse(String(init.body))).toEqual({});
         return jsonResponse({ success: true, data: null });
       }
+      if (url === 'http://vk.local/api/workspaces/ws-1/execution/preview-processes/process-1/stop' && init?.method === 'POST') {
+        expect(JSON.parse(String(init.body))).toEqual({ previewSlotId: 'slot-1' });
+        return jsonResponse({ success: true, data: null });
+      }
       if (url === 'http://vk.local/api/health') {
         return jsonResponse({ success: true, data: 'ok' });
       }
@@ -144,6 +148,7 @@ describe('VibeKanbanServerClient', () => {
       status: 'killed',
     });
     await expect(client.stopExecutionProcess('process-1')).resolves.toBeUndefined();
+    await expect(client.stopPreviewProcess('ws-1', 'process-1', { previewSlotId: 'slot-1' })).resolves.toBeUndefined();
     await expect(client.checkHealth()).resolves.toBeUndefined();
     await expect(client.getInfo()).resolves.toEqual({ version: 'test' });
   });
