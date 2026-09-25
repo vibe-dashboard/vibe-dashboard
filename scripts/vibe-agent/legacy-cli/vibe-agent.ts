@@ -27,74 +27,6 @@ export function buildSendPrompt(message: string): string {
   return message;
 }
 
-
-export const REQUEST_REVIEW_PROMPT = `Review the code on this branch thoroughly. Come back with concerns and actionable steps to resolve them. List pros and cons of each fix strategy.
-
-In the conclusion of the whole response, list your recommendations for each concern succinctly. In a way where there is enough information that I can just read the ending and understand everything that I need to process, while the rest of the message is detailed and fully reasoned.`;
-
-export interface ParsedRequestReviewArgs {
-  reviewerRole: string;
-  extraInstructions: string;
-  sendFlags: string[];
-}
-
-export function parseRequestReviewArgs(args: string[] = []): ParsedRequestReviewArgs {
-  let reviewerRole = 'reviewer';
-  const sendFlags: string[] = [];
-  const extraInstructionParts: string[] = [];
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === '--json') {
-      sendFlags.push(arg);
-      continue;
-    }
-    if (arg === '--timeout' || arg === '--timeout-ms') {
-      const value = requireFlagValue(args, i, arg);
-      sendFlags.push(arg, value);
-      i++;
-      continue;
-    }
-    if (arg.startsWith('--timeout=') || arg.startsWith('--timeout-ms=')) {
-      sendFlags.push(arg);
-      continue;
-    }
-    if (arg === '--reviewer') {
-      reviewerRole = requireFlagValue(args, i, arg);
-      i++;
-      continue;
-    }
-    if (arg.startsWith('--reviewer=')) {
-      reviewerRole = arg.slice('--reviewer='.length);
-      continue;
-    }
-
-    extraInstructionParts.push(arg);
-  }
-
-  return {
-    reviewerRole,
-    extraInstructions: extraInstructionParts.join(' ').trim(),
-    sendFlags,
-  };
-}
-
-export function buildRequestReviewPrompt(extraInstructions = ''): string {
-  const trimmed = extraInstructions.trim();
-  if (!trimmed) return REQUEST_REVIEW_PROMPT;
-
-  return `${REQUEST_REVIEW_PROMPT}
-
-Additional review instructions:
-${trimmed}`;
-}
-
-export function buildRequestReviewArgs(args: string[] = []): string[] {
-  const parsed = parseRequestReviewArgs(args);
-  return ['--respond', parsed.reviewerRole, buildRequestReviewPrompt(parsed.extraInstructions), ...parsed.sendFlags];
-}
-
-
 export interface ParsedSendArgs {
   targetRoleArg: string;
   message: string;
@@ -217,7 +149,6 @@ export function buildNoAssistantResponseLogMessage(processId: string): string {
 
 const TERMINAL_PROCESS_STATUSES = new Set(['completed', 'failed', 'killed']);
 const CALLBACK_IDLE_POLL_INTERVAL_MS = 2_000;
-const REQUEST_REVIEW_QUIET_WINDOW_MS = 10_000;
 
 export interface SessionTurnProcess {
   id?: string;
@@ -261,28 +192,6 @@ async function waitForSessionIdle(sessionId: string, outputFile: string, label =
   }
 }
 
-async function waitForSessionQuiet(sessionId: string, outputFile: string, quietWindowMs = REQUEST_REVIEW_QUIET_WINDOW_MS): Promise<void> {
-  while (true) {
-    await waitForSessionIdle(sessionId, outputFile, 'Requester');
-    fs.appendFileSync(
-      outputFile,
-      `${new Date().toISOString()} Requester session is idle; waiting ${quietWindowMs}ms for immediate follow-up turns such as auto-commit.\n`
-    );
-    await sleep(quietWindowMs);
-
-    const processes = await client.getSessionProcesses(sessionId);
-    if (!hasActiveSessionTurn(processes)) {
-      fs.appendFileSync(outputFile, `${new Date().toISOString()} Requester session remained idle; proceeding.\n`);
-      return;
-    }
-
-    fs.appendFileSync(
-      outputFile,
-      `${new Date().toISOString()} Requester session became active again during quiet window; waiting for it to finish.\n`
-    );
-  }
-}
-
 // Command handlers
 
 interface CallbackRunnerPayload {
@@ -300,14 +209,6 @@ interface RespondRunnerPayload {
   targetRole: string;
   timeoutMs?: number;
   outputFile: string;
-}
-
-interface RequestReviewRunnerPayload {
-  requesterSessionId: string;
-  requestReviewArgs: string[];
-  outputFile: string;
-  cwd: string;
-  quietWindowMs?: number;
 }
 
 export interface ParsedCallbackArgs {
@@ -1142,38 +1043,6 @@ async function respondRunner(args: string[]): Promise<void> {
   }
 }
 
-async function requestReviewRunner(args: string[]): Promise<void> {
-  const payloadRaw = args[0];
-  if (!payloadRaw) {
-    console.error('Usage: vibe-agent __request-review-runner <payload-json>');
-    process.exit(1);
-  }
-
-  const payload = JSON.parse(payloadRaw) as RequestReviewRunnerPayload;
-  try {
-    process.chdir(payload.cwd);
-    fs.appendFileSync(
-      payload.outputFile,
-      `${new Date().toISOString()} Waiting for requester session ${payload.requesterSessionId} to finish current and immediate follow-up turns before sending request-review.\n`
-    );
-    await waitForSessionQuiet(payload.requesterSessionId, payload.outputFile, payload.quietWindowMs);
-    fs.appendFileSync(payload.outputFile, `${new Date().toISOString()} Sending delayed request-review.\n`);
-    await send(buildRequestReviewArgs(payload.requestReviewArgs));
-    fs.appendFileSync(payload.outputFile, `${new Date().toISOString()} Delayed request-review sent.\n`);
-  } catch (err) {
-    fs.appendFileSync(payload.outputFile, `${new Date().toISOString()} Delayed request-review failed: ${(err as Error).message}\n`);
-  }
-}
-
-export function buildRequestReviewScheduledMessage(outputFile: string, sessionId: string): string {
-  return [
-    'Request review scheduled.',
-    'It will be sent after this session finishes the current turn and remains briefly idle so any immediate auto-commit turn can complete.',
-    `Session:     ${sessionId}`,
-    `Output file: ${outputFile}`,
-  ].join('\n');
-}
-
 async function whoami(args: string[]): Promise<void> {
   const jsonOutput = args.includes('--json');
 
@@ -1360,65 +1229,6 @@ async function send(args: string[]): Promise<void> {
     }
   } catch (err) {
     console.error(`Error: ${(err as Error).message}`);
-    process.exit(1);
-  }
-}
-
-
-async function requestReview(args: string[]): Promise<void> {
-  const jsonOutput = args.includes('--json');
-
-  try {
-    // Validate arguments before scheduling so invalid reviewer/timeout options fail immediately.
-    buildRequestReviewArgs(args);
-    const parsed = parseRequestReviewArgs(args);
-    if (!isValidRole(parsed.reviewerRole)) {
-      throw new Error(`Invalid reviewer role: ${parsed.reviewerRole}`);
-    }
-
-    const ctx = await getAgentContext();
-    const requesterSessionId = process.env.VK_SESSION_ID ?? ctx.sessionId;
-    if (!requesterSessionId) {
-      throw new Error('Could not determine requester session; VK_SESSION_ID was not set and session discovery failed');
-    }
-
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vibe-agent-request-review-'));
-    const outputFile = path.join(tempDir, 'output.log');
-    fs.closeSync(fs.openSync(outputFile, 'w'));
-
-    const payload: RequestReviewRunnerPayload = {
-      requesterSessionId,
-      requestReviewArgs: args,
-      outputFile,
-      cwd: process.cwd(),
-      quietWindowMs: REQUEST_REVIEW_QUIET_WINDOW_MS,
-    };
-
-    const runner = spawn(process.execPath, [fileURLToPath(import.meta.url), '__request-review-runner', JSON.stringify(payload)], {
-      detached: true,
-      stdio: 'ignore',
-      env: process.env,
-      cwd: process.cwd(),
-    });
-    runner.unref();
-
-    if (jsonOutput) {
-      console.log(JSON.stringify({
-        status: 'scheduled',
-        session_id: requesterSessionId,
-        output_file: outputFile,
-        runner_pid: runner.pid ?? null,
-        quiet_window_ms: REQUEST_REVIEW_QUIET_WINDOW_MS,
-      }, null, 2));
-    } else {
-      console.log(buildRequestReviewScheduledMessage(outputFile, requesterSessionId));
-      if (runner.pid) {
-        console.log(`Runner PID:  ${runner.pid}`);
-      }
-    }
-  } catch (err) {
-    console.error(`Error: ${(err as Error).message}`);
-    console.error('Usage: vibe-agent request-review [instructions] [--reviewer <role>] [--timeout <duration>] [--timeout-ms <ms>] [--json]');
     process.exit(1);
   }
 }
@@ -2073,13 +1883,6 @@ Commands:
     --json                     Output as JSON
     (Auto-creates and registers session if none exists for the role)
 
-  request-review [instructions] Schedule a thorough branch code review from reviewer
-                              after this session's current/auto-commit turns finish
-    --reviewer <role>          Target a specific reviewer role (default: reviewer)
-    --timeout <duration>       Timeout for the response wait (for example: 30s, 10m, 1h)
-    --timeout-ms <ms>          Timeout for the response wait in milliseconds
-    --json                     Output as JSON
-
   submit "<message>"           Submit work for review (sends to reviewer)
     --files <file1,file2>      List of changed files
     --json                     Output as JSON
@@ -2454,9 +2257,6 @@ async function main(): Promise<void> {
     case 'send':
       await send(commandArgs);
       break;
-    case 'request-review':
-      await requestReview(commandArgs);
-      break;
     case 'submit':
       await submit(commandArgs);
       break;
@@ -2486,9 +2286,6 @@ async function main(): Promise<void> {
       break;
     case '__respond-runner':
       await respondRunner(commandArgs);
-      break;
-    case '__request-review-runner':
-      await requestReviewRunner(commandArgs);
       break;
     default:
       console.error(`Unknown command: ${command}`);
