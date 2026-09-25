@@ -683,6 +683,7 @@ export function OpenFromGitHub({
           create_branch: target.createBranch ?? true,
           checkout_branch: target.createBranch === false ? checkoutBranch : null,
           name: target.workspaceName,
+          branch_name: target.createBranch === false ? null : target.workspaceName,
         })
       ).workspace;
       if (!isCurrentTarget()) throw new StaleOpenFromGithubRunError();
@@ -705,6 +706,7 @@ export function OpenFromGitHub({
             create_branch: target.createBranch ?? true,
             checkout_branch: target.createBranch === false ? checkoutBranch : null,
             name: target.workspaceName,
+            branch_name: target.createBranch === false ? null : target.workspaceName,
           })
         ).workspace;
         if (!isCurrentTarget()) throw new StaleOpenFromGithubRunError();
@@ -722,6 +724,7 @@ export function OpenFromGitHub({
           create_branch: target.createBranch ?? true,
           checkout_branch: target.createBranch === false ? checkoutBranch : null,
           name: target.workspaceName,
+          branch_name: target.createBranch === false ? null : target.workspaceName,
         })
       ).workspace;
       if (!isCurrentTarget()) throw new StaleOpenFromGithubRunError();

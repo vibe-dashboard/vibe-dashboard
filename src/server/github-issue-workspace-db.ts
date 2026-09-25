@@ -27,6 +27,7 @@ export interface GithubIssueWorkspaceReservationRequest {
   createBranch: boolean;
   checkoutBranch: string | null;
   name: string | null;
+  branchName?: string | null;
 }
 
 export interface GithubIssueWorkspaceReservation {

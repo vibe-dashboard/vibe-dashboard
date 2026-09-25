@@ -1398,12 +1398,18 @@ describe("OpenFromGitHub", () => {
       mapping: null,
     });
 
-    const { findByText, props } = renderOpenFromGithub(
+    const { findByText, findByLabelText, props } = renderOpenFromGithub(
       emptyWorkspace,
       "https://github.com/owner/repo/issues/7",
     );
 
-    await acceptSuggestedWorkMode(findByText);
+    await findByText("How should this workspace work?");
+    const branchNameInput = await findByLabelText("Suggested workspace branch name");
+    fireEvent.change(branchNameInput, {
+      target: { value: "feature/issue-7-exact" },
+    });
+    fireEvent.click(await findByText("Continue"));
+    fireEvent.click(await findByText("A"));
 
     await waitFor(() => {
       expect(vkClient.resolveOrCreateGithubIssueWorkspace).toHaveBeenCalledWith(
@@ -1412,6 +1418,8 @@ describe("OpenFromGitHub", () => {
           target_branch: "origin/main",
           issue_url: "https://github.com/owner/repo/issues/7",
           issue_number: 7,
+          name: "feature/issue-7-exact",
+          branch_name: "feature/issue-7-exact",
         }),
       );
     });
