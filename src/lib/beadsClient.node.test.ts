@@ -91,6 +91,25 @@ describe('BeadsClient', () => {
     expect(((metadata.beadForms as Record<string, unknown>).forms as Array<Record<string, unknown>>)[0]?.responses).toBeUndefined();
   });
 
+  it('rejects new submissions to invalidated forms before metadata mutation', async () => {
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      if (args[0] === '--readonly') {
+        return { stdout: beadJson({ beadForms: { forms: [storedForm('review', 'Review', { invalidatedAt: '2026-09-25T00:00:00.000Z', invalidatedBy: 'agent', invalidatedReason: 'Superseded' })] } }), stderr: '' };
+      }
+      return { stdout: '', stderr: '' };
+    });
+    const client = new BeadsClient({ execFile: exec });
+
+    await expect(client.submitForm({
+      dir: '/repo-invalid',
+      beadId: 'beads-web-biu',
+      formId: 'review',
+      submissionId,
+      values: { comment: 'new' },
+    })).rejects.toThrow('no longer accepting responses');
+    expect(exec.mock.calls.map(([, args]) => args[0])).toEqual(['--readonly']);
+  });
+
   it('clears a matching server draft when a response is submitted', async () => {
     let metadata: Record<string, unknown> = draftFormProgressInMetadata(reviewMetadata, {
       workspaceId: 'workspace-1',
@@ -749,6 +768,7 @@ describe('BeadsClient', () => {
         if (args.includes('beadFormsSummary')) return { stdout: JSON.stringify([
           { id: 'summary_done', title: 'Summary done', metadata: { beadFormsSummary: { hasForms: true, hasPendingAnswer: false, pendingResponseCount: 0, formIds: ['summary_done_form'], pendingFormIds: [] }, beadForms: { forms: [storedForm('summary_done_form', 'Done')] } } },
           { id: 'task-pending', title: 'Pending bead', metadata: { beadFormsSummary: { hasForms: true, hasPendingAnswer: true, pendingResponseCount: 1, formIds: ['review'], pendingFormIds: ['review'] }, beadForms: { forms: [storedForm('review', 'Review')] } } },
+          { id: 'invalid', title: 'Invalid bead', metadata: { beadFormsSummary: { hasForms: true, hasPendingAnswer: true, pendingResponseCount: 1, formIds: ['invalid_form'], pendingFormIds: ['invalid_form'] }, beadForms: { forms: [storedForm('invalid_form', 'Invalid', { invalidatedAt: '2026-09-25T00:00:00.000Z', invalidatedBy: 'agent' })] } } },
         ]), stderr: '' };
         return { stdout: args.includes('beadForms') ? JSON.stringify([
           { id: 'task-pending', title: 'Pending bead', metadata: { beadForms: { forms: [storedForm('review', 'Review')] } } },

@@ -22,6 +22,8 @@ import {
   validateSubmittedValues,
   normalizeSubmittedValues,
   isValidBeadsFormSubmissionId,
+  isBeadsFormInvalidated,
+  invalidatedBeadsFormMessage,
   type BeadLike,
   type BeadsFormDefinition,
   type BeadsFormDraft,
@@ -328,7 +330,7 @@ export class BeadsClient {
     return Array.from(candidates.values()).flatMap((bead) => {
       if (isClosedBead(bead)) return [];
       const forms = getSupportedBeadsForms(bead.metadata)
-        .filter((form) => isPendingForm(bead, form));
+        .filter((form) => !isBeadsFormInvalidated(form) && isPendingForm(bead, form));
       return forms.map((form) => ({
         workspaceId,
         repoDir: storeDir,
@@ -498,6 +500,7 @@ export class BeadsClient {
         warnings: [],
       };
     }
+    if (isBeadsFormInvalidated(form)) throw new Error(invalidatedBeadsFormMessage(form));
 
     const values = normalizeSubmittedValues(form, input.values);
     const validationErrors = validateSubmittedValues(form, values);
