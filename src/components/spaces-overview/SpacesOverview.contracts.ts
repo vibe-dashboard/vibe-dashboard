@@ -7,6 +7,7 @@ import type {
 } from "../../types";
 import type { Repo, RepoWithBranch } from "../../lib/vk-client";
 import type { AppHooksV1 } from "../../app-hooks/AppHooks";
+import type { GlobalUICPreferencesV1 } from "../../theme/skins/uicPreferences";
 
 export type SpacesOverviewRepo = Repo;
 export type SpacesOverviewWorkspaceState = WorkspaceState;
@@ -52,6 +53,8 @@ export interface SpacesOverviewProps {
   skinState?: MyneSkinState;
   presentation?: SpacesOverviewPresentation;
   appearanceArtifact?: { readonly scope: string; readonly cssText: string };
+  uicPreferences?: GlobalUICPreferencesV1;
+  onSaveUICPreferences?: (preferences: GlobalUICPreferencesV1) => void | Promise<void>;
 }
 
 export interface SpacesOverviewViewProps extends Omit<SpacesOverviewProps, "appHooks"> {
@@ -126,6 +129,7 @@ export interface SpacesOverviewViewModel {
   openCraftActionError: string | null;
   isOpenCraftPending: boolean;
   canOpenWorkspaceInSpace: boolean;
+  uicPreferences: GlobalUICPreferencesV1;
 }
 
 export interface SpacesOverviewViewActions {
@@ -151,6 +155,7 @@ export interface SpacesOverviewViewActions {
   cancelRenameSession(): void;
   setRecentlyVisitedPage(page: number): void;
   setRecentlyCreatedPage(page: number): void;
+  saveUICPreferences?(preferences: GlobalUICPreferencesV1): void;
 }
 
 export interface SpacesOverviewComponentProps {

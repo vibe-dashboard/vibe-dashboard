@@ -57,6 +57,12 @@ export interface AppearanceSnapshotV1 {
   readonly value: ReadonlyJsonValue;
 }
 
+export interface GlobalUICPreferencesV1 {
+  readonly skinId: string;
+  readonly layoutId: string;
+  readonly styleId: string;
+}
+
 export interface AppearanceDiagnosticDTO {
   readonly severity: "error" | "warning";
   readonly code: string;
@@ -82,6 +88,7 @@ export interface AppearanceStateV1 {
   readonly error?: string | null;
   readonly safeMode?: boolean;
   readonly headRevisionId?: string;
+  readonly preferences?: GlobalUICPreferencesV1;
   readonly viewPacks?: Readonly<Record<string, string>>;
   readonly artifact?: { readonly scope: string; readonly cssText: string; readonly digest: string };
   readonly density?: string;
@@ -102,6 +109,7 @@ export interface AppearanceModuleV1 {
   readonly useSkinEditor: () => ModuleHookResult<AppearanceStateV1>;
   readonly compileAppearanceCandidate: (args: { readonly snapshot: AppearanceSnapshotV1 }) => Promise<AppearanceCandidateDTO>;
   readonly saveAppearance: (args: { readonly snapshot: AppearanceSnapshotV1; readonly source?: "user" | "import"; readonly candidate?: { readonly sourceDigest: string; readonly artifactDigest: string | null; readonly artifact?: { readonly scope: string; readonly cssText: string; readonly digest: string } } }) => Promise<AppearanceSaveResultDTO>;
+  readonly saveUICPreferences: (args: { readonly preferences: GlobalUICPreferencesV1 }) => Promise<AppearanceSaveResultDTO>;
 }
 
 export interface AppHooksModuleMapV1 {
@@ -156,6 +164,7 @@ export const unavailableAppearanceHooksV1: AppearanceModuleV1 = Object.freeze({
   useSkinEditor: () => UNAVAILABLE_APPEARANCE_RESULT,
   compileAppearanceCandidate: async () => ({ ok: false, diagnostics: [{ severity: "error" as const, code: "appearance-unavailable", message: "Host does not provide appearance editing." }] }),
   saveAppearance: async () => ({ ok: false }),
+  saveUICPreferences: async () => ({ ok: false }),
 });
 
 const PUBLISHED_MODULE_DEFAULTS: AppHooksModuleMapV1 = Object.freeze({
@@ -234,6 +243,7 @@ export function createFakeAppHooksV1Host(options: {
   stopWorkspaceExecution?: (workspaceId: string) => Promise<void>;
   compileAppearanceCandidate?: AppearanceModuleV1["compileAppearanceCandidate"];
   saveAppearance?: AppearanceModuleV1["saveAppearance"];
+  saveUICPreferences?: AppearanceModuleV1["saveUICPreferences"];
 } = {}): FakeAppHooksV1Host {
   const spacesStore = createExternalStore<SpacesStateV1>({
     workspaces: [], repos: [], loading: false, error: null,
@@ -259,6 +269,7 @@ export function createFakeAppHooksV1Host(options: {
     id: "myne.appearance", version: 1, availability: Object.freeze({ available: true }), useSkinEditor,
     compileAppearanceCandidate: options.compileAppearanceCandidate ?? (async () => ({ ok: true, sourceDigest: "sha256-fake-host-candidate" })),
     saveAppearance: options.saveAppearance ?? (async () => ({ ok: true })),
+    saveUICPreferences: options.saveUICPreferences ?? (async () => ({ ok: true })),
   });
   const appHooks = createAppHooksV1([spaces, appearance]);
   return Object.freeze({

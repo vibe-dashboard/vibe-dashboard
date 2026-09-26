@@ -5,12 +5,14 @@ import { defaultDarkSkin } from "./builtin";
 import { canonicalizeAppearanceSnapshot, type MyneAppearanceSnapshotV1 } from "./appearanceSnapshot";
 import { AppearanceRevisionService, MemoryAppearanceRevisionStore, type AppearanceRevisionState, type AppearanceRevisionStore } from "./appearanceRevisions";
 import { compileAppearanceSnapshotCandidate } from "./appearanceCandidate";
+import { DEFAULT_GLOBAL_UIC_PREFERENCES } from "./uicPreferences";
 
 function snapshot(activeGlobalSkinId = defaultDarkSkin.id): string {
   const mapSurface = (manifest: typeof defaultSpacesOverviewManifest | typeof defaultSkinEditorManifest) => ({ surface: manifest.surface, manifestVersion: 1 as const, layoutId: manifest.layout, viewPackId: manifest.viewPackId, slots: Object.values(manifest.slots).map((slot) => ({ id: slot.slot, componentId: slot.component, contractVersion: slot.contractVersion })) });
   const value: MyneAppearanceSnapshotV1 = {
     format: "myne.appearance.snapshot", snapshotVersion: 1,
     capabilities: [{ id: "myne.skin", version: 1 }, { id: "myne.composition", version: 1 }],
+    preferences: DEFAULT_GLOBAL_UIC_PREFERENCES,
     skin: { version: 1, activeGlobalSkinId, userSkins: [] },
     surfaces: [mapSurface(defaultSpacesOverviewManifest), mapSurface(defaultSkinEditorManifest)], assets: [],
     provenance: { source: "app-backup", createdAt: "2026-09-15T00:00:00Z", generator: "revision-tests" },

@@ -26,6 +26,7 @@ const denseComposition = resolveSpacesOverviewComposition(denseSpacesOverviewMan
 export const denseSpacesOverviewView: SpacesOverviewPresentation = (props) =>
   createElement(denseComposition.layout, { ...props, ui: denseComposition.ui, viewPackId: denseComposition.viewPackId });
 
-export function getSpacesOverviewPresentation(viewPackId: string | undefined): SpacesOverviewPresentation {
+export function getSpacesOverviewPresentation(viewPackId: string | undefined, layoutId?: string): SpacesOverviewPresentation {
+  if (layoutId) return createSpacesOverviewProductionView({ initialLayoutId: layoutId });
   return viewPackId === denseSpacesOverviewManifest.viewPackId ? denseSpacesOverviewView : selectedSpacesOverviewView;
 }

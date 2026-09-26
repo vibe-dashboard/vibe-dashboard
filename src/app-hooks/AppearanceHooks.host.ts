@@ -6,6 +6,11 @@ import { migrateSkinState } from "../theme/skins/schema";
 import { BUILT_IN_MYNE_SKINS } from "../theme/skins/builtin";
 import { compileScopedAppearance, type CompiledAppearanceArtifactV1 } from "../theme/skins/scopedCss";
 import { getSkinRuntimeState } from "../theme/skins/runtime";
+import {
+  DEFAULT_GLOBAL_UIC_PREFERENCES,
+  normalizeGlobalUICPreferences,
+  type GlobalUICPreferencesV1,
+} from "../theme/skins/uicPreferences";
 import type { AppearanceModuleV1, AppearanceSnapshotV1, AppearanceStateV1, ModuleHookResult, ReadonlyJsonValue } from "./AppHooks";
 
 interface HistoryEnvelope { head?: { revisionId?: unknown; snapshot?: unknown; activation?: { sourceDigest?: unknown; artifactDigest?: unknown; compilerVersion?: unknown; policyVersion?: unknown } } }
@@ -39,6 +44,12 @@ export function createProductionAppearanceModule(options: {
   const listeners = new Set<() => void>();
   const emit = (next: AppearanceStateV1) => { state = Object.freeze(next); listeners.forEach((listener) => listener()); };
   const subscribe = (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener); };
+  const readPreferences = (snapshot: MyneAppearanceSnapshotV1 | undefined): GlobalUICPreferencesV1 =>
+    snapshot?.preferences ?? DEFAULT_GLOBAL_UIC_PREFERENCES;
+  const preferencesForSkin = (snapshot: MyneAppearanceSnapshotV1, activeGlobalSkinId: string): GlobalUICPreferencesV1 => ({
+    ...readPreferences(snapshot),
+    skinId: activeGlobalSkinId,
+  });
   const load = async () => {
     const previous = state.snapshot;
     try {
@@ -60,6 +71,7 @@ export function createProductionAppearanceModule(options: {
         ?? BUILT_IN_MYNE_SKINS.find((skin) => skin.id === result.value!.skin.activeGlobalSkinId);
       emit({ loading: false, error: null, safeMode: false, headRevisionId: envelope.head.revisionId,
         density: activeSkin?.tokens.density.scale ?? "comfortable",
+        preferences: readPreferences(result.value),
         viewPacks: Object.freeze(Object.fromEntries(result.value.surfaces.map((surface) => [surface.surface, surface.viewPackId ?? ""]))),
         ...(artifact ? { artifact: { scope: artifact.scope, cssText: artifact.cssText, digest: artifact.metadata.artifactDigest } } : {}),
         snapshot: { schemaVersion: 1, value: result.value.skin as unknown as ReadonlyJsonValue } });
@@ -80,7 +92,7 @@ export function createProductionAppearanceModule(options: {
       try {
         if (!parsed) return { ok: false, diagnostics: [diagnostic("appearance-not-ready", "Appearance history is not ready.")] };
         const skin = migrateSkinState(snapshot.value);
-        const next: MyneAppearanceSnapshotV1 = { ...parsed, skin, provenance: { source: "user-export", createdAt: new Date().toISOString(), generator: "vibe-kanban-skin-editor" } };
+        const next: MyneAppearanceSnapshotV1 = { ...parsed, preferences: preferencesForSkin(parsed, skin.activeGlobalSkinId), skin, provenance: { source: "user-export", createdAt: new Date().toISOString(), generator: "vibe-kanban-skin-editor" } };
         const candidate = await compileAppearanceSnapshotCandidate(next);
         return candidate.ok ? { ok: true, sourceDigest: candidate.sourceDigest, ...(candidate.artifact ? { artifact: candidate.artifact } : {}) } : { ok: false, diagnostics: candidate.diagnostics.map((item) => ({ ...item })) };
       } catch (cause) {
@@ -91,7 +103,7 @@ export function createProductionAppearanceModule(options: {
       if (!canonical || !parsed || !state.headRevisionId) return { ok: false, diagnostics: [diagnostic("appearance-not-ready", "Appearance history is not ready.")] };
       try {
         const skin = migrateSkinState(snapshot.value);
-        const next: MyneAppearanceSnapshotV1 = { ...parsed, skin, provenance: { source: "user-export", createdAt: new Date().toISOString(), generator: "vibe-kanban-skin-editor" } };
+        const next: MyneAppearanceSnapshotV1 = { ...parsed, preferences: preferencesForSkin(parsed, skin.activeGlobalSkinId), skin, provenance: { source: "user-export", createdAt: new Date().toISOString(), generator: "vibe-kanban-skin-editor" } };
         if (!candidate
           || (candidate.artifactDigest === null) !== (candidate.artifact === undefined)
           || (candidate.artifact && candidate.artifact.digest !== candidate.artifactDigest)) {
@@ -124,11 +136,53 @@ export function createProductionAppearanceModule(options: {
           ?? BUILT_IN_MYNE_SKINS.find((item) => item.id === skin.activeGlobalSkinId);
         emit({ loading: false, error: null, safeMode: false, headRevisionId: saved.revision.revisionId,
           density: activeSkin?.tokens.density.scale ?? "comfortable",
+          preferences: readPreferences(next),
           viewPacks: Object.freeze(Object.fromEntries(next.surfaces.map((surface) => [surface.surface, surface.viewPackId ?? ""]))),
           ...(candidate.artifact ? { artifact: candidate.artifact } : {}), snapshot });
         return { ok: true };
       } catch (cause) {
         return { ok: false, diagnostics: [diagnostic("invalid-appearance", cause instanceof Error ? cause.message : "Appearance is invalid.")] };
+      }
+    },
+    saveUICPreferences: async ({ preferences }: { readonly preferences: GlobalUICPreferencesV1 }) => {
+      if (!canonical || !parsed || !state.headRevisionId) return { ok: false, diagnostics: [diagnostic("appearance-not-ready", "Appearance history is not ready.")] };
+      const preferenceResult = normalizeGlobalUICPreferences(preferences);
+      if (!preferenceResult.ok) return { ok: false, diagnostics: preferenceResult.diagnostics };
+      try {
+        const next: MyneAppearanceSnapshotV1 = {
+          ...parsed,
+          preferences: preferenceResult.value,
+          provenance: {
+            source: "user-export",
+            createdAt: new Date().toISOString(),
+            generator: "vibe-kanban-uic-preferences",
+          },
+        };
+        const candidate = await compileAppearanceSnapshotCandidate(next);
+        if (!candidate.ok) return { ok: false, diagnostics: candidate.diagnostics.map((item) => ({ ...item })) };
+        const nextCanonical = canonicalizeAppearanceSnapshot(next);
+        const response = await fetcher(`${endpoint}/commands`, {
+          method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({
+            type: "apply",
+            expectedCurrentRevisionId: state.headRevisionId,
+            snapshot: nextCanonical,
+            candidate: { sourceDigest: candidate.sourceDigest, artifactDigest: candidate.artifact?.digest ?? null },
+            summary: `Set UIC preferences ${preferenceResult.value.layoutId}`,
+          }),
+        });
+        if (!response.ok) {
+          const failure = await response.json().catch(() => ({})) as { diagnostic?: { code?: string; message?: string } };
+          return { ok: false, diagnostics: [diagnostic(failure.diagnostic?.code ?? "appearance-save-failed", failure.diagnostic?.message ?? `UIC preference save failed with HTTP ${response.status}.`)] };
+        }
+        const saved = await response.json() as { revision?: { revisionId?: unknown } };
+        if (typeof saved.revision?.revisionId !== "string") return { ok: false, diagnostics: [diagnostic("appearance-activation-mismatch", "The committed preference revision was malformed.")] };
+        canonical = nextCanonical;
+        parsed = next;
+        emit({ ...state, loading: false, error: null, safeMode: false, headRevisionId: saved.revision.revisionId, preferences: preferenceResult.value });
+        return { ok: true };
+      } catch (cause) {
+        return { ok: false, diagnostics: [diagnostic("invalid-appearance", cause instanceof Error ? cause.message : "UIC preferences are invalid.")] };
       }
     },
   });

@@ -7,6 +7,7 @@ import { SpacesOverview, type SpacesOverviewProps } from './SpacesOverview';
 import { AppearanceSettings } from './AppearanceSettings';
 import { hostAppHooksV1 } from '../app-hooks/AppHooks.host';
 import { migrateSkinState } from '../theme/skins/schema';
+import { DEFAULT_GLOBAL_UIC_PREFERENCES } from '../theme/skins/uicPreferences';
 import { getSpacesOverviewPresentation } from './spaces-overview/SpacesOverview.selected';
 import { hasSameBaseOrigin } from '../lib/originTrust';
 import { getPluginIframePolicy, getPluginIframePostMessageTargetOrigin, parsePluginInternalUrl } from '../modules/plugins/vibe-dashboard/runtime';
@@ -28,7 +29,16 @@ function ProductionSpacesOverview(props: Omit<SpacesOverviewProps, 'appHooks' | 
   const appearance = hostAppHooksV1.modules.get('myne.appearance').useSkinEditor();
   const value = appearance.available ? appearance.value : undefined;
   const skinState = value?.snapshot ? migrateSkinState(value.snapshot.value) : undefined;
-  return <SpacesOverview {...props} appHooks={hostAppHooksV1} skinState={skinState} appearanceArtifact={value?.artifact} presentation={getSpacesOverviewPresentation(value?.viewPacks?.['spaces-overview'])} />;
+  const preferences = value?.preferences ?? DEFAULT_GLOBAL_UIC_PREFERENCES;
+  return <SpacesOverview
+    {...props}
+    appHooks={hostAppHooksV1}
+    skinState={skinState}
+    appearanceArtifact={value?.artifact}
+    uicPreferences={preferences}
+    onSaveUICPreferences={async (next) => { await hostAppHooksV1.modules.get('myne.appearance').saveUICPreferences({ preferences: next }); }}
+    presentation={getSpacesOverviewPresentation(value?.viewPacks?.['spaces-overview'], preferences.layoutId)}
+  />;
 }
 
 export type IframeRenderMode = 'real' | 'placeholder' | 'disabled';

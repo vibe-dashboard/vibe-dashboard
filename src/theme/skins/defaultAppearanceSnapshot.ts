@@ -2,6 +2,7 @@ import { defaultSpacesOverviewManifest } from "../../components/spaces-overview/
 import { defaultSkinEditorManifest } from "./SkinEditorDialog.composition";
 import { canonicalizeAppearanceSnapshot, type MyneAppearanceSnapshotV1 } from "./appearanceSnapshot";
 import { defaultDarkSkin } from "./builtin";
+import { DEFAULT_GLOBAL_UIC_PREFERENCES } from "./uicPreferences";
 
 export function createDefaultAppearanceSnapshot(createdAt = "1970-01-01T00:00:00.000Z"): string {
   const toSurface = (manifest: typeof defaultSpacesOverviewManifest | typeof defaultSkinEditorManifest) => ({
@@ -19,6 +20,7 @@ export function createDefaultAppearanceSnapshot(createdAt = "1970-01-01T00:00:00
     format: "myne.appearance.snapshot",
     snapshotVersion: 1,
     capabilities: [{ id: "myne.skin", version: 1 }, { id: "myne.composition", version: 1 }],
+    preferences: DEFAULT_GLOBAL_UIC_PREFERENCES,
     skin: { version: 1, activeGlobalSkinId: defaultDarkSkin.id, userSkins: [] },
     surfaces: [toSurface(defaultSpacesOverviewManifest), toSurface(defaultSkinEditorManifest)],
     assets: [],

@@ -8,11 +8,13 @@ import type { SpacesOverviewSlotProps } from "./SpacesOverview.slots";
 import {
   SPACES_OVERVIEW_UIC_DISABLE_ENV,
   UIC_SPACES_OVERVIEW_ALTERNATE_LAYOUT_ID,
+  UIC_SPACES_OVERVIEW_COMMAND_CENTER_LAYOUT_ID,
   UIC_SPACES_OVERVIEW_DEFAULT_LAYOUT_ID,
   createSpacesOverviewProductionView,
   isSpacesOverviewUICDisabled,
   spacesOverviewUICFallbackDiagnostics,
 } from "./SpacesOverview.uic.view";
+import { DEFAULT_GLOBAL_UIC_PREFERENCES } from "../../theme/skins/uicPreferences";
 import {
   storybookRepoBranches,
   storybookRepos,
@@ -113,6 +115,7 @@ describe("SpacesOverview production UIC fallback", () => {
   });
 
   it("defaults to the built-in default UIC layout and switches to the alternate layout for this mount", () => {
+    const saveUICPreferences = vi.fn();
     const { container } = renderProductionSpacesOverview();
 
     const selector = screen.getByLabelText("SpacesOverview UIC layout") as HTMLSelectElement;
@@ -132,6 +135,28 @@ describe("SpacesOverview production UIC fallback", () => {
     const alternateRecentIndex = container.innerHTML.indexOf('data-uic-owned-region="recent-sessions"');
     expect(alternateWorkspaceIndex).toBeGreaterThan(-1);
     expect(alternateRecentIndex).toBeGreaterThan(alternateWorkspaceIndex);
+    expect(saveUICPreferences).not.toHaveBeenCalled();
+  });
+
+  it("saves selected UIC layout as an independent global preference shape", () => {
+    const saveUICPreferences = vi.fn();
+    renderProductionSpacesOverview({
+      uicPreferences: {
+        ...DEFAULT_GLOBAL_UIC_PREFERENCES,
+        styleId: "uic.style.cyan",
+      },
+      onSaveUICPreferences: saveUICPreferences,
+    });
+
+    fireEvent.change(screen.getByLabelText("SpacesOverview UIC layout"), {
+      target: { value: UIC_SPACES_OVERVIEW_COMMAND_CENTER_LAYOUT_ID },
+    });
+
+    expect(saveUICPreferences).toHaveBeenCalledWith({
+      skinId: DEFAULT_GLOBAL_UIC_PREFERENCES.skinId,
+      layoutId: UIC_SPACES_OVERVIEW_COMMAND_CENTER_LAYOUT_ID,
+      styleId: "uic.style.cyan",
+    });
   });
 
   it("falls back to the default UIC layout when the selected built-in layout id is invalid", () => {
@@ -144,6 +169,8 @@ describe("SpacesOverview production UIC fallback", () => {
 
     expect(screen.getByLabelText("SpacesOverview UIC layout")).toHaveProperty("value", UIC_SPACES_OVERVIEW_DEFAULT_LAYOUT_ID);
     expect(container.innerHTML).toContain(`data-myne-view-pack="${UIC_SPACES_OVERVIEW_DEFAULT_LAYOUT_ID}"`);
+    expect(container.innerHTML).toContain('data-uic-preference-diagnostic="uic/preferences/missing-layout"');
+    expect(screen.getByText(/Selected layout is unavailable/)).toBeTruthy();
     expect(container.innerHTML).not.toContain("SpacesOverview UIC fallback active");
   });
 });

@@ -4,6 +4,7 @@ import { defaultSkinEditorManifest } from "./SkinEditorDialog.composition";
 import { defaultDarkSkin } from "./builtin";
 import { canonicalizeAppearanceSnapshot, type MyneAppearanceSnapshotV1 } from "./appearanceSnapshot";
 import { diffAppearanceSnapshots, restoreAppearanceSnapshot, verifyPortableAppearancePackage } from "./portablePackage";
+import { DEFAULT_GLOBAL_UIC_PREFERENCES } from "./uicPreferences";
 
 async function integrity(bytes: Uint8Array, algorithm: "SHA-256" | "SHA-384" | "SHA-512" = "SHA-256") {
   const digest = new Uint8Array(await crypto.subtle.digest(algorithm, Uint8Array.from(bytes).buffer));
@@ -27,6 +28,7 @@ async function fixture(algorithm: "SHA-256" | "SHA-384" | "SHA-512" = "SHA-256")
   const snapshot: MyneAppearanceSnapshotV1 = {
     format: "myne.appearance.snapshot", snapshotVersion: 1,
     capabilities: [{ id: "myne.skin", version: 1 }, { id: "myne.composition", version: 1 }],
+    preferences: DEFAULT_GLOBAL_UIC_PREFERENCES,
     skin: { version: 1, activeGlobalSkinId: defaultDarkSkin.id, userSkins: [] },
     surfaces: [surface(defaultSpacesOverviewManifest), surface(defaultSkinEditorManifest)],
     assets: [{ path: "assets/preview.webp", mediaType: "image/webp", byteLength: bytes.byteLength, integrity: await integrity(bytes, algorithm) as `sha256-${string}` }],

@@ -6,6 +6,7 @@ import {
 } from "../app-hooks/AppHooks";
 import { SkinRoot } from "../theme/skins";
 import { selectedSpacesOverviewView } from "./spaces-overview/SpacesOverview.selected";
+import { DEFAULT_GLOBAL_UIC_PREFERENCES } from "../theme/skins/uicPreferences";
 import type {
   DashboardWorkspace,
   SpacesOverviewProps,
@@ -185,6 +186,8 @@ export function SpacesOverviewView({
   initialOpenCraftActionError = null,
   skinState,
   appearanceArtifact,
+  uicPreferences = DEFAULT_GLOBAL_UIC_PREFERENCES,
+  onSaveUICPreferences,
   presentation: Presentation = selectedSpacesOverviewView,
 }: SpacesOverviewViewProps) {
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(
@@ -395,6 +398,7 @@ export function SpacesOverviewView({
       openCraftActionError,
       isOpenCraftPending: pendingOpenCraftRequest != null,
       canOpenWorkspaceInSpace: Boolean(onOpenWorkspaceInSpace),
+      uicPreferences,
     };
   }, [
     currentSessionId,
@@ -414,6 +418,7 @@ export function SpacesOverviewView({
     sessionNameDraft,
     spacePickerTarget,
     stoppingDevServerIds,
+    uicPreferences,
     workspace,
     workspacePage,
     workspaces,
@@ -473,12 +478,18 @@ export function SpacesOverviewView({
       },
       setRecentlyVisitedPage,
       setRecentlyCreatedPage,
+      saveUICPreferences: onSaveUICPreferences
+        ? (preferences) => {
+            void onSaveUICPreferences(preferences);
+          }
+        : undefined,
     }),
     [
       onDeleteSession,
       onNavigateToTabGroup,
       onRenameSession,
       onResumeSession,
+      onSaveUICPreferences,
       onStartNewSession,
       onStopDevServer,
       openCraftRetryRequest,

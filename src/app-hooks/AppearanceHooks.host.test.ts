@@ -2,6 +2,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createDefaultAppearanceSnapshot } from "../theme/skins/defaultAppearanceSnapshot";
+import { DEFAULT_GLOBAL_UIC_PREFERENCES } from "../theme/skins/uicPreferences";
 import { createProductionAppearanceModule } from "./AppearanceHooks.host";
 
 function response(value: unknown, status = 200): Response {
@@ -19,7 +20,84 @@ describe("production appearance AppHooks", () => {
     await waitFor(() => expect(rendered.result.current.available && rendered.result.current.value.loading).toBe(false));
     expect(host.module.useSkinEditor).toBe(firstHook);
     expect(rendered.result.current).toMatchObject({ available: true, value: { headRevisionId: "rev-1", snapshot: { schemaVersion: 1 } } });
+    expect(rendered.result.current.available && rendered.result.current.value.preferences).toEqual(DEFAULT_GLOBAL_UIC_PREFERENCES);
     expect(host.getProjection()).toMatchObject({ activeGlobalSkinId: "myne-default-dark", safeMode: false });
+  });
+
+  it("persists global UIC preferences through the same revision service", async () => {
+    const canonical = createDefaultAppearanceSnapshot();
+    const nextPreferences = {
+      skinId: DEFAULT_GLOBAL_UIC_PREFERENCES.skinId,
+      layoutId: "uic.spaces.layout-command-center.proof",
+      styleId: "uic.style.cyan",
+    };
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(response({ head: { revisionId: "rev-1", snapshot: canonical }, revisions: [] }))
+      .mockResolvedValueOnce(response({ ok: true, revision: { revisionId: "rev-2" } }, 201));
+    const host = createProductionAppearanceModule({ fetcher });
+    const rendered = renderHook(() => host.module.useSkinEditor());
+    await waitFor(() => expect(rendered.result.current.available && rendered.result.current.value.loading).toBe(false));
+
+    await act(async () => {
+      expect(await host.module.saveUICPreferences({ preferences: nextPreferences })).toEqual({ ok: true });
+    });
+
+    const body = JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body));
+    const saved = JSON.parse(body.snapshot);
+    expect(saved.preferences).toEqual(nextPreferences);
+    expect(saved.skin.activeGlobalSkinId).toBe(DEFAULT_GLOBAL_UIC_PREFERENCES.skinId);
+    expect(rendered.result.current.available && rendered.result.current.value.preferences).toEqual(nextPreferences);
+  });
+
+  it("persists the saved skin as the global UIC skin preference", async () => {
+    const canonical = createDefaultAppearanceSnapshot();
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(response({ head: { revisionId: "rev-1", snapshot: canonical }, revisions: [] }))
+      .mockResolvedValueOnce(response({ ok: true, revision: { revisionId: "rev-2" } }, 201));
+    const host = createProductionAppearanceModule({ fetcher });
+    const rendered = renderHook(() => host.module.useSkinEditor());
+    await waitFor(() => expect(rendered.result.current.available && rendered.result.current.value.loading).toBe(false));
+    const base = JSON.parse(canonical).skin;
+    const { defaultDarkSkin } = await import("../theme/skins/builtin");
+    const skin = {
+      ...base,
+      activeGlobalSkinId: "myne-user-cyan",
+      userSkins: [{ ...JSON.parse(JSON.stringify(defaultDarkSkin)), id: "myne-user-cyan", name: "Cyan" }],
+    };
+    const candidate = await host.module.compileAppearanceCandidate({ snapshot: { schemaVersion: 1, value: skin } });
+
+    await act(async () => {
+      expect(await host.module.saveAppearance({
+        snapshot: { schemaVersion: 1, value: skin },
+        candidate: {
+          sourceDigest: candidate.ok ? candidate.sourceDigest! : "",
+          artifactDigest: candidate.ok ? candidate.artifact?.digest ?? null : null,
+          artifact: candidate.ok ? candidate.artifact : undefined,
+        },
+      })).toEqual({ ok: true });
+    });
+
+    const saved = JSON.parse(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body)).snapshot);
+    expect(saved.preferences).toMatchObject({ ...DEFAULT_GLOBAL_UIC_PREFERENCES, skinId: "myne-user-cyan" });
+    expect(rendered.result.current.available && rendered.result.current.value.preferences).toMatchObject({ skinId: "myne-user-cyan" });
+  });
+
+  it("rejects malformed UIC preferences without rewriting active state", async () => {
+    const canonical = createDefaultAppearanceSnapshot();
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(response({ head: { revisionId: "rev-1", snapshot: canonical }, revisions: [] }));
+    const host = createProductionAppearanceModule({ fetcher });
+    const rendered = renderHook(() => host.module.useSkinEditor());
+    await waitFor(() => expect(rendered.result.current.available && rendered.result.current.value.loading).toBe(false));
+    const before = rendered.result.current;
+
+    const result = await host.module.saveUICPreferences({
+      preferences: { ...DEFAULT_GLOBAL_UIC_PREFERENCES, layoutId: "bad url" },
+    });
+
+    expect(result).toMatchObject({ ok: false, diagnostics: [{ code: "invalid-uic-preference-id" }] });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(rendered.result.current).toBe(before);
   });
 
   it("saves through expected-head history and replaces state only after success", async () => {

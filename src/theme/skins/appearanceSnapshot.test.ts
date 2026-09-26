@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { defaultSpacesOverviewManifest } from "../../components/spaces-overview/SpacesOverview.composition";
 import { defaultSkinEditorManifest } from "./SkinEditorDialog.composition";
 import { defaultDarkSkin } from "./builtin";
+import { DEFAULT_GLOBAL_UIC_PREFERENCES } from "./uicPreferences";
 import {
   canonicalizeAppearanceSnapshot,
   parseAppearanceSnapshot,
@@ -17,6 +18,7 @@ function snapshot(): MyneAppearanceSnapshotV1 {
       { id: "myne.skin", version: 1 },
       { id: "myne.composition", version: 1 },
     ],
+    preferences: DEFAULT_GLOBAL_UIC_PREFERENCES,
     skin: {
       version: 1,
       activeGlobalSkinId: defaultDarkSkin.id,
@@ -88,6 +90,7 @@ describe("portable appearance snapshots", () => {
   it.each([
     [{ ...snapshot(), snapshotVersion: 2 }, "unsupported-snapshot-version"],
     [{ ...snapshot(), capabilities: [{ id: "myne.skin", version: 2 }] }, "unsupported-capability-version"],
+    [{ ...snapshot(), preferences: { ...DEFAULT_GLOBAL_UIC_PREFERENCES, layoutId: "bad url" } }, "invalid-uic-preference-id"],
     [{ ...snapshot(), script: "alert(1)" }, "unknown-property"],
     [{ ...snapshot(), skin: { ...snapshot().skin, userSkins: [{ ...defaultDarkSkin, id: "user.test", script: "alert(1)" }] } }, "non-canonical-skin"],
     [{ ...snapshot(), assets: [{ ...snapshot().assets[0], integrity: "sha1-deadbeef" }] }, "invalid-asset-integrity"],
@@ -116,6 +119,19 @@ describe("portable appearance snapshots", () => {
     expect(parseAppearanceSnapshot("{" )).toMatchObject({
       ok: false,
       diagnostics: [expect.objectContaining({ code: "invalid-json" })],
+    });
+  });
+
+  it("loads legacy snapshots without stored UIC preferences using deterministic defaults", () => {
+    const source = canonicalizeAppearanceSnapshot(snapshot());
+    const legacy = source.replace(/"preferences":\{[^}]+\},/u, "");
+
+    expect(legacy).not.toBe(source);
+    expect(legacy).not.toContain("\"preferences\"");
+    expect(parseAppearanceSnapshot(legacy)).toMatchObject({
+      ok: true,
+      value: { preferences: DEFAULT_GLOBAL_UIC_PREFERENCES },
+      diagnostics: [],
     });
   });
 });

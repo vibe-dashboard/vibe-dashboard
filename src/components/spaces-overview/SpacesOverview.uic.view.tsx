@@ -120,6 +120,10 @@ function resolveSpacesOverviewUICLayoutArtifact(layoutId: string | undefined): S
     ?? UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS[0]!;
 }
 
+function hasSpacesOverviewUICLayoutArtifact(layoutId: string | undefined): boolean {
+  return Boolean(layoutId && UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS.some((artifact) => artifact.id === layoutId));
+}
+
 export function validateSpacesOverviewUICLayoutArtifacts(
   artifacts: readonly SpacesOverviewUICLayoutArtifact[] = UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS,
 ): readonly UICDiagnostic[] {
@@ -2225,9 +2229,11 @@ function UICSpacePickerModal({ model, actions, enableCloseAction = true, enableR
 function SpacesOverviewUICLayoutSelector({
   selectedLayoutId,
   onSelectLayout,
+  diagnostic,
 }: {
   readonly selectedLayoutId: string;
   readonly onSelectLayout: (layoutId: string) => void;
+  readonly diagnostic?: string;
 }) {
   return (
     <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 myne-card" data-uic-layout-selector="spaces-overview">
@@ -2254,6 +2260,15 @@ function SpacesOverviewUICLayoutSelector({
           ))}
         </select>
       </label>
+      {diagnostic && (
+        <p
+          className="myne-status myne-status--warning basis-full text-xs"
+          role="status"
+          data-uic-preference-diagnostic={diagnostic}
+        >
+          Selected layout is unavailable; showing the safe default.
+        </p>
+      )}
     </div>
   );
 }
@@ -2265,11 +2280,13 @@ function SpacesOverviewUICLayoutFrame({
   artifact,
   selectedLayoutId,
   onSelectLayout,
+  diagnostic,
 }: SpacesOverviewComponentProps & {
   readonly ui: SpacesOverviewUIPack;
   readonly artifact: SpacesOverviewUICLayoutArtifact;
   readonly selectedLayoutId: string;
   readonly onSelectLayout: (layoutId: string) => void;
+  readonly diagnostic?: string;
 }) {
   const slotProps = { model, actions };
   const renderSlot = (slot: SpacesOverviewUICSlotName) => {
@@ -2321,6 +2338,7 @@ function SpacesOverviewUICLayoutFrame({
         <SpacesOverviewUICLayoutSelector
           selectedLayoutId={selectedLayoutId}
           onSelectLayout={onSelectLayout}
+          diagnostic={diagnostic}
         />
         {renderSlot("PageHeader")}
         {body}
@@ -2335,12 +2353,14 @@ class SpacesOverviewUICSelectableLayout extends Component<
     readonly ui: SpacesOverviewUIPack;
     readonly initialLayoutId?: string;
   },
-  { readonly selectedLayoutId: string }
+  { readonly selectedLayoutId: string; readonly diagnostic?: string }
 > {
   constructor(props: SpacesOverviewComponentProps & { readonly ui: SpacesOverviewUIPack; readonly initialLayoutId?: string }) {
     super(props);
+    const missingLayout = props.initialLayoutId && !hasSpacesOverviewUICLayoutArtifact(props.initialLayoutId);
     this.state = {
       selectedLayoutId: resolveSpacesOverviewUICLayoutArtifact(props.initialLayoutId).id,
+      ...(missingLayout ? { diagnostic: "uic/preferences/missing-layout" } : {}),
     };
   }
 
@@ -2350,9 +2370,15 @@ class SpacesOverviewUICSelectableLayout extends Component<
       <SpacesOverviewUICLayoutFrame
         {...this.props}
         artifact={artifact}
+        diagnostic={this.state.diagnostic}
         selectedLayoutId={artifact.id}
         onSelectLayout={(layoutId) => {
-          this.setState({ selectedLayoutId: resolveSpacesOverviewUICLayoutArtifact(layoutId).id });
+          const next = resolveSpacesOverviewUICLayoutArtifact(layoutId);
+          this.setState({ selectedLayoutId: next.id, diagnostic: undefined });
+          this.props.actions.saveUICPreferences?.({
+            ...this.props.model.uicPreferences,
+            layoutId: next.id,
+          });
         }}
       />
     );
@@ -2408,7 +2434,7 @@ export function SpacesOverviewUICLayoutProofPresentation({
         <SpacesOverviewUICSelectableLayout
           {...props}
           ui={ui}
-          initialLayoutId={selectedArtifact.id}
+          initialLayoutId={initialLayoutId}
         />
       )}
       {diagnostics.length > 0 && (

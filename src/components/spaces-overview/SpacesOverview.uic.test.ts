@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createElement, isValidElement, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SpacesOverviewView, type DashboardWorkspace } from "../SpacesOverview";
+import { DEFAULT_GLOBAL_UIC_PREFERENCES } from "../../theme/skins/uicPreferences";
 import {
   SPACES_OVERVIEW_UIC_DISABLE_ENV,
   UIC_SPACES_OVERVIEW_LAYOUT_ARTIFACTS,
@@ -153,6 +154,7 @@ function renderUICPresentationWithModel(
     tabGroupDisplayLabelById,
     workspaceTabGroupMap: new Map(),
     hasSpaces: true,
+    uicPreferences: DEFAULT_GLOBAL_UIC_PREFERENCES,
     sortedSessions: storybookSavedSessions,
     expandedSessionId: null,
     editingSessionId: null,

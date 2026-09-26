@@ -6,6 +6,11 @@ import type {
   MyneSkinStateV1,
   MyneSkinValidationResult,
 } from "./types";
+import {
+  DEFAULT_GLOBAL_UIC_PREFERENCES,
+  normalizeGlobalUICPreferences,
+  type GlobalUICPreferencesV1,
+} from "./uicPreferences";
 
 export const MYNE_APPEARANCE_SNAPSHOT_FORMAT = "myne.appearance.snapshot";
 export const MYNE_APPEARANCE_SNAPSHOT_VERSION = 1;
@@ -44,6 +49,7 @@ export interface MyneAppearanceSnapshotV1 {
   format: typeof MYNE_APPEARANCE_SNAPSHOT_FORMAT;
   snapshotVersion: 1;
   capabilities: MyneAppearanceCapabilityV1[];
+  preferences: GlobalUICPreferencesV1;
   skin: MyneSkinStateV1;
   surfaces: MyneAppearanceSurfaceSnapshotV1[];
   assets: MyneAppearanceAssetV1[];
@@ -152,7 +158,7 @@ function normalizeSnapshot(value: unknown): MyneSkinValidationResult<MyneAppeara
     return { ok: false, diagnostics: [diagnostic("invalid-snapshot", "Appearance snapshot must be a JSON object.")] };
   }
   inspectJsonValue(value, diagnostics);
-  rejectUnknownKeys(value, ["format", "snapshotVersion", "capabilities", "skin", "surfaces", "assets", "provenance"], "", diagnostics);
+  rejectUnknownKeys(value, ["format", "snapshotVersion", "capabilities", "preferences", "skin", "surfaces", "assets", "provenance"], "", diagnostics);
   if (value.format !== MYNE_APPEARANCE_SNAPSHOT_FORMAT) diagnostics.push(diagnostic("invalid-snapshot-format", `format must be ${MYNE_APPEARANCE_SNAPSHOT_FORMAT}.`, "format"));
   if (value.snapshotVersion !== MYNE_APPEARANCE_SNAPSHOT_VERSION) diagnostics.push(diagnostic("unsupported-snapshot-version", "snapshotVersion is not supported by this consumer.", "snapshotVersion"));
 
@@ -184,6 +190,9 @@ function normalizeSnapshot(value: unknown): MyneSkinValidationResult<MyneAppeara
   for (const id of Object.keys(CAPABILITY_VERSIONS)) {
     if (!seenCapabilities.has(id)) diagnostics.push(diagnostic("missing-capability", `Required capability \"${id}\" is missing.`, "capabilities"));
   }
+
+  const preferenceResult = normalizeGlobalUICPreferences(value.preferences);
+  if (!preferenceResult.ok) diagnostics.push(...preferenceResult.diagnostics);
 
   let skin: MyneSkinStateV1 | undefined;
   if (!isRecord(value.skin)) {
@@ -297,6 +306,7 @@ function normalizeSnapshot(value: unknown): MyneSkinValidationResult<MyneAppeara
       format: MYNE_APPEARANCE_SNAPSHOT_FORMAT,
       snapshotVersion: 1,
       capabilities: capabilities.sort((a, b) => a.id.localeCompare(b.id)),
+      preferences: preferenceResult.ok ? preferenceResult.value : DEFAULT_GLOBAL_UIC_PREFERENCES,
       skin,
       surfaces: surfaces.sort((a, b) => a.surface.localeCompare(b.surface)),
       assets: assets.sort((a, b) => a.path.localeCompare(b.path)),
@@ -327,6 +337,11 @@ export function parseAppearanceSnapshot(source: string): MyneSkinValidationResul
   const result = normalizeSnapshot(parsed);
   if (!result.ok || !result.value) return result;
   if (canonicalJson(result.value) !== source) {
+    if (isRecord(parsed) && parsed.preferences === undefined) {
+      const legacyValue = { ...result.value } as Record<string, unknown>;
+      delete legacyValue.preferences;
+      if (canonicalJson(legacyValue) === source) return result;
+    }
     return { ok: false, diagnostics: [diagnostic("non-canonical-json", "Appearance snapshot must use canonical JSON ordering and representation.")] };
   }
   return result;
