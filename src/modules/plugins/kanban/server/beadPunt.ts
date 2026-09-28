@@ -50,6 +50,7 @@ export async function puntBead(args: PuntBeadArgs, options: WorkspaceBeadsOption
   if (!(await beadExists(destinationBeadId, destinationCwd, runBd))) {
     await runBd([
       'create',
+      '--force',
       '--id',
       destinationBeadId,
       '--title',

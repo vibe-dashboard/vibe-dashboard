@@ -16,8 +16,8 @@ Move beads from repo-scoped usage to workspace-scoped usage:
 - Actual beads databases live under `/var/lib/vd/beads`, not under `VK_SETTINGS_DIRECTORY`.
 - `VK_SETTINGS_DIRECTORY` still exists for generic VK/VD machine config and defaults to `/var/lib/vd/vk-config` in VD Docker.
 - `VD_BEADS_DIRECTORY` defaults to `/var/lib/vd/beads` and is owned by VD, not VK.
-- VK remains bead-unaware. VK provides only a generic pre-agent workspace file/managed-block overlay primitive.
-- VD supplies beads-specific files and instruction content through the generic VK overlay primitive before the first agent starts.
+- VK remains bead-unaware. VK provides only a generic blocking workspace setup command read from trusted `VK_SETTINGS_DIRECTORY` flat-file config.
+- VD owns the setup command/script contents; it creates beads routing, instructions, aggregate updates, and any user-configured extra setup.
 - Generated per-workspace beads DB config uses embedded Dolt. The current shared Dolt server is migrated away offline.
 - Existing repo-scoped beads metadata is migration input only.
 
@@ -25,7 +25,7 @@ Move beads from repo-scoped usage to workspace-scoped usage:
 
 1. Workspace bead commands are scoped to the top-level workspace directory, not repository subdirectories.
 2. Workspace cleanup must not delete bead data.
-3. VK must apply generic VD-supplied workspace file/managed-block overlays before the first agent session starts.
+3. VK must create workspace `AGENTS.md`/`CLAUDE.md`, then run the generic blocking workspace setup command before the first agent session starts.
 4. Adding a repo to a workspace updates workspace/aggregate repo metadata.
 5. The aggregate workspace DB stores one deterministic bead per workspace.
 6. The all-beads aggregate is out of scope for this branch.
@@ -65,15 +65,15 @@ Use absolute redirect targets by default. Keep a flat-file policy so deployments
 sequenceDiagram
   participant API as VK create workspace API
   participant WM as WorkspaceManager
-  participant VD as VD beads orchestration
-  participant Overlay as VK generic overlay primitive
+  participant Setup as Generic setup command
   participant FS as Workspace filesystem
   participant Agent as First agent process
 
   API->>WM: create workspace + worktrees
-  VD->>VD: ensure workspace beads DB and aggregate bead
-  VD->>Overlay: provide .beads/redirect and instruction block
-  Overlay->>FS: write files and upsert managed blocks
+  WM->>FS: create AGENTS.md/CLAUDE.md imports
+  WM->>Setup: run trusted flat-file setup command
+  Setup->>FS: write .beads/redirect and update instructions
+  Setup->>Setup: upsert workspace DB and aggregate bead
   WM->>Agent: start setup/coding process
 ```
 
@@ -89,7 +89,7 @@ Do not initialize beads inside repository subdirectories.
 <!-- END VK WORKSPACE BEADS -->
 ```
 
-VK stores no beads names in functions, types, or environment variables. VD owns the beads wording and sends it as ordinary managed-block content.
+VK stores no beads names in functions, types, or environment variables. It reads only a generic setup command from `VK_SETTINGS_DIRECTORY`, passes workspace metadata, captures logs, enforces a timeout, and fails closed on required setup failure.
 
 Instruction customization uses a TOML manifest plus markdown fragments:
 
@@ -246,29 +246,25 @@ Tests:
 
 ### 2. VK generic pre-agent overlay primitive
 
-Add a small VK service/function that takes generic file/block overlay input:
+Replace the overlay-only primitive with a generic blocking setup command:
 
-- workspace ID;
-- workspace root path;
-- file writes such as relative path + content;
-- managed block updates such as target file + marker + content.
-
-It:
-
-1. writes safe relative files under the workspace root;
-2. inserts/updates owned managed blocks while preserving human content/imports;
-3. runs before the first agent process.
+- reads `workspace-setup.toml` from trusted `VK_SETTINGS_DIRECTORY`;
+- runs only configured commands from that directory, never repo/workspace files;
+- passes workspace ID/path/repo metadata via environment or JSON file;
+- runs after VK creates AGENTS.md/CLAUDE.md imports and before agent execution;
+- runs after repo-add and on workspace recreate/ensure;
+- has timeout, clear logs, and fail-closed behavior when required.
 
 No VK symbol/type/env should mention beads.
 
 Tests:
 
-- idempotent repeated overlay;
-- rejects absolute paths and `..` traversal;
-- generated block preserves existing repo import lines and human text;
-- overlay runs before first agent start.
+- missing config is a no-op;
+- command timeout fails the agent start/repo-add path with logs;
+- command runs after AGENTS.md exists;
+- command receives current repo metadata and runs before first agent start.
 
-### 3. VD workspace beads setup using VK overlay
+### 3. VD workspace beads setup using flat-file setup script
 
 VD ensures:
 
@@ -276,7 +272,8 @@ VD ensures:
 2. `<workspace-root>/.beads/redirect` points at the absolute persisted path;
 3. aggregate workspace bead exists/updates in `/var/lib/vd/beads/aggregate-workspaces/.beads`;
 4. workspace instructions are rendered from checked-in required fragment plus persisted user append fragment;
-5. VD supplies redirect/instruction overlay to VK before session start.
+5. VD seeds `workspace-setup.toml`, setup script, and TOML/markdown fragments without overwriting user edits;
+6. setup script reads user TOML for extra commands and declarative AGENTS.md additions.
 
 Tests:
 

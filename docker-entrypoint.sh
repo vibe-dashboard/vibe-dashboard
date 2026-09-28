@@ -97,8 +97,8 @@ startup_step_begin "prepare persistent user configuration"
 install -d -m 0755 -o vkuser -g vkuser /home/vkuser/.config
 install -d -m 0755 -o vkuser -g vkuser /home/vkuser/.config/bd
 install -d -m 0700 -o vkuser -g vkadmin /home/vkuser/.beads
-install -d -m 0700 -o vkuser -g vkadmin /home/vkuser/.beads/shared-server
-install -d -m 0700 -o vkuser -g vkadmin /home/vkuser/.beads/shared-server/dolt
+install -d -m 0750 -o vkuser -g vkadmin "${VK_SETTINGS_DIRECTORY:-/var/lib/vd/vk-config}"
+install -d -m 0750 -o vkuser -g vkadmin "${VD_BEADS_DIRECTORY:-/var/lib/vd/beads}"
 
 BD_CONFIG=/home/vkuser/.config/bd/config.yaml
 if [ ! -e "$BD_CONFIG" ] && [ ! -L "$BD_CONFIG" ]; then
@@ -112,7 +112,34 @@ fi
 
 runuser -u vkuser -- test -w /home/vkuser/.config
 runuser -u vkuser -- test -w /home/vkuser/.config/bd
-runuser -u vkuser -- test -w /home/vkuser/.beads/shared-server/dolt
+runuser -u vkuser -- test -w "${VK_SETTINGS_DIRECTORY:-/var/lib/vd/vk-config}"
+runuser -u vkuser -- test -w "${VD_BEADS_DIRECTORY:-/var/lib/vd/beads}"
+
+WORKSPACE_SETUP_TOML="${VK_SETTINGS_DIRECTORY:-/var/lib/vd/vk-config}/workspace-setup.toml"
+if [ ! -e "$WORKSPACE_SETUP_TOML" ] && [ ! -L "$WORKSPACE_SETUP_TOML" ]; then
+    WORKSPACE_SETUP_TOML_TMP=$(mktemp "${WORKSPACE_SETUP_TOML}.tmp.XXXXXX")
+    {
+        echo 'enabled = true'
+        echo 'required = true'
+        echo 'timeout_seconds = 120'
+        echo 'command = "workspace-setup.sh"'
+    } > "$WORKSPACE_SETUP_TOML_TMP"
+    chown vkuser:vkadmin "$WORKSPACE_SETUP_TOML_TMP"
+    chmod 0640 "$WORKSPACE_SETUP_TOML_TMP"
+    mv "$WORKSPACE_SETUP_TOML_TMP" "$WORKSPACE_SETUP_TOML"
+fi
+
+WORKSPACE_SETUP_SH="${VK_SETTINGS_DIRECTORY:-/var/lib/vd/vk-config}/workspace-setup.sh"
+if [ ! -e "$WORKSPACE_SETUP_SH" ] && [ ! -L "$WORKSPACE_SETUP_SH" ]; then
+    WORKSPACE_SETUP_SH_TMP=$(mktemp "${WORKSPACE_SETUP_SH}.tmp.XXXXXX")
+    {
+        echo '#!/usr/bin/env sh'
+        echo 'exec /opt/vibe-kanban-vscode-web-seed/bin/vd-beads workspace-setup "$@"'
+    } > "$WORKSPACE_SETUP_SH_TMP"
+    chown vkuser:vkadmin "$WORKSPACE_SETUP_SH_TMP"
+    chmod 0750 "$WORKSPACE_SETUP_SH_TMP"
+    mv "$WORKSPACE_SETUP_SH_TMP" "$WORKSPACE_SETUP_SH"
+fi
 startup_step_end
 
 # Ensure mounted mutable volumes keep shared group write semantics. This avoids

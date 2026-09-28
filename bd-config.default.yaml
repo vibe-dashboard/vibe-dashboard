@@ -2,6 +2,6 @@ no-git-ops: true
 no-push: true
 
 dolt:
-  shared-server: true
+  shared-server: false
   auto-commit: on
   auto-push: false

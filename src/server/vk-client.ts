@@ -91,10 +91,6 @@ export interface CreateAndStartWorkspaceRequest {
   executor_config: ExecutorConfig;
   prompt: string;
   attachment_ids: string[] | null;
-  workspace_overlay?: {
-    files: Array<{ path: string; content: string }>;
-    managed_blocks: Array<{ path: string; marker: string; content: string }>;
-  } | null;
 }
 
 export interface CreateAndStartWorkspaceResponse {
