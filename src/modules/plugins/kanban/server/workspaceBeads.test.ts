@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
-  buildWorkspaceBeadsOverlay,
+  renderWorkspaceBeadsInstructionBlock,
   deterministicExternalIssueBeadId,
   ensureExternalIssueWorkspaceBead,
   seedWorkspaceBeadsInstructionConfig,
@@ -37,13 +37,12 @@ describe('workspaceBeads', () => {
       await seedWorkspaceBeadsInstructionConfig({ settingsDirectory: root });
 
       expect(await readFile(userAppend, 'utf8')).toBe('custom local note\n');
-      const overlay = await buildWorkspaceBeadsOverlay('workspace-1', {
+      const instructions = await renderWorkspaceBeadsInstructionBlock({
         settingsDirectory: root,
         beadsDirectory: '/var/lib/vd/beads',
       });
-      expect(overlay.files).toEqual([{ path: '.beads/redirect', content: '/var/lib/vd/beads/workspaces/workspace-1/.beads\n' }]);
-      expect(overlay.managed_blocks[0].content).toContain('Run `bd` commands from this workspace root/top-level directory.');
-      expect(overlay.managed_blocks[0].content).toContain('custom local note');
+      expect(instructions).toContain('Run `bd` commands from this workspace root/top-level directory.');
+      expect(instructions).toContain('custom local note');
     } finally {
       await rm(root, { recursive: true, force: true });
     }

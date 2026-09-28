@@ -31,8 +31,6 @@ CREATE TABLE IF NOT EXISTS "ExternalIssueWorkspaceLink" (
   "id" TEXT NOT NULL PRIMARY KEY,
   "externalIssueId" TEXT NOT NULL,
   "vkWorkspaceId" TEXT NOT NULL,
-  "workspaceBeadId" TEXT,
-  "workspaceBeadsDirKey" TEXT,
   "isPrimary" INTEGER NOT NULL DEFAULT 0,
   "lastOpenedAt" DATETIME,
   "metadataJson" TEXT,
@@ -45,6 +43,4 @@ CREATE TABLE IF NOT EXISTS "ExternalIssueWorkspaceLink" (
 CREATE UNIQUE INDEX IF NOT EXISTS "ExternalIssueWorkspaceLink_externalIssueId_vkWorkspaceId_key" ON "ExternalIssueWorkspaceLink"("externalIssueId", "vkWorkspaceId");
 CREATE INDEX IF NOT EXISTS "ExternalIssueWorkspaceLink_externalIssueId_idx" ON "ExternalIssueWorkspaceLink"("externalIssueId");
 CREATE INDEX IF NOT EXISTS "ExternalIssueWorkspaceLink_vkWorkspaceId_idx" ON "ExternalIssueWorkspaceLink"("vkWorkspaceId");
-CREATE INDEX IF NOT EXISTS "ExternalIssueWorkspaceLink_workspaceBead_idx" ON "ExternalIssueWorkspaceLink"("workspaceBeadsDirKey", "workspaceBeadId");
-CREATE UNIQUE INDEX IF NOT EXISTS "ExternalIssueWorkspaceLink_vkWorkspaceId_workspaceBeadId_key" ON "ExternalIssueWorkspaceLink"("vkWorkspaceId", "workspaceBeadId") WHERE "workspaceBeadId" IS NOT NULL;
 CREATE INDEX IF NOT EXISTS "ExternalIssueWorkspaceLink_isPrimary_idx" ON "ExternalIssueWorkspaceLink"("isPrimary");

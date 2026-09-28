@@ -23,22 +23,6 @@ Add local workspace instruction customizations here.
 This file is seeded once and is not overwritten by VD updates.
 -->`;
 
-export interface WorkspaceOverlayFile {
-  path: string;
-  content: string;
-}
-
-export interface WorkspaceOverlayManagedBlock {
-  path: string;
-  marker: string;
-  content: string;
-}
-
-export interface WorkspaceOverlay {
-  files: WorkspaceOverlayFile[];
-  managed_blocks: WorkspaceOverlayManagedBlock[];
-}
-
 export interface BdCommandRunner {
   (args: string[], options: { cwd: string }): Promise<{ stdout: string }>;
 }
@@ -60,6 +44,12 @@ export interface ExternalIssueBeadInput {
 export interface WorkspaceBeadPointer {
   beadId: string;
   beadsDirKey: string;
+}
+
+export interface WorkspaceSetupInput {
+  workspaceId: string;
+  workspaceDir: string;
+  repos: Array<{ id?: string; name: string; displayName?: string; path?: string; targetBranch?: string }>;
 }
 
 export function resolveVkSettingsDirectory(options: WorkspaceBeadsOptions = {}): string {
@@ -119,36 +109,57 @@ export async function renderWorkspaceBeadsInstructionBlock(options: WorkspaceBea
   const fragments = [...manifest.required_fragments, ...manifest.append_fragments];
   const rendered: string[] = [];
   for (const fragment of fragments) {
-    const content = await readFile(path.resolve(root, fragment), 'utf8').catch(() => '');
+    const content = await readFile(resolveSettingsPath(root, fragment), 'utf8').catch(() => '');
     if (content.trim()) rendered.push(content.trim());
   }
   return rendered.join('\n\n');
 }
 
-export async function buildWorkspaceBeadsOverlay(
-  workspaceId: string,
-  options: WorkspaceBeadsOptions = {},
-): Promise<WorkspaceOverlay> {
-  const target = workspaceBeadsDir(workspaceId, options);
-  const manifest = await loadWorkspaceBeadsManifest(options);
-  const instructions = await renderWorkspaceBeadsInstructionBlock(options);
-  return {
-    files: [{ path: '.beads/redirect', content: `${target}\n` }],
-    managed_blocks: manifest.target_files.map((targetFile) => ({
-      path: targetFile,
-      marker: 'workspace-instructions',
-      content: instructions,
-    })),
+export async function applyWorkspaceBeadsSetup(input: WorkspaceSetupInput, options: WorkspaceBeadsOptions = {}): Promise<void> {
+  await ensureWorkspaceBeadsDatabase(input.workspaceId, options);
+  await writeWorkspaceRedirect(input.workspaceId, input.workspaceDir, options);
+  await upsertWorkspaceInstructionBlocks(input.workspaceDir, options);
+  await upsertWorkspaceIndexBead(input, options);
+}
+
+export async function upsertWorkspaceIndexBead(input: WorkspaceSetupInput, options: WorkspaceBeadsOptions = {}): Promise<WorkspaceBeadPointer> {
+  const aggregateDir = path.join(resolveVdBeadsDirectory(options), 'aggregate-workspaces');
+  await ensureEmbeddedBeadsDatabase(aggregateDir, 'vdw', options);
+  const beadId = deterministicWorkspaceBeadId(input.workspaceId);
+  const runBd = options.runBd ?? defaultRunBd;
+  const repos = input.repos.map((repo) => ({
+    name: repo.name,
+    ...(repo.id ? { id: repo.id } : {}),
+    ...(repo.displayName ? { displayName: repo.displayName } : {}),
+    ...(repo.path ? { path: repo.path } : {}),
+    ...(repo.targetBranch ? { targetBranch: repo.targetBranch } : {}),
+  }));
+  const metadata = {
+    kind: 'workspace',
+    vkWorkspaceId: input.workspaceId,
+    workspaceDir: input.workspaceDir,
+    beadsDirKey: workspaceBeadsDirKey(input.workspaceId),
+    repos,
   };
+  const title = `Workspace ${input.workspaceId}`;
+  const description = [
+    `Workspace: ${input.workspaceId}`,
+    `Directory: ${input.workspaceDir}`,
+    '',
+    'Repositories:',
+    ...repos.map((repo) => `- ${repo.name}${repo.targetBranch ? ` (${repo.targetBranch})` : ''}`),
+  ].join('\n');
+  try {
+    await runBd(['show', beadId, '--json'], { cwd: aggregateDir });
+    await runBd(['update', beadId, '--title', title, '--description', description, '--metadata', JSON.stringify(metadata)], { cwd: aggregateDir });
+  } catch {
+    await runBd(['create', '--force', '--id', beadId, '--title', title, '--description', description, '--metadata', JSON.stringify(metadata), '--type', 'task'], { cwd: aggregateDir });
+  }
+  return { beadId, beadsDirKey: 'aggregate:workspaces' };
 }
 
 export async function ensureWorkspaceBeadsDatabase(workspaceId: string, options: WorkspaceBeadsOptions = {}): Promise<void> {
-  const dir = workspaceBeadsDir(workspaceId, options);
-  await mkdir(dir, { recursive: true });
-  await writeIfMissing(path.join(dir, 'config.yaml'), 'dolt:\n  shared-server: false\n');
-  await chmod(dir, 0o700).catch(() => undefined);
-  const runBd = options.runBd ?? defaultRunBd;
-  await runBd(['init', '--init-if-missing', '--skip-agents', '--non-interactive', '--prefix', 'vdw'], { cwd: path.dirname(dir) });
+  await ensureEmbeddedBeadsDatabase(path.dirname(workspaceBeadsDir(workspaceId, options)), 'vdw', options);
 }
 
 export async function ensureExternalIssueWorkspaceBead(
@@ -187,7 +198,7 @@ export async function ensureExternalIssueWorkspaceBead(
     await runBd(['show', beadId, '--json'], { cwd });
     await runBd(['update', beadId, '--title', title, '--description', description, '--metadata', JSON.stringify(metadata)], { cwd });
   } catch {
-    await runBd(['create', '--id', beadId, '--title', title, '--description', description, '--metadata', JSON.stringify(metadata), '--type', 'task'], { cwd });
+    await runBd(['create', '--force', '--id', beadId, '--title', title, '--description', description, '--metadata', JSON.stringify(metadata), '--type', 'task'], { cwd });
   }
 
   return { beadId, beadsDirKey: workspaceBeadsDirKey(workspaceId) };
@@ -198,7 +209,64 @@ export async function defaultRunBd(args: string[], options: { cwd: string }): Pr
   delete env.BEADS_DOLT_SHARED_SERVER;
   delete env.BEADS_DOLT_SERVER_HOST;
   delete env.BEADS_DOLT_SERVER_PORT;
+  env.BEADS_DIR = path.join(options.cwd, '.beads');
   return execFile('bd', args, { cwd: options.cwd, env, timeout: 30_000, maxBuffer: 10 * 1024 * 1024 });
+}
+
+async function writeWorkspaceRedirect(workspaceId: string, workspaceDir: string, options: WorkspaceBeadsOptions): Promise<void> {
+  const markerDir = path.join(workspaceDir, '.beads');
+  await mkdir(markerDir, { recursive: true });
+  await writeFile(path.join(markerDir, 'redirect'), `${workspaceBeadsDir(workspaceId, options)}\n`);
+}
+
+async function upsertWorkspaceInstructionBlocks(workspaceDir: string, options: WorkspaceBeadsOptions): Promise<void> {
+  const manifest = await loadWorkspaceBeadsManifest(options);
+  const instructions = await renderWorkspaceBeadsInstructionBlock(options);
+  for (const targetFile of manifest.target_files) {
+    await upsertManagedBlock(resolveWorkspacePath(workspaceDir, targetFile), 'workspace-instructions', instructions);
+  }
+}
+
+async function upsertManagedBlock(filePath: string, marker: string, content: string): Promise<void> {
+  const begin = `<!-- BEGIN VD MANAGED BLOCK: ${marker} -->`;
+  const end = `<!-- END VD MANAGED BLOCK: ${marker} -->`;
+  const block = `${begin}\n${content.trim()}\n${end}`;
+  const existing = await readFile(filePath, 'utf8').catch(() => '');
+  const pattern = new RegExp(`${escapeRegExp(begin)}[\\s\\S]*?${escapeRegExp(end)}`);
+  const next = pattern.test(existing)
+    ? existing.replace(pattern, block)
+    : `${existing.trimEnd()}${existing.trimEnd() ? '\n\n' : ''}${block}\n`;
+  await writeFile(filePath, next);
+}
+
+async function ensureEmbeddedBeadsDatabase(cwd: string, prefix: string, options: WorkspaceBeadsOptions = {}): Promise<void> {
+  await mkdir(path.join(cwd, '.beads'), { recursive: true });
+  await writeIfMissing(path.join(cwd, '.beads', 'config.yaml'), 'no-git-ops: true\nno-push: true\n\ndolt:\n  shared-server: false\n');
+  await chmod(path.join(cwd, '.beads'), 0o700).catch(() => undefined);
+  const runBd = options.runBd ?? defaultRunBd;
+  await runBd(['init', '--init-if-missing', '--skip-agents', '--non-interactive', '--prefix', prefix], { cwd });
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function resolveSettingsPath(root: string, relativePath: string): string {
+  const resolved = path.resolve(root, relativePath);
+  const normalizedRoot = path.resolve(root);
+  if (resolved !== normalizedRoot && !resolved.startsWith(`${normalizedRoot}${path.sep}`)) {
+    throw new Error(`Workspace beads fragment escapes VK_SETTINGS_DIRECTORY: ${relativePath}`);
+  }
+  return resolved;
+}
+
+function resolveWorkspacePath(root: string, relativePath: string): string {
+  const resolved = path.resolve(root, relativePath);
+  const normalizedRoot = path.resolve(root);
+  if (resolved !== normalizedRoot && !resolved.startsWith(`${normalizedRoot}${path.sep}`)) {
+    throw new Error(`Workspace instruction target escapes workspace: ${relativePath}`);
+  }
+  return resolved;
 }
 
 function parseWorkspaceBeadsManifest(toml: string): { required_fragments: string[]; append_fragments: string[]; target_files: string[] } {
