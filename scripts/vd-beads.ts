@@ -140,7 +140,7 @@ async function runSharedServerMigration(migrationArgs: string[]): Promise<void> 
 async function runPunt(puntArgs: string[]): Promise<void> {
   const beadId = readFlag(puntArgs, '--bead');
   const fromWorkspaceId = readFlag(puntArgs, '--from-workspace');
-  const toWorkspaceId = readFlag(puntArgs, '--to-workspace');
+  const toWorkspaceId = readFlag(puntArgs, '--to-workspace', false);
   const newWorkspace = puntArgs.includes('--new-workspace');
   const appendToPrompt = readFlag(puntArgs, '--append-to-prompt', false);
   const start = !puntArgs.includes('--no-start');
