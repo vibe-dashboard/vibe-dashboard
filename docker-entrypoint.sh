@@ -76,39 +76,57 @@ vkvd_system_container_capability_detected() {
     return 1
 }
 
-# Fail fast when the outer container is not running as a Sysbox/ECI system
-# container. Docker Desktop Enhanced Container Isolation may ignore explicit
-# runtime flags, so detect Sysbox behavior/markers from inside the container
-# rather than trusting the compose runtime value. Operators can bypass only for
-# deliberate diagnostics with VKVD_ALLOW_NON_SYSBOX_RUNTIME=true.
+configure_docker_socket_group() {
+    local docker_sock_gid
+    local current_docker_gid
+    local existing_group
+
+    [ -S /var/run/docker.sock ] || return 0
+
+    docker_sock_gid="$(stat -c '%g' /var/run/docker.sock)"
+    if getent group docker > /dev/null 2>&1; then
+        current_docker_gid="$(getent group docker | cut -d: -f3)"
+        if [ "$current_docker_gid" != "$docker_sock_gid" ]; then
+            startup_log "Updating docker group GID from $current_docker_gid to $docker_sock_gid to match socket"
+            groupmod -g "$docker_sock_gid" docker
+        fi
+    else
+        existing_group="$(getent group "$docker_sock_gid" | cut -d: -f1)"
+        if [ -n "$existing_group" ]; then
+            startup_log "GID $docker_sock_gid already used by group '$existing_group', renaming it to docker"
+            groupmod -n docker "$existing_group"
+        else
+            startup_log "Creating docker group with GID $docker_sock_gid to match socket"
+            groupadd -g "$docker_sock_gid" docker
+        fi
+    fi
+
+    usermod -aG docker vkuser
+}
+
+# Docker-in-Docker is enabled only for hosts that deliberately opt into Sysbox
+# with VKVD_CONTAINER_RUNTIME=sysbox-runc. Other runtimes should still boot the
+# workspace; they just do not get a working inner Docker daemon.
 startup_step_begin "verify Sysbox runtime"
-if [ "${VKVD_ALLOW_NON_SYSBOX_RUNTIME:-false}" = "true" ]; then
-    startup_log "WARNING: VKVD_ALLOW_NON_SYSBOX_RUNTIME=true; skipping Sysbox runtime preflight"
-elif vkvd_sysbox_marker_detected || vkvd_system_container_capability_detected; then
-    startup_log "Sysbox/ECI runtime preflight passed"
+if [ "${VKVD_CONTAINER_RUNTIME:-runc}" = "sysbox-runc" ]; then
+    if vkvd_sysbox_marker_detected || vkvd_system_container_capability_detected; then
+        startup_log "Sysbox runtime preflight passed; Docker-in-Docker is enabled"
+    else
+        startup_log "WARNING: VKVD_CONTAINER_RUNTIME=sysbox-runc but Sysbox capabilities were not detected; continuing without guaranteed Docker-in-Docker support"
+    fi
 else
-    cat >&2 <<'EOF'
-ERROR: This workspace must run with sysbox-runc on Linux or Docker Desktop Enhanced Container Isolation on Mac.
-The host Docker socket is intentionally not mounted, so the inner Docker daemon requires Sysbox system-container capabilities.
-
-Fix:
-  - Linux amd64/arm64: install Sysbox and keep VKVD_CONTAINER_RUNTIME=sysbox-runc.
-  - Mac amd64/arm64: enable Docker Desktop Enhanced Container Isolation.
-  - Diagnostic-only bypass: set VKVD_ALLOW_NON_SYSBOX_RUNTIME=true.
-
-Run scripts/smoke-sysbox-dind.sh after starting to verify Docker-in-Docker.
-EOF
-    exit 78
+    startup_log "WARNING: VKVD_CONTAINER_RUNTIME=${VKVD_CONTAINER_RUNTIME:-runc}; Docker-in-Docker is disabled unless a host Docker socket is mounted"
 fi
 startup_step_end
 
-# Ensure Docker-in-Docker state directories exist for the daemon supervised
-# inside this Sysbox container. We intentionally do not inspect or mount the
-# host Docker socket.
-startup_step_begin "prepare inner docker daemon"
-mkdir -p /var/lib/docker /var/run/docker
-if getent group docker > /dev/null 2>&1; then
-    usermod -aG docker vkuser 2>/dev/null || true
+startup_step_begin "prepare docker access"
+if [ "${VKVD_CONTAINER_RUNTIME:-runc}" = "sysbox-runc" ]; then
+    mkdir -p /var/lib/docker /var/run/docker
+    if getent group docker > /dev/null 2>&1; then
+        usermod -aG docker vkuser 2>/dev/null || true
+    fi
+else
+    configure_docker_socket_group
 fi
 startup_step_end
 

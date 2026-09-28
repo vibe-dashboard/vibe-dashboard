@@ -161,28 +161,32 @@ Codex caches credentials in `~/.codex/auth.json` when configured for file-based 
 
 ## Docker-in-Docker support
 
-The workspace runs Docker inside the dev container with Sysbox instead of mounting the host Docker socket. `docker-compose.yaml` sets `runtime: sysbox-runc`, persists the inner daemon at `/var/lib/docker`, and intentionally does **not** mount `/var/run/docker.sock` from the host.
+By default the workspace starts with the normal Docker runtime and does not require Docker-in-Docker. To run Docker inside the dev container, use a Sysbox-capable Docker host and start compose with `VKVD_CONTAINER_RUNTIME=sysbox-runc`. `docker-compose.yaml` persists the inner daemon at `/var/lib/docker` and keeps the host socket mount commented out.
+
+If you need the host Docker socket fallback instead, edit `docker-compose.yaml` and toggle the two Docker volumes: comment out `docker-data:/var/lib/docker`, then uncomment `/var/run/docker.sock:/var/run/docker.sock`. This is easier to set up but not recommended because Docker volumes do not map correctly from inside the container and agents can control the outer Docker context.
 
 Platform notes:
 
-- Linux amd64/arm64: install Sysbox on the Docker host, then start the stack normally. Sysbox publishes amd64 and arm64 Linux packages.
-- Mac amd64/arm64: use Docker Desktop with Enhanced Container Isolation enabled. Docker Desktop uses Sysbox for user containers in that mode and ignores explicit `--runtime` flags.
+- Linux amd64/arm64: install Sysbox on the Docker host, then run `VKVD_CONTAINER_RUNTIME=sysbox-runc docker compose up -d code-vibe`.
+- Mac amd64/arm64: use the Colima Sysbox setup in `scripts/colima/README.md`, then run `VKVD_CONTAINER_RUNTIME=sysbox-runc DOCKER_CONTEXT=colima-vd-sysbox docker compose up -d code-vibe`.
+- Docker Desktop Enhanced Container Isolation is a Docker Desktop Business feature. Prefer Colima for Mac Sysbox setup; if your environment intentionally uses ECI, verify Docker-in-Docker with the smoke test below.
 
 Preflight before starting:
 
 ```bash
-# Linux: verify Docker can see the Sysbox runtime.
+# Linux or Colima: verify Docker can see the Sysbox runtime.
 docker info --format '{{json .Runtimes}}' | grep sysbox-runc
 
-# Mac: enable Docker Desktop > Settings > Hardened Docker Desktop > Enhanced Container Isolation.
-# Docker Desktop keeps the default runtime as runc, so runtime-name checks are not enough on Mac.
+# Mac Colima: install and verify the Sysbox profile.
+./scripts/colima/setup-sysbox.sh
+./scripts/colima/check-sysbox.sh
 ```
 
 Start and smoke test before merge/release:
 
 ```bash
-docker compose up -d code-vibe
+VKVD_CONTAINER_RUNTIME=sysbox-runc docker compose up -d code-vibe
 ./scripts/smoke-sysbox-dind.sh
 ```
 
-The entrypoint fails fast if Sysbox/ECI system-container capabilities are unavailable. Use `VKVD_ALLOW_NON_SYSBOX_RUNTIME=true` only for deliberate diagnostics; that bypass is not a supported release configuration.
+When `VKVD_CONTAINER_RUNTIME` is not `sysbox-runc`, the entrypoint logs that Docker-in-Docker is disabled and continues so non-Sysbox workspaces can still run.
