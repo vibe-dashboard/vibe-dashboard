@@ -2,6 +2,7 @@
 set -euo pipefail
 
 service_name="${VKVD_SMOKE_SERVICE:-code-vibe}"
+export VKVD_CONTAINER_RUNTIME="${VKVD_CONTAINER_RUNTIME:-sysbox-runc}"
 project_args=()
 if [ -n "${VKVD_SMOKE_PROJECT_NAME:-}" ]; then
   project_args=(-p "${VKVD_SMOKE_PROJECT_NAME}")

@@ -181,36 +181,49 @@ describe('first-party service plugin inventory and golden supervisor config', ()
   });
 
   it('uses Sysbox-backed Docker-in-Docker without mounting the host Docker socket', () => {
+    expect(goldenDockerCompose).toContain('runtime: ${VKVD_CONTAINER_RUNTIME:-runc}');
+    expect(goldenDockerCompose).toContain('VKVD_CONTAINER_RUNTIME: ${VKVD_CONTAINER_RUNTIME:-runc}');
+    expect(qaDockerCompose).toContain('runtime: ${VKVD_CONTAINER_RUNTIME:-sysbox-runc}');
+    expect(qaDockerCompose).toContain('VKVD_CONTAINER_RUNTIME: ${VKVD_CONTAINER_RUNTIME:-sysbox-runc}');
+    expect(goldenDockerCompose).not.toContain('VKVD_ALLOW_NON_SYSBOX_RUNTIME');
+    expect(qaDockerCompose).not.toContain('VKVD_ALLOW_NON_SYSBOX_RUNTIME');
     for (const [name, compose] of [
       ['default', goldenDockerCompose],
       ['QA', qaDockerCompose],
     ] as const) {
-      expect(compose, `${name} compose runtime`).toContain('runtime: ${VKVD_CONTAINER_RUNTIME:-sysbox-runc}');
-      expect(compose, `${name} compose preflight setting`).toContain(
-        'VKVD_ALLOW_NON_SYSBOX_RUNTIME: ${VKVD_ALLOW_NON_SYSBOX_RUNTIME:-false}',
-      );
       expect(compose, `${name} compose inner Docker data`).toContain('docker-data:/var/lib/docker');
       expect(compose, `${name} compose host socket`).not.toContain('/var/run/docker.sock:/var/run/docker.sock');
     }
     expect(goldenDockerfile).toContain('docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin');
     expect(goldenDockerfile).toContain('usermod -aG vkadmin,sudo,docker vkuser');
-    expect(dockerEntrypoint).toContain('prepare inner docker daemon');
+    expect(dockerEntrypoint).toContain('prepare docker access');
     expect(dockerEntrypoint).not.toContain('DOCKER_SOCK_GID');
-    expect(goldenSupervisor).toContain('[program:dockerd]');
-    expect(goldenSupervisor).toContain('command=/usr/bin/dockerd --host=unix:///var/run/docker.sock --data-root=/var/lib/docker');
+    expect(goldenSupervisor).not.toContain('[program:dockerd]');
+    const dockerd = BUILTIN_FIRST_PARTY_SERVICE_PLUGINS.find((plugin) => plugin.manifest.id === 'first-party.dockerd');
+    expect(dockerd?.supervisorConfig).toBeUndefined();
+    expect(dockerd?.generatedSupervisorConfig).toMatchObject({
+      path: '/etc/supervisor/conf.d/vd-generated/dockerd.conf',
+      generatedBy: 'docker-entrypoint.sh',
+      condition: 'VKVD_CONTAINER_RUNTIME=sysbox-runc',
+    });
+    expect(dockerd?.generatedSupervisorConfig?.config).toContain('[program:dockerd]');
+    expect(dockerEntrypoint).toContain('write_dockerd_supervisor_config()');
+    expect(dockerEntrypoint).toContain('if [ "${VKVD_CONTAINER_RUNTIME:-runc}" != "sysbox-runc" ]; then');
+    expect(dockerEntrypoint).toContain('[program:dockerd]');
+    expect(dockerEntrypoint).toContain('command=/usr/bin/dockerd --host=unix:///var/run/docker.sock --data-root=/var/lib/docker');
   });
 
-
-  it('fails fast when the workspace is not launched with Sysbox unless explicitly bypassed', () => {
-    expect(dockerEntrypoint).toContain('VKVD_ALLOW_NON_SYSBOX_RUNTIME');
+  it('enables inner Docker only when the workspace is launched with Sysbox', () => {
     expect(dockerEntrypoint).toContain('verify Sysbox runtime');
-    expect(dockerEntrypoint).toContain('sysbox-runc on Linux or Docker Desktop Enhanced Container Isolation on Mac');
+    expect(dockerEntrypoint).toContain('Docker-in-Docker is disabled');
     expect(dockerEntrypoint).toContain('mount -t tmpfs tmpfs');
+    expect(dockerEntrypoint).not.toContain('VKVD_ALLOW_NON_SYSBOX_RUNTIME');
     expect(dockerEntrypoint).not.toContain('DOCKER_SOCK_GID');
   });
 
   it('documents and ships a self-skipping Sysbox Docker-in-Docker smoke test', () => {
     expect(sysboxSmokeScript).toContain('service_name="${VKVD_SMOKE_SERVICE:-code-vibe}"');
+    expect(sysboxSmokeScript).toContain('export VKVD_CONTAINER_RUNTIME="${VKVD_CONTAINER_RUNTIME:-sysbox-runc}"');
     expect(sysboxSmokeScript).toContain('compose up -d "$service_name"');
     expect(sysboxSmokeScript).toContain('docker exec "$container_name" sh -lc');
     expect(sysboxSmokeScript).toContain('docker info');
@@ -223,6 +236,16 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     const desired = createFirstPartyDesiredState(BUILTIN_FIRST_PARTY_SERVICE_PLUGINS);
 
     expect(desired.goldenConfigs).toEqual({ dockerfile: 'Dockerfile.vkvd', supervisor: 'supervisord.vkvd.conf' });
+    expect(desired.services['first-party.dockerd']).toMatchObject({
+      installStrategy: 'apt-or-script',
+      supervisorPrograms: ['dockerd'],
+      generatedSupervisorConfig: {
+        path: '/etc/supervisor/conf.d/vd-generated/dockerd.conf',
+        generatedBy: 'docker-entrypoint.sh',
+        condition: 'VKVD_CONTAINER_RUNTIME=sysbox-runc',
+      },
+    });
+    expect(desired.services['first-party.dockerd']?.generatedSupervisorConfig?.config).toContain('[program:dockerd]');
     expect(desired.services['first-party.vibe-kanban']).toMatchObject({
       desiredVersion: 'github-release:vk-assets-${VK_COMMIT}',
       installStrategy: 'github-release-asset',
