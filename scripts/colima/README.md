@@ -30,7 +30,7 @@ COLIMA_SYSBOX_PROFILE=my-profile ./scripts/colima/setup-sysbox.sh
 ## Use with compose
 
 ```bash
-DOCKER_CONTEXT=colima-vd-sysbox docker compose up -d code-vibe
+VKVD_CONTAINER_RUNTIME=sysbox-runc DOCKER_CONTEXT=colima-vd-sysbox docker compose up -d code-vibe
 ```
 
 ## Switch back to OrbStack

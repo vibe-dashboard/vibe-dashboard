@@ -49,4 +49,4 @@ log "Checking sysbox-runc can launch a container..."
 docker run --rm --runtime=sysbox-runc alpine:3.20 true
 
 log "Colima Sysbox profile '${profile}' is ready."
-log "Use it with: DOCKER_CONTEXT=${context} docker compose up -d code-vibe"
+log "Use it with: VKVD_CONTAINER_RUNTIME=sysbox-runc DOCKER_CONTEXT=${context} docker compose up -d code-vibe"
