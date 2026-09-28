@@ -37,6 +37,7 @@ trap cleanup EXIT
 mkdir -p "$RUN_DIR"
 
 npm run e2e:vk-mocked-sandbox:reset -- --variant basic-seeded
+npm run build:vibe-agent-cli
 
 echo "::group::Prepare VK mocked sandbox"
 VK_MOCKED_PREBUILD_BACKEND=1 node --experimental-strip-types scripts/vk-mocked-sandbox.ts setup

@@ -93,6 +93,7 @@ describe('VK mocked sandbox helpers', () => {
 
   it('runs mocked-sandbox e2e directly after CI startup without npm pretest reset', async () => {
     const script = await readFile('scripts/ci-run-vk-mocked-sandbox-e2e.sh', 'utf8');
+    expect(script).toContain('npm run build:vibe-agent-cli');
     expect(script).toContain('npx playwright test --config playwright.vk-mocked-sandbox.config.ts');
     expect(script).toContain('VK_MOCKED_EXTERNAL_SERVER=1');
     expect(script).toContain("import { allocatePorts } from './scripts/vk-mocked-sandbox.ts'");
