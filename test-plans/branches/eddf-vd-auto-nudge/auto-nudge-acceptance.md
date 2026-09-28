@@ -115,9 +115,17 @@ For automated runs, use the mocked-sandbox Playwright config:
 npm run test:e2e:vk-mocked-sandbox
 ```
 
-If validating the auto-nudge-specific E2E relocation, the test should live under
-an auto-nudge feature directory after **vkvw-kr0jy — Move auto-nudge
-mocked-sandbox E2E into auto-nudge feature directory** is implemented.
+The auto-nudge mocked-sandbox spec is committed at:
+
+```text
+tests/e2e/features/auto-nudge/auto-nudge-vk-compat.spec.ts
+```
+
+For a focused auto-nudge run against the mocked sandbox:
+
+```bash
+npm run test:e2e:vk-mocked-sandbox -- tests/e2e/features/auto-nudge/auto-nudge-vk-compat.spec.ts
+```
 
 ## Test cases
 
@@ -323,12 +331,17 @@ Steps:
    follow-up recovery.
 2. Run the focused legacy CLI test that covers default routed sends being gated
    by the auto-nudge scanner switch.
+3. Run the committed mocked-sandbox spec:
+   `tests/e2e/features/auto-nudge/auto-nudge-vk-compat.spec.ts`.
 
 Expected:
 
 - Response-route recovery test passes.
 - Default response routing is unavailable unless `VD_AUTO_NUDGE_ENABLED=true`
   or the sender uses `--fire-and-forget`.
+- In the real mocked sandbox, default `vibe-agent send` fails clearly when the
+  scanner is disabled, routes a final response when enabled, and lets
+  `--fire-and-forget` send without response-route state.
 
 Evidence:
 
@@ -378,6 +391,9 @@ Expected:
 - The auto-nudge E2E path names the auto-nudge feature.
 - The 3237 mocked-model directory contains only mocked-model tests.
 - `npm run test:e2e:vk-mocked-sandbox` still runs the auto-nudge E2E coverage.
+- The focused command
+  `npm run test:e2e:vk-mocked-sandbox -- tests/e2e/features/auto-nudge/auto-nudge-vk-compat.spec.ts`
+  runs the same committed spec.
 
 Evidence:
 
@@ -393,7 +409,8 @@ Run these focused checks unless a reviewer gives an equivalent newer command:
 npx vitest run --config vitest.server.config.ts \
   scripts/vibe-agent/nudge/auto-nudge.test.ts \
   scripts/vibe-agent/testing/auto-nudge.transport.test.ts \
-  scripts/vibe-agent/legacy-cli/vibe-agent.test.ts
+  scripts/vibe-agent/legacy-cli/vibe-agent.test.ts \
+  scripts/vk-mocked-sandbox.test.ts
 
 npm run check-types
 npm run build:vibe-agent-cli

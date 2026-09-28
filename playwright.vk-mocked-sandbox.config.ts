@@ -24,7 +24,11 @@ const sandboxEnv = Object.entries(fixedSandboxPorts)
   .join(' ');
 
 export default defineConfig({
-  testDir: './tests/e2e/features/3237-vd-mocked-model',
+  testDir: './tests/e2e/features',
+  testMatch: [
+    '3237-vd-mocked-model/*.spec.ts',
+    'auto-nudge/*.spec.ts',
+  ],
   timeout: 240_000,
   expect: {
     timeout: 10_000,
