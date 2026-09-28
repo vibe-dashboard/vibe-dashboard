@@ -64,12 +64,14 @@ async function runSharedServerMigration(migrationArgs: string[]): Promise<void> 
   const beadsDir = resolveVdBeadsDirectory();
   const settingsDir = resolveVkSettingsDirectory();
   const sharedDir = process.env.VD_SHARED_BEADS_SOURCE ?? '/home/vkuser/.beads/shared-server';
+  const bdConfigPath = process.env.VD_BD_CONFIG_PATH ?? path.join(process.env.HOME ?? '/home/vkuser', '.config', 'bd', 'config.yaml');
   const report: Record<string, unknown> = {
     command: 'migrate-shared-server',
     mode: apply ? 'apply' : 'dry-run',
     beadsDir,
     settingsDir,
     sharedDir,
+    bdConfigPath,
     offlineRequired: true,
     sharedSourceExists: existsSync(sharedDir),
   };
@@ -99,9 +101,12 @@ async function runSharedServerMigration(migrationArgs: string[]): Promise<void> 
   if (existsSync(sharedDir)) {
     await cp(sharedDir, path.join(backupDir, 'shared-server'), { recursive: true, force: false, errorOnExist: true });
   }
+  if (existsSync(bdConfigPath)) {
+    await cp(bdConfigPath, path.join(backupDir, 'bd-config.yaml'), { force: false, errorOnExist: true });
+  }
 
   const exportPath = path.join(backupDir, 'shared-export.jsonl');
-  const exportResult = await bd(['--global', 'export', '--all'], process.cwd(), false).catch((error) => ({ error: String(error) }));
+  const exportResult = await bdLegacyShared(['--global', 'export', '--all'], process.cwd()).catch((error) => ({ error: String(error) }));
   if ('stdout' in exportResult) {
     await writeFile(exportPath, exportResult.stdout);
   }
@@ -114,11 +119,15 @@ async function runSharedServerMigration(migrationArgs: string[]): Promise<void> 
   }
   const aggregateCheck = await bd(['export', '--json'], path.join(beadsDir, 'aggregate-workspaces'));
   const allBeadsCheck = await bd(['export'], path.join(beadsDir, 'aggregate-all-beads'));
-  await writeFile(path.join(settingsDir, 'bd-config.default.yaml'), 'no-git-ops: true\nno-push: true\n\ndolt:\n  shared-server: false\n  auto-commit: on\n  auto-push: false\n');
+  const nonSharedConfig = 'no-git-ops: true\nno-push: true\n\ndolt:\n  shared-server: false\n  auto-commit: on\n  auto-push: false\n';
+  await mkdir(path.dirname(bdConfigPath), { recursive: true });
+  await writeFile(bdConfigPath, nonSharedConfig);
+  await writeFile(path.join(settingsDir, 'bd-config.default.yaml'), nonSharedConfig);
 
   console.log(JSON.stringify({
     ...report,
     backupDir,
+    backedUpBdConfig: existsSync(path.join(backupDir, 'bd-config.yaml')),
     exportPath: 'stdout' in exportResult ? exportPath : null,
     exportError: 'error' in exportResult ? exportResult.error : null,
     initialized: ['aggregate-workspaces', 'aggregate-all-beads'],
@@ -163,6 +172,14 @@ async function runPunt(puntArgs: string[]): Promise<void> {
       linked_issue: null,
       executor_config: { executor },
       prompt,
+      attachment_ids: null,
+    });
+  } else if (newWorkspace) {
+    await vkPost('/api/workspaces/create-only', {
+      workspace_id: destinationWorkspaceId,
+      name,
+      repos: repos.map((repo) => ({ repo_id: repo.repo, target_branch: repo.branch })),
+      linked_issue: null,
       attachment_ids: null,
     });
   }
@@ -237,6 +254,15 @@ async function bd(commandArgs: string[], cwd: string, embedded = true): Promise<
     delete env.BEADS_DOLT_SERVER_PORT;
     env.BEADS_DIR = path.join(cwd, '.beads');
   }
+  return execFile('bd', commandArgs, { cwd, env, timeout: 30_000, maxBuffer: 10 * 1024 * 1024 });
+}
+
+async function bdLegacyShared(commandArgs: string[], cwd: string): Promise<{ stdout: string }> {
+  const env = { ...process.env };
+  delete env.BEADS_DIR;
+  env.BEADS_DOLT_SHARED_SERVER = 'true';
+  env.BEADS_DOLT_SERVER_HOST = env.BEADS_DOLT_SERVER_HOST ?? '127.0.0.1';
+  env.BEADS_DOLT_SERVER_PORT = env.BEADS_DOLT_SERVER_PORT ?? '3308';
   return execFile('bd', commandArgs, { cwd, env, timeout: 30_000, maxBuffer: 10 * 1024 * 1024 });
 }
 

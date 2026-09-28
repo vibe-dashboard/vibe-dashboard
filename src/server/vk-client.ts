@@ -98,6 +98,18 @@ export interface CreateAndStartWorkspaceResponse {
   execution_process: ExecutionProcess;
 }
 
+export interface CreateOnlyWorkspaceRequest {
+  workspace_id?: string | null;
+  name: string | null;
+  repos: Array<{ repo_id: string; target_branch: string }>;
+  linked_issue: { remote_project_id: string; issue_id: string } | null;
+  attachment_ids: string[] | null;
+}
+
+export interface CreateOnlyWorkspaceResponse {
+  workspace: Workspace;
+}
+
 export interface Session {
   id: string;
   workspace_id: string;
@@ -331,6 +343,10 @@ export class VibeKanbanServerClient {
 
   createAndStartWorkspace(body: CreateAndStartWorkspaceRequest): Promise<CreateAndStartWorkspaceResponse> {
     return this.post('/workspaces/start', body);
+  }
+
+  createOnlyWorkspace(body: CreateOnlyWorkspaceRequest): Promise<CreateOnlyWorkspaceResponse> {
+    return this.post('/workspaces/create-only', body);
   }
 
   getExecutionProcess(processId: string): Promise<ExecutionProcess> {
