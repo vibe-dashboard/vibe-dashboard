@@ -956,10 +956,22 @@ default-deny CSS compiler.
 
 ```xml
 <!-- a.uic.xml -->
-<uic:uses contract="demo.B" version="1" from="./b.uic.xml" as="B" />
+<uic:uses
+  artifact="uic.demo.components.b"
+  contract="demo.B"
+  version="1"
+  integrity="sha256-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  devSource="./b.uic.xml"
+  as="B" />
 
 <!-- b.uic.xml -->
-<uic:uses contract="demo.A" version="1" from="./a.uic.xml" as="A" />
+<uic:uses
+  artifact="uic.demo.components.a"
+  contract="demo.A"
+  version="1"
+  integrity="sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  devSource="./a.uic.xml"
+  as="A" />
 ```
 
 Expected: `uic/import/cycle`. The file being validated fails closed; the XSD
