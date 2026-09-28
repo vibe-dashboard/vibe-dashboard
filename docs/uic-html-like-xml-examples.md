@@ -53,6 +53,32 @@ uic/
 The XML is source of truth. XSD files are generated authoring artifacts and may
 be checked in for editor support.
 
+## Minimal valid UIC file
+
+A complete file still needs explicit identity, namespace, contract, version,
+sibling XSD reference, i18n declaration, and at least one safe markup element.
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<uic:page
+  xmlns:uic="https://vibedashboard.dev/uic/xml/v1"
+  id="hello-card.basic"
+  contract="demo.helloCard"
+  contractVersion="1"
+  xsd="hello-card.basic.uic.xsd">
+
+  <uic:i18n localeNamespace="demo.helloCard">
+    <uic:message key="title" default="Hello from UIC" />
+  </uic:i18n>
+
+  <section aria-labelledby="hello-title">
+    <h1 id="hello-title">
+      <uic:t key="title" />
+    </h1>
+  </section>
+</uic:page>
+```
+
 ## Full SpacesOverview HTML-like UIC XML
 
 This is deliberately larger than the first implementation slice. It shows the
@@ -69,9 +95,13 @@ typed resources and trusted actions.
   xsd="spaces-overview.command-center.uic.xsd">
 
   <uic:uses contract="spacesOverview.craftCard" version="1"
-    from="./components/craft-card.uic.xml" as="CraftCard" />
+    from="./components/craft-card.uic.xml"
+    integrity="sha256-1111111111111111111111111111111111111111111111111111111111111111"
+    as="CraftCard" />
   <uic:uses contract="spacesOverview.workspaceRow" version="1"
-    from="./components/workspace-row.uic.xml" as="WorkspaceRow" />
+    from="./components/workspace-row.uic.xml"
+    integrity="sha256-2222222222222222222222222222222222222222222222222222222222222222"
+    as="WorkspaceRow" />
 
   <uic:i18n localeNamespace="spacesOverview">
     <uic:message key="page.title" default="Dashboard" />
@@ -289,6 +319,86 @@ typed resources and trusted actions.
 </uic:page>
 ```
 
+## Craft list budgets and diagnostics
+
+Budgets are declared in XML metadata so authoring tools, XSD generation, and
+runtime validation agree on the same ceilings. JS still supplies bounded data
+and enforces current-state action targets.
+
+```xml
+<uic:resource
+  id="recentlyCreatedCraft"
+  contract="spacesOverview.craftList"
+  version="1"
+  maxRows="10"
+  maxLabelLength="96"
+  maxMetadataLength="64"
+  duplicateKeyPolicy="diagnose-and-dedupe" />
+
+<section aria-labelledby="created-title">
+  <h2 id="created-title">
+    <uic:t key="craft.created" />
+  </h2>
+  <ul>
+    <li uic:for="craft in recentlyCreatedCraft.items" uic:key="craft.id">
+      <uic:component is="CraftCard" item="craft" activate="spaces.navigateToCraft" />
+    </li>
+  </ul>
+</section>
+```
+
+Invalid or diagnostic-producing cases:
+
+```xml
+<uic:resource
+  id="recentlyCreatedCraft"
+  contract="spacesOverview.craftList"
+  version="1"
+  maxRows="100000" />
+```
+
+Expected: `uic/resource/budget-exceeds-policy` at `maxRows`.
+
+```xml
+<!-- Resource declares maxRows="10"; runtime projection contains 11 rows. -->
+<ul>
+  <li uic:for="craft in recentlyCreatedCraft.items" uic:key="craft.id">
+    <span uic:bind="craft.label" />
+  </li>
+</ul>
+```
+
+Expected: `uic/resource/max-rows-exceeded`; renderer caps deterministically to
+the first 10 rows and excludes capped rows from action targets.
+
+```xml
+<!-- Runtime projected rows contain duplicate ids: craft-1, craft-1. -->
+<li uic:for="craft in recentlyCreatedCraft.items" uic:key="craft.id">
+  <span uic:bind="craft.label" />
+</li>
+```
+
+Expected: `uic/resource/duplicate-key`; renderer keeps the first deterministic
+row and drops duplicates from action targets.
+
+```xml
+<!-- Runtime projected label is longer than maxLabelLength. -->
+<span uic:bind="craft.label" />
+```
+
+Expected: `uic/resource/string-truncated` for `craft.label`; action ids remain
+bound to untruncated stable ids, not display labels.
+
+```xml
+<uic:resource
+  id="recentlyCreatedCraft"
+  contract="spacesOverview.craftList"
+  version="1"
+  maxLabelLength="999999" />
+```
+
+Expected: `uic/resource/budget-exceeds-policy` at `maxLabelLength`.
+
 ## Imported XML component by contract
 
 The importing layout names the contract and version. `from` is a local authoring
@@ -300,6 +410,7 @@ path alone.
   contract="spacesOverview.craftCard"
   version="1"
   from="./components/craft-card.uic.xml"
+  integrity="sha256-1111111111111111111111111111111111111111111111111111111111111111"
   as="CraftCard" />
 ```
 
@@ -336,6 +447,56 @@ Structural compatibility for `spacesOverview.craftCard@1` requires the exported
 component to accept the same prop/action shape. A component may add internal
 markup, scoped CSS, and i18n keys, but it cannot require new parent data unless
 the contract version changes.
+
+### Polymorphic compatible replacement
+
+A replacement component may be selected when it exports the same contract and
+version, has a different digest, and remains structurally compatible with the
+required props/actions.
+
+```xml
+<uic:uses
+  contract="spacesOverview.craftCard"
+  version="1"
+  from="./components/craft-card.featured.uic.xml"
+  integrity="sha256-3333333333333333333333333333333333333333333333333333333333333333"
+  as="CraftCard" />
+```
+
+```xml
+<uic:component
+  xmlns:uic="https://vibedashboard.dev/uic/xml/v1"
+  id="craft-card.featured"
+  exports="spacesOverview.craftCard"
+  contractVersion="1">
+
+  <uic:props>
+    <uic:prop name="item.id" type="string" required="true" />
+    <uic:prop name="item.label" type="string" required="true" />
+    <uic:prop name="item.spaceLabel" type="string" required="false" />
+    <uic:prop name="activate" action="spaces.navigateToCraft" required="true" />
+  </uic:props>
+
+  <article data-uic-part="craft-card-featured">
+    <button type="button" uic:action="activate" uic:arg-craft-id="item.id">
+      <span aria-hidden="true">★</span>
+      <strong uic:bind="item.label" />
+      <small uic:bind="item.spaceLabel" />
+    </button>
+  </article>
+</uic:component>
+```
+
+Invalid replacement examples:
+
+- same contract but missing `activate` action:
+  `uic/import/incompatible-action`;
+- same contract but requires extra parent prop `item.secretScore`:
+  `uic/import/incompatible-props`;
+- same bytes but wrong digest:
+  `uic/import/integrity-mismatch`;
+- same local path with changed bytes and stale digest:
+  `uic/import/integrity-mismatch`.
 
 ## First-class i18n
 
@@ -376,6 +537,41 @@ escape hatch.
 
 Placeholder names in `default` must match bound attributes. For example,
 `default="{label} is required."` requires `label="..."`.
+
+Plural/select messages are first-class too. Use ICU-style defaults, and require
+every placeholder referenced by the message to be supplied by `uic:t`.
+
+```xml
+<uic:i18n localeNamespace="spacesOverview">
+  <uic:message
+    key="craft.count"
+    default="{count, plural, =0 {No craft} one {# craft item} other {# craft items}}" />
+  <uic:message
+    key="server.state"
+    default="{state, select, running {Running} stopping {Stopping} other {Unknown}}" />
+</uic:i18n>
+
+<p>
+  <uic:t key="craft.count" count="starredCraft.totalCount" />
+</p>
+<p>
+  <uic:t key="server.state" state="server.state" />
+</p>
+```
+
+Invalid plural/select examples:
+
+```xml
+<uic:t key="craft.count" />
+```
+
+Expected: `uic/i18n/missing-placeholder` for `count`.
+
+```xml
+<uic:t key="server.state" status="server.state" />
+```
+
+Expected: `uic/i18n/missing-placeholder` for `state`.
 
 ## Flat-file-backed settings/helper UI model
 
@@ -615,6 +811,39 @@ action IDs, and current i18n declarations.
 
 The XSD helps editors catch mistakes before runtime. Runtime validation remains
 authoritative and must fail closed.
+
+## Per-file XSD CLI and editor workflow
+
+The CLI should generate and validate sibling XSD files deterministically.
+
+```bash
+# Generate or refresh sibling XSD files for checked-in UIC XML.
+npm run uic:check -- --write-xsd uic/spaces-overview/spaces-overview.command-center.uic.xml
+
+# Validate XML against generated XSD and runtime semantic rules.
+npm run uic:check -- uic/spaces-overview/spaces-overview.command-center.uic.xml
+
+# CI mode: fail if XML, generated XSD, or normalized contract metadata drift.
+npm run uic:check -- --ci uic/**/*.uic.xml
+```
+
+Editor wiring should point each XML file at its sibling schema:
+
+```xml
+<?xml-model
+  href="spaces-overview.command-center.uic.xsd"
+  type="application/xml"
+  schematypens="http://www.w3.org/2001/XMLSchema"?>
+```
+
+Required behavior:
+
+- XSD generation reads the current file, imported contract headers, declared
+  resources, actions, i18n keys, and safe HTML allowlist.
+- XSD generation does not recursively expand full imported XML bodies.
+- Editors use XSD for completion and early errors.
+- Runtime validation remains authoritative for digests, current-state action
+  gates, budgets, unsafe values, and fail-closed fallback.
 
 ## Invalid examples and expected diagnostics
 
