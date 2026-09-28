@@ -142,8 +142,8 @@ startup_log "Skipping recursive repository permission repair; repository files a
 # supervisord starts. Plugin artifact installation intentionally runs after
 # Caddy starts so first boot is not blocked on large downloads.
 startup_step_begin "prepare plugin runtime directories"
-mkdir -p /var/lib/vd/instance-config /var/lib/vd/plugin-cache /var/lib/vd/plugins /var/lib/vd/plugin-bin /var/lib/vd/toolchains/bin /var/lib/vd/toolchains/npm /var/lib/vd/plugin-data /var/lib/vd/silverbullet/space /etc/supervisor/conf.d/vd-generated /etc/caddy
-ensure_shared_dir /var/lib/vd /var/lib/vd/instance-config /var/lib/vd/plugin-cache /var/lib/vd/plugins /var/lib/vd/plugin-bin /var/lib/vd/toolchains /var/lib/vd/plugin-data /var/lib/vd/silverbullet
+mkdir -p /var/lib/vd/instance-config /var/lib/vd/vk-config /var/lib/vd/beads /var/lib/vd/plugin-cache /var/lib/vd/plugins /var/lib/vd/plugin-bin /var/lib/vd/toolchains/bin /var/lib/vd/toolchains/npm /var/lib/vd/plugin-data /var/lib/vd/silverbullet/space /etc/supervisor/conf.d/vd-generated /etc/caddy
+ensure_shared_dir /var/lib/vd /var/lib/vd/instance-config /var/lib/vd/vk-config /var/lib/vd/beads /var/lib/vd/plugin-cache /var/lib/vd/plugins /var/lib/vd/plugin-bin /var/lib/vd/toolchains /var/lib/vd/plugin-data /var/lib/vd/silverbullet
 startup_debug_path_summary /var/lib/vd
 startup_step_end
 if [ ! -f /etc/caddy/plugins.caddy ]; then

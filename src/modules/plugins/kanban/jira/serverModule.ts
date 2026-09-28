@@ -12,5 +12,5 @@ serverRegistry.registerServerModule(async (api) => {
   }));
 
   registerExternalTrackerAuthRoutes(api.hono, { auth });
-  registerExternalTrackerBoardRoutes(api.hono, { auth, db: handle.db });
+  registerExternalTrackerBoardRoutes(api.hono, { auth, db: handle.db, workspaceBeads: {} });
 });

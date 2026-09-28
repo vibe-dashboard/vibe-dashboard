@@ -59,6 +59,7 @@
     "beads-form:preview": "node --experimental-strip-types scripts/beads-form/preview.ts",
     "dev:beads-form-preview": "node --experimental-strip-types scripts/beads-form/preview.ts",
     "beads-form": "node --experimental-strip-types scripts/beads-form/cli.ts",
+    "vd-beads": "node --experimental-strip-types scripts/vd-beads.ts",
     "dev:beads-form-preview:shared": "node --experimental-strip-types scripts/beads-form/shared-preview.ts",
     "hotswap:vkvd": "node --experimental-strip-types scripts/hotswap-vkvd.ts",
     "vk:batch-build": "bash scripts/vk-batch-stage-validate-build.sh",
@@ -135,6 +136,7 @@
   "bin": {
     "vibe-agent": "./bin/vibe-agent",
     "vk": "./bin/vk",
-    "beads-form": "./bin/beads-form"
+    "beads-form": "./bin/beads-form",
+    "vd-beads": "./bin/vd-beads"
   }
 }
