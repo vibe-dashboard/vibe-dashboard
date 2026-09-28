@@ -2,7 +2,7 @@
 import { existsSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { execFile as execFileCallback } from 'node:child_process';
-import { cp, mkdir, writeFile } from 'node:fs/promises';
+import { cp, mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import { promisify } from 'node:util';
@@ -65,6 +65,8 @@ async function runSharedServerMigration(migrationArgs: string[]): Promise<void> 
   const settingsDir = resolveVkSettingsDirectory();
   const sharedDir = process.env.VD_SHARED_BEADS_SOURCE ?? '/home/vkuser/.beads/shared-server';
   const bdConfigPath = process.env.VD_BD_CONFIG_PATH ?? path.join(process.env.HOME ?? '/home/vkuser', '.config', 'bd', 'config.yaml');
+  const sharedSourceExists = existsSync(sharedDir);
+  const bdConfigExisted = existsSync(bdConfigPath);
   const report: Record<string, unknown> = {
     command: 'migrate-shared-server',
     mode: apply ? 'apply' : 'dry-run',
@@ -73,7 +75,7 @@ async function runSharedServerMigration(migrationArgs: string[]): Promise<void> 
     sharedDir,
     bdConfigPath,
     offlineRequired: true,
-    sharedSourceExists: existsSync(sharedDir),
+    sharedSourceExists,
   };
 
   if (!apply) {
@@ -98,23 +100,33 @@ async function runSharedServerMigration(migrationArgs: string[]): Promise<void> 
   const backupDir = path.join(beadsDir, 'backups', `shared-server-${stamp}`);
   await mkdir(backupDir, { recursive: true });
 
-  if (existsSync(sharedDir)) {
+  if (sharedSourceExists) {
     await cp(sharedDir, path.join(backupDir, 'shared-server'), { recursive: true, force: false, errorOnExist: true });
   }
-  if (existsSync(bdConfigPath)) {
+  if (bdConfigExisted) {
     await cp(bdConfigPath, path.join(backupDir, 'bd-config.yaml'), { force: false, errorOnExist: true });
   }
 
   const exportPath = path.join(backupDir, 'shared-export.jsonl');
-  const exportResult = await bdLegacyShared(['--global', 'export', '--all'], process.cwd()).catch((error) => ({ error: String(error) }));
+  const exportResult = sharedSourceExists
+    ? await bdLegacyShared(['--global', 'export', '--all'], process.cwd()).catch((error) => ({ error: String(error) }))
+    : { skipped: 'no shared source exists' };
+  if ('error' in exportResult) {
+    await restoreOriginalBdConfig(bdConfigPath, backupDir, bdConfigExisted);
+    throw new Error(`Legacy shared-server export failed; refusing to rewrite bd config. Backup directory: ${backupDir}. Export error: ${exportResult.error}`);
+  }
   if ('stdout' in exportResult) {
+    if (!exportResult.stdout.trim()) {
+      await restoreOriginalBdConfig(bdConfigPath, backupDir, bdConfigExisted);
+      throw new Error(`Legacy shared-server export was empty despite shared source existing; refusing to rewrite bd config. Backup directory: ${backupDir}`);
+    }
     await writeFile(exportPath, exportResult.stdout);
   }
 
   await ensureEmbeddedDb(path.join(beadsDir, 'aggregate-workspaces'), 'vdw');
   await ensureEmbeddedDb(path.join(beadsDir, 'aggregate-all-beads'), 'vda');
   let importResult: { stdout: string } | { skipped: string } = { skipped: 'no export available' };
-  if ('stdout' in exportResult && exportResult.stdout.trim()) {
+  if ('stdout' in exportResult) {
     importResult = await bd(['import', exportPath, '--json'], path.join(beadsDir, 'aggregate-all-beads'));
   }
   const aggregateCheck = await bd(['export', '--json'], path.join(beadsDir, 'aggregate-workspaces'));
@@ -264,6 +276,15 @@ async function bdLegacyShared(commandArgs: string[], cwd: string): Promise<{ std
   env.BEADS_DOLT_SERVER_HOST = env.BEADS_DOLT_SERVER_HOST ?? '127.0.0.1';
   env.BEADS_DOLT_SERVER_PORT = env.BEADS_DOLT_SERVER_PORT ?? '3308';
   return execFile('bd', commandArgs, { cwd, env, timeout: 30_000, maxBuffer: 10 * 1024 * 1024 });
+}
+
+async function restoreOriginalBdConfig(bdConfigPath: string, backupDir: string, bdConfigExisted: boolean): Promise<void> {
+  if (bdConfigExisted) {
+    await mkdir(path.dirname(bdConfigPath), { recursive: true });
+    await cp(path.join(backupDir, 'bd-config.yaml'), bdConfigPath, { force: true });
+  } else {
+    await rm(bdConfigPath, { force: true });
+  }
 }
 
 function workspaceCwd(workspaceId: string): string {
