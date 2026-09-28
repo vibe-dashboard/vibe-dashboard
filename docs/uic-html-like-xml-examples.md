@@ -20,13 +20,20 @@ the authoring experience we want before implementing the next UIC grammar.
   tree.
 - JS declares data contracts, action contracts, safety rules, and current-state
   gates. XML owns the UI structure, copy, i18n references, and scoped styling.
+- Runtime-addable and runtime-editable XML artifacts are a core requirement:
+  users and agents should be able to add or edit XML files, validate them, and
+  activate them without a TypeScript release when the contracts allow it.
 - Forms are allowed only as declarative UI that calls trusted injected actions.
   No URL form submission, `action="/..."`, `method="post"`, or raw navigation.
 - Canonical authoring artifacts are XML files with sibling generated XSD files.
 - A per-file XSD includes the current file rules and imported
   content/contracts. It must not recursively expand the entire import graph.
-- Contract imports require structural compatibility by contract ID and version;
-  an optional local path helps local authoring and forking.
+- Canonical imports use component/artifact IDs, contract IDs, versions, and
+  digests. File paths are registry/editor details only, except explicit
+  `devSource` references for local development.
+- Contract imports require structural compatibility by contract ID and version.
+- Slots remain first-class for imported XML components: children declare typed
+  required/optional slots and parents fill those slots.
 - Invalid XML fails closed with diagnostics and safe fallback.
 - iframe-sandboxed JavaScript via `postMessage` RPC is future-only and not v1.
 
@@ -52,6 +59,25 @@ uic/
 
 The XML is source of truth. XSD files are generated authoring artifacts and may
 be checked in for editor support.
+
+## Runtime artifact activation gate
+
+Every XML artifact, including one added or edited at runtime, must pass the
+same gate before activation:
+
+1. parse as XML and match the safe HTML-like grammar;
+2. validate imported artifact IDs, contract IDs, versions, and digests;
+3. validate typed slot declarations and parent slot fills;
+4. validate i18n keys, defaults, plural/select placeholders, and references;
+5. validate resource budgets and deterministic capping/deduping behavior;
+6. compile scoped CSS through the default-deny policy;
+7. validate trusted data/action contracts and current-state action gates;
+8. generate or check the sibling XSD for the current file;
+9. bind the normalized artifact to digest/revision metadata;
+10. activate atomically or keep the last-known-good artifact with diagnostics.
+
+The XSD is useful for editors and CI, but runtime validation remains
+authoritative.
 
 ## Minimal valid UIC file
 
@@ -94,13 +120,19 @@ typed resources and trusted actions.
   contractVersion="1"
   xsd="spaces-overview.command-center.uic.xsd">
 
-  <uic:uses contract="spacesOverview.craftCard" version="1"
-    from="./components/craft-card.uic.xml"
+  <uic:uses
+    artifact="uic.spaces.components.craft-card.compact"
+    contract="spacesOverview.craftCard"
+    version="1"
     integrity="sha256-1111111111111111111111111111111111111111111111111111111111111111"
+    devSource="./components/craft-card.uic.xml"
     as="CraftCard" />
-  <uic:uses contract="spacesOverview.workspaceRow" version="1"
-    from="./components/workspace-row.uic.xml"
+  <uic:uses
+    artifact="uic.spaces.components.workspace-row.default"
+    contract="spacesOverview.workspaceRow"
+    version="1"
     integrity="sha256-2222222222222222222222222222222222222222222222222222222222222222"
+    devSource="./components/workspace-row.uic.xml"
     as="WorkspaceRow" />
 
   <uic:i18n localeNamespace="spacesOverview">
@@ -401,16 +433,18 @@ Expected: `uic/resource/budget-exceeds-policy` at `maxLabelLength`.
 
 ## Imported XML component by contract
 
-The importing layout names the contract and version. `from` is a local authoring
-hint and source path; compatibility is decided by the exported contract, not by
+The importing layout names the component artifact, contract, version, and
+digest. Registry lookup resolves artifact IDs to current content. `devSource`
+is an optional local development/editor hint; compatibility is never decided by
 path alone.
 
 ```xml
 <uic:uses
+  artifact="uic.spaces.components.craft-card.compact"
   contract="spacesOverview.craftCard"
   version="1"
-  from="./components/craft-card.uic.xml"
   integrity="sha256-1111111111111111111111111111111111111111111111111111111111111111"
+  devSource="./components/craft-card.uic.xml"
   as="CraftCard" />
 ```
 
@@ -430,14 +464,20 @@ The imported component exports its contract:
     <uic:prop name="item.spaceLabel" type="string" required="false" />
     <uic:prop name="activate" action="spaces.navigateToCraft" required="true" />
   </uic:props>
+  <uic:slots>
+    <uic:slot name="media" required="false" accepts="html.inline" />
+    <uic:slot name="trailing" required="false" accepts="html.inline" />
+  </uic:slots>
 
   <article data-uic-part="craft-card">
     <button
       type="button"
       uic:action="activate"
       uic:arg-craft-id="item.id">
+      <uic:slot name="media" />
       <strong uic:bind="item.label" />
       <small uic:bind="item.spaceLabel" />
+      <uic:slot name="trailing" />
     </button>
   </article>
 </uic:component>
@@ -445,8 +485,28 @@ The imported component exports its contract:
 
 Structural compatibility for `spacesOverview.craftCard@1` requires the exported
 component to accept the same prop/action shape. A component may add internal
-markup, scoped CSS, and i18n keys, but it cannot require new parent data unless
-the contract version changes.
+markup, scoped CSS, i18n keys, and optional slots, but it cannot require new
+parent data or new required slots unless the contract version changes.
+
+### Parent-filled imported component slots
+
+Parents fill named slots only. The child controls where slot content renders;
+the parent content must satisfy the imported slot contract.
+
+```xml
+<uic:component is="CraftCard" item="craft" activate="spaces.navigateToCraft">
+  <uic:fill slot="media">
+    <span aria-hidden="true">★</span>
+  </uic:fill>
+  <uic:fill slot="trailing">
+    <span uic:bind="craft.viewCountLabel" />
+  </uic:fill>
+</uic:component>
+```
+
+The current file's generated XSD includes the imported component's slot names,
+required/optional status, and accepted content categories. It does not
+recursively expand the imported component's full internal XML rules.
 
 ### Polymorphic compatible replacement
 
@@ -456,10 +516,11 @@ required props/actions.
 
 ```xml
 <uic:uses
+  artifact="uic.spaces.components.craft-card.featured"
   contract="spacesOverview.craftCard"
   version="1"
-  from="./components/craft-card.featured.uic.xml"
   integrity="sha256-3333333333333333333333333333333333333333333333333333333333333333"
+  devSource="./components/craft-card.featured.uic.xml"
   as="CraftCard" />
 ```
 
@@ -476,12 +537,17 @@ required props/actions.
     <uic:prop name="item.spaceLabel" type="string" required="false" />
     <uic:prop name="activate" action="spaces.navigateToCraft" required="true" />
   </uic:props>
+  <uic:slots>
+    <uic:slot name="media" required="false" accepts="html.inline" />
+    <uic:slot name="trailing" required="false" accepts="html.inline" />
+  </uic:slots>
 
   <article data-uic-part="craft-card-featured">
     <button type="button" uic:action="activate" uic:arg-craft-id="item.id">
-      <span aria-hidden="true">★</span>
+      <uic:slot name="media" />
       <strong uic:bind="item.label" />
       <small uic:bind="item.spaceLabel" />
+      <uic:slot name="trailing" />
     </button>
   </article>
 </uic:component>
@@ -493,9 +559,11 @@ Invalid replacement examples:
   `uic/import/incompatible-action`;
 - same contract but requires extra parent prop `item.secretScore`:
   `uic/import/incompatible-props`;
+- same contract but adds required slot `badge`:
+  `uic/import/incompatible-slot`;
 - same bytes but wrong digest:
   `uic/import/integrity-mismatch`;
-- same local path with changed bytes and stale digest:
+- same dev source path with changed bytes and stale digest:
   `uic/import/integrity-mismatch`.
 
 ## First-class i18n
@@ -800,6 +868,7 @@ action IDs, and current i18n declarations.
         <xs:element ref="uic:i18n" minOccurs="0" maxOccurs="1" />
         <xs:element ref="uic:css" minOccurs="0" maxOccurs="1" />
         <!-- Safe vanilla HTML element tree allowed here by generated rules. -->
+        <!-- Imported CraftCard fills allowed here: media?, trailing?. -->
       </xs:sequence>
       <xs:attribute name="id" use="required" />
       <xs:attribute name="contract" fixed="spacesOverview.page" />
@@ -839,11 +908,11 @@ Editor wiring should point each XML file at its sibling schema:
 Required behavior:
 
 - XSD generation reads the current file, imported contract headers, declared
-  resources, actions, i18n keys, and safe HTML allowlist.
+  resources, actions, i18n keys, typed slot contracts, and safe HTML allowlist.
 - XSD generation does not recursively expand full imported XML bodies.
 - Editors use XSD for completion and early errors.
 - Runtime validation remains authoritative for digests, current-state action
-  gates, budgets, unsafe values, and fail-closed fallback.
+  gates, budgets, scoped CSS policy, unsafe values, and fail-closed fallback.
 
 ## Invalid examples and expected diagnostics
 
