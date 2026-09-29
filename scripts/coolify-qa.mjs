@@ -6,7 +6,7 @@ const DEFAULT_ENVIRONMENT_UUID = 'dksgc48844g4o8kko8gosk48';
 const DEFAULT_SERVER_UUID = 'y80og4woc8osok44s4s84gss';
 const DEFAULT_REPO = 'https://github.com/mickmister/vibe-dashboard';
 const DEFAULT_COMPOSE_LOCATION = '/docker-compose.yaml';
-const DEFAULT_IMAGE = 'ghcr.io/mickmister/vk-vd';
+const DEFAULT_IMAGE = 'ghcr.io/vibe-dashboard/vk-vd';
 
 function usage() {
   console.log(`Usage:
@@ -192,6 +192,7 @@ async function deploy(args) {
   if (!uuid) return;
   await updateApplicationConfig(uuid, args);
   const envs = {
+    VKVD_IMAGE_REPOSITORY: args.image ?? DEFAULT_IMAGE,
     VKVD_IMAGE_VERSION: args['image-tag'],
     CADDY_PORT: '3001',
     QA_SLOT_ID: `slot-${args.slot}`,

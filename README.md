@@ -33,7 +33,8 @@ Caddy forwards `port-<port>.*` subdomains to `localhost:<port>` inside the conta
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `VKVD_IMAGE_VERSION` | `latest` | Fetches image from ghcr.io/mickmister/vk-vd:${VKVD_IMAGE_VERSION:-latest}. The compose file's pull policy is set to "always", so if you want to pin a specific version, use this arg. |
+| `VKVD_IMAGE_REPOSITORY` | `ghcr.io/vibe-dashboard/vk-vd` | Image repository used by compose. Override this to pull from a fork or staging registry. |
+| `VKVD_IMAGE_VERSION` | `latest` | Fetches image from `${VKVD_IMAGE_REPOSITORY:-ghcr.io/vibe-dashboard/vk-vd}:${VKVD_IMAGE_VERSION:-latest}`. The compose file's pull policy is set to "always", so if you want to pin a specific version, use this arg. |
 
 #### Ports
 
