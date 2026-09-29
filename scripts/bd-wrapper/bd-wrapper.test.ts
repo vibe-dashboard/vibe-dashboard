@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -85,5 +85,45 @@ describe('bd metadata wrapper', () => {
       VK_WORKSPACE_ID: 'workspace-2',
       VK_SESSION_ID: 'session-2',
     });
+  });
+
+  it('rejects bd commands from workspace repo subdirectories', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'bd-wrapper-workspace-'));
+    const { bin } = await fakeBd(tempRoot);
+    const workspaceRoot = join(tempRoot, 'workspace');
+    const repoDir = join(workspaceRoot, 'repo');
+    await mkdir(join(workspaceRoot, '.beads'), { recursive: true });
+    await mkdir(repoDir, { recursive: true });
+    await writeFile(join(workspaceRoot, '.beads', 'redirect'), '/persisted/beads\n');
+
+    await expect(execFileAsync(wrapper, ['list'], {
+      cwd: repoDir,
+      env: { ...process.env, REAL_BD: bin },
+    })).rejects.toMatchObject({
+      code: 2,
+      stderr: expect.stringContaining('bd must be run from the workspace root'),
+    });
+  });
+
+  it('allows workspace root and strips explicit workspace-root override', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'bd-wrapper-root-'));
+    const { bin, argsFile } = await fakeBd(tempRoot);
+    const workspaceRoot = join(tempRoot, 'workspace');
+    const repoDir = join(workspaceRoot, 'repo');
+    await mkdir(join(workspaceRoot, '.beads'), { recursive: true });
+    await mkdir(repoDir, { recursive: true });
+    await writeFile(join(workspaceRoot, '.beads', 'redirect'), '/persisted/beads\n');
+
+    await execFileAsync(wrapper, ['list'], {
+      cwd: workspaceRoot,
+      env: { ...process.env, REAL_BD: bin },
+    });
+    await expect(readFile(argsFile, 'utf8').then(JSON.parse)).resolves.toEqual(['list']);
+
+    await execFileAsync(wrapper, ['--ignore-workspace-root', 'show', 'vkvw-123'], {
+      cwd: repoDir,
+      env: { ...process.env, REAL_BD: bin },
+    });
+    await expect(readFile(argsFile, 'utf8').then(JSON.parse)).resolves.toEqual(['show', 'vkvw-123']);
   });
 });
