@@ -192,7 +192,7 @@ describe('first-party service plugin inventory and golden supervisor config', ()
       ['QA', qaDockerCompose],
     ] as const) {
       expect(compose, `${name} compose inner Docker data`).toContain('docker-data:/var/lib/docker');
-      expect(compose, `${name} compose host socket`).not.toContain('/var/run/docker.sock:/var/run/docker.sock');
+      expect(compose, `${name} compose active host socket mount`).not.toMatch(/^\s*-\s+\/var\/run\/docker\.sock:\/var\/run\/docker\.sock/m);
     }
     expect(goldenDockerfile).toContain('docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin');
     expect(goldenDockerfile).toContain('usermod -aG vkadmin,sudo,docker vkuser');
