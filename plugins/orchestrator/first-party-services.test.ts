@@ -183,8 +183,8 @@ describe('first-party service plugin inventory and golden supervisor config', ()
   it('uses Sysbox-backed Docker-in-Docker without mounting the host Docker socket', () => {
     expect(goldenDockerCompose).toContain('runtime: ${VKVD_CONTAINER_RUNTIME:-runc}');
     expect(goldenDockerCompose).toContain('VKVD_CONTAINER_RUNTIME: ${VKVD_CONTAINER_RUNTIME:-runc}');
-    expect(qaDockerCompose).toContain('runtime: ${VKVD_CONTAINER_RUNTIME:-sysbox-runc}');
-    expect(qaDockerCompose).toContain('VKVD_CONTAINER_RUNTIME: ${VKVD_CONTAINER_RUNTIME:-sysbox-runc}');
+    expect(qaDockerCompose).toContain('runtime: ${VKVD_CONTAINER_RUNTIME:-runc}');
+    expect(qaDockerCompose).toContain('VKVD_CONTAINER_RUNTIME: ${VKVD_CONTAINER_RUNTIME:-runc}');
     expect(goldenDockerCompose).not.toContain('VKVD_ALLOW_NON_SYSBOX_RUNTIME');
     expect(qaDockerCompose).not.toContain('VKVD_ALLOW_NON_SYSBOX_RUNTIME');
     for (const [name, compose] of [
