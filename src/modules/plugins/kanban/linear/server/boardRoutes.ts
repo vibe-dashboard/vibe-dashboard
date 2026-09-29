@@ -11,21 +11,20 @@ import type { BeadsExternalIssueServiceOptions } from '../../server/beadExternal
 import { EXTERNAL_VIEW_URL_PARAM } from '../../ExternalKanbanRoute';
 
 export type FetchLinearBoardView = typeof fetchLinearBoardView;
-type DbProvider = Kysely<DB> | (() => Promise<Kysely<DB>>);
+type ExternalTrackerDbSource = { db: Kysely<DB>; getDb?: never } | { db?: never; getDb: () => Promise<Kysely<DB>> };
 
 export function registerLinearBoardRoutes(
   hono: Hono,
-  options: {
+  options: ExternalTrackerDbSource & {
     /** @deprecated Ignored; external Kanban routes are always registered. */
     enabled?: boolean;
-    db: DbProvider;
     fetchLinearBoardView?: FetchLinearBoardView;
     linearAuth?: FetchLinearBoardViewOptions['auth'] | false;
     beads?: BeadsExternalIssueServiceOptions;
   },
 ): void {
   const fetchBoard = options.fetchLinearBoardView ?? fetchLinearBoardView;
-  const getDb = async () => typeof options.db === 'function' ? await options.db() : options.db;
+  const getDb = (): Promise<Kysely<DB>> => options.getDb ? options.getDb() : Promise.resolve(options.db);
 
   hono.get('/dashboard/api/external-trackers/linear/board', async (c) => {
     const externalViewUrl = c.req.query(EXTERNAL_VIEW_URL_PARAM)?.trim();
