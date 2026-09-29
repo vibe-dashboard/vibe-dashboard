@@ -74,7 +74,7 @@ Create or choose a bead in the repo where the work belongs. Put authoring files 
 ```bash
 MY_BEADS_DIR=$PWD/vibe-kanban-vscode-web # just an example
 cd $MY_BEADS_DIR
-bd create "Decide implementation questions" --type task --priority 2
+BEAD_ID=$(bd create --silent "Decide implementation questions" --type task --priority 2)
 mkdir -p .vk-mocked-sandbox/beads-form-authoring
 
 cat > .vk-mocked-sandbox/beads-form-authoring/implementation_questions.json <<'JSON'
@@ -101,11 +101,15 @@ cat > .vk-mocked-sandbox/beads-form-authoring/implementation_questions.json <<'J
 JSON
 
 cat .vk-mocked-sandbox/beads-form-authoring/implementation_questions.json | beads-form attach \
-  --bead <bead-id> \
+  --bead "$BEAD_ID" \
   --dir $MY_BEADS_DIR \
   --origin https://jamtools.dev \
   --stdin
 ```
+
+Use `bd create --silent` when scripting. The normal pretty output starts with
+a status glyph like `✓`; do not parse it with `awk '{print $1}'` or pass that
+glyph to `beads-form attach`.
 
 `--file .vk-mocked-sandbox/beads-form-authoring/implementation_questions.json` also works, but `cat ... | ... --stdin` matches the same reviewed-file workflow and avoids inline shell-escaping hazards. Avoid `/tmp` for user-facing authoring artifacts because agents/review worktrees can outlive or lose those paths.
 
