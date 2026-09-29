@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 import json
 import os
+from pathlib import Path
 import subprocess
 import sys
 import tempfile
 
 REAL_BD = os.environ.get('REAL_BD', '/usr/local/bin/bd')
+WORKSPACE_ROOT_OVERRIDE_FLAG = '--ignore-workspace-root'
 
 
 def current_branch() -> str:
@@ -89,8 +91,54 @@ def command_with_stamped_metadata(command: str, args: list[str], *, include_empt
     return [REAL_BD, command, *command_args, '--metadata', write_metadata_arg(stamped)]
 
 
+def split_workspace_root_override(args: list[str]) -> tuple[list[str], bool]:
+    filtered: list[str] = []
+    ignored = False
+    for arg in args:
+        if arg == WORKSPACE_ROOT_OVERRIDE_FLAG:
+            ignored = True
+            continue
+        filtered.append(arg)
+    return filtered, ignored
+
+
+def find_workspace_root(start: Path) -> Path | None:
+    current = start.resolve()
+    for candidate in [current, *current.parents]:
+        if (candidate / '.beads' / 'redirect').is_file():
+            return candidate
+    return None
+
+
+def fail_if_inside_workspace_subdir() -> None:
+    workspace_root = find_workspace_root(Path.cwd())
+    if workspace_root is None or Path.cwd().resolve() == workspace_root:
+        return
+
+    print(
+        '\n'.join([
+            'Error: bd must be run from the workspace root for this workspace.',
+            '',
+            f'Current directory: {Path.cwd().resolve()}',
+            f'Workspace root:    {workspace_root}',
+            '',
+            'Run bd commands from the workspace root so they use the workspace-scoped beads database.',
+            f'If you intentionally need the current directory context, rerun with {WORKSPACE_ROOT_OVERRIDE_FLAG}.',
+        ]),
+        file=sys.stderr,
+    )
+    raise SystemExit(2)
+
+
 def main() -> None:
     argv = sys.argv[1:]
+    if not argv:
+        fail_if_inside_workspace_subdir()
+        os.execv(REAL_BD, [REAL_BD])
+
+    argv, ignore_workspace_root = split_workspace_root_override(argv)
+    if not ignore_workspace_root:
+        fail_if_inside_workspace_subdir()
     if not argv:
         os.execv(REAL_BD, [REAL_BD])
 
