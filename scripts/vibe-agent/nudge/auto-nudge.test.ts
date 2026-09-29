@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ConversationEntry, ExecutionProcess, SendMessageBody, Session } from '../types.js';
 import {
-  abortableDelay, acquireLock, createAutoNudgeClient, DEFAULT_OVERSEER_PROMPT, DEFAULT_NUDGE_CONFIG_PATH, disableAutoNudgeWorkspace, enableAutoNudgeWorkspace, isAutoNudgeEnabled, loadAutoNudgeConfig, loadNudgeRuntimeConfig, readAutoNudgeState, readAutoNudgeWorkspaceRegistry, responseMatchesEndCondition, runAutoNudgeCycle, runWithOwnerLock, writeAutoNudgeState,
+  abortableDelay, acquireLock, createAutoNudgeClient, DEFAULT_OVERSEER_PROMPT, DEFAULT_NUDGE_CONFIG_PATH, disableAutoNudgeWorkspace, enableAutoNudgeWorkspace, formatWorkspaceCriteriaBlock, isAutoNudgeEnabled, loadAutoNudgeConfig, loadNudgeRuntimeConfig, readAutoNudgeState, readAutoNudgeWorkspaceRegistry, responseMatchesEndCondition, runAutoNudgeCycle, runWithOwnerLock, writeAutoNudgeState,
   type AutoNudgeClient, type AutoNudgeOptions,
 } from './auto-nudge.js';
 import { appendResponseRoute, bindResponseRouteProcess, readResponseRouteState, updateResponseRoute } from './response-routes.js';
@@ -110,10 +110,27 @@ describe('auto nudge', () => {
 
   it('persists dynamic workspace overseer registration and disablement', () => {
     const { dir } = setup(); const path = join(dir, 'workspaces.json');
-    enableAutoNudgeWorkspace(path, 'w1', 'overseer', new Date(iso(1)));
-    expect(readAutoNudgeWorkspaceRegistry(path).workspaces.w1).toMatchObject({ workspaceId: 'w1', overseerSessionId: 'overseer' });
+    enableAutoNudgeWorkspace(path, 'w1', 'overseer', new Date(iso(1)), { goal: 'Ship the branch', beads: ['vkvw-ke5n2'], beadsDir: dir });
+    expect(readAutoNudgeWorkspaceRegistry(path).workspaces.w1).toMatchObject({ workspaceId: 'w1', overseerSessionId: 'overseer', criteria: { goal: 'Ship the branch', beads: ['vkvw-ke5n2'], beadsDir: dir } });
     expect(disableAutoNudgeWorkspace(path, 'w1')).toBe(true);
     expect(readAutoNudgeWorkspaceRegistry(path).workspaces.w1).toBeUndefined();
+  });
+
+  it('keeps old workspace registry entries without criteria valid', () => {
+    const { dir } = setup(); const path = join(dir, 'workspaces.json');
+    writeFileSync(path, JSON.stringify({ version: 1, workspaces: { w1: { workspaceId: 'w1', overseerSessionId: 'overseer', registeredAt: iso(1), registeredBySessionId: 'overseer' } } }));
+    expect(readAutoNudgeWorkspaceRegistry(path).workspaces.w1?.criteria).toBeUndefined();
+  });
+
+  it('formats workspace completion criteria blocks', () => {
+    expect(formatWorkspaceCriteriaBlock()).toBe('');
+    expect(formatWorkspaceCriteriaBlock({ goal: 'Ship the branch', beads: ['vkvw-ke5n2', 'vkvw-u4m13'] })).toBe([
+      'Workspace completion criteria:',
+      'Goal: Ship the branch',
+      'Beads:',
+      '- vkvw-ke5n2',
+      '- vkvw-u4m13',
+    ].join('\n'));
   });
 
   it('nudges an idle teammate terminal turn without a final response exactly once', async () => {
@@ -197,6 +214,19 @@ describe('auto nudge', () => {
     const nextClient = fake({ processes: { impl: [next, complete], overseer: [] }, entries: { 'complete-2': [msg('More work')], 'complete-1': [msg('Finished')] } });
     await runAutoNudgeCycle(nextClient.client, options);
     expect(nextClient.sent[0]?.sessionId).toBe('overseer');
+  });
+
+  it('appends registered workspace criteria to overseer checkpoint prompts', async () => {
+    const { dir, options } = setup();
+    options.workspaceRegistryPath = join(dir, 'workspaces.json');
+    enableAutoNudgeWorkspace(options.workspaceRegistryPath, 'w1', 'overseer', new Date(iso(1)), { goal: 'Finish the auto-nudge handoff', beads: ['vkvw-ke5n2', 'vkvw-u4m13'], beadsDir: dir });
+    const complete = proc('complete-criteria', 'impl', 'completed', 5);
+    const { client, sent } = fake({ processes: { impl: [complete], overseer: [] }, entries: { 'complete-criteria': [msg('Finished')] }, response: 'DONE' });
+    await runAutoNudgeCycle(client, options);
+    expect(sent[0]?.body.prompt).toContain('Workspace completion criteria:');
+    expect(sent[0]?.body.prompt).toContain('Goal: Finish the auto-nudge handoff');
+    expect(sent[0]?.body.prompt).toContain('- vkvw-ke5n2');
+    expect(sent[0]?.body.prompt).toContain('- vkvw-u4m13');
   });
 
   it('treats CREATED FORM suffix as a terminal checkpoint outcome', async () => {

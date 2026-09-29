@@ -39,6 +39,7 @@ import {
   enableAutoNudgeWorkspace,
   isAutoNudgeEnabled,
   readAutoNudgeWorkspaceRegistry,
+  type AutoNudgeWorkspaceCriteria,
 } from '../nudge/auto-nudge.js';
 
 // Message helpers
@@ -192,6 +193,18 @@ export function assertAutoNudgeRoutingAvailable(env: NodeJS.ProcessEnv = process
   }
 }
 
+export function activeCodingAgentProcesses(processes: ExecutionProcess[]): ExecutionProcess[] {
+  return processes.filter(process => ACTIVE_TURN_STATUSES.has(process.status) && process.run_reason === 'codingagent' && !process.dropped);
+}
+
+export async function assertTargetSessionIdleForSend(
+  sessionId: string,
+  dependencies: { getSessionProcesses: (sessionId: string) => Promise<ExecutionProcess[]> },
+): Promise<void> {
+  const active = activeCodingAgentProcesses(await dependencies.getSessionProcesses(sessionId));
+  if (active.length) throw new Error(`Target session ${sessionId} already has an active turn (${active.map(process => process.id).join(', ')}); wait for it to finish before sending another message.`);
+}
+
 function isStopHookFeedbackEntry(entry: ConversationEntry | undefined): boolean {
   const entryType = entry?.content?.entry_type?.type;
   const content = entry?.content?.content;
@@ -256,6 +269,7 @@ export function buildNoAssistantResponseLogMessage(processId: string): string {
 }
 
 const TERMINAL_PROCESS_STATUSES = new Set(['completed', 'failed', 'killed']);
+const ACTIVE_TURN_STATUSES = new Set(['running']);
 const CALLBACK_IDLE_POLL_INTERVAL_MS = 2_000;
 const CALLBACK_SOURCE_LOOKUP_TIMEOUT_MS = 2_000;
 const REQUEST_REVIEW_QUIET_WINDOW_MS = 10_000;
@@ -1509,6 +1523,8 @@ async function send(args: string[]): Promise<void> {
     let replySessionId: string | null = null;
     let responseRouteId: string | null = null;
 
+    await assertTargetSessionIdleForSend(session.id, { getSessionProcesses: id => client.getSessionProcesses(id) });
+
     if (routeResponse) {
       assertAutoNudgeRoutingAvailable();
       const ctx = await getAgentContext();
@@ -1792,10 +1808,79 @@ async function registerSelf(args: string[]): Promise<void> {
   }
 }
 
+export interface ParsedAutoNudgeEnableArgs {
+  jsonOutput: boolean;
+  goal: string | null;
+  beads: string[];
+  beadsDir: string | null;
+}
+
+function requireAutoNudgeFlagValue(args: string[], index: number, flag: string): string {
+  const value = args[index + 1];
+  if (!value || value.startsWith('--')) throw new Error(`${flag} requires a value`);
+  return value;
+}
+
+function splitBeadList(value: string): string[] {
+  const beads = value.split(',').map(item => item.trim()).filter(Boolean);
+  if (!beads.length) throw new Error('--beads requires at least one bead ID');
+  return beads;
+}
+
+export function parseAutoNudgeEnableArgs(args: string[]): ParsedAutoNudgeEnableArgs {
+  let jsonOutput = false;
+  let goal: string | null = null;
+  let beadsDir: string | null = null;
+  const beads: string[] = [];
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (arg === '--json') { jsonOutput = true; continue; }
+    if (arg === '--goal') { goal = requireAutoNudgeFlagValue(args, index, arg).trim(); index++; continue; }
+    if (arg?.startsWith('--goal=')) { goal = arg.slice('--goal='.length).trim(); continue; }
+    if (arg === '--beads') { beads.push(...splitBeadList(requireAutoNudgeFlagValue(args, index, arg))); index++; continue; }
+    if (arg?.startsWith('--beads=')) { beads.push(...splitBeadList(arg.slice('--beads='.length))); continue; }
+    if (arg === '--bead') { beads.push(requireAutoNudgeFlagValue(args, index, arg).trim()); index++; continue; }
+    if (arg?.startsWith('--bead=')) { beads.push(arg.slice('--bead='.length).trim()); continue; }
+    if (arg === '--beads-dir') { beadsDir = path.resolve(requireAutoNudgeFlagValue(args, index, arg)); index++; continue; }
+    if (arg?.startsWith('--beads-dir=')) { beadsDir = path.resolve(arg.slice('--beads-dir='.length)); continue; }
+    throw new Error(`Unknown auto-nudge enable argument: ${arg ?? ''}`);
+  }
+  if (goal === '') throw new Error('--goal must not be empty');
+  if (beads.some(bead => !bead)) throw new Error('--beads must not contain empty bead IDs');
+  return { jsonOutput, goal, beads: [...new Set(beads)], beadsDir };
+}
+
+function validateAutoNudgeCriteriaBeads(beads: string[], beadsDir: string): void {
+  for (const bead of beads) {
+    try {
+      execFileSync('bd', ['-C', beadsDir, 'show', bead], { stdio: 'ignore' });
+    } catch {
+      throw new Error(`Bead ${bead} was not found from beads directory ${beadsDir}`);
+    }
+  }
+}
+
+function criteriaFromEnableArgs(parsed: ParsedAutoNudgeEnableArgs): AutoNudgeWorkspaceCriteria | undefined {
+  if (!parsed.goal && !parsed.beads.length) return undefined;
+  const criteria: AutoNudgeWorkspaceCriteria = {};
+  if (parsed.goal) criteria.goal = parsed.goal;
+  if (parsed.beads.length) {
+    criteria.beads = parsed.beads;
+    criteria.beadsDir = parsed.beadsDir ?? process.cwd();
+  }
+  return criteria;
+}
+
+function printCriteria(criteria: AutoNudgeWorkspaceCriteria | undefined): void {
+  if (!criteria) return;
+  if (criteria.goal) console.log(`Goal:      ${criteria.goal}`);
+  if (criteria.beads?.length) console.log(`Beads:     ${criteria.beads.join(', ')}`);
+  if (criteria.beadsDir) console.log(`Beads dir: ${criteria.beadsDir}`);
+}
+
 async function autoNudgeCommand(args: string[]): Promise<void> {
   const subcommand = args[0];
   const commandArgs = args.slice(1);
-  const jsonOutput = commandArgs.includes('--json');
   const registryPath = process.env.VD_AUTO_NUDGE_REGISTRY_PATH ?? DEFAULT_WORKSPACE_REGISTRY_PATH;
   const workspaceId = process.env.VK_WORKSPACE_ID;
   if (!workspaceId) {
@@ -1805,18 +1890,22 @@ async function autoNudgeCommand(args: string[]): Promise<void> {
 
   if (subcommand === 'enable') {
     try {
+      const parsed = parseAutoNudgeEnableArgs(commandArgs);
       const ctx = await getAgentContext();
       const sessionId = process.env.VK_SESSION_ID ?? ctx.sessionId;
       if (!sessionId) throw new Error('Could not determine invoking session; VK_SESSION_ID was not set and session discovery failed');
       const session = await client.getSession(sessionId);
       if (session.workspace_id !== workspaceId) throw new Error(`Session ${sessionId} does not belong to workspace ${workspaceId}`);
-      const registration = enableAutoNudgeWorkspace(registryPath, workspaceId, sessionId);
-      if (jsonOutput) {
+      const criteria = criteriaFromEnableArgs(parsed);
+      if (criteria?.beads?.length) validateAutoNudgeCriteriaBeads(criteria.beads, criteria.beadsDir ?? process.cwd());
+      const registration = enableAutoNudgeWorkspace(registryPath, workspaceId, sessionId, new Date(), criteria);
+      if (parsed.jsonOutput) {
         console.log(JSON.stringify({ enabled: true, registry_path: registryPath, ...registration }, null, 2));
       } else {
         console.log('Auto-nudge overseer coordination enabled for this workspace.');
         console.log(`Workspace: ${workspaceId}`);
         console.log(`Overseer:  ${sessionId}`);
+        printCriteria(registration.criteria);
       }
     } catch (error) {
       console.error(`Error: ${(error as Error).message}`);
@@ -1827,6 +1916,7 @@ async function autoNudgeCommand(args: string[]): Promise<void> {
 
   if (subcommand === 'disable') {
     try {
+      const jsonOutput = commandArgs.includes('--json');
       const disabled = disableAutoNudgeWorkspace(registryPath, workspaceId);
       if (jsonOutput) console.log(JSON.stringify({ enabled: false, disabled, registry_path: registryPath, workspace_id: workspaceId }, null, 2));
       else console.log(disabled ? 'Auto-nudge overseer coordination disabled for this workspace.' : 'Auto-nudge overseer coordination was not enabled for this workspace.');
@@ -1839,6 +1929,7 @@ async function autoNudgeCommand(args: string[]): Promise<void> {
 
   if (subcommand === 'status') {
     try {
+      const jsonOutput = commandArgs.includes('--json');
       const registry = readAutoNudgeWorkspaceRegistry(registryPath);
       const registration = registry.workspaces[workspaceId] ?? null;
       if (jsonOutput) console.log(JSON.stringify({ enabled: Boolean(registration), registry_path: registryPath, workspace_id: workspaceId, registration }, null, 2));
@@ -1846,6 +1937,7 @@ async function autoNudgeCommand(args: string[]): Promise<void> {
         console.log('Auto-nudge overseer coordination is enabled for this workspace.');
         console.log(`Workspace: ${workspaceId}`);
         console.log(`Overseer:  ${registration.overseerSessionId}`);
+        printCriteria(registration.criteria);
       } else {
         console.log('Auto-nudge overseer coordination is not enabled for this workspace.');
       }
@@ -1857,6 +1949,7 @@ async function autoNudgeCommand(args: string[]): Promise<void> {
   }
 
   console.error('Usage: vibe-agent auto-nudge <enable|status|disable> [--json]');
+  console.error('       vibe-agent auto-nudge enable [--goal "..."] [--beads a,b,c] [--beads-dir <path>] [--json]');
   process.exit(1);
 }
 
@@ -2397,6 +2490,9 @@ Commands:
 
   auto-nudge enable            Make this session the overseer for this workspace
                                in the auto-nudge scanner
+    --goal "..."               Informal completion/exit criteria
+    --beads a,b,c              Bead IDs that define completion criteria
+    --beads-dir <path>         Directory for bd show validation
   auto-nudge status            Show whether this workspace has auto-nudge
                                overseer coordination enabled
   auto-nudge disable           Disable overseer coordination for this workspace
