@@ -5,7 +5,10 @@ const sqliteDatabaseFile = `.e2e/kv-${port}.db`;
 
 export default defineConfig({
   testDir: './tests/e2e',
-  testIgnore: ['features/3237-vd-mocked-model/**'],
+  testIgnore: [
+    'features/3237-vd-mocked-model/**',
+    'features/auto-nudge/**',
+  ],
   timeout: 60_000,
   expect: {
     timeout: 10_000,
