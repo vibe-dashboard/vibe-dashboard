@@ -199,16 +199,21 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     expect(dockerEntrypoint).toContain('prepare docker access');
     expect(dockerEntrypoint).not.toContain('DOCKER_SOCK_GID');
     expect(goldenSupervisor).not.toContain('[program:dockerd]');
+    expect(goldenSupervisor).toContain('files = /etc/supervisor/conf.d/dockerd.conf /etc/supervisor/conf.d/vd-generated/*.conf');
     const dockerd = BUILTIN_FIRST_PARTY_SERVICE_PLUGINS.find((plugin) => plugin.manifest.id === 'first-party.dockerd');
     expect(dockerd?.supervisorConfig).toBeUndefined();
     expect(dockerd?.generatedSupervisorConfig).toMatchObject({
-      path: '/etc/supervisor/conf.d/vd-generated/dockerd.conf',
+      path: '/etc/supervisor/conf.d/dockerd.conf',
       generatedBy: 'docker-entrypoint.sh',
       condition: 'VKVD_CONTAINER_RUNTIME=sysbox-runc',
     });
     expect(dockerd?.generatedSupervisorConfig?.config).toContain('[program:dockerd]');
     expect(dockerEntrypoint).toContain('write_dockerd_supervisor_config()');
+    expect(dockerEntrypoint).toContain('local conf_dir="/etc/supervisor/conf.d"');
+    expect(dockerEntrypoint).toContain('local legacy_plugin_conf_file="/etc/supervisor/conf.d/vd-generated/dockerd.conf"');
+    expect(dockerEntrypoint).toContain('rm -f "$legacy_plugin_conf_file"');
     expect(dockerEntrypoint).toContain('if [ "${VKVD_CONTAINER_RUNTIME:-runc}" != "sysbox-runc" ]; then');
+    expect(dockerEntrypoint).toContain('rm -f "$conf_file"');
     expect(dockerEntrypoint).toContain('[program:dockerd]');
     expect(dockerEntrypoint).toContain('command=/usr/bin/dockerd --host=unix:///var/run/docker.sock --data-root=/var/lib/docker');
   });
@@ -240,7 +245,7 @@ describe('first-party service plugin inventory and golden supervisor config', ()
       installStrategy: 'apt-or-script',
       supervisorPrograms: ['dockerd'],
       generatedSupervisorConfig: {
-        path: '/etc/supervisor/conf.d/vd-generated/dockerd.conf',
+        path: '/etc/supervisor/conf.d/dockerd.conf',
         generatedBy: 'docker-entrypoint.sh',
         condition: 'VKVD_CONTAINER_RUNTIME=sysbox-runc',
       },

@@ -105,10 +105,12 @@ configure_docker_socket_group() {
 }
 
 write_dockerd_supervisor_config() {
-    local conf_dir="/etc/supervisor/conf.d/vd-generated"
+    local conf_dir="/etc/supervisor/conf.d"
     local conf_file="${conf_dir}/dockerd.conf"
+    local legacy_plugin_conf_file="/etc/supervisor/conf.d/vd-generated/dockerd.conf"
 
     mkdir -p "$conf_dir"
+    rm -f "$legacy_plugin_conf_file"
     if [ "${VKVD_CONTAINER_RUNTIME:-runc}" != "sysbox-runc" ]; then
         rm -f "$conf_file"
         return 0
