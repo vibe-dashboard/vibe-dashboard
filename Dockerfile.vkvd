@@ -18,6 +18,7 @@ ARG VK_RUNTIME_SOURCE
 ARG TARGETARCH
 
 RUN apk add --no-cache curl jq tar
+COPY .docker/vk-runtime/vibe-kanban /vk-local-runtime/vibe-kanban
 
 WORKDIR /vk-release
 RUN set -eux; \
@@ -25,6 +26,13 @@ RUN set -eux; \
     if [ "${VK_RUNTIME_SOURCE}" = "stub" ]; then \
       mkdir -p /vk-runtime; \
       printf '#!/bin/sh\nprintf "vibe-kanban CI runtime stub %s\\n" "$*"\n' "${VK_COMMIT}" > /vk-runtime/vibe-kanban; \
+      chmod +x /vk-runtime/vibe-kanban; \
+      printf '%s@%s\n' "${VK_BRANCH}" "$(printf '%s' "${VK_COMMIT}" | cut -c1-12)" > /vk-build-version; \
+      exit 0; \
+    fi; \
+    if [ "${VK_RUNTIME_SOURCE}" = "local" ]; then \
+      mkdir -p /vk-runtime; \
+      cp /vk-local-runtime/vibe-kanban /vk-runtime/vibe-kanban; \
       chmod +x /vk-runtime/vibe-kanban; \
       printf '%s@%s\n' "${VK_BRANCH}" "$(printf '%s' "${VK_COMMIT}" | cut -c1-12)" > /vk-build-version; \
       exit 0; \
