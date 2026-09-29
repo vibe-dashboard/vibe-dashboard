@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  activeCodingAgentProcesses,
+  assertTargetSessionIdleForSend,
   assertAutoNudgeRoutingAvailable,
   deliverCallbackCompletion,
   formatFullSummaryText,
   getAdvanceableFullSummaryProcessIds,
   isDeterministicPreAcceptFollowUpError,
   mapWithConcurrency,
+  parseAutoNudgeEnableArgs,
   parseFullSummaryArgs,
   parseSendArgs,
   resolveCallbackSourceProcessId,
@@ -169,6 +172,50 @@ describe('assertAutoNudgeRoutingAvailable', () => {
     expect(() => assertAutoNudgeRoutingAvailable({})).toThrow(/Default response routing requires the auto-nudge scanner/);
     expect(() => assertAutoNudgeRoutingAvailable({ VD_AUTO_NUDGE_ENABLED: 'false' })).toThrow(/--fire-and-forget/);
     expect(() => assertAutoNudgeRoutingAvailable({ VD_AUTO_NUDGE_ENABLED: 'true' })).not.toThrow();
+  });
+});
+
+describe('parseAutoNudgeEnableArgs', () => {
+  it('parses goal, comma-separated beads, repeatable bead alias, and beads dir', () => {
+    expect(parseAutoNudgeEnableArgs(['--goal', 'Ship it', '--beads', 'vkvw-a,vkvw-b', '--bead', 'vkvw-c', '--beads-dir', '/repo', '--json'])).toEqual({
+      jsonOutput: true,
+      goal: 'Ship it',
+      beads: ['vkvw-a', 'vkvw-b', 'vkvw-c'],
+      beadsDir: '/repo',
+    });
+  });
+
+  it('rejects empty goal and unknown arguments', () => {
+    expect(() => parseAutoNudgeEnableArgs(['--goal', ''])).toThrow(/goal/);
+    expect(() => parseAutoNudgeEnableArgs(['--beads', ','])).toThrow(/at least one bead/);
+    expect(() => parseAutoNudgeEnableArgs(['extra'])).toThrow(/Unknown auto-nudge enable argument/);
+  });
+});
+
+describe('active target send guard', () => {
+  const process = (id: string, status: 'running' | 'completed', runReason = 'codingagent', dropped = false) => ({
+    id,
+    status,
+    run_reason: runReason,
+    dropped,
+  } as any);
+
+  it('detects only running non-dropped coding-agent processes', () => {
+    expect(activeCodingAgentProcesses([
+      process('active', 'running'),
+      process('done', 'completed'),
+      process('dev', 'running', 'devserver'),
+      process('dropped', 'running', 'codingagent', true),
+    ]).map(item => item.id)).toEqual(['active']);
+  });
+
+  it('refuses to send when the target session already has an active turn', async () => {
+    await expect(assertTargetSessionIdleForSend('target', {
+      async getSessionProcesses() { return [process('active', 'running')]; },
+    })).rejects.toThrow(/already has an active turn/);
+    await expect(assertTargetSessionIdleForSend('target', {
+      async getSessionProcesses() { return [process('done', 'completed')]; },
+    })).resolves.toBeUndefined();
   });
 });
 

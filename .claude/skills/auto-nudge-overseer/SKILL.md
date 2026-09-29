@@ -12,6 +12,11 @@ When the user asks you to complete all milestones, keep going until done, or oth
    vibe-agent auto-nudge enable
    ```
    This registers the current workspace for auto-nudge overseer coordination and makes your current session the overseer.
+   If the user gave completion criteria, record them at enable time:
+   ```bash
+   vibe-agent auto-nudge enable --goal "Finish the approved branch work and get review/CI green" --beads vkvw-ke5n2,vkvw-u4m13 --beads-dir /path/to/repo
+   ```
+   Rerunning `enable` replaces the prior criteria for this workspace.
 
 2. Coordinate teammates with `vibe-agent send ...`. Response routing is the default; use `--fire-and-forget` only when no response is needed.
 

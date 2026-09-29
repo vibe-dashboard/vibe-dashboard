@@ -38,7 +38,8 @@ export interface AutoNudgeConfig {
 }
 export interface NudgeRuntimeConfig { version: 1; overseerPrompt: string; endConditions: string[] }
 export interface NudgeRuntimeConfigLoadResult { config: NudgeRuntimeConfig; error: string | null }
-export interface AutoNudgeWorkspaceRegistration { workspaceId: string; overseerSessionId: string; registeredAt: string; registeredBySessionId: string }
+export interface AutoNudgeWorkspaceCriteria { goal?: string; beads?: string[]; beadsDir?: string }
+export interface AutoNudgeWorkspaceRegistration { workspaceId: string; overseerSessionId: string; registeredAt: string; registeredBySessionId: string; criteria?: AutoNudgeWorkspaceCriteria }
 export interface AutoNudgeWorkspaceRegistry { version: 1; workspaces: Record<string, AutoNudgeWorkspaceRegistration> }
 export type TriggerStatus = 'observed' | 'checkpoint-sent' | 'checkpoint-indeterminate' | 'done' | 'delegated' | 'waiting-callback' | 'rate-limited' | 'retryable-failure';
 export interface TriggerState { processId: string; workspaceId: string; sessionId: string; observedAt: string; status: TriggerStatus; checkpointProcessId: string | null; baselineProcessIds?: string[]; updatedAt: string; error: string | null }
@@ -96,6 +97,22 @@ export function responseMatchesEndCondition(response: string | null | undefined,
   const trimmed = response.trimEnd();
   return endConditions.some(marker => trimmed === marker || trimmed.endsWith(`\n${marker}`));
 }
+export function formatWorkspaceCriteriaBlock(criteria?: AutoNudgeWorkspaceCriteria): string {
+  const lines: string[] = [];
+  const goal = criteria?.goal?.trim();
+  if (goal) lines.push(`Goal: ${goal}`);
+  const beads = criteria?.beads?.filter(Boolean) ?? [];
+  if (beads.length) {
+    lines.push('Beads:');
+    for (const bead of beads) lines.push(`- ${bead}`);
+  }
+  if (!lines.length) return '';
+  return `Workspace completion criteria:\n${lines.join('\n')}`;
+}
+function overseerPromptWithCriteria(prompt: string, criteria?: AutoNudgeWorkspaceCriteria): string {
+  const block = formatWorkspaceCriteriaBlock(criteria);
+  return block ? `${prompt.trimEnd()}\n\n${block}` : prompt;
+}
 export function loadAutoNudgeConfig(filePath: string): AutoNudgeConfig {
   const value = JSON.parse(fs.readFileSync(filePath, 'utf8')) as Partial<AutoNudgeConfig>;
   if (value.version !== 1) throw new Error('config.version must be 1');
@@ -152,7 +169,13 @@ export function readAutoNudgeWorkspaceRegistry(filePath: string): AutoNudgeWorks
     && typeof (item as AutoNudgeWorkspaceRegistration).workspaceId === 'string'
     && typeof (item as AutoNudgeWorkspaceRegistration).overseerSessionId === 'string'
     && typeof (item as AutoNudgeWorkspaceRegistration).registeredAt === 'string'
-    && typeof (item as AutoNudgeWorkspaceRegistration).registeredBySessionId === 'string');
+    && typeof (item as AutoNudgeWorkspaceRegistration).registeredBySessionId === 'string'
+    && (!('criteria' in (item as AutoNudgeWorkspaceRegistration)) || (item as AutoNudgeWorkspaceRegistration).criteria == null || (
+      typeof (item as AutoNudgeWorkspaceRegistration).criteria === 'object'
+      && (!('goal' in ((item as AutoNudgeWorkspaceRegistration).criteria as AutoNudgeWorkspaceCriteria)) || ((item as AutoNudgeWorkspaceRegistration).criteria as AutoNudgeWorkspaceCriteria).goal == null || typeof ((item as AutoNudgeWorkspaceRegistration).criteria as AutoNudgeWorkspaceCriteria).goal === 'string')
+      && (!('beads' in ((item as AutoNudgeWorkspaceRegistration).criteria as AutoNudgeWorkspaceCriteria)) || Array.isArray(((item as AutoNudgeWorkspaceRegistration).criteria as AutoNudgeWorkspaceCriteria).beads) && (((item as AutoNudgeWorkspaceRegistration).criteria as AutoNudgeWorkspaceCriteria).beads as unknown[]).every(bead => typeof bead === 'string'))
+      && (!('beadsDir' in ((item as AutoNudgeWorkspaceRegistration).criteria as AutoNudgeWorkspaceCriteria)) || ((item as AutoNudgeWorkspaceRegistration).criteria as AutoNudgeWorkspaceCriteria).beadsDir == null || typeof ((item as AutoNudgeWorkspaceRegistration).criteria as AutoNudgeWorkspaceCriteria).beadsDir === 'string')
+    )));
   if (registry.version !== 1 || !registry.workspaces || typeof registry.workspaces !== 'object'
     || !Object.entries(registry.workspaces).every(([workspaceId, item]) => validRegistration(item) && item.workspaceId === workspaceId)) {
     throw new Error(`Invalid auto-nudge workspace registry schema at ${filePath}`);
@@ -165,10 +188,10 @@ export function writeAutoNudgeWorkspaceRegistry(filePath: string, registry: Auto
   fs.writeFileSync(temporary, `${JSON.stringify(registry, null, 2)}\n`, { mode: 0o600 });
   fs.renameSync(temporary, filePath);
 }
-export function enableAutoNudgeWorkspace(filePath: string, workspaceId: string, overseerSessionId: string, now = new Date()): AutoNudgeWorkspaceRegistration {
+export function enableAutoNudgeWorkspace(filePath: string, workspaceId: string, overseerSessionId: string, now = new Date(), criteria?: AutoNudgeWorkspaceCriteria): AutoNudgeWorkspaceRegistration {
   return withWorkspaceRegistryLock(filePath, () => {
     const registry = readAutoNudgeWorkspaceRegistry(filePath);
-    const item = { workspaceId, overseerSessionId, registeredAt: now.toISOString(), registeredBySessionId: overseerSessionId };
+    const item = { workspaceId, overseerSessionId, registeredAt: now.toISOString(), registeredBySessionId: overseerSessionId, ...(criteria ? { criteria } : {}) };
     registry.workspaces[workspaceId] = item;
     writeAutoNudgeWorkspaceRegistry(filePath, registry);
     return item;
@@ -328,12 +351,15 @@ async function mapLimit<T>(values: T[], limit: number, task: (value: T) => Promi
   let index = 0;
   await Promise.all(Array.from({ length: Math.min(limit, values.length) }, async () => { while (index < values.length) { const value = values[index++]; if (value !== undefined) await task(value); } }));
 }
-async function workspacesForCycle(client: AutoNudgeClient, options: AutoNudgeOptions): Promise<Array<{ workspaceId: string; overseerSessionId: string | null }>> {
+async function workspacesForCycle(client: AutoNudgeClient, options: AutoNudgeOptions): Promise<Array<{ workspaceId: string; overseerSessionId: string | null; criteria?: AutoNudgeWorkspaceCriteria }>> {
   const registered = options.workspaceRegistryPath
     ? Object.values(readAutoNudgeWorkspaceRegistry(options.workspaceRegistryPath).workspaces)
     : options.config.workspaces ?? [];
-  const byWorkspace = new Map<string, { workspaceId: string; overseerSessionId: string | null }>();
-  for (const item of registered) byWorkspace.set(item.workspaceId, { workspaceId: item.workspaceId, overseerSessionId: item.overseerSessionId });
+  const byWorkspace = new Map<string, { workspaceId: string; overseerSessionId: string | null; criteria?: AutoNudgeWorkspaceCriteria }>();
+  for (const item of registered) {
+    const criteria = (item as AutoNudgeWorkspaceRegistration).criteria;
+    byWorkspace.set(item.workspaceId, { workspaceId: item.workspaceId, overseerSessionId: item.overseerSessionId, ...(criteria ? { criteria } : {}) });
+  }
   if (client.getAllWorkspaces) {
     const workspaces = await deadline(client.getAllWorkspaces(), options.operationTimeoutMs, 'get workspaces');
     for (const workspace of workspaces.filter(item => !item.archived)) {
@@ -508,7 +534,7 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
           if (!trigger.checkpointProcessId) {
             trigger.status = 'checkpoint-sent'; trigger.baselineProcessIds = [...baselineIds]; trigger.updatedAt = now;
             writeAutoNudgeState(options.statePath, state);
-            const sent = await deadline(client.sendMessage(overseer.id, body(nudgeConfig.config.overseerPrompt, overseer)), options.operationTimeoutMs, 'send checkpoint');
+            const sent = await deadline(client.sendMessage(overseer.id, body(overseerPromptWithCriteria(nudgeConfig.config.overseerPrompt, configured.criteria), overseer)), options.operationTimeoutMs, 'send checkpoint');
             trigger.checkpointProcessId = sent.id; trigger.updatedAt = options.now().toISOString();
             writeAutoNudgeState(options.statePath, state);
           }
