@@ -7,7 +7,7 @@ services:
     #     VK_REPO_URL: ${VK_REPO_URL:-https://github.com/mickmister/vibe-kanban.git}
     #     VK_BRANCH: ${VK_BRANCH:-main}
     #     VK_COMMIT: ${VK_COMMIT:?VK_COMMIT is required when building Dockerfile.vkvd}
-    image: ghcr.io/mickmister/vk-vd:${VKVD_IMAGE_VERSION:-latest}
+    image: ${VKVD_IMAGE_REPOSITORY:-ghcr.io/vibe-dashboard/vk-vd}:${VKVD_IMAGE_VERSION:-latest}
     pull_policy: always
 
     depends_on:
@@ -17,6 +17,10 @@ services:
       - "${CADDY_PORT:-3001}:${CADDY_PORT:-3001}"
     mem_limit: ${DEV_CONTAINER_MEM_LIMIT:-14g}
     mem_reservation: ${DEV_CONTAINER_MEM_RESERVATION:-12g}
+
+    # Normal Docker runtime by default. Set VKVD_CONTAINER_RUNTIME=sysbox-runc
+    # on a Sysbox-capable Docker host to enable the inner Docker daemon.
+    runtime: ${VKVD_CONTAINER_RUNTIME:-runc}
 
     # Required for Tailscale
     cap_add:
@@ -82,13 +86,18 @@ services:
       VK_DISABLE_BACKFILL_REPO_NAMES: ${VK_DISABLE_BACKFILL_REPO_NAMES:-false}
       VK_STARTUP_DIAGNOSTICS_INTERVAL_MS: ${VK_STARTUP_DIAGNOSTICS_INTERVAL_MS:-}
       VK_STARTUP_DIAGNOSTICS_DURATION_SECONDS: ${VK_STARTUP_DIAGNOSTICS_DURATION_SECONDS:-}
+      VKVD_CONTAINER_RUNTIME: ${VKVD_CONTAINER_RUNTIME:-runc}
 
       # GitHub workflow_run webhook secret for CI failure notifications
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
 
     volumes:
-      # Mount Docker socket for Docker-in-Docker support
-      - /var/run/docker.sock:/var/run/docker.sock
+      # Docker mode toggle:
+      # - Default below persists the inner Docker daemon for Sysbox hosts.
+      # - To use the host Docker socket instead, comment docker-data and
+      #   uncomment /var/run/docker.sock.
+      - docker-data:/var/lib/docker
+      # - /var/run/docker.sock:/var/run/docker.sock
       # Persist git repositories
       # - ~/repos:/home/vkuser/repos
       - vibe-kanban-repos:/home/vkuser/repos
@@ -233,3 +242,4 @@ volumes:
   bosun-data:
   novnc-data:
   prometheus-data:
+  docker-data:

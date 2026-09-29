@@ -33,7 +33,8 @@ Caddy forwards `port-<port>.*` subdomains to `localhost:<port>` inside the conta
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `VKVD_IMAGE_VERSION` | `latest` | Fetches image from ghcr.io/mickmister/vk-vd:${VKVD_IMAGE_VERSION:-latest}. The compose file's pull policy is set to "always", so if you want to pin a specific version, use this arg. |
+| `VKVD_IMAGE_REPOSITORY` | `ghcr.io/vibe-dashboard/vk-vd` | Image repository used by compose. Override this to pull from a fork or staging registry. |
+| `VKVD_IMAGE_VERSION` | `latest` | Fetches image from `${VKVD_IMAGE_REPOSITORY:-ghcr.io/vibe-dashboard/vk-vd}:${VKVD_IMAGE_VERSION:-latest}`. The compose file's pull policy is set to "always", so if you want to pin a specific version, use this arg. |
 
 #### Ports
 
@@ -161,6 +162,32 @@ Codex caches credentials in `~/.codex/auth.json` when configured for file-based 
 
 ## Docker-in-Docker support
 
-The container includes Docker CLI and mounts the host's Docker socket at `/var/run/docker.sock`. This allows agents to run docker commands and you to run Docker commands from within the VSCode environment.
+By default the workspace starts with the normal Docker runtime and does not require Docker-in-Docker. To run Docker inside the dev container, use a Sysbox-capable Docker host and start compose with `VKVD_CONTAINER_RUNTIME=sysbox-runc`. `docker-compose.yaml` persists the inner daemon at `/var/lib/docker` and keeps the host socket mount commented out.
 
-**Security note:** The mounted Docker socket gives this container the ability to create and manage containers on the host. Only use this environment in trusted contexts. Remove the docker socket volume in the compose file to disable this.
+If you need the host Docker socket fallback instead, edit `docker-compose.yaml` and toggle the two Docker volumes: comment out `docker-data:/var/lib/docker`, then uncomment `/var/run/docker.sock:/var/run/docker.sock`. This is easier to set up but not recommended because Docker volumes do not map correctly from inside the container and agents can control the outer Docker context.
+
+Platform notes:
+
+- Linux amd64/arm64: install Sysbox on the Docker host, then run `VKVD_CONTAINER_RUNTIME=sysbox-runc docker compose up -d code-vibe`.
+- Mac amd64/arm64: use the Colima Sysbox setup in `scripts/colima/README.md`, then run `VKVD_CONTAINER_RUNTIME=sysbox-runc DOCKER_CONTEXT=colima-vd-sysbox docker compose up -d code-vibe`.
+- Docker Desktop Enhanced Container Isolation is a Docker Desktop Business feature. Prefer Colima for Mac Sysbox setup; if your environment intentionally uses ECI, verify Docker-in-Docker with the smoke test below.
+
+Preflight before starting:
+
+```bash
+# Linux or Colima: verify Docker can see the Sysbox runtime.
+docker info --format '{{json .Runtimes}}' | grep sysbox-runc
+
+# Mac Colima: install and verify the Sysbox profile.
+./scripts/colima/setup-sysbox.sh
+./scripts/colima/check-sysbox.sh
+```
+
+Start and smoke test before merge/release:
+
+```bash
+VKVD_CONTAINER_RUNTIME=sysbox-runc docker compose up -d code-vibe
+./scripts/smoke-sysbox-dind.sh
+```
+
+When `VKVD_CONTAINER_RUNTIME` is not `sysbox-runc`, the entrypoint logs that Docker-in-Docker is disabled and continues so non-Sysbox workspaces can still run.

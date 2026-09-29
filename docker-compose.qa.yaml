@@ -1,12 +1,16 @@
 services:
   code-vibe:
-    image: ghcr.io/mickmister/vk-vd:${VKVD_IMAGE_VERSION:-latest}
+    image: ${VKVD_IMAGE_REPOSITORY:-ghcr.io/vibe-dashboard/vk-vd}:${VKVD_IMAGE_VERSION:-latest}
     pull_policy: always
 
     ports:
       - "${QA_HOST_PORT:?QA_HOST_PORT is required for a QA slot}:3001"
     mem_limit: ${DEV_CONTAINER_MEM_LIMIT:-14g}
     mem_reservation: ${DEV_CONTAINER_MEM_RESERVATION:-12g}
+
+    # Normal Docker runtime by default. Set VKVD_CONTAINER_RUNTIME=sysbox-runc
+    # on a Sysbox-capable Docker host to enable the inner Docker daemon.
+    runtime: ${VKVD_CONTAINER_RUNTIME:-runc}
 
     cap_add:
       - NET_ADMIN
@@ -17,6 +21,7 @@ services:
     environment:
       QA_SLOT_ID: ${QA_SLOT_ID:?QA_SLOT_ID is required for a QA slot}
       QA_HOST_PORT: ${QA_HOST_PORT:?QA_HOST_PORT is required for a QA slot}
+      VKVD_IMAGE_REPOSITORY: ${VKVD_IMAGE_REPOSITORY:-ghcr.io/vibe-dashboard/vk-vd}
       VKVD_IMAGE_VERSION: ${VKVD_IMAGE_VERSION:-latest}
 
       CADDY_PORT: ${CADDY_PORT:-3001}
@@ -66,11 +71,13 @@ services:
       VK_DISABLE_BACKFILL_REPO_NAMES: ${VK_DISABLE_BACKFILL_REPO_NAMES:-false}
       VK_STARTUP_DIAGNOSTICS_INTERVAL_MS: ${VK_STARTUP_DIAGNOSTICS_INTERVAL_MS:-}
       VK_STARTUP_DIAGNOSTICS_DURATION_SECONDS: ${VK_STARTUP_DIAGNOSTICS_DURATION_SECONDS:-}
+      VKVD_CONTAINER_RUNTIME: ${VKVD_CONTAINER_RUNTIME:-runc}
 
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
 
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      # Persist the inner daemon without exposing the host Docker socket.
+      - docker-data:/var/lib/docker
       - vibe-kanban-repos:/home/vkuser/repos
       - vibe-kanban-data:/home/vkuser/.local/share/vibe-kanban
       - vibe-kanban-worktrees:/var/tmp/vibe-kanban/worktrees
@@ -88,6 +95,8 @@ services:
       - bosun-data:/home/vkuser/bosun
 
 volumes:
+  docker-data:
+    name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-docker-data
   vibe-kanban-repos:
     name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-vibe-kanban-repos
   vibe-kanban-data:
