@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { client as defaultClient } from '../core/client.js';
 import type { AutoNudgeProcessWindowQuery, AutoNudgeStatusRequest, AutoNudgeStatusResponse, AutoNudgeStatusSession, AutoNudgeStatusWorkspace, ConversationEntry, ExecutionProcess, ExecutionProcessFinalResponse, SendMessageBody, Session, Workspace } from '../types.js';
 import { conversationEntryText, conversationEntryType, decideNudgeForProcess, isActiveProcess } from './criteria.js';
-import { callbacksForTrigger, DEFAULT_CALLBACK_REGISTRY_PATH } from './callback-registry.js';
+import { callbacksForTrigger, DEFAULT_CALLBACK_REGISTRY_PATH, type CallbackRecord } from './callback-registry.js';
 import {
   bindResponseRouteProcess,
   DEFAULT_RESPONSE_ROUTES_PATH,
@@ -345,7 +345,9 @@ async function processResponseRoutes(client: AutoNudgeClient, options: AutoNudge
         const bound = bindResponseRouteProcess(responseRoutesPath, route.id, processId, options.now().toISOString());
         if (!bound || bound.status !== 'pending' || bound.processId !== processId) continue;
       }
-      if (callbacksForTrigger(options.callbackRegistryPath, processId, options.now()).some(item => item.status === 'running')) continue;
+      const routedProcessId = await currentResponseRouteProcess(responseRoutesPath, route.id, processId, client, options);
+      if (!routedProcessId) continue;
+      processId = routedProcessId;
       const final = await deadline(client.getExecutionProcessFinalResponse(processId), options.operationTimeoutMs, 'get final response', options.signal);
       if (!final.finished) continue;
       if (!final.final_response) {
@@ -383,6 +385,43 @@ async function processResponseRoutes(client: AutoNudgeClient, options: AutoNudge
       result.errors.push(`response route ${route.id}: ${(error as Error).message}`);
     }
   }
+}
+
+async function currentResponseRouteProcess(
+  responseRoutesPath: string,
+  routeId: string,
+  initialProcessId: string,
+  client: AutoNudgeClient,
+  options: AutoNudgeOptions,
+): Promise<string | null> {
+  let processId = initialProcessId;
+  for (let depth = 0; depth < 8; depth++) {
+    const callbacks = callbacksForTrigger(options.callbackRegistryPath, processId, options.now());
+    if (callbacks.some(item => item.status === 'running')) return null;
+    const completion = latestCompletedCallbackWithProcess(callbacks);
+    if (completion?.completionProcessId && completion.completionProcessId !== processId) {
+      const nextProcessId = completion.completionProcessId;
+      const updated = updateResponseRoute(responseRoutesPath, routeId, route => {
+        if (route.status !== 'pending' || route.processId !== processId) return route;
+        return { ...route, processId: nextProcessId, updatedAt: options.now().toISOString(), error: null };
+      });
+      if (!updated || updated.status !== 'pending' || updated.processId !== nextProcessId) return null;
+      processId = nextProcessId;
+      continue;
+    }
+    const final = await deadline(client.getExecutionProcessFinalResponse(processId), options.operationTimeoutMs, 'get final response', options.signal);
+    return final.finished ? processId : null;
+  }
+  updateResponseRoute(responseRoutesPath, routeId, route => route.status === 'pending'
+    ? { ...route, status: 'failed', updatedAt: options.now().toISOString(), error: 'response route callback chain exceeded 8 processes' }
+    : route);
+  return null;
+}
+
+function latestCompletedCallbackWithProcess(callbacks: CallbackRecord[]): CallbackRecord | null {
+  return callbacks
+    .filter(item => item.status === 'completed' && item.completionProcessId)
+    .sort((left, right) => (right.finishedAt ?? '').localeCompare(left.finishedAt ?? '') || right.id.localeCompare(left.id))[0] ?? null;
 }
 async function mapLimit<T>(values: T[], limit: number, task: (value: T) => Promise<void>, signal?: AbortSignal): Promise<void> {
   let index = 0;

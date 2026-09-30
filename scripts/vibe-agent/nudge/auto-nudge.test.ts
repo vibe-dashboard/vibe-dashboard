@@ -554,6 +554,82 @@ describe('auto nudge', () => {
     expect(readResponseRouteState(options.responseRoutesPath).routes['target-process:overseer']).toMatchObject({ status: 'terminal-no-response' });
   });
 
+  it('waits when a completed callback spawned a completion process that is still running', async () => {
+    const { options } = setup();
+    options.responseRoutesPath = join(options.statePath, '..', 'routes.json');
+    appendResponseRoute(options.responseRoutesPath, {
+      processId: 'target-process', targetRole: 'review', targetSessionId: 'review', replySessionId: 'overseer',
+      createdAt: iso(1), updatedAt: iso(1),
+    });
+    writeFileSync(options.callbackRegistryPath, JSON.stringify({ version: 2, callbacks: [{
+      id: 'cb', sessionId: 'review', command: 'ci', status: 'completed', startedAt: iso(1), timeoutMs: null,
+      finishedAt: iso(2), completionProcessId: 'completion-process', runnerPid: null,
+      sourceProcessId: 'target-process', triggerProcessId: 'target-process', error: null,
+    }] }));
+    const { client, sent } = fake({ processes: { review: [], impl: [], overseer: [] } });
+    client.getExecutionProcessFinalResponse = async id => id === 'completion-process'
+      ? { process_id: id, status: 'running', finished: false, final_response: null, terminal_no_response: false }
+      : { process_id: id, status: 'completed', finished: true, final_response: 'stale original', terminal_no_response: false };
+    await runAutoNudgeCycle(client, options);
+    expect(sent).toEqual([]);
+    expect(readResponseRouteState(options.responseRoutesPath).routes['target-process:overseer']).toMatchObject({ status: 'pending', processId: 'completion-process' });
+  });
+
+  it('delivers the completion process final response after a completed callback', async () => {
+    const { options } = setup();
+    options.responseRoutesPath = join(options.statePath, '..', 'routes.json');
+    appendResponseRoute(options.responseRoutesPath, {
+      processId: 'target-process', targetRole: 'review', targetSessionId: 'review', replySessionId: 'overseer',
+      createdAt: iso(1), updatedAt: iso(1),
+    });
+    writeFileSync(options.callbackRegistryPath, JSON.stringify({ version: 2, callbacks: [{
+      id: 'cb', sessionId: 'review', command: 'ci', status: 'completed', startedAt: iso(1), timeoutMs: null,
+      finishedAt: iso(2), completionProcessId: 'completion-process', runnerPid: null,
+      sourceProcessId: 'target-process', triggerProcessId: 'target-process', error: null,
+    }] }));
+    const { client, sent } = fake({ processes: { review: [], impl: [], overseer: [] } });
+    client.getExecutionProcessFinalResponse = async id => ({
+      process_id: id, status: 'completed', finished: true,
+      final_response: id === 'completion-process' ? 'post-callback answer' : 'stale original',
+      terminal_no_response: false,
+    });
+    await runAutoNudgeCycle(client, options);
+    expect(sent).toEqual([expect.objectContaining({ sessionId: 'overseer', body: expect.objectContaining({ prompt: 'Response from review:\n\npost-callback answer' }) })]);
+    expect(readResponseRouteState(options.responseRoutesPath).routes['target-process:overseer']).toMatchObject({ status: 'delivered', processId: 'completion-process' });
+  });
+
+  it('waits through a second callback started by the completion process', async () => {
+    const { options } = setup();
+    options.responseRoutesPath = join(options.statePath, '..', 'routes.json');
+    appendResponseRoute(options.responseRoutesPath, {
+      processId: 'target-process', targetRole: 'review', targetSessionId: 'review', replySessionId: 'overseer',
+      createdAt: iso(1), updatedAt: iso(1),
+    });
+    const callbacks = [{
+      id: 'cb1', sessionId: 'review', command: 'ci', status: 'completed', startedAt: iso(1), timeoutMs: null,
+      finishedAt: iso(2), completionProcessId: 'completion-1', runnerPid: null,
+      sourceProcessId: 'target-process', triggerProcessId: 'target-process', error: null,
+    }, {
+      id: 'cb2', sessionId: 'review', command: 'deploy', status: 'running', startedAt: iso(3), timeoutMs: null,
+      finishedAt: null, completionProcessId: null, runnerPid: process.pid,
+      sourceProcessId: 'completion-1', triggerProcessId: 'completion-1', error: null,
+    }];
+    writeFileSync(options.callbackRegistryPath, JSON.stringify({ version: 2, callbacks }));
+    const { client, sent } = fake({ processes: { review: [], impl: [], overseer: [] } });
+    client.getExecutionProcessFinalResponse = async id => ({
+      process_id: id, status: 'completed', finished: true,
+      final_response: id === 'completion-2' ? 'final chained answer' : `response from ${id}`,
+      terminal_no_response: false,
+    });
+    await runAutoNudgeCycle(client, options);
+    expect(sent).toEqual([]);
+    expect(readResponseRouteState(options.responseRoutesPath).routes['target-process:overseer']).toMatchObject({ status: 'pending', processId: 'completion-1' });
+    callbacks[1] = { ...callbacks[1], status: 'completed', finishedAt: iso(4), completionProcessId: 'completion-2', runnerPid: null };
+    writeFileSync(options.callbackRegistryPath, JSON.stringify({ version: 2, callbacks }));
+    await runAutoNudgeCycle(client, options);
+    expect(sent).toEqual([expect.objectContaining({ body: expect.objectContaining({ prompt: 'Response from review:\n\nfinal chained answer' }) })]);
+  });
+
   it('fails closed for malformed and wrong-version state', () => {
     const { options } = setup();
     writeFileSync(options.statePath, '{broken');
