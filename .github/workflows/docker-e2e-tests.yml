@@ -104,15 +104,13 @@ jobs:
           git -C Vktest log --oneline -1
 
       - name: Free up disk space
-        uses: insightsengineering/disk-space-reclaimer@v1
-        with:
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          swap-storage: true
-          docker-images: true
-          tools-cache: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          docker system prune -af || true
+          df -h
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
