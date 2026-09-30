@@ -126,7 +126,7 @@ jobs:
             -v "${PWD}/Vktest:/work" \
             -w /work \
             rust:bookworm \
-            bash -lc 'curl --proto "=https" --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain "${RUST_TOOLCHAIN}" && . "$HOME/.cargo/env" && git config --global --add safe.directory /work && cargo +"${RUST_TOOLCHAIN}" build --locked -p server --bin server'
+            bash -lc 'curl --proto "=https" --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain "${RUST_TOOLCHAIN}" && . /usr/local/cargo/env && git config --global --add safe.directory /work && cargo +"${RUST_TOOLCHAIN}" build --locked -p server --bin server'
         env:
           RUST_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}
 
