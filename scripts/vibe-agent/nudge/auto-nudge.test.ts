@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ConversationEntry, ExecutionProcess, SendMessageBody, Session } from '../types.js';
+import type { AutoNudgeStatusRequest, AutoNudgeStatusResponse, ConversationEntry, ExecutionProcess, SendMessageBody, Session } from '../types.js';
 import {
   abortableDelay, acquireLock, createAutoNudgeClient, DEFAULT_OVERSEER_PROMPT, DEFAULT_NUDGE_CONFIG_PATH, disableAutoNudgeWorkspace, enableAutoNudgeWorkspace, formatWorkspaceCriteriaBlock, isAutoNudgeEnabled, loadAutoNudgeConfig, loadNudgeRuntimeConfig, readAutoNudgeState, readAutoNudgeWorkspaceRegistry, responseMatchesEndCondition, runAutoNudgeCycle, runWithOwnerLock, writeAutoNudgeState,
   type AutoNudgeClient, type AutoNudgeOptions,
@@ -30,6 +30,71 @@ const finalResponse = (process: ExecutionProcess, response: string | null) => ({
   terminal_no_response: process.status !== 'running' && response == null,
 });
 
+function aggregateStatus(
+  request: AutoNudgeStatusRequest,
+  input: { processes: Record<string, ExecutionProcess[]>; entries?: Record<string, ConversationEntry[]>; workspaces?: string[]; sessions?: Session[] },
+): AutoNudgeStatusResponse {
+  const defaultSessions = [session('overseer', 'overseer'), session('impl', 'impl')];
+  const missingProcessSessions = Object.keys(input.processes)
+    .filter(id => !defaultSessions.some(item => item.id === id))
+    .map(id => session(id, id));
+  const sessions = input.sessions ?? [...defaultSessions, ...missingProcessSessions];
+  const workspaceIds = [...new Set([...request.registered_workspace_ids, ...(input.workspaces ?? ['w1'])])];
+  const windowResults = (request.process_window_queries ?? []).map(query => ({
+    id: query.id,
+    process_ids: (input.processes[query.session_id] ?? [])
+      .filter(item => {
+        const createdAt = new Date(item.created_at).getTime();
+        return item.run_reason === 'codingagent' && !item.dropped
+          && createdAt >= new Date(query.started_at).getTime()
+          && createdAt <= new Date(query.ended_at).getTime();
+      })
+      .sort((left, right) => left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id))
+      .map(item => item.id),
+  }));
+  const workspaces = workspaceIds.map(workspaceId => {
+    const workspaceSessions = sessions.filter(item => item.workspace_id === workspaceId);
+    const statusSessions = workspaceSessions.map(item => {
+      const latest = (input.processes[item.id] ?? [])
+        .filter(process => process.run_reason === 'codingagent' && !process.dropped)
+        .sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime())[0] ?? null;
+      const response = latest
+        ? input.entries?.[latest.id]?.find(entry => entry.content?.entry_type?.type === 'assistant_message' && typeof entry.content.content === 'string')?.content?.content
+        : null;
+      return {
+        ...item,
+        name: item.name ?? null,
+        latest_codingagent_process: latest ? {
+          ...latest,
+          final_response: typeof response === 'string' ? response : null,
+          terminal_no_response: latest.status !== 'running' && typeof response !== 'string',
+        } : null,
+        has_active_codingagent: Boolean(latest && latest.status === 'running' && !latest.dropped),
+      };
+    });
+    return {
+      workspace_id: workspaceId,
+      archived: false,
+      registered: request.registered_workspace_ids.includes(workspaceId),
+      sessions: statusSessions,
+      has_active_codingagent: statusSessions.some(item => item.has_active_codingagent),
+    };
+  });
+  return {
+    workspaces,
+    process_window_results: windowResults,
+    next_cursor: request.include_global_recent ? 'cursor-next' : request.global_cursor,
+    truncated: request.include_global_recent,
+    counts: {
+      registered_workspaces: request.registered_workspace_ids.length,
+      global_workspaces: request.include_global_recent ? Math.max(0, workspaces.length - request.registered_workspace_ids.length) : 0,
+      sessions: workspaces.reduce((count, item) => count + item.sessions.length, 0),
+      processes: workspaces.reduce((count, item) => count + item.sessions.filter(session => session.latest_codingagent_process).length, 0),
+      pages: 1,
+    },
+  };
+}
+
 function setup() {
   const dir = mkdtempSync(join(tmpdir(), 'auto-nudge-')); dirs.push(dir);
   const options: AutoNudgeOptions = {
@@ -46,7 +111,8 @@ function fake(input: { processes: Record<string, ExecutionProcess[]>; entries?: 
   const client: AutoNudgeClient = {
     async getSessions() { return [session('overseer', 'overseer'), session('impl', 'impl')]; },
     async getSession(id) { return session(id, id); },
-    async getSessionProcesses(id) { return input.processes[id] ?? []; },
+    async getSessionProcesses() { throw new Error('session-process WebSocket scan is forbidden in auto-nudge'); },
+    async getAutoNudgeStatus(request) { return aggregateStatus(request, input); },
     async fetchConversation(id) { return id === 'checkpoint' ? [msg(input.response ?? 'Continuing')] : input.entries?.[id] ?? []; },
     async getExecutionProcessFinalResponse(id) {
       const process = Object.values(input.processes).flat().find(item => item.id === id) ?? proc(id, id === 'checkpoint' ? 'overseer' : 'impl', 'completed', 10);
@@ -274,7 +340,7 @@ describe('auto nudge', () => {
     const delegated = proc('delegated', 'impl', 'completed', 11);
     const { client } = fake({ processes: { impl: [complete], overseer: [] }, entries: { complete: [msg('Finished')] }, response: 'Continuing' });
     let reads = 0;
-    client.getSessionProcesses = async id => id === 'impl' ? (++reads > 1 ? [delegated, complete] : [complete]) : [];
+    client.getAutoNudgeStatus = async request => aggregateStatus(request, { processes: { impl: (++reads > 1 ? [delegated, complete] : [complete]), overseer: [] }, entries: { complete: [msg('Finished')] } });
     await runAutoNudgeCycle(client, options);
     expect(readAutoNudgeState(options.statePath).triggers.complete?.status).toBe('delegated');
   });
@@ -286,7 +352,7 @@ describe('auto nudge', () => {
     const { client } = fake({ processes: { impl: [complete], review: [], overseer: [] }, entries: { complete: [msg('Finished')] }, response: '' });
     client.getSessions = async () => [session('overseer', 'overseer'), session('impl', 'impl'), session('review', 'review')];
     let reads = 0;
-    client.getSessionProcesses = async id => id === 'impl' ? [complete] : id === 'review' ? (++reads > 1 ? [delegated] : []) : [];
+    client.getAutoNudgeStatus = async request => aggregateStatus(request, { processes: { impl: [complete], review: (++reads > 1 ? [delegated] : []), overseer: [] }, entries: { complete: [msg('Finished')] }, sessions: [session('overseer', 'overseer'), session('impl', 'impl'), session('review', 'review')] });
     client.getExecutionProcess = async id => proc(id, 'overseer', 'completed', 10);
     client.getExecutionProcessFinalResponse = async id => id === 'complete'
       ? finalResponse(complete, 'Finished')
@@ -302,7 +368,7 @@ describe('auto nudge', () => {
     const { client } = fake({ processes: { impl: [complete], review: [], overseer: [] }, entries: { complete: [msg('Finished')] }, response: 'Sent to review.' });
     client.getSessions = async () => [session('overseer', 'overseer'), session('impl', 'impl'), session('review', 'review')];
     let reads = 0;
-    client.getSessionProcesses = async id => id === 'impl' ? [complete] : id === 'review' ? (++reads > 1 ? [delegated] : []) : [];
+    client.getAutoNudgeStatus = async request => aggregateStatus(request, { processes: { impl: [complete], review: (++reads > 1 ? [delegated] : []), overseer: [] }, entries: { complete: [msg('Finished')] }, sessions: [session('overseer', 'overseer'), session('impl', 'impl'), session('review', 'review')] });
     client.getExecutionProcess = async id => proc(id, 'overseer', 'completed', 10);
     await runAutoNudgeCycle(client, options);
     expect(readAutoNudgeState(options.statePath).triggers.complete?.status).toBe('delegated');
@@ -327,7 +393,8 @@ describe('auto nudge', () => {
     const client: AutoNudgeClient = {
       async getSessions() { return [session('overseer', 'overseer'), session('impl', 'impl'), session('other', 'other')]; },
       async getSession(id) { return session(id, id); },
-      async getSessionProcesses(id) { return id === 'impl' ? [callbackSource] : id === 'other' ? [otherCompletion] : []; },
+      async getSessionProcesses() { throw new Error('session-process WebSocket scan is forbidden in auto-nudge'); },
+      async getAutoNudgeStatus(request) { return aggregateStatus(request, { processes: { impl: [callbackSource], other: [otherCompletion], overseer: [] }, entries: { 'callback-source': [msg('Finished')], 'other-complete': [msg('Finished')] }, sessions: [session('overseer', 'overseer'), session('impl', 'impl'), session('other', 'other')] }); },
       async fetchConversation() { return [msg('Finished')]; }, async getExecutionProcess() { throw new Error('unexpected'); },
       async getExecutionProcessFinalResponse(id) { return finalResponse(id === 'callback-source' ? callbackSource : otherCompletion, 'Finished'); },
       async sendMessage(id) { sent.push(id); return proc('sent', id, 'running', 10); },
@@ -500,9 +567,8 @@ describe('auto nudge', () => {
   it('times out a hung workspace operation without sending', async () => {
     const { options } = setup(); options.operationTimeoutMs = 5;
     const { client, sent } = fake({ processes: {} });
-    client.getSessions = async () => new Promise(() => {});
-    const result = await runAutoNudgeCycle(client, options);
-    expect(result.errors[0]).toMatch(/get sessions timed out/);
+    client.getAutoNudgeStatus = async () => new Promise(() => {});
+    await expect(runAutoNudgeCycle(client, options)).rejects.toThrow(/aggregate status.*timed out/);
     expect(sent).toEqual([]);
   });
 
@@ -585,20 +651,107 @@ describe('auto nudge', () => {
     expect(readAutoNudgeState(options.statePath).triggers.complete).toMatchObject({ status: 'checkpoint-sent', checkpointProcessId: 'checkpoint' });
   });
 
-  it('bounds concurrent workspace inspection', async () => {
+  it('uses aggregate cycle counts and persists global cursor without inspecting sessions individually', async () => {
     const { options } = setup();
     options.config.workspaces = ['w1', 'w2', 'w3'].map(workspaceId => ({ workspaceId, overseerSessionId: `overseer-${workspaceId}` }));
-    options.concurrency = 2;
-    let active = 0; let maximum = 0;
+    let aggregateCalls = 0;
     const client: AutoNudgeClient = {
-      async getSessions(workspaceId) { active++; maximum = Math.max(maximum, active); await new Promise(resolve => setTimeout(resolve, 5)); active--; return [session(`overseer-${workspaceId}`, 'overseer')]; },
+      async getSessions() { throw new Error('per-workspace session scan is forbidden in auto-nudge'); },
       async getSession(id) { return session(id, id); },
-      async getSessionProcesses() { return []; }, async fetchConversation() { return []; },
+      async getSessionProcesses() { throw new Error('session-process WebSocket scan is forbidden in auto-nudge'); },
+      async getAutoNudgeStatus(request) {
+        aggregateCalls++;
+        return aggregateStatus(request, {
+          processes: {},
+          workspaces: ['w1', 'w2', 'w3', 'global-1'],
+          sessions: ['w1', 'w2', 'w3', 'global-1'].map(workspaceId => ({ ...session(`overseer-${workspaceId}`, 'overseer'), workspace_id: workspaceId })),
+        });
+      },
+      async fetchConversation() { return []; },
       async getExecutionProcessFinalResponse() { throw new Error('unexpected'); },
       async getExecutionProcess() { throw new Error('unexpected'); }, async sendMessage() { throw new Error('unexpected'); },
     };
-    expect((await runAutoNudgeCycle(client, options)).workspaces).toBe(3);
-    expect(maximum).toBe(2);
+    const result = await runAutoNudgeCycle(client, options);
+    expect(aggregateCalls).toBe(1);
+    expect(result).toMatchObject({ registeredWorkspaces: 3, globalWorkspacesScanned: 1, sessionsScanned: 4, pagesFetched: 1, truncated: true, nextCursor: 'cursor-next' });
+    expect(readAutoNudgeState(options.statePath).globalCursor).toBe('cursor-next');
+  });
+
+  it('scans a large fake install through one bounded aggregate page without dry-run mutation', async () => {
+    const { options } = setup();
+    options.dryRun = true;
+    options.config.workspaces = [{ workspaceId: 'w0000', overseerSessionId: 'w0000-overseer' }];
+    const workspaces = Array.from({ length: 1_000 }, (_item, index) => `w${String(index).padStart(4, '0')}`);
+    const sessions = workspaces.flatMap(workspaceId => [
+      { ...session(`${workspaceId}-overseer`, 'overseer'), workspace_id: workspaceId },
+      { ...session(`${workspaceId}-impl`, 'impl'), workspace_id: workspaceId },
+      { ...session(`${workspaceId}-review`, 'review'), workspace_id: workspaceId },
+    ]);
+    const processes = Object.fromEntries(
+      sessions
+        .filter(item => item.name !== 'overseer')
+        .map(item => [item.id, [proc(`${item.id}-p`, item.id, 'failed', 5)]]),
+    );
+    let request: AutoNudgeStatusRequest | null = null;
+    const client: AutoNudgeClient = {
+      async getSessions() { throw new Error('per-workspace session scan is forbidden'); },
+      async getSession(id) { return session(id, id); },
+      async getSessionProcesses() { throw new Error('session-process WebSocket scan is forbidden'); },
+      async getAutoNudgeStatus(input) {
+        request = input;
+        const page = [input.registered_workspace_ids[0]!, ...workspaces.filter(id => id !== input.registered_workspace_ids[0]).slice(0, input.limit_workspaces)];
+        return aggregateStatus(input, { processes, workspaces: page, sessions: sessions.filter(item => page.includes(item.workspace_id)) });
+      },
+      async fetchConversation() { return []; },
+      async getExecutionProcessFinalResponse() { throw new Error('unexpected final response fetch in dry run'); },
+      async getExecutionProcess() { throw new Error('unexpected process fetch'); },
+      async sendMessage() { throw new Error('dry run must not send'); },
+    };
+    const before = existsSync(options.statePath) ? readFileSync(options.statePath, 'utf8') : null;
+    const result = await runAutoNudgeCycle(client, options);
+    expect(request).toMatchObject({
+      registered_workspace_ids: ['w0000'],
+      include_global_recent: true,
+      global_cursor: null,
+      limit_workspaces: 25,
+      limit_sessions: 250,
+    });
+    expect(result).toMatchObject({
+      registeredWorkspaces: 1,
+      globalWorkspacesScanned: 25,
+      pagesFetched: 1,
+      truncated: true,
+      nextCursor: 'cursor-next',
+    });
+    expect(result.sessionsScanned).toBeLessThanOrEqual(78);
+    expect(existsSync(options.statePath) ? readFileSync(options.statePath, 'utf8') : null).toBe(before);
+  });
+
+  it('fails fast when the aggregate scan endpoint is missing instead of falling back to WebSockets', async () => {
+    const { options } = setup();
+    const { client } = fake({ processes: {} });
+    let websocketCalls = 0;
+    client.getAutoNudgeStatus = async () => { throw new Error('HTTP 404'); };
+    client.getSessionProcesses = async () => { websocketCalls++; return []; };
+    await expect(runAutoNudgeCycle(client, options)).rejects.toThrow(/aggregate status endpoint is required.*HTTP 404/);
+    expect(websocketCalls).toBe(0);
+  });
+
+  it('aborts a hung aggregate request and releases the owner lock', async () => {
+    const { dir, options } = setup();
+    const lock = join(dir, 'owner.lock');
+    const controller = new AbortController();
+    options.signal = controller.signal;
+    const { client } = fake({ processes: {} });
+    client.getAutoNudgeStatus = async (_request, signal) => new Promise((_resolve, reject) => {
+      signal?.addEventListener('abort', () => reject(new Error('aggregate aborted')), { once: true });
+    });
+    const running = runWithOwnerLock(lock, () => runAutoNudgeCycle(client, options));
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(existsSync(lock)).toBe(true);
+    controller.abort();
+    await expect(running).rejects.toThrow(/aggregate status endpoint is required.*(Cancelled|aggregate aborted)/);
+    expect(existsSync(lock)).toBe(false);
   });
 
   it('enforces owner lock contention and recovers a stale owner', () => {
@@ -623,6 +776,8 @@ describe('auto nudge', () => {
       async fetchConversation(_id, timeout) { observedTimeout = timeout; return [msg('DONE')]; },
       async getExecutionProcess(id) { expect(id).toBe('checkpoint'); return terminalProcess; },
       async getExecutionProcessFinalResponse(id) { expect(id).toBe('checkpoint'); return finalResponse(terminalProcess, 'DONE'); },
+      async getExecutionProcessFinalResponseStrict(id) { expect(id).toBe('checkpoint'); return finalResponse(terminalProcess, 'DONE'); },
+      async getAutoNudgeStatus(request) { return aggregateStatus(request, { processes: {} }); },
     });
     expect((await adapter.sendMessage('overseer', {} as SendMessageBody)).id).toBe('checkpoint');
     expect(await adapter.getExecutionProcess('checkpoint')).toBe(terminalProcess);

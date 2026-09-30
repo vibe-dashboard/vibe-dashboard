@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { Socket } from 'node:net';
 import type { Duplex } from 'node:stream';
-import type { ExecutionProcess, Session, Workspace } from '../types.js';
+import type { AutoNudgeStatusRequest, AutoNudgeStatusResponse, ExecutionProcess, Session, Workspace } from '../types.js';
 
 export type FakeVkFault =
   | { id: string; operation: 'follow-up'; targetId?: string; kind: 'reject-before-accept' | 'disconnect-before-accept' | 'accept-then-drop' | 'accept-then-hang' | 'delay-before-accept' | 'delay-after-accept'; delayMs?: number; used?: boolean }
@@ -109,11 +109,90 @@ export class FakeVkServer {
     if (fault.kind === 'missing') { response(res, 'missing', 404); return true; }
     return false;
   }
+  private autoNudgeStatus(body: AutoNudgeStatusRequest): AutoNudgeStatusResponse {
+    const registered = new Set(body.registered_workspace_ids);
+    const allWorkspaces = this.scenario.workspaces.map(item => item.id);
+    const offset = Math.max(0, Number.parseInt(body.global_cursor ?? '0', 10) || 0);
+    const globalLimit = Math.max(0, body.limit_workspaces);
+    const globalIds = body.include_global_recent
+      ? allWorkspaces.filter(id => !registered.has(id)).slice(offset, offset + globalLimit)
+      : [];
+    const workspaceIds = [...body.registered_workspace_ids.filter(id => allWorkspaces.includes(id)), ...globalIds];
+    let globalSessionBudget = Math.max(0, body.limit_sessions);
+    const workspaces = workspaceIds.map(workspaceId => {
+      const sessions = this.scenario.sessions
+        .filter(session => session.workspace_id === workspaceId)
+        .filter(() => {
+          if (registered.has(workspaceId)) return true;
+          if (globalSessionBudget <= 0) return false;
+          globalSessionBudget--;
+          return true;
+        })
+        .map(session => {
+          const latest = [...session.processes]
+            .filter(process => process.run_reason === 'codingagent' && !process.dropped)
+            .sort((left, right) => right.created_at.localeCompare(left.created_at) || right.id.localeCompare(left.id))[0] ?? null;
+          return {
+            id: session.id,
+            workspace_id: session.workspace_id,
+            executor: session.executor,
+            name: session.name,
+            created_at: session.created_at,
+            updated_at: session.updated_at,
+            latest_codingagent_process: latest ? {
+              ...latest,
+              final_response: null,
+              terminal_no_response: latest.status === 'failed' || latest.status === 'killed',
+            } : null,
+            has_active_codingagent: latest?.status === 'running' && !latest.dropped,
+          };
+        });
+      return {
+        workspace_id: workspaceId,
+        archived: false,
+        registered: registered.has(workspaceId),
+        sessions,
+        has_active_codingagent: sessions.some(session => session.has_active_codingagent),
+      };
+    });
+    const process_window_results = (body.process_window_queries ?? []).map(query => {
+      const session = this.scenario.sessions.find(item => item.id === query.session_id);
+      const process_ids = (session?.processes ?? [])
+        .filter(process => process.run_reason === 'codingagent' && !process.dropped && process.created_at >= query.started_at && process.created_at <= query.ended_at)
+        .sort((left, right) => left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id))
+        .map(process => process.id);
+      return { id: query.id, process_ids };
+    });
+    const truncated = body.include_global_recent && globalIds.length === globalLimit && offset + globalLimit < allWorkspaces.filter(id => !registered.has(id)).length;
+    return {
+      workspaces,
+      process_window_results,
+      next_cursor: truncated ? String(offset + globalLimit) : null,
+      truncated,
+      counts: {
+        registered_workspaces: body.registered_workspace_ids.length,
+        global_workspaces: workspaces.filter(workspace => !workspace.registered).length,
+        sessions: workspaces.reduce((count, workspace) => count + workspace.sessions.length, 0),
+        processes: workspaces.reduce((count, workspace) => count + workspace.sessions.filter(session => session.latest_codingagent_process).length, 0),
+        pages: 1,
+      },
+    };
+  }
   private async handleHttp(request: IncomingMessage, res: ServerResponse): Promise<void> {
     const operationId = randomUUID(); const url = new URL(request.url ?? '/', this.baseUrl);
     this.observe('request-received', operationId, request);
     if (request.method === 'GET' && url.pathname === '/api/workspaces') return response(res, this.scenario.workspaces);
     if (request.method === 'GET' && url.pathname === '/api/sessions') return response(res, this.scenario.sessions.filter(item => item.workspace_id === url.searchParams.get('workspace_id')).map(({ processes: _processes, ...session }) => session));
+    if (request.method === 'POST' && url.pathname === '/api/auto-nudge/session-status') {
+      const requestBody = await this.body(request) as AutoNudgeStatusRequest;
+      this.observe('auto-nudge-status-polled', operationId, request, {
+        registeredWorkspaces: requestBody.registered_workspace_ids.length,
+        includeGlobalRecent: requestBody.include_global_recent,
+        limitWorkspaces: requestBody.limit_workspaces,
+        limitSessions: requestBody.limit_sessions,
+      });
+      return response(res, this.autoNudgeStatus(requestBody));
+    }
     const sessionMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)$/);
     if (request.method === 'GET' && sessionMatch) {
       const session = this.scenario.sessions.find(item => item.id === decodeURIComponent(sessionMatch[1]));

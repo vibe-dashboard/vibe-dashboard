@@ -82,6 +82,28 @@ describe('real VibeClient against fake VK transport', () => {
     server.assertAllDeclarationsUsed();
   });
 
+  it('serves the aggregate auto-nudge scan contract over REST without WebSockets', async () => {
+    const value = scenario();
+    value.workspaces.push({ id: 'global' });
+    value.sessions.push({ id: 'global-impl', workspace_id: 'global', name: 'impl', executor: 'CODEX', created_at: now, updated_at: now, processes: [process('failed', 'global-impl', 'failed')] });
+    const { server, client } = await start(value);
+    const status = await client.getAutoNudgeStatus({
+      registered_workspace_ids: ['workspace'],
+      include_global_recent: true,
+      global_cursor: null,
+      updated_after: '2026-09-20T00:00:00.000Z',
+      limit_workspaces: 1,
+      limit_sessions: 10,
+      process_window_queries: [{ id: 'route', session_id: 'global-impl', started_at: now, ended_at: now }],
+    });
+    expect(status.counts).toMatchObject({ registered_workspaces: 1, global_workspaces: 1, sessions: 3, processes: 2, pages: 1 });
+    expect(status.workspaces.map(workspace => [workspace.workspace_id, workspace.registered])).toEqual([['workspace', true], ['global', false]]);
+    expect(status.workspaces[1]!.sessions[0]!.latest_codingagent_process).toMatchObject({ id: 'failed', terminal_no_response: true });
+    expect(status.process_window_results).toEqual([{ id: 'route', process_ids: ['failed'] }]);
+    expect(server.journal.map(item => item.type)).toContain('auto-nudge-status-polled');
+    expect(server.journal.map(item => item.type)).not.toContain('websocket-opened');
+  });
+
   it('distinguishes pre-accept follow-up rejection from accepted response loss', async () => {
     const value = scenario(); value.faults = [{ id: 'reject', operation: 'follow-up', targetId: 'overseer', kind: 'reject-before-accept' }];
     const { server, client } = await start(value);

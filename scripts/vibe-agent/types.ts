@@ -86,6 +86,66 @@ export interface ExecutionProcessFinalResponse {
   terminal_no_response: boolean;
 }
 
+export interface AutoNudgeStatusProcess extends ExecutionProcess {
+  final_response: string | null;
+  terminal_no_response: boolean | null;
+}
+
+export interface AutoNudgeStatusSession {
+  id: string;
+  workspace_id: string;
+  executor: Executor;
+  name: string | null;
+  created_at: string;
+  updated_at: string;
+  latest_codingagent_process: AutoNudgeStatusProcess | null;
+  has_active_codingagent: boolean;
+}
+
+export interface AutoNudgeStatusWorkspace {
+  workspace_id: string;
+  archived: boolean;
+  registered: boolean;
+  sessions: AutoNudgeStatusSession[];
+  has_active_codingagent: boolean;
+}
+
+export interface AutoNudgeProcessWindowQuery {
+  id: string;
+  session_id: string;
+  started_at: string;
+  ended_at: string;
+}
+
+export interface AutoNudgeProcessWindowResult {
+  id: string;
+  process_ids: string[];
+}
+
+export interface AutoNudgeStatusRequest {
+  registered_workspace_ids: string[];
+  include_global_recent: boolean;
+  global_cursor: string | null;
+  updated_after: string;
+  limit_workspaces: number;
+  limit_sessions: number;
+  process_window_queries?: AutoNudgeProcessWindowQuery[];
+}
+
+export interface AutoNudgeStatusResponse {
+  workspaces: AutoNudgeStatusWorkspace[];
+  process_window_results: AutoNudgeProcessWindowResult[];
+  next_cursor: string | null;
+  truncated: boolean;
+  counts: {
+    registered_workspaces: number;
+    global_workspaces: number;
+    sessions: number;
+    processes: number;
+    pages: number;
+  };
+}
+
 export interface WorkspaceSummary {
   workspace_id: string;
   latest_session_id: string | null;

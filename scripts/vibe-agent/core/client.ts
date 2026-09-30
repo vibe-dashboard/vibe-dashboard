@@ -62,6 +62,8 @@ function finalAssistantResponse(entries: ConversationEntry[]): string | null {
 }
 import { config, type Executor } from '../config.js';
 import type {
+  AutoNudgeStatusRequest,
+  AutoNudgeStatusResponse,
   Project,
   Task,
   Workspace,
@@ -283,9 +285,13 @@ export class VibeClient {
     return this.request<ExecutionProcess>(this.url(`/api/execution-processes/${encodeURIComponent(processId)}`));
   }
 
+  async getExecutionProcessFinalResponseStrict(processId: string): Promise<ExecutionProcessFinalResponse> {
+    return this.request<ExecutionProcessFinalResponse>(this.url(`/api/execution-processes/${encodeURIComponent(processId)}/final-response`));
+  }
+
   async getExecutionProcessFinalResponse(processId: string): Promise<ExecutionProcessFinalResponse> {
     try {
-      return await this.request<ExecutionProcessFinalResponse>(this.url(`/api/execution-processes/${encodeURIComponent(processId)}/final-response`));
+      return await this.getExecutionProcessFinalResponseStrict(processId);
     } catch {
       const process = await this.getExecutionProcess(processId);
       const entries = await this.fetchConversation(processId, 5_000);
@@ -299,6 +305,14 @@ export class VibeClient {
         terminal_no_response: finished && finalResponse == null,
       };
     }
+  }
+
+  async getAutoNudgeStatus(body: AutoNudgeStatusRequest, signal?: AbortSignal): Promise<AutoNudgeStatusResponse> {
+    return this.request<AutoNudgeStatusResponse>(this.url('/api/auto-nudge/session-status'), {
+      method: 'POST',
+      body: JSON.stringify(body),
+      signal,
+    });
   }
 
 
