@@ -30,6 +30,7 @@ export const config = {
     sessionFollowUp: (sessionId: string) => `${BASE_URL}/api/sessions/${sessionId}/follow-up`,
     executionProcess: (processId: string) => `${BASE_URL}/api/execution-processes/${processId}`,
     executionProcessFinalResponse: (processId: string) => `${BASE_URL}/api/execution-processes/${processId}/final-response`,
+    autoNudgeSessionStatus: `${BASE_URL}/api/auto-nudge/session-status`,
     info: `${BASE_URL}/api/info`,
   },
 
