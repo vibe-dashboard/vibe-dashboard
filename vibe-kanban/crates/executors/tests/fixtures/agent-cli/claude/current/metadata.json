@@ -1,0 +1,10 @@
+{
+  "cli": "claude",
+  "package": "@anthropic-ai/claude-code",
+  "version_role": "current",
+  "version": "2.1.227",
+  "captured_from": "committed_raw_fixture",
+  "raw_fixture": "stdout.jsonl",
+  "compatibility_scope": "normalization_no_migration",
+  "notes": "Current pinned Claude Code JSONL output shape. CI validates this committed raw fixture; it does not invoke Claude."
+}
