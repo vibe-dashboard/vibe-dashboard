@@ -398,7 +398,7 @@ async function currentResponseRouteProcess(
   for (let depth = 0; depth < 8; depth++) {
     const callbacks = callbacksForTrigger(options.callbackRegistryPath, processId, options.now());
     if (callbacks.some(item => item.status === 'running')) return null;
-    const completion = latestCompletedCallbackWithProcess(callbacks);
+    const completion = latestFinishedCallbackWithProcess(callbacks);
     if (completion?.completionProcessId && completion.completionProcessId !== processId) {
       const nextProcessId = completion.completionProcessId;
       const updated = updateResponseRoute(responseRoutesPath, routeId, route => {
@@ -418,9 +418,9 @@ async function currentResponseRouteProcess(
   return null;
 }
 
-function latestCompletedCallbackWithProcess(callbacks: CallbackRecord[]): CallbackRecord | null {
+function latestFinishedCallbackWithProcess(callbacks: CallbackRecord[]): CallbackRecord | null {
   return callbacks
-    .filter(item => item.status === 'completed' && item.completionProcessId)
+    .filter(item => item.status !== 'running' && item.completionProcessId)
     .sort((left, right) => (right.finishedAt ?? '').localeCompare(left.finishedAt ?? '') || right.id.localeCompare(left.id))[0] ?? null;
 }
 async function mapLimit<T>(values: T[], limit: number, task: (value: T) => Promise<void>, signal?: AbortSignal): Promise<void> {
