@@ -26,7 +26,7 @@ runs:
   steps:
     - name: Setup Node
       if: ${{ inputs.setup-node == 'true' }}
-      uses: ./.github/actions/setup-node
+      uses: ./.github/actions/vk-setup-node
 
     - name: Setup sccache
       uses: BloopAI/sccache-action@main
@@ -49,7 +49,7 @@ runs:
       env:
         RUST_CACHE_DEBUG: true
       with:
-        workspaces: "."
+        workspaces: "vibe-kanban"
         cache-provider: "github"
         cache-on-failure: true
         shared-key: ${{ inputs.cache-key }}
