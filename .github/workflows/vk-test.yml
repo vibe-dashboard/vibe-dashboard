@@ -1,15 +1,20 @@
-name: Test
+name: VK Test
 
 on:
   pull_request:
     branches:
       - main
-    paths-ignore:
-      - .github/workflows/**
-      - "!.github/workflows/test.yml"
+    paths:
+      - vibe-kanban/**
+      - .github/workflows/vk-test.yml
+      - .github/actions/vk-*/**
   push:
     branches:
-      - main
+      - "**"
+    paths:
+      - vibe-kanban/**
+      - .github/workflows/vk-test.yml
+      - .github/actions/vk-*/**
   workflow_dispatch:
 
 concurrency:
@@ -22,6 +27,10 @@ env:
   PNPM_VERSION: 10.13.1
   RUST_TOOLCHAIN: nightly-2025-12-04
   RUNNER_LABEL: &runner_label ubuntu-24.04
+
+defaults:
+  run:
+    working-directory: vibe-kanban
 
 jobs:
   changes:
@@ -42,122 +51,21 @@ jobs:
         with:
           filters: |
             frontend:
-              - 'packages/local-web/**'
-              - 'packages/web-core/**'
-              - 'packages/remote-web/**'
-              - 'packages/ui/**'
-              - 'shared/**'
-              - 'scripts/check-i18n.sh'
-              - 'scripts/check-unused-i18n-keys.mjs'
-              - 'scripts/check-legacy-frontend-paths.sh'
-              - 'scripts/legacy-frontend-paths-allowlist.txt'
-              - 'pnpm-lock.yaml'
-              - 'pnpm-workspace.yaml'
-              - 'package.json'
-              - '.npmrc'
-              - '.github/workflows/test.yml'
-              - '.github/actions/**'
+              - 'vibe-kanban/**'
+              - '.github/workflows/vk-test.yml'
+              - '.github/actions/vk-*/**'
             backend:
-              - 'crates/api-types/**'
-              - 'crates/client-info/**'
-              - 'crates/db/**'
-              - 'crates/deployment/**'
-              - 'crates/desktop-bridge/**'
-              - 'crates/embedded-ssh/**'
-              - 'crates/executors/**'
-              - 'crates/git/**'
-              - 'crates/git-host/**'
-              - 'crates/local-deployment/**'
-              - 'crates/mcp/**'
-              - 'crates/preview-proxy/**'
-              - 'crates/relay-client/**'
-              - 'crates/relay-control/**'
-              - 'crates/relay-hosts/**'
-              - 'crates/relay-protocol/**'
-              - 'crates/relay-tunnel-core/**'
-              - 'crates/relay-types/**'
-              - 'crates/relay-webrtc/**'
-              - 'crates/relay-ws/**'
-              - 'crates/remote-info/**'
-              - 'crates/review/**'
-              - 'crates/server/**'
-              - 'crates/services/**'
-              - 'crates/trusted-key-auth/**'
-              - 'crates/utils/**'
-              - 'crates/workspace-manager/**'
-              - 'crates/worktree-manager/**'
-              - 'crates/ws-bridge/**'
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-              - 'shared/**'
-              - 'scripts/prepare-db.js'
-              - 'pnpm-lock.yaml'
-              - 'package.json'
-              - 'rustfmt.toml'
-              - 'rust-toolchain.toml'
-              - '.cargo/**'
-              - '.github/workflows/test.yml'
-              - '.github/actions/**'
+              - 'vibe-kanban/**'
+              - '.github/workflows/vk-test.yml'
+              - '.github/actions/vk-*/**'
             backend-remote:
-              - 'crates/remote/**'
-              - 'crates/relay-tunnel/**'
-              - 'crates/relay-tunnel-core/**'
-              - 'crates/ws-bridge/**'
-              - 'crates/api-types/**'
-              - 'crates/relay-types/**'
-              - 'crates/utils/**'
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-              - 'shared/**'
-              - 'rustfmt.toml'
-              - 'rust-toolchain.toml'
-              - '.cargo/**'
-              - 'pnpm-lock.yaml'
-              - 'package.json'
-              - '.github/workflows/test.yml'
-              - '.github/actions/**'
+              - 'vibe-kanban/**'
+              - '.github/workflows/vk-test.yml'
+              - '.github/actions/vk-*/**'
             tauri:
-              - 'crates/tauri-app/**'
-              - 'crates/api-types/**'
-              - 'crates/client-info/**'
-              - 'crates/db/**'
-              - 'crates/deployment/**'
-              - 'crates/desktop-bridge/**'
-              - 'crates/embedded-ssh/**'
-              - 'crates/executors/**'
-              - 'crates/git/**'
-              - 'crates/git-host/**'
-              - 'crates/local-deployment/**'
-              - 'crates/mcp/**'
-              - 'crates/preview-proxy/**'
-              - 'crates/relay-client/**'
-              - 'crates/relay-control/**'
-              - 'crates/relay-hosts/**'
-              - 'crates/relay-protocol/**'
-              - 'crates/relay-tunnel-core/**'
-              - 'crates/relay-types/**'
-              - 'crates/relay-webrtc/**'
-              - 'crates/relay-ws/**'
-              - 'crates/remote-info/**'
-              - 'crates/review/**'
-              - 'crates/server/**'
-              - 'crates/services/**'
-              - 'crates/trusted-key-auth/**'
-              - 'crates/utils/**'
-              - 'crates/workspace-manager/**'
-              - 'crates/worktree-manager/**'
-              - 'crates/ws-bridge/**'
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-              - 'rustfmt.toml'
-              - 'rust-toolchain.toml'
-              - '.cargo/**'
-              - 'package.json'
-              - 'pnpm-lock.yaml'
-              - 'pnpm-workspace.yaml'
-              - '.npmrc'
-              - '.github/workflows/test.yml'
-              - '.github/actions/**'
+              - 'vibe-kanban/**'
+              - '.github/workflows/vk-test.yml'
+              - '.github/actions/vk-*/**'
 
   frontend-checks:
     needs: changes
@@ -167,7 +75,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Setup Node
-        uses: ./.github/actions/setup-node
+        uses: ./.github/actions/vk-setup-node
 
       - name: Install dependencies
         run: pnpm install
@@ -202,7 +110,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Setup Node
-        uses: ./.github/actions/setup-node
+        uses: ./.github/actions/vk-setup-node
 
       - name: Install dependencies
         run: pnpm install
@@ -236,7 +144,7 @@ jobs:
           tools-cache: false
 
       - name: Setup Rust
-        uses: ./.github/actions/cargo-checks-common-setup
+        uses: ./.github/actions/vk-cargo-checks-common-setup
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           cache-key: backend-schema-checks-${{ runner.os }}-${{ runner.arch }}-${{ env.RUNNER_LABEL }}
@@ -273,7 +181,7 @@ jobs:
           tools-cache: false
 
       - name: Setup Rust
-        uses: ./.github/actions/cargo-checks-common-setup
+        uses: ./.github/actions/vk-cargo-checks-common-setup
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           components: rustfmt, clippy
@@ -310,7 +218,7 @@ jobs:
           tools-cache: false
 
       - name: Setup Rust
-        uses: ./.github/actions/cargo-checks-common-setup
+        uses: ./.github/actions/vk-cargo-checks-common-setup
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           cache-key: backend-test-${{ runner.os }}-${{ runner.arch }}-${{ env.RUNNER_LABEL }}
@@ -351,7 +259,7 @@ jobs:
 
       - name: Setup Rust and Node
         if: steps.should_run.outputs.result == 'true'
-        uses: ./.github/actions/cargo-checks-common-setup
+        uses: ./.github/actions/vk-cargo-checks-common-setup
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           cache-key: coding-agent-upgrade-gate-${{ runner.os }}-${{ runner.arch }}-${{ env.RUNNER_LABEL }}
