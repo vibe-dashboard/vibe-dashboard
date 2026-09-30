@@ -1,35 +1,49 @@
-name: Docker workspace beads smoke
+name: Docker e2e tests
 
 on:
   workflow_dispatch:
   pull_request:
     paths:
-      - ".github/workflows/docker-workspace-beads-smoke.yml"
+      - ".github/workflows/docker-e2e-tests.yml"
+      - "Caddyfile"
+      - "Caddyfile.plugins"
       - "Dockerfile.vkvd"
       - "docker-entrypoint.sh"
       - "supervisord.vkvd.conf"
       - ".docker/vk-runtime/vibe-kanban"
+      - "scripts/smoke-vkvd-plugin-runtime.sh"
       - "scripts/smoke-vkvd-workspace-beads.sh"
+      - "scripts/build-custom-caddy.sh"
       - "scripts/vd-beads.ts"
       - "scripts/bd-wrapper/**"
+      - "plugins/scripts/vd-plugin-runtime-apply.sh"
+      - "src/modules/plugins/vibe-dashboard/**"
       - "src/modules/plugins/kanban/server/workspaceBeads.ts"
+      - "plugins/**"
   push:
     paths:
-      - ".github/workflows/docker-workspace-beads-smoke.yml"
+      - ".github/workflows/docker-e2e-tests.yml"
+      - "Caddyfile"
+      - "Caddyfile.plugins"
       - "Dockerfile.vkvd"
       - "docker-entrypoint.sh"
       - "supervisord.vkvd.conf"
       - ".docker/vk-runtime/vibe-kanban"
+      - "scripts/smoke-vkvd-plugin-runtime.sh"
       - "scripts/smoke-vkvd-workspace-beads.sh"
+      - "scripts/build-custom-caddy.sh"
       - "scripts/vd-beads.ts"
       - "scripts/bd-wrapper/**"
+      - "plugins/scripts/vd-plugin-runtime-apply.sh"
+      - "src/modules/plugins/vibe-dashboard/**"
       - "src/modules/plugins/kanban/server/workspaceBeads.ts"
+      - "plugins/**"
 
 permissions:
   contents: read
 
 concurrency:
-  group: docker-workspace-beads-smoke-${{ github.ref }}
+  group: docker-e2e-tests-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -40,10 +54,12 @@ env:
   PNPM_VERSION: 10.13.1
   RUST_TOOLCHAIN: nightly-2025-12-04
   VK_REPOSITORY: mickmister/vibe-kanban
+  IMAGE_TAG: vk-vd-docker-e2e:${{ github.sha }}
+  IMAGE_ARTIFACT_NAME: vk-vd-docker-e2e-image
 
 jobs:
-  workspace-beads:
-    name: workspace-scoped beads initialization
+  build-image:
+    name: build VK/VD Docker image
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
@@ -119,7 +135,7 @@ jobs:
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
         with:
           workspaces: Vktest
-          shared-key: workspace-beads-docker-${{ runner.os }}-${{ runner.arch }}-${{ steps.vk-meta.outputs.sha }}
+          shared-key: docker-e2e-${{ runner.os }}-${{ runner.arch }}-${{ steps.vk-meta.outputs.sha }}
           cache-provider: github
           cache-on-failure: "true"
 
@@ -153,10 +169,67 @@ jobs:
             VK_COMMIT=${{ steps.vk-meta.outputs.sha }}
           push: false
           load: true
-          tags: vk-vd-workspace-beads-smoke:${{ github.sha }}
+          tags: ${{ env.IMAGE_TAG }}
+
+      - name: Save Docker image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker save "${IMAGE_TAG}" | gzip -1 > /tmp/vk-vd-docker-e2e-image.tar.gz
+          ls -lh /tmp/vk-vd-docker-e2e-image.tar.gz
+
+      - name: Upload Docker image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.IMAGE_ARTIFACT_NAME }}
+          path: /tmp/vk-vd-docker-e2e-image.tar.gz
+          retention-days: 1
+          if-no-files-found: error
+
+  plugin-runtime-smoke:
+    name: beads-web plugin runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: build-image
+
+    steps:
+      - name: Checkout VD
+        uses: actions/checkout@v4
+
+      - name: Download Docker image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.IMAGE_ARTIFACT_NAME }}
+          path: /tmp
+
+      - name: Load Docker image
+        run: gzip -dc /tmp/vk-vd-docker-e2e-image.tar.gz | docker load
+
+      - name: Run beads-web plugin runtime smoke
+        env:
+          VKVD_SMOKE_IMAGE: ${{ env.IMAGE_TAG }}
+        run: bash scripts/smoke-vkvd-plugin-runtime.sh
+
+  workspace-beads-smoke:
+    name: workspace-scoped beads initialization
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: build-image
+
+    steps:
+      - name: Checkout VD
+        uses: actions/checkout@v4
+
+      - name: Download Docker image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.IMAGE_ARTIFACT_NAME }}
+          path: /tmp
+
+      - name: Load Docker image
+        run: gzip -dc /tmp/vk-vd-docker-e2e-image.tar.gz | docker load
 
       - name: Run workspace beads runtime smoke
-        working-directory: vibe-kanban-vscode-web
         env:
-          VKVD_SMOKE_IMAGE: vk-vd-workspace-beads-smoke:${{ github.sha }}
+          VKVD_SMOKE_IMAGE: ${{ env.IMAGE_TAG }}
         run: bash scripts/smoke-vkvd-workspace-beads.sh
