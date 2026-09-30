@@ -27,6 +27,7 @@ env:
   PNPM_VERSION: 10.13.1
   RUST_TOOLCHAIN: nightly-2025-12-04
   RUNNER_LABEL: &runner_label ubuntu-24.04
+  ESLINT_USE_FLAT_CONFIG: "false"
 
 defaults:
   run:
