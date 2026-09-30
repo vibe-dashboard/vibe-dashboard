@@ -112,46 +112,29 @@ jobs:
           docker system prune -af || true
           df -h
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-          cache-dependency-path: Vktest/pnpm-lock.yaml
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7
-        with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
-
-      - name: Restore Rust caches
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
-        with:
-          workspaces: Vktest
-          shared-key: docker-e2e-${{ runner.os }}-${{ runner.arch }}-${{ steps.vk-meta.outputs.sha }}
-          cache-provider: github
-          cache-on-failure: "true"
-
-      - name: Install VK dependencies
-        working-directory: Vktest
-        run: pnpm install --frozen-lockfile
-
-      - name: Build real VK runtime
-        working-directory: Vktest
-        run: cargo build --locked -p server --bin server
+      - name: Build real VK runtime on Debian bookworm
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -e "CARGO_TERM_COLOR=${CARGO_TERM_COLOR}" \
+            -e "CARGO_PROFILE_DEV_DEBUG=${CARGO_PROFILE_DEV_DEBUG}" \
+            -e "CARGO_PROFILE_TEST_DEBUG=${CARGO_PROFILE_TEST_DEBUG}" \
+            -e "VK_BUILD_COMMIT_HASH=${{ steps.vk-meta.outputs.sha }}" \
+            -e "CARGO_TARGET_DIR=/work/target-bookworm" \
+            -e "RUST_TOOLCHAIN=${RUST_TOOLCHAIN}" \
+            -v "${PWD}/Vktest:/work" \
+            -w /work \
+            rust:bookworm \
+            bash -lc 'rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal && cargo +"${RUST_TOOLCHAIN}" build --locked -p server --bin server'
         env:
-          VK_BUILD_COMMIT_HASH: ${{ steps.vk-meta.outputs.sha }}
+          RUST_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}
 
       - name: Stage VK runtime for Docker build
         shell: bash
         run: |
           set -euo pipefail
-          cp Vktest/target/debug/server vibe-kanban-vscode-web/.docker/vk-runtime/vibe-kanban
+          cp Vktest/target-bookworm/debug/server vibe-kanban-vscode-web/.docker/vk-runtime/vibe-kanban
           chmod 0755 vibe-kanban-vscode-web/.docker/vk-runtime/vibe-kanban
 
       - name: Setup Docker Buildx
