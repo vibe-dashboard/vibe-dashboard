@@ -1,25 +1,28 @@
-name: Release Binaries
+name: VK Release Binaries
 
 on:
   push:
     branches:
       - "**"
-    tags:
-      - "v*"
+    paths:
+      - "vibe-kanban/**"
+      - ".github/workflows/vk-release-binaries.yml"
+      - ".github/actions/vk-*/**"
+      - ".github/scripts/vk-content-hash.sh"
   workflow_dispatch:
     inputs:
       vk_ref:
-        description: "VK ref/SHA to build or look up. Defaults to the workflow ref."
+        description: "VD ref/SHA whose ./vibe-kanban tree should be built or looked up. Defaults to the workflow ref."
         required: false
         type: string
       force_rebuild:
-        description: "Rebuild and republish even if the SHA-addressed release already has all required runtime assets."
+        description: "Rebuild and republish even if the content-addressed release already has all required runtime assets."
         required: false
         default: false
         type: boolean
 
 concurrency:
-  group: release-binaries-${{ github.event.inputs.vk_ref || github.sha }}
+  group: vk-release-binaries-${{ github.event.inputs.vk_ref || github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -30,6 +33,7 @@ env:
   NODE_VERSION: 22
   PNPM_VERSION: 10.13.1
   RUST_TOOLCHAIN: nightly-2025-12-04
+  VK_ASSET_REPOSITORY: vibe-dashboard/vibe-kanban
 
 jobs:
   prepare:
@@ -40,6 +44,7 @@ jobs:
       checkout_ref: ${{ steps.prepare.outputs.checkout_ref }}
       target_commitish: ${{ steps.prepare.outputs.target_commitish }}
       vk_sha: ${{ steps.prepare.outputs.vk_sha }}
+      vk_content_hash: ${{ steps.prepare.outputs.vk_content_hash }}
       release_tag: ${{ steps.prepare.outputs.release_tag }}
       release_name: ${{ steps.prepare.outputs.release_name }}
       release_body: ${{ steps.prepare.outputs.release_body }}
@@ -77,14 +82,17 @@ jobs:
             exit 1
           fi
 
-          short_sha="${vk_sha:0:12}"
-          release_tag="vk-assets-${vk_sha}"
-          release_name="VK Runtime Assets (${short_sha})"
+          git checkout --force "$vk_sha"
+          vk_content_hash="$(.github/scripts/vk-content-hash.sh)"
+          short_hash="${vk_content_hash:0:12}"
+          release_tag="vk-assets-sha256-${vk_content_hash}"
+          release_name="VK Runtime Assets (${short_hash})"
 
           echo "should_run=true" >> "$GITHUB_OUTPUT"
           echo "checkout_ref=$vk_sha" >> "$GITHUB_OUTPUT"
           echo "target_commitish=$vk_sha" >> "$GITHUB_OUTPUT"
           echo "vk_sha=$vk_sha" >> "$GITHUB_OUTPUT"
+          echo "vk_content_hash=$vk_content_hash" >> "$GITHUB_OUTPUT"
           echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
           echo "release_name=$release_name" >> "$GITHUB_OUTPUT"
           echo "release_draft=false" >> "$GITHUB_OUTPUT"
@@ -101,7 +109,9 @@ jobs:
           echo 'EOF' >> "$GITHUB_OUTPUT"
           echo 'release_body<<EOF' >> "$GITHUB_OUTPUT"
           cat <<EOF >> "$GITHUB_OUTPUT"
-          Runtime assets for VK commit ${vk_sha}.
+          Runtime assets for VK content hash ${vk_content_hash}.
+
+          Source commit: \`${vk_sha}\`
 
           Deterministic lookup tag: \`${release_tag}\`
 
@@ -122,11 +132,19 @@ jobs:
         id: preflight
         env:
           GH_TOKEN: ${{ github.token }}
+          VK_RELEASE_TOKEN: ${{ secrets.VK_RELEASE_REPOSITORY_TOKEN }}
+          VK_ASSET_REPOSITORY: ${{ env.VK_ASSET_REPOSITORY }}
           RELEASE_TAG: ${{ steps.prepare.outputs.release_tag }}
-          VK_SHA: ${{ steps.prepare.outputs.vk_sha }}
+          VK_CONTENT_HASH: ${{ steps.prepare.outputs.vk_content_hash }}
           FORCE_REBUILD: ${{ github.event.inputs.force_rebuild || 'false' }}
         run: |
           set -euo pipefail
+
+          if [[ -z "${VK_RELEASE_TOKEN:-}" ]]; then
+            echo "Missing VK_RELEASE_REPOSITORY_TOKEN secret; cannot inspect ${VK_ASSET_REPOSITORY} releases." >&2
+            exit 1
+          fi
+          export GH_TOKEN="$VK_RELEASE_TOKEN"
 
           if [[ "$FORCE_REBUILD" == "true" ]]; then
             echo "assets_exist=false" >> "$GITHUB_OUTPUT"
@@ -134,7 +152,7 @@ jobs:
             exit 0
           fi
 
-          if ! gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' > existing-assets.txt 2>/dev/null; then
+          if ! gh release view "$RELEASE_TAG" --repo "$VK_ASSET_REPOSITORY" --json assets --jq '.assets[].name' > existing-assets.txt 2>/dev/null; then
             echo "assets_exist=false" >> "$GITHUB_OUTPUT"
             echo "release $RELEASE_TAG does not exist yet"
             exit 0
@@ -160,7 +178,7 @@ jobs:
 
           if [[ "$missing" -eq 0 ]]; then
             echo "assets_exist=true" >> "$GITHUB_OUTPUT"
-            echo "all expected assets already exist for $VK_SHA at $RELEASE_TAG"
+            echo "all expected assets already exist for $VK_CONTENT_HASH at $RELEASE_TAG"
           else
             echo "assets_exist=false" >> "$GITHUB_OUTPUT"
           fi
@@ -179,13 +197,15 @@ jobs:
           ref: ${{ needs.prepare.outputs.checkout_ref }}
 
       - name: Setup Node
-        uses: ./.github/actions/setup-node
+        uses: ./.github/actions/vk-setup-node
 
       - name: Install dependencies
+        working-directory: vibe-kanban
         run: pnpm install --frozen-lockfile
 
       - name: Build frontend
-        run: cd packages/local-web && npm run build
+        working-directory: vibe-kanban/packages/local-web
+        run: npm run build
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           VITE_POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
@@ -196,7 +216,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: frontend-dist
-          path: packages/local-web/dist/
+          path: vibe-kanban/packages/local-web/dist/
           retention-days: 1
 
   build-binaries:
@@ -255,7 +275,7 @@ jobs:
       - name: Restore Rust caches
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
-          workspaces: "."
+          workspaces: "vibe-kanban"
           shared-key: release-binaries-${{ runner.os }}-${{ matrix.target }}
           cache-provider: github
           cache-all-crates: "true"
@@ -292,10 +312,11 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           name: frontend-dist
-          path: packages/local-web/dist/
+          path: vibe-kanban/packages/local-web/dist/
 
       - name: Build Linux runtime binary
         if: runner.os == 'Linux'
+        working-directory: vibe-kanban
         run: |
           cargo zigbuild --locked --release --target ${{ matrix.target }} \
             -p server --bin server
@@ -305,10 +326,11 @@ jobs:
           VK_SHARED_API_BASE: ${{ secrets.VK_SHARED_API_BASE }}
           VK_SHARED_RELAY_API_BASE: ${{ secrets.VK_SHARED_RELAY_API_BASE }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
-          VK_BUILD_COMMIT_HASH: ${{ needs.prepare.outputs.vk_sha }}
+          VK_BUILD_COMMIT_HASH: ${{ needs.prepare.outputs.vk_content_hash }}
 
       - name: Build macOS runtime binary
         if: runner.os == 'macOS'
+        working-directory: vibe-kanban
         run: |
           export MACOSX_DEPLOYMENT_TARGET=11.0
           cargo build --locked --release --target ${{ matrix.target }} \
@@ -319,19 +341,22 @@ jobs:
           VK_SHARED_API_BASE: ${{ secrets.VK_SHARED_API_BASE }}
           VK_SHARED_RELAY_API_BASE: ${{ secrets.VK_SHARED_RELAY_API_BASE }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
-          VK_BUILD_COMMIT_HASH: ${{ needs.prepare.outputs.vk_sha }}
+          VK_BUILD_COMMIT_HASH: ${{ needs.prepare.outputs.vk_content_hash }}
 
       - name: Prepare package directory
+        working-directory: vibe-kanban
         run: |
           mkdir -p package dist
           cp target/${{ matrix.target }}/release/server package/vibe-kanban
           chmod 755 package/vibe-kanban
 
       - name: Package runtime artifact
+        working-directory: vibe-kanban
         run: |
           tar -C package -czf dist/vibe-kanban-${{ matrix.name }}.tar.gz vibe-kanban
 
       - name: Generate checksums
+        working-directory: vibe-kanban
         run: |
           node <<'EOF'
           const crypto = require('crypto');
@@ -355,7 +380,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: release-assets-${{ matrix.name }}
-          path: dist/
+          path: vibe-kanban/dist/
           retention-days: 1
           compression-level: 0
 
@@ -376,7 +401,8 @@ jobs:
         env:
           RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
           VK_SHA: ${{ needs.prepare.outputs.vk_sha }}
-          REPOSITORY: ${{ github.repository }}
+          VK_CONTENT_HASH: ${{ needs.prepare.outputs.vk_content_hash }}
+          REPOSITORY: ${{ env.VK_ASSET_REPOSITORY }}
         run: |
           node <<'EOF'
           const fs = require('fs');
@@ -385,18 +411,22 @@ jobs:
           const dir = 'release-assets';
           const releaseTag = process.env.RELEASE_TAG;
           const vkSha = process.env.VK_SHA;
+          const vkContentHash = process.env.VK_CONTENT_HASH;
           const repository = process.env.REPOSITORY;
           const releaseBaseUrl = `https://github.com/${repository}/releases/download/${releaseTag}`;
           const manifest = {
             schema_version: 1,
             release_tag: releaseTag,
             vk_sha: vkSha,
-            commit: vkSha,
+            source_commit: vkSha,
+            vk_content_hash: vkContentHash,
+            content_hash: vkContentHash,
+            commit: vkContentHash,
             mode: 'standalone-runtime-assets',
             generated_at: new Date().toISOString(),
             release_url: `https://github.com/${repository}/releases/tag/${releaseTag}`,
             asset_naming: {
-              release_tag: 'vk-assets-<full_vk_sha>',
+              release_tag: 'vk-assets-sha256-<vk_content_hash>',
               archive: 'vibe-kanban-<platform>.tar.gz',
               checksum: 'vibe-kanban-<platform>.tar.gz.sha256',
             },
@@ -473,18 +503,39 @@ jobs:
           EOF
 
       - name: Create or update GitHub Release
-        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2
-        with:
-          tag_name: ${{ needs.prepare.outputs.release_tag }}
-          target_commitish: ${{ needs.prepare.outputs.target_commitish }}
-          name: ${{ needs.prepare.outputs.release_name }}
-          body: ${{ needs.prepare.outputs.release_body }}
-          draft: ${{ needs.prepare.outputs.release_draft == 'true' }}
-          prerelease: ${{ needs.prepare.outputs.release_prerelease == 'true' }}
-          generate_release_notes: ${{ needs.prepare.outputs.generate_release_notes == 'true' }}
-          overwrite_files: true
-          files: |
-            release-assets/*
+        env:
+          GH_TOKEN: ${{ secrets.VK_RELEASE_REPOSITORY_TOKEN }}
+          VK_ASSET_REPOSITORY: ${{ env.VK_ASSET_REPOSITORY }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          RELEASE_NAME: ${{ needs.prepare.outputs.release_name }}
+          RELEASE_BODY: ${{ needs.prepare.outputs.release_body }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "Missing VK_RELEASE_REPOSITORY_TOKEN secret; cannot publish ${VK_ASSET_REPOSITORY} releases." >&2
+            exit 1
+          fi
+
+          printf '%s\n' "$RELEASE_BODY" > release-body.md
+
+          if gh release view "$RELEASE_TAG" --repo "$VK_ASSET_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --repo "$VK_ASSET_REPOSITORY" \
+              --title "$RELEASE_NAME" \
+              --notes-file release-body.md \
+              --prerelease
+          else
+            gh release create "$RELEASE_TAG" \
+              --repo "$VK_ASSET_REPOSITORY" \
+              --title "$RELEASE_NAME" \
+              --notes-file release-body.md \
+              --prerelease
+          fi
+
+          gh release upload "$RELEASE_TAG" release-assets/* \
+            --repo "$VK_ASSET_REPOSITORY" \
+            --clobber
 
   dispatch-vd-publish:
     needs: [prepare, publish-release]
@@ -499,28 +550,27 @@ jobs:
     steps:
       - name: Dispatch VD VK/VD Docker publish
         env:
-          GH_TOKEN: ${{ secrets.VD_REPOSITORY_DISPATCH_TOKEN }}
-          VD_REPOSITORY: ${{ vars.VD_REPOSITORY || 'mickmister/vibe-dashboard' }}
+          GH_TOKEN: ${{ github.token }}
+          VD_REPOSITORY: ${{ github.repository }}
           VK_REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
           VK_SHA: ${{ needs.prepare.outputs.vk_sha }}
+          VK_CONTENT_HASH: ${{ needs.prepare.outputs.vk_content_hash }}
+          VK_ASSET_REPOSITORY: ${{ env.VK_ASSET_REPOSITORY }}
           RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
-          RELEASE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ needs.prepare.outputs.release_tag }}
+          RELEASE_URL: ${{ github.server_url }}/${{ env.VK_ASSET_REPOSITORY }}/releases/tag/${{ needs.prepare.outputs.release_tag }}
           WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           VK_SOURCE_REF: ${{ github.ref }}
           VK_SOURCE_REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
 
-          if [[ -z "${GH_TOKEN:-}" ]]; then
-            echo "Missing VD_REPOSITORY_DISPATCH_TOKEN secret; cannot dispatch VD publish workflow." >&2
-            exit 1
-          fi
-
           jq -n \
             --arg event_type "vk-release-assets-ready" \
             --arg vk_sha "$VK_SHA" \
-            --arg vk_ref "$VK_SHA" \
+            --arg vk_content_hash "$VK_CONTENT_HASH" \
+            --arg vk_ref "$VK_CONTENT_HASH" \
             --arg vk_repo_url "$VK_REPO_URL" \
+            --arg vk_asset_repository "$VK_ASSET_REPOSITORY" \
             --arg release_tag "$RELEASE_TAG" \
             --arg release_url "$RELEASE_URL" \
             --arg workflow_run_url "$WORKFLOW_RUN_URL" \
@@ -530,8 +580,10 @@ jobs:
               event_type: $event_type,
               client_payload: {
                 vk_sha: $vk_sha,
+                vk_content_hash: $vk_content_hash,
                 vk_ref: $vk_ref,
                 vk_repo_url: $vk_repo_url,
+                vk_asset_repository: $vk_asset_repository,
                 release_tag: $release_tag,
                 release_url: $release_url,
                 workflow_run_url: $workflow_run_url,
@@ -552,11 +604,10 @@ jobs:
             echo
             echo "- Target repository: \`${VD_REPOSITORY}\`"
             echo "- VK SHA: \`${VK_SHA}\`"
+            echo "- VK content hash: \`${VK_CONTENT_HASH}\`"
             echo "- VK source ref: \`${VK_SOURCE_REF}\`"
             echo "- VK release: ${RELEASE_URL}"
             echo "- VK workflow run: ${WORKFLOW_RUN_URL}"
-            echo
-            echo "If this step fails, verify that \`VD_REPOSITORY_DISPATCH_TOKEN\` can create repository dispatch events in \`${VD_REPOSITORY}\`."
           } >> "$GITHUB_STEP_SUMMARY"
 
-          echo "Dispatched vk-release-assets-ready to ${VD_REPOSITORY} for ${VK_SHA}."
+          echo "Dispatched vk-release-assets-ready to ${VD_REPOSITORY} for ${VK_CONTENT_HASH}."
