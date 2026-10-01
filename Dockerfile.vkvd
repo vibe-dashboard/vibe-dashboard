@@ -3,6 +3,7 @@
 ARG VK_REPO_URL=https://github.com/mickmister/vibe-kanban.git
 ARG VK_BRANCH=main
 ARG VK_COMMIT=
+ARG VK_ASSET_REPOSITORY=vibe-dashboard/vibe-kanban
 ARG VK_RUNTIME_SOURCE=github
 ARG CODEX_RELEASE_REPO=mickmister/codex
 ARG CODEX_RELEASE_TAG=codex-cli-assets-dda8e1e80d0978293146c8c9117198d85e096367
@@ -14,6 +15,7 @@ FROM alpine:3.19 AS vk-runtime-downloader
 
 ARG VK_BRANCH
 ARG VK_COMMIT
+ARG VK_ASSET_REPOSITORY
 ARG VK_RUNTIME_SOURCE
 ARG TARGETARCH
 
@@ -35,8 +37,8 @@ RUN set -eux; \
       arm64) vk_platform="linux-arm64" ;; \
       *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
-    release_tag="vk-assets-${VK_COMMIT}"; \
-    release_base_url="https://github.com/mickmister/vibe-kanban/releases/download/${release_tag}"; \
+    release_tag="vk-assets-sha256-${VK_COMMIT}"; \
+    release_base_url="https://github.com/${VK_ASSET_REPOSITORY}/releases/download/${release_tag}"; \
     manifest_url="${release_base_url}/manifest.json"; \
     curl -fsSL "${manifest_url}" -o manifest.json; \
     test "$(jq -r '.schema_version' manifest.json)" = "1"; \
