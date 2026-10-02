@@ -6,7 +6,6 @@ default_branch="${DEFAULT_BRANCH:-main}"
 github_server_url="${GITHUB_SERVER_URL:-https://github.com}"
 github_repository="${GITHUB_REPOSITORY:-mickmister/vibe-dashboard}"
 vd_repo_url="${VD_REPO_URL:-${github_server_url}/${github_repository}.git}"
-vk_repo_url="${VK_REPO_URL_INPUT:-https://github.com/mickmister/vibe-kanban.git}"
 event_name="${GITHUB_EVENT_NAME:-}"
 
 event_ref="${GITHUB_REF:-}"
@@ -18,10 +17,8 @@ pr_number="${PR_NUMBER:-}"
 pr_head_ref="${PR_HEAD_REF:-}"
 pr_head_sha="${PR_HEAD_SHA:-}"
 workflow_vk_ref="${WORKFLOW_VK_REF:-}"
-repository_dispatch_vk_ref="${REPOSITORY_DISPATCH_VK_REF:-}"
-repository_dispatch_vk_source_ref="${REPOSITORY_DISPATCH_VK_SOURCE_REF:-}"
-repository_dispatch_vk_source_ref_name="${REPOSITORY_DISPATCH_VK_SOURCE_REF_NAME:-}"
 vk_asset_fallback_policy="${VK_ASSET_FALLBACK_POLICY:-fallback-default-branch-only}"
+vk_asset_repository="${VK_ASSET_REPOSITORY:-vibe-dashboard/vibe-kanban}"
 
 die() {
   echo "::error::$*" >&2
@@ -34,6 +31,10 @@ notice() {
 
 is_full_sha() {
   [[ "${1:-}" =~ ^[0-9a-fA-F]{40}$ ]]
+}
+
+is_sha256() {
+  [[ "${1:-}" =~ ^[0-9a-fA-F]{64}$ ]]
 }
 
 is_stable_release_tag_ref() {
@@ -87,30 +88,6 @@ resolve_vd() {
       vd_commit="$pr_head_sha"
       vd_resolution_source="pull_request_head"
       ;;
-    repository_dispatch)
-      local candidate_branch=""
-      if [[ "$repository_dispatch_vk_source_ref" == refs/heads/* ]]; then
-        candidate_branch="${repository_dispatch_vk_source_ref#refs/heads/}"
-      elif [[ -n "$repository_dispatch_vk_source_ref_name" && "$repository_dispatch_vk_source_ref" != refs/tags/* ]]; then
-        candidate_branch="$repository_dispatch_vk_source_ref_name"
-      fi
-
-      if [[ -n "$candidate_branch" ]]; then
-        vd_commit="$(remote_head_sha "$vd_repo_url" "$candidate_branch")"
-      fi
-
-      if [[ -n "$candidate_branch" && -n "$vd_commit" ]]; then
-        vd_branch="$candidate_branch"
-        vd_ref="$(head_ref "$vd_branch")"
-        vd_resolution_source="matching_vk_source_branch"
-      else
-        vd_branch="$default_branch"
-        vd_ref="$(head_ref "$vd_branch")"
-        vd_commit="$(remote_head_sha "$vd_repo_url" "$vd_branch")"
-        [[ -n "$vd_commit" ]] || die "Could not resolve VD fallback branch ${vd_branch}"
-        vd_resolution_source="fallback_default_branch"
-      fi
-      ;;
     push)
       [[ -n "$event_ref_name" ]] || die "GITHUB_REF_NAME is required for push events"
       [[ -n "$event_sha" ]] || die "GITHUB_SHA is required for push events"
@@ -162,59 +139,30 @@ resolve_vk() {
 
   case "$event_name" in
     pull_request)
-      # Primary coordinated image path for VD-only or paired VK/VD work:
-      # VD PRs resolve a same-named VK branch when it exists, then wait for
-      # that exact VK commit's vk-assets-<sha> release before publishing.
-      local candidate_branch="$vd_branch"
-      if [[ -n "$(remote_head_sha "$vk_repo_url" "$candidate_branch")" ]]; then
-        vk_branch="$candidate_branch"
-        vk_resolution_source="matching_vd_pr_branch"
-      else
-        vk_branch="$default_branch"
-        vk_resolution_source="fallback_default_branch"
-      fi
+      vk_branch="$vd_branch"
+      vk_resolution_source="monorepo_content_hash"
       ;;
     workflow_dispatch)
-      # Manual escape hatch: callers provide an exact VK branch/tag/SHA and the
-      # workflow waits for that exact asset. Do not silently substitute fallback
-      # assets for explicit operator intent.
-      vk_branch="${workflow_vk_ref:-main}"
-      vk_resolution_source="workflow_dispatch_input"
-      ;;
-    repository_dispatch)
-      # Follow-up rebuild path from VK release-assets-ready. VK is already
-      # settled by the dispatched SHA; VD resolves a same-named branch when
-      # present, otherwise the default VD branch, then still validates the exact
-      # dispatched VK assets before publishing.
-      vk_branch="${repository_dispatch_vk_ref:-main}"
-      vk_resolution_source="repository_dispatch_payload"
+      vk_branch="${workflow_vk_ref:-${vd_branch:-main}}"
+      vk_resolution_source="monorepo_content_hash"
       ;;
     push)
-      # Primary coordinated image path for pushed VD branches. Prefer a
-      # same-named VK branch and wait for its exact assets so a paired branch
-      # push cannot publish with stale fallback VK assets while VK is building.
-      local candidate_branch="$vd_branch"
-      if [[ -n "$(remote_head_sha "$vk_repo_url" "$candidate_branch")" ]]; then
-        vk_branch="$candidate_branch"
-        vk_resolution_source="matching_vd_branch"
-      else
-        vk_branch="$default_branch"
-        vk_resolution_source="fallback_default_branch"
-      fi
+      vk_branch="$vd_branch"
+      vk_resolution_source="monorepo_content_hash"
       ;;
     *)
       die "Unsupported event for VK resolution: ${event_name:-<unset>}"
       ;;
   esac
 
-  vk_commit="$(resolve_remote_ref_to_sha "$vk_repo_url" "$vk_branch")" \
-    || die "Unable to resolve VK ref/SHA: ${vk_branch}"
+  vk_commit="$(.github/scripts/vk-content-hash.sh)"
+  is_sha256 "$vk_commit" || die "Resolved VK content hash is not sha256 hex: ${vk_commit}"
   vk_short_commit="${vk_commit:0:7}"
 }
 
 vk_assets_release_url() {
-  local vk_sha="$1"
-  printf 'https://github.com/mickmister/vibe-kanban/releases/download/vk-assets-%s/manifest.json' "$vk_sha"
+  local vk_hash="$1"
+  printf 'https://github.com/%s/releases/download/vk-assets-sha256-%s/manifest.json' "$vk_asset_repository" "$vk_hash"
 }
 
 vk_assets_exist() {
@@ -244,7 +192,7 @@ wait_for_vk_assets() {
     sleep "$delay"
   done
 
-  die "VK release assets for $vk_commit are not available after waiting. Expected release vk-assets-${vk_commit}. Re-run after VK CI publishes assets, or inspect VK CI for this commit."
+  die "VK release assets for $vk_commit are not available after waiting. Expected release vk-assets-sha256-${vk_commit} in ${vk_asset_repository}. Re-run after VK release CI publishes assets, or inspect VK release CI for this content hash."
 }
 
 resolve_asset_fallback_if_needed() {
@@ -269,14 +217,14 @@ resolve_asset_fallback_if_needed() {
   notice "VK release assets for $vk_commit are not available yet; using the latest published vk-assets release for this VD branch image."
   local latest_assets_tag
   latest_assets_tag="$(
-    curl -fsSL "https://api.github.com/repos/mickmister/vibe-kanban/releases?per_page=100" \
-      | python3 -c 'import json,sys; releases=[r for r in json.load(sys.stdin) if r.get("tag_name", "").startswith("vk-assets-")]; releases.sort(key=lambda r: r.get("published_at") or r.get("created_at") or "", reverse=True); print(releases[0]["tag_name"] if releases else "")'
+    curl -fsSL "https://api.github.com/repos/${vk_asset_repository}/releases?per_page=100" \
+      | python3 -c 'import json,sys; releases=[r for r in json.load(sys.stdin) if r.get("tag_name", "").startswith("vk-assets-sha256-")]; releases.sort(key=lambda r: r.get("published_at") or r.get("created_at") or "", reverse=True); print(releases[0]["tag_name"] if releases else "")'
   )"
 
   [[ -n "$latest_assets_tag" ]] || die "No published vk-assets release found to use as a fallback."
 
-  vk_commit="${latest_assets_tag#vk-assets-}"
-  is_full_sha "$vk_commit" || die "Latest vk-assets release tag does not contain a full commit SHA: $latest_assets_tag"
+  vk_commit="${latest_assets_tag#vk-assets-sha256-}"
+  is_sha256 "$vk_commit" || die "Latest vk-assets release tag does not contain a sha256 content hash: $latest_assets_tag"
 
   vk_branch="$latest_assets_tag"
   vk_short_commit="${vk_commit:0:7}"
@@ -287,22 +235,6 @@ resolve_asset_fallback_if_needed() {
 
 resolve_publish_latest() {
   publish_latest=false
-  if [[ -z "$vk_commit" ]]; then
-    return 0
-  fi
-
-  local vk_main_commit
-  vk_main_commit="$(remote_head_sha "$vk_repo_url" "$default_branch")"
-  [[ -n "$vk_main_commit" ]] || die "Could not resolve VK ${default_branch}"
-
-  if [[ "$event_name" == "push" ]] &&
-    [[ "$vd_resolution_source" == "tag_on_default_branch" ]] &&
-    [[ "$vd_branch" == "$default_branch" ]] &&
-    [[ "$vk_commit" == "$vk_main_commit" ]] &&
-    [[ "$used_asset_fallback" != "true" ]] &&
-    is_stable_release_tag_ref "$event_ref"; then
-    publish_latest=true
-  fi
 }
 
 write_outputs() {
@@ -326,7 +258,7 @@ write_outputs() {
     echo "vk_branch=$vk_branch"
     echo "vk_commit=$vk_commit"
     echo "vk_short_commit=$vk_short_commit"
-    echo "vk_repo_url=$vk_repo_url"
+    echo "vk_asset_repository=$vk_asset_repository"
     echo "vk_resolution_source=$vk_resolution_source"
     echo "vd_branch=$vd_branch"
     echo "vd_ref=$vd_ref"

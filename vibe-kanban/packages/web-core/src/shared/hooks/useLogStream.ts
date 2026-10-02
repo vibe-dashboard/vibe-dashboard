@@ -1,8 +1,13 @@
 import { useEffect, useState, useRef } from 'react';
 import type { PatchType } from 'shared/types';
 import { openLocalApiWebSocket } from '@/shared/lib/localApiTransport';
+import {
+  isMobilePerfDiagnosticsEnabled,
+  recordMobilePerfDiagnostic,
+} from '@/shared/lib/mobilePerfDiagnostics';
 
 type LogEntry = Extract<PatchType, { type: 'STDOUT' } | { type: 'STDERR' }>;
+type LogPatch = { path?: string; value?: PatchType };
 
 interface UseLogStreamResult {
   logs: LogEntry[];
@@ -13,6 +18,7 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const logsRef = useRef<LogEntry[]>([]);
   const retryCountRef = useRef<number>(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isIntentionallyClosed = useRef<boolean>(false);
@@ -33,6 +39,7 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
 
     // Clear logs when process changes
     setLogs([]);
+    logsRef.current = [];
     setError(null);
     finishedRef.current = false;
 
@@ -58,12 +65,6 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
           wsRef.current = ws;
           isIntentionallyClosed.current = false;
 
-          // Track whether this is a reconnect so we can replace (not append)
-          // logs on the first incoming message to avoid duplicates from
-          // the server replaying history.
-          const isReconnect = retryCountRef.current > 0;
-          let pendingReplace = isReconnect;
-
           ws.onopen = () => {
             // Ignore if processId has changed since WebSocket was opened
             if (
@@ -73,29 +74,13 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
               ws.close();
               return;
             }
+            recordMobilePerfDiagnostic('ws.raw_logs.open', {
+              has_process: !!capturedProcessId,
+              stream_kind: 'raw_logs',
+              retry_count: retryCountRef.current,
+            });
             setError(null);
             retryCountRef.current = 0;
-            // Don't clear logs here — on reconnect the server replays
-            // history, and clearing eagerly causes a flash if the
-            // connection drops again before data arrives.
-          };
-
-          const addLogEntry = (entry: LogEntry) => {
-            // Only add log entry if this WebSocket is still for the current process
-            if (
-              cancelled ||
-              currentProcessIdRef.current !== capturedProcessId
-            ) {
-              return;
-            }
-            if (pendingReplace) {
-              // First entry after reconnect: replace old logs to avoid
-              // duplicates from the history replay.
-              pendingReplace = false;
-              setLogs([entry]);
-            } else {
-              setLogs((prev) => [...prev, entry]);
-            }
           };
 
           // Handle WebSocket messages
@@ -105,24 +90,66 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
 
               // Handle different message types based on LogMsg enum
               if ('JsonPatch' in data) {
-                const patches = data.JsonPatch as Array<{ value?: PatchType }>;
-                patches.forEach((patch) => {
+                const patches = data.JsonPatch as LogPatch[];
+                const nextLogs = [...logsRef.current];
+                let didChange = false;
+
+                patches.forEach((patch, patchIndex) => {
                   const value = patch?.value;
                   if (!value || !value.type) return;
 
                   switch (value.type) {
                     case 'STDOUT':
-                    case 'STDERR':
-                      addLogEntry({ type: value.type, content: value.content });
+                    case 'STDERR': {
+                      const entryIndex = getPatchEntryIndex(
+                        patch.path,
+                        nextLogs.length + patchIndex
+                      );
+                      const nextEntry: LogEntry = {
+                        type: value.type,
+                        content: value.content,
+                      };
+                      const currentEntry = nextLogs[entryIndex];
+                      if (areLogEntriesEqual(currentEntry, nextEntry)) {
+                        return;
+                      }
+                      nextLogs[entryIndex] = nextEntry;
+                      didChange = true;
                       break;
+                    }
                     // Ignore other patch types (NORMALIZED_ENTRY, DIFF, etc.)
                     default:
                       break;
                   }
                 });
+
+                if (didChange) {
+                  const normalizedLogs = nextLogs.filter(
+                    (entry): entry is LogEntry => entry !== undefined
+                  );
+                  if (isMobilePerfDiagnosticsEnabled()) {
+                    recordMobilePerfDiagnostic('ws.raw_logs.batch', {
+                      has_process: !!capturedProcessId,
+                      stream_kind: 'raw_logs',
+                      patch_count: patches.length,
+                      log_count: normalizedLogs.length,
+                      payload_bytes:
+                        typeof event.data === 'string'
+                          ? event.data.length
+                          : null,
+                    });
+                  }
+                  logsRef.current = normalizedLogs;
+                  setLogs(normalizedLogs);
+                }
               } else if (data.finished === true) {
                 finishedRef.current = true;
                 isIntentionallyClosed.current = true;
+                recordMobilePerfDiagnostic('ws.raw_logs.finished', {
+                  has_process: !!capturedProcessId,
+                  stream_kind: 'raw_logs',
+                  log_count: logsRef.current.length,
+                });
                 ws.close();
               }
             } catch (e) {
@@ -137,6 +164,15 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
           };
 
           ws.onclose = (event) => {
+            recordMobilePerfDiagnostic('ws.raw_logs.close', {
+              has_process: !!capturedProcessId,
+              stream_kind: 'raw_logs',
+              code: event.code,
+              was_clean: event.wasClean,
+              intentional: isIntentionallyClosed.current,
+              finished: finishedRef.current,
+              log_count: logsRef.current.length,
+            });
             // Don't retry for stale WebSocket connections
             if (
               cancelled ||
@@ -144,8 +180,9 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
             ) {
               return;
             }
-            // Only retry if the close was not intentional and not a normal closure
-            if (!isIntentionallyClosed.current && event.code !== 1000) {
+            // Retry any unexpected closure, including clean 1000 closes caused by
+            // proxies, restarts, or intermediaries.
+            if (!isIntentionallyClosed.current && !finishedRef.current) {
               const next = retryCountRef.current + 1;
               retryCountRef.current = next;
               if (next <= 6) {
@@ -154,6 +191,8 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
               } else {
                 setError('Connection failed');
               }
+            } else if (event.code === 1000) {
+              setError(null);
             }
           };
         } catch (error) {
@@ -190,3 +229,23 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
 
   return { logs, error };
 };
+
+function getPatchEntryIndex(
+  path: string | undefined,
+  fallback: number
+): number {
+  if (!path) return fallback;
+
+  const match = /^\/entries\/(\d+)$/.exec(path);
+  if (!match) return fallback;
+
+  const entryIndex = Number.parseInt(match[1]!, 10);
+  return Number.isNaN(entryIndex) ? fallback : entryIndex;
+}
+
+function areLogEntriesEqual(
+  left: LogEntry | undefined,
+  right: LogEntry
+): boolean {
+  return left?.type === right.type && left?.content === right.content;
+}

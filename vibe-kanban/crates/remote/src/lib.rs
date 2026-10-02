@@ -102,7 +102,7 @@ pub fn init_tracing() {
         .with(ErrorLayer::default())
         .with(fmt_layer)
         .with(otel_layer)
-        .with(utils::sentry::sentry_layer())
+        .with(utils::sentry::sentry_layer(SentrySource::Remote))
         .init();
 
     tracing::info!(

@@ -58,6 +58,21 @@ impl Executable for ReviewRequest {
     ) -> Result<SpawnedChild, ExecutorError> {
         let effective_dir = self.effective_dir(current_dir);
 
+        if crate::executors::qa_mock::QaMockExecutor::runtime_enabled() {
+            tracing::info!(
+                "QA mode env enabled: using mock executor for review instead of real agent"
+            );
+            let executor = crate::executors::qa_mock::QaMockExecutor;
+            return match self.session_id.as_deref() {
+                Some(session_id) => {
+                    executor
+                        .spawn_follow_up_mock(&effective_dir, &self.prompt, session_id, None, env)
+                        .await
+                }
+                None => executor.spawn_mock(&effective_dir, &self.prompt, env).await,
+            };
+        }
+
         let profile_id = self.executor_config.profile_id();
         let mut agent = ExecutorConfigs::get_cached()
             .get_coding_agent(&profile_id)

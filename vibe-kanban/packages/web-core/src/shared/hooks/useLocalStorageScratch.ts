@@ -34,6 +34,23 @@ function removeFromStorage(key: string): void {
   }
 }
 
+function dispatchStorageChange(
+  key: string,
+  oldValue: string | null,
+  newValue: string | null
+): void {
+  try {
+    window.dispatchEvent(
+      new StorageEvent('storage', {
+        key,
+        oldValue,
+        newValue,
+        storageArea: localStorage,
+      })
+    );
+  } catch {}
+}
+
 function buildScratchEntry(
   id: string,
   update: UpdateScratch,
@@ -71,17 +88,31 @@ export function localStorageScratchUpdate(
     return false;
   }
 
-  try {
-    window.dispatchEvent(
-      new StorageEvent('storage', {
-        key,
-        oldValue: previousRaw,
-        newValue: nextRaw,
-        storageArea: localStorage,
-      })
-    );
-  } catch {}
+  dispatchStorageChange(key, previousRaw, nextRaw);
 
+  return true;
+}
+
+export function localStorageScratchDelete(
+  scratchType: ScratchType,
+  id: string
+): boolean {
+  const key = buildStorageKey(scratchType, id);
+  const previousRaw = (() => {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  })();
+
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    return false;
+  }
+
+  dispatchStorageChange(key, previousRaw, null);
   return true;
 }
 
@@ -150,10 +181,34 @@ export const useLocalStorageScratch = (
     [storageKey, id]
   );
 
+  const updateScratchForId = useCallback(
+    async (targetId: string, update: UpdateScratch) => {
+      const didPersist = localStorageScratchUpdate(
+        scratchType,
+        targetId,
+        update
+      );
+      if (!didPersist) {
+        throw new Error('Failed to persist scratch data in local storage');
+      }
+    },
+    [scratchType]
+  );
+
   const deleteScratch = useCallback(async () => {
     removeFromStorage(storageKey);
     setScratch(null);
   }, [storageKey]);
+
+  const deleteScratchForId = useCallback(
+    async (targetId: string) => {
+      const didDelete = localStorageScratchDelete(scratchType, targetId);
+      if (!didDelete) {
+        throw new Error('Failed to delete scratch data from local storage');
+      }
+    },
+    [scratchType]
+  );
 
   return {
     scratch,
@@ -162,5 +217,7 @@ export const useLocalStorageScratch = (
     error: null,
     updateScratch,
     deleteScratch,
+    updateScratchForId,
+    deleteScratchForId,
   };
 };

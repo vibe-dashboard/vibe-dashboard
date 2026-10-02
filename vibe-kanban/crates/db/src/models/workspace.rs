@@ -470,6 +470,9 @@ impl Workspace {
                 ExecutorActionType::CodingAgentFollowUpRequest(request) => {
                     return Some(request.prompt.clone());
                 }
+                ExecutorActionType::CodingAgentSessionCommandRequest(request) => {
+                    return Some(request.prompt());
+                }
                 ExecutorActionType::ReviewRequest(request) => {
                     return Some(request.prompt.clone());
                 }

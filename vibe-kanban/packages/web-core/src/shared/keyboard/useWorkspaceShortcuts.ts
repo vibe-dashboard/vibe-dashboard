@@ -64,6 +64,7 @@ export function useWorkspaceShortcuts() {
   useHotkeys('v>p', () => execute(Actions.TogglePreviewMode), OPTIONS);
   useHotkeys('v>s', () => execute(Actions.ToggleLeftSidebar), OPTIONS);
   useHotkeys('v>h', () => execute(Actions.ToggleLeftMainPanel), OPTIONS);
+  useHotkeys('v>z', () => execute(Actions.ToggleChatViewMode), OPTIONS);
 
   useHotkeys('x>p', () => execute(Actions.GitCreatePR), OPTIONS);
   useHotkeys('x>m', () => execute(Actions.GitMerge), OPTIONS);

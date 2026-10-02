@@ -7,6 +7,7 @@ use anyhow::Context as _;
 use deployment::Deployment as _;
 use relay_tunnel_core::client::{RelayClientConfig, start_relay_client};
 use services::services::{config::Config, remote_client::RemoteClient};
+use utils::process_diag;
 
 use crate::DeploymentImpl;
 
@@ -80,36 +81,124 @@ async fn resolve_relay_params(deployment: &DeploymentImpl) -> Option<RelayParams
 /// Spawn the relay reconnect loop. Safe to call multiple times — cancels any
 /// previous session first via `RelayControl::reset`.
 pub async fn spawn_relay(deployment: &DeploymentImpl) {
+    if relay_startup_disabled() {
+        let snapshot = process_diag::sample_current_process();
+        tracing::info!(
+            phase = "relay_startup_skipped",
+            env_var = "VK_DISABLE_RELAY_STARTUP",
+            rss_mb = process_diag::bytes_to_mb(snapshot.rss_bytes),
+            vm_size_mb = process_diag::bytes_to_mb(snapshot.virtual_bytes),
+            threads = snapshot.thread_count,
+            fds = snapshot.open_fd_count,
+            child_processes = snapshot.child_process_count,
+            elapsed_ms = process_diag::elapsed_since_start().as_millis() as u64,
+            "startup_diag_relay"
+        );
+        return;
+    }
+
     let Some(params) = resolve_relay_params(deployment).await else {
+        let snapshot = process_diag::sample_current_process();
+        tracing::info!(
+            phase = "relay_startup_not_ready",
+            rss_mb = process_diag::bytes_to_mb(snapshot.rss_bytes),
+            vm_size_mb = process_diag::bytes_to_mb(snapshot.virtual_bytes),
+            threads = snapshot.thread_count,
+            fds = snapshot.open_fd_count,
+            child_processes = snapshot.child_process_count,
+            elapsed_ms = process_diag::elapsed_since_start().as_millis() as u64,
+            "startup_diag_relay"
+        );
         return;
     };
 
     let cancel_token = deployment.relay_control().reset().await;
+    let snapshot = process_diag::sample_current_process();
+    tracing::info!(
+        phase = "relay_reconnect_loop_spawned",
+        rss_mb = process_diag::bytes_to_mb(snapshot.rss_bytes),
+        vm_size_mb = process_diag::bytes_to_mb(snapshot.virtual_bytes),
+        threads = snapshot.thread_count,
+        fds = snapshot.open_fd_count,
+        child_processes = snapshot.child_process_count,
+        elapsed_ms = process_diag::elapsed_since_start().as_millis() as u64,
+        "startup_diag_relay"
+    );
 
     tokio::spawn(async move {
-        tracing::debug!("Relay auto-reconnect loop started");
+        let loop_started_at = std::time::Instant::now();
+        let snapshot = process_diag::sample_current_process();
+        tracing::info!(
+            phase = "relay_reconnect_loop_started",
+            rss_mb = process_diag::bytes_to_mb(snapshot.rss_bytes),
+            vm_size_mb = process_diag::bytes_to_mb(snapshot.virtual_bytes),
+            threads = snapshot.thread_count,
+            fds = snapshot.open_fd_count,
+            child_processes = snapshot.child_process_count,
+            elapsed_ms = process_diag::elapsed_since_start().as_millis() as u64,
+            "startup_diag_relay"
+        );
 
         let mut delay = std::time::Duration::from_secs(RELAY_RECONNECT_INITIAL_DELAY_SECS);
         let max_delay = std::time::Duration::from_secs(RELAY_RECONNECT_MAX_DELAY_SECS);
+        let mut attempt = 0_u64;
 
-        while !cancel_token.is_cancelled()
-            && let Err(error) = start_relay(&params, cancel_token.clone()).await
-        {
-            tracing::debug!(
-                ?error,
-                retry_in_secs = delay.as_secs(),
-                "Relay connection failed; retrying"
+        while !cancel_token.is_cancelled() {
+            attempt += 1;
+            let snapshot = process_diag::sample_current_process();
+            tracing::info!(
+                phase = "relay_connect_attempt_started",
+                attempt,
+                rss_mb = process_diag::bytes_to_mb(snapshot.rss_bytes),
+                vm_size_mb = process_diag::bytes_to_mb(snapshot.virtual_bytes),
+                threads = snapshot.thread_count,
+                fds = snapshot.open_fd_count,
+                child_processes = snapshot.child_process_count,
+                elapsed_ms = process_diag::elapsed_since_start().as_millis() as u64,
+                "startup_diag_relay"
             );
 
-            tokio::select! {
-                _ = cancel_token.cancelled() => break,
-                _ = tokio::time::sleep(delay) => {}
-            }
+            match start_relay(&params, cancel_token.clone()).await {
+                Ok(()) => break,
+                Err(error) => {
+                    let snapshot = process_diag::sample_current_process();
+                    tracing::warn!(
+                        phase = "relay_connect_attempt_failed",
+                        attempt,
+                        retry_in_secs = delay.as_secs(),
+                        ?error,
+                        rss_mb = process_diag::bytes_to_mb(snapshot.rss_bytes),
+                        vm_size_mb = process_diag::bytes_to_mb(snapshot.virtual_bytes),
+                        threads = snapshot.thread_count,
+                        fds = snapshot.open_fd_count,
+                        child_processes = snapshot.child_process_count,
+                        elapsed_ms = process_diag::elapsed_since_start().as_millis() as u64,
+                        "startup_diag_relay"
+                    );
 
-            delay = std::cmp::min(delay.saturating_mul(2), max_delay);
+                    tokio::select! {
+                        _ = cancel_token.cancelled() => break,
+                        _ = tokio::time::sleep(delay) => {}
+                    }
+
+                    delay = std::cmp::min(delay.saturating_mul(2), max_delay);
+                }
+            }
         }
 
-        tracing::debug!("Relay reconnect loop exited");
+        let snapshot = process_diag::sample_current_process();
+        tracing::info!(
+            phase = "relay_reconnect_loop_exited",
+            attempts = attempt,
+            elapsed_loop_ms = loop_started_at.elapsed().as_millis() as u64,
+            rss_mb = process_diag::bytes_to_mb(snapshot.rss_bytes),
+            vm_size_mb = process_diag::bytes_to_mb(snapshot.virtual_bytes),
+            threads = snapshot.thread_count,
+            fds = snapshot.open_fd_count,
+            child_processes = snapshot.child_process_count,
+            elapsed_ms = process_diag::elapsed_since_start().as_millis() as u64,
+            "startup_diag_relay"
+        );
     });
 }
 
@@ -155,4 +244,16 @@ async fn start_relay(
         shutdown,
     })
     .await
+}
+
+fn relay_startup_disabled() -> bool {
+    std::env::var("VK_DISABLE_RELAY_STARTUP")
+        .ok()
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
 }

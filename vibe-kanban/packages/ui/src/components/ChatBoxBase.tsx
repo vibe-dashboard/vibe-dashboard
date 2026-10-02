@@ -42,6 +42,9 @@ interface ChatBoxBaseProps {
   // Banner content (queued message indicator, feedback mode indicator)
   banner?: ReactNode;
 
+  // Optional overlay anchored to the bottom-left corner
+  bottomLeftOverlay?: ReactNode;
+
   // visualVariant
   visualVariant: VisualVariant;
 
@@ -65,6 +68,7 @@ export function ChatBoxBase({
   footerRight,
   modelSelector,
   banner,
+  bottomLeftOverlay,
   visualVariant,
   isRunning,
   dropzone,
@@ -72,6 +76,7 @@ export function ChatBoxBase({
   const { t } = useTranslation(['common', 'tasks']);
 
   const isDragActive = dropzone?.isDragActive ?? false;
+  const hasHeaderContent = Boolean(headerLeft || headerRight);
 
   return (
     <div
@@ -113,7 +118,7 @@ export function ChatBoxBase({
       {banner}
 
       {/* Header - Stats and selector */}
-      {visualVariant === VisualVariant.NORMAL && (
+      {visualVariant === VisualVariant.NORMAL && hasHeaderContent && (
         <div className="flex items-center gap-base border-b px-base py-base">
           <div className="flex flex-1 items-center gap-base text-sm min-w-0 overflow-hidden">
             {headerLeft}
@@ -135,6 +140,12 @@ export function ChatBoxBase({
           <div className="flex shrink-0 gap-base">{footerRight}</div>
         </div>
       </div>
+
+      {bottomLeftOverlay && (
+        <div className="absolute bottom-base left-base z-10">
+          {bottomLeftOverlay}
+        </div>
+      )}
     </div>
   );
 }

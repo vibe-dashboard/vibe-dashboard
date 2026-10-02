@@ -482,6 +482,26 @@ pub fn async_watcher(root: PathBuf) -> Result<WatcherComponents, FilesystemWatch
     let watched_dirs_for_task = watched_dirs.clone();
 
     let watch_targets = collect_watch_directories(&canonical_root, &gi_set);
+    if runtime_diagnostics_enabled() {
+        let recursive_watch_count = watch_targets
+            .iter()
+            .filter(|target| matches!(target.recursive, RecursiveMode::Recursive))
+            .count();
+        let snapshot = utils::process_diag::sample_current_process();
+        tracing::info!(
+            root = %canonical_root.display(),
+            watch_target_count = watch_targets.len(),
+            recursive_watch_count,
+            native_recursive = platform_supports_native_recursive(),
+            rss_mb = utils::process_diag::bytes_to_mb(snapshot.rss_bytes),
+            vm_size_mb = utils::process_diag::bytes_to_mb(snapshot.virtual_bytes),
+            threads = snapshot.thread_count,
+            fds = snapshot.open_fd_count,
+            child_processes = snapshot.child_process_count,
+            elapsed_ms = utils::process_diag::elapsed_since_start().as_millis() as u64,
+            "runtime_diag_filesystem_watcher_init"
+        );
+    }
     {
         let mut debouncer_guard = debouncer_for_init.lock().unwrap();
         let mut watched = watched_dirs.lock().unwrap();
@@ -617,4 +637,8 @@ pub fn async_watcher(root: PathBuf) -> Result<WatcherComponents, FilesystemWatch
     });
 
     Ok((debouncer, filtered_rx, canonical_root))
+}
+
+fn runtime_diagnostics_enabled() -> bool {
+    std::env::var("VK_DEBUG_MEMORY_LOGS").is_ok()
 }

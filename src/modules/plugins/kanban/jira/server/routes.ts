@@ -2,20 +2,24 @@ import type { Hono } from 'hono';
 import type { ExternalTrackerAuthService } from './auth';
 import { getJiraProviderScopes, isJiraExternalTrackerProvider } from './config';
 
+type AuthProvider = ExternalTrackerAuthService | (() => Promise<ExternalTrackerAuthService>);
+
 export function registerExternalTrackerAuthRoutes(
   hono: Hono,
   options: {
     /** @deprecated Ignored; external Kanban auth routes are always registered. */
     enabled?: boolean;
-    auth: ExternalTrackerAuthService;
+    auth: AuthProvider;
   },
 ): void {
-  hono.all('/dashboard/api/auth/*', (c) => {
-    return options.auth.handler(c.req.raw);
+  const getAuth = async () => typeof options.auth === 'function' ? await options.auth() : options.auth;
+
+  hono.all('/dashboard/api/auth/*', async (c) => {
+    return (await getAuth()).handler(c.req.raw);
   });
 
   hono.get('/dashboard/api/external-trackers/auth/status', async (c) => {
-    const session = await options.auth.getSession(c.req.raw.headers);
+    const session = await (await getAuth()).getSession(c.req.raw.headers);
     return c.json({
       enabled: true,
       authenticated: Boolean(session),
@@ -29,13 +33,14 @@ export function registerExternalTrackerAuthRoutes(
       return c.json({ error: 'unsupported_external_tracker_provider' }, 400);
     }
 
-    const session = await options.auth.getSession(c.req.raw.headers);
+    const auth = await getAuth();
+    const session = await auth.getSession(c.req.raw.headers);
     if (!session) {
       return c.json({ error: 'authentication_required' }, 401);
     }
 
     const body = await c.req.json().catch(() => ({} as { callbackURL?: string }));
-    const result = await options.auth.linkSocialAccount({
+    const result = await auth.linkSocialAccount({
       headers: c.req.raw.headers,
       provider,
       callbackURL: typeof body.callbackURL === 'string' ? body.callbackURL : undefined,

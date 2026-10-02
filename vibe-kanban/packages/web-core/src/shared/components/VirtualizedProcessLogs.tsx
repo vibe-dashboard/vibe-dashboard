@@ -1,20 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  DataWithScrollModifier,
-  ScrollModifier,
-  VirtuosoMessageList,
-  VirtuosoMessageListLicense,
-  VirtuosoMessageListMethods,
-  VirtuosoMessageListProps,
-} from '@virtuoso.dev/message-list';
+  useVirtualizer,
+  measureElement as defaultMeasureElement,
+} from '@tanstack/react-virtual';
 import { WarningCircleIcon } from '@phosphor-icons/react/dist/ssr';
 import RawLogText from '@/shared/components/RawLogText';
-import {
-  INITIAL_TOP_ITEM,
-  InitialDataScrollModifier,
-  ScrollToBottomModifier as ScrollToLastItem,
-} from '@/shared/lib/virtuoso-modifiers';
 import type { PatchType } from 'shared/types';
 
 export type LogEntry = Extract<
@@ -32,36 +23,9 @@ export interface VirtualizedProcessLogsProps {
 
 type LogEntryWithKey = LogEntry & { key: string; originalIndex: number };
 
-interface SearchContext {
-  searchQuery: string;
-  matchIndices: number[];
-  currentMatchIndex: number;
-}
-
-const computeItemKey: VirtuosoMessageListProps<
-  LogEntryWithKey,
-  SearchContext
->['computeItemKey'] = ({ data }) => data.key;
-
-const ItemContent: VirtuosoMessageListProps<
-  LogEntryWithKey,
-  SearchContext
->['ItemContent'] = ({ data, context }) => {
-  const isMatch = context.matchIndices.includes(data.originalIndex);
-  const isCurrentMatch =
-    context.matchIndices[context.currentMatchIndex] === data.originalIndex;
-
-  return (
-    <RawLogText
-      content={data.content}
-      channel={data.type === 'STDERR' ? 'stderr' : 'stdout'}
-      className="text-sm px-4 py-1"
-      linkifyUrls
-      searchQuery={isMatch ? context.searchQuery : undefined}
-      isCurrentMatch={isCurrentMatch}
-    />
-  );
-};
+const ESTIMATED_LOG_ROW_HEIGHT = 24;
+const OVERSCAN = 12;
+const NEAR_BOTTOM_THRESHOLD_PX = 24;
 
 export function VirtualizedProcessLogs({
   logs,
@@ -71,62 +35,109 @@ export function VirtualizedProcessLogs({
   currentMatchIndex,
 }: VirtualizedProcessLogsProps) {
   const { t } = useTranslation('tasks');
-  const [channelData, setChannelData] =
-    useState<DataWithScrollModifier<LogEntryWithKey> | null>(null);
-  const messageListRef = useRef<VirtuosoMessageListMethods<
-    LogEntryWithKey,
-    SearchContext
-  > | null>(null);
+  const scrollParentRef = useRef<HTMLDivElement | null>(null);
+  const previousLogLengthRef = useRef(0);
   const hasInitializedRef = useRef(false);
-  const prevCurrentMatchRef = useRef<number | undefined>(undefined);
   const isAtBottomRef = useRef(true);
+  const prevCurrentMatchRef = useRef<number | undefined>(undefined);
 
-  useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      const logsWithKeys: LogEntryWithKey[] = logs.map((entry, index) => ({
+  const logsWithKeys = useMemo<LogEntryWithKey[]>(
+    () =>
+      logs.map((entry, index) => ({
         ...entry,
         key: `log-${index}`,
         originalIndex: index,
-      }));
+      })),
+    [logs]
+  );
 
-      // Use InitialDataScrollModifier (with purgeItemSizes) only on the
-      // very first data load. For all subsequent updates, use ScrollToLastItem
-      // which always jumps to the end — unlike auto-scroll-to-bottom which
-      // only follows if the viewport is already at the bottom.
-      let scrollModifier: ScrollModifier | null = null;
-      if (!hasInitializedRef.current && logs.length > 0) {
-        hasInitializedRef.current = true;
-        scrollModifier = InitialDataScrollModifier;
-      } else if (isAtBottomRef.current) {
-        scrollModifier = ScrollToLastItem;
-      }
+  const virtualizer = useVirtualizer({
+    count: logsWithKeys.length,
+    getScrollElement: () => scrollParentRef.current,
+    estimateSize: () => ESTIMATED_LOG_ROW_HEIGHT,
+    getItemKey: (index) => logsWithKeys[index]?.key ?? index,
+    overscan: OVERSCAN,
+    measureElement: defaultMeasureElement,
+    useAnimationFrameWithResizeObserver: true,
+  });
 
-      if (scrollModifier) {
-        setChannelData({ data: logsWithKeys, scrollModifier });
-      } else {
-        setChannelData({ data: logsWithKeys });
-      }
-    }, 100);
+  const syncIsAtBottom = useCallback(() => {
+    const element = scrollParentRef.current;
+    if (!element) {
+      isAtBottomRef.current = true;
+      return;
+    }
 
-    return () => clearTimeout(timeoutId);
-  }, [logs]);
+    const distanceFromBottom =
+      element.scrollHeight - element.scrollTop - element.clientHeight;
+    isAtBottomRef.current = distanceFromBottom <= NEAR_BOTTOM_THRESHOLD_PX;
+  }, []);
 
-  // Scroll to current match when it changes
+  useEffect(() => {
+    const element = scrollParentRef.current;
+    if (!element) return;
+
+    syncIsAtBottom();
+
+    const handleScroll = () => {
+      syncIsAtBottom();
+    };
+
+    element.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      element.removeEventListener('scroll', handleScroll);
+    };
+  }, [syncIsAtBottom]);
+
+  useEffect(() => {
+    if (logsWithKeys.length === 0) {
+      previousLogLengthRef.current = 0;
+      hasInitializedRef.current = false;
+      return;
+    }
+
+    const previousLength = previousLogLengthRef.current;
+    const shouldScrollToBottom =
+      !hasInitializedRef.current ||
+      (logsWithKeys.length > previousLength && isAtBottomRef.current);
+
+    previousLogLengthRef.current = logsWithKeys.length;
+
+    if (!hasInitializedRef.current) {
+      hasInitializedRef.current = true;
+    }
+
+    if (!shouldScrollToBottom) return;
+
+    requestAnimationFrame(() => {
+      virtualizer.scrollToIndex(logsWithKeys.length - 1, {
+        align: 'end',
+        behavior: 'auto',
+      });
+    });
+  }, [logsWithKeys, virtualizer]);
+
   useEffect(() => {
     if (
-      matchIndices.length > 0 &&
-      currentMatchIndex >= 0 &&
-      currentMatchIndex !== prevCurrentMatchRef.current
+      matchIndices.length === 0 ||
+      currentMatchIndex < 0 ||
+      currentMatchIndex === prevCurrentMatchRef.current
     ) {
-      const logIndex = matchIndices[currentMatchIndex];
-      messageListRef.current?.scrollToItem({
-        index: logIndex,
+      return;
+    }
+
+    const logIndex = matchIndices[currentMatchIndex];
+    if (logIndex == null) return;
+
+    requestAnimationFrame(() => {
+      virtualizer.scrollToIndex(logIndex, {
         align: 'center',
         behavior: 'smooth',
       });
-      prevCurrentMatchRef.current = currentMatchIndex;
-    }
-  }, [currentMatchIndex, matchIndices]);
+    });
+
+    prevCurrentMatchRef.current = currentMatchIndex;
+  }, [currentMatchIndex, matchIndices, virtualizer]);
 
   if (logs.length === 0 && !error) {
     return (
@@ -149,30 +160,42 @@ export function VirtualizedProcessLogs({
     );
   }
 
-  const context: SearchContext = {
-    searchQuery,
-    matchIndices,
-    currentMatchIndex,
-  };
+  const virtualItems = virtualizer.getVirtualItems();
 
   return (
-    <div className="virtuoso-license-wrapper h-full overflow-hidden">
-      <VirtuosoMessageListLicense
-        licenseKey={import.meta.env.VITE_PUBLIC_REACT_VIRTUOSO_LICENSE_KEY}
+    <div ref={scrollParentRef} className="h-full overflow-auto">
+      <div
+        className="relative w-full"
+        style={{ height: `${virtualizer.getTotalSize()}px` }}
       >
-        <VirtuosoMessageList<LogEntryWithKey, SearchContext>
-          ref={messageListRef}
-          className="h-full"
-          data={channelData}
-          context={context}
-          initialLocation={INITIAL_TOP_ITEM}
-          onScroll={(location) => {
-            isAtBottomRef.current = location.isAtBottom;
-          }}
-          computeItemKey={computeItemKey}
-          ItemContent={ItemContent}
-        />
-      </VirtuosoMessageListLicense>
+        {virtualItems.map((virtualItem) => {
+          const logEntry = logsWithKeys[virtualItem.index];
+          if (!logEntry) return null;
+
+          const isMatch = matchIndices.includes(logEntry.originalIndex);
+          const isCurrentMatch =
+            matchIndices[currentMatchIndex] === logEntry.originalIndex;
+
+          return (
+            <div
+              key={virtualItem.key}
+              data-index={virtualItem.index}
+              ref={virtualizer.measureElement}
+              className="absolute left-0 top-0 w-full"
+              style={{ transform: `translateY(${virtualItem.start}px)` }}
+            >
+              <RawLogText
+                content={logEntry.content}
+                channel={logEntry.type === 'STDERR' ? 'stderr' : 'stdout'}
+                className="text-sm px-4 py-1"
+                linkifyUrls
+                searchQuery={isMatch ? searchQuery : undefined}
+                isCurrentMatch={isCurrentMatch}
+              />
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

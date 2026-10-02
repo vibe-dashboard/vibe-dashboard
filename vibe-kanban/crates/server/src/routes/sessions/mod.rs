@@ -20,12 +20,15 @@ use db::models::{
 use deployment::Deployment;
 use executors::{
     actions::{
-        ExecutorAction, ExecutorActionType, coding_agent_follow_up::CodingAgentFollowUpRequest,
+        ExecutorAction, ExecutorActionType,
+        coding_agent_follow_up::CodingAgentFollowUpRequest,
+        session_command::{CodingAgentSessionCommandRequest, SessionCommand},
     },
     profile::ExecutorConfig,
 };
 use serde::Deserialize;
 use services::services::container::ContainerService;
+use tracing::Instrument;
 use ts_rs::TS;
 use utils::response::ApiResponse;
 use uuid::Uuid;
@@ -52,10 +55,31 @@ pub async fn get_sessions(
     Query(query): Query<SessionQuery>,
 ) -> Result<ResponseJson<ApiResponse<Vec<Session>>>, ApiError> {
     let pool = &deployment.db().pool;
-    let sessions = Session::find_by_workspace_id(pool, query.workspace_id).await?;
+    let sessions = async { Session::find_by_workspace_id(pool, query.workspace_id).await }
+        .instrument(tracing::debug_span!(
+            "sessions.find_by_workspace_id",
+            workspace_id = %query.workspace_id,
+        ))
+        .await?;
+
+    tracing::debug!(
+        workspace_id = %query.workspace_id,
+        session_count = sessions.len(),
+        "sessions.list.loaded"
+    );
+
     Ok(ResponseJson(ApiResponse::success(sessions)))
 }
 
+#[tracing::instrument(
+    level = "debug",
+    skip(session),
+    fields(
+        session_id = %session.id,
+        workspace_id = %session.workspace_id,
+        has_name = session.name.is_some(),
+    )
+)]
 pub async fn get_session(
     Extension(session): Extension<Session>,
 ) -> Result<ResponseJson<ApiResponse<Session>>, ApiError> {
@@ -112,6 +136,38 @@ pub struct CreateFollowUpAttempt {
     pub retry_process_id: Option<Uuid>,
     pub force_when_dirty: Option<bool>,
     pub perform_git_reset: Option<bool>,
+    #[ts(skip)]
+    pub stop_other_sessions_for_git_reset: Option<bool>,
+}
+
+pub(super) fn parse_session_command(prompt: &str) -> Option<SessionCommand> {
+    let trimmed = prompt.trim_start();
+    let without_slash = trimmed.strip_prefix('/')?;
+    let mut parts = without_slash.splitn(2, |ch: char| ch.is_whitespace());
+    let name = parts.next()?.trim().to_lowercase();
+    let arguments = parts.next().map(str::trim).unwrap_or("");
+
+    match name.as_str() {
+        "clear" if arguments.is_empty() => Some(SessionCommand::Clear),
+        "clear" => None,
+        "compact" => Some(SessionCommand::Compact {
+            instructions: (!arguments.is_empty()).then(|| arguments.to_string()),
+        }),
+        _ => None,
+    }
+}
+
+pub(super) fn invalid_session_command_message(prompt: &str) -> Option<String> {
+    let trimmed = prompt.trim_start();
+    let without_slash = trimmed.strip_prefix('/')?;
+    let mut parts = without_slash.splitn(2, |ch: char| ch.is_whitespace());
+    let name = parts.next()?.trim().to_lowercase();
+    let arguments = parts.next().map(str::trim).unwrap_or("");
+
+    match name.as_str() {
+        "clear" if !arguments.is_empty() => Some("`/clear` does not accept arguments.".to_string()),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Deserialize, TS)]
@@ -119,6 +175,8 @@ pub struct ResetProcessRequest {
     pub process_id: Uuid,
     pub force_when_dirty: Option<bool>,
     pub perform_git_reset: Option<bool>,
+    #[ts(skip)]
+    pub stop_other_sessions_for_git_reset: Option<bool>,
 }
 
 pub async fn follow_up(
@@ -166,18 +224,28 @@ pub async fn follow_up(
             .await?;
     }
 
-    if let Some(proc_id) = payload.retry_process_id {
+    let retry_process_id = payload.retry_process_id;
+    if let Some(proc_id) = retry_process_id {
         let force_when_dirty = payload.force_when_dirty.unwrap_or(false);
         let perform_git_reset = payload.perform_git_reset.unwrap_or(true);
+        let stop_other_sessions_for_git_reset =
+            payload.stop_other_sessions_for_git_reset.unwrap_or(false);
         deployment
             .container()
-            .reset_session_to_process(session.id, proc_id, perform_git_reset, force_when_dirty)
+            .reset_session_to_process(
+                session.id,
+                proc_id,
+                perform_git_reset,
+                force_when_dirty,
+                stop_other_sessions_for_git_reset,
+            )
             .await?;
     }
 
-    let latest_session_info = CodingAgentTurn::find_latest_session_info(pool, session.id).await?;
-
     let prompt = payload.prompt;
+    if let Some(message) = invalid_session_command_message(&prompt) {
+        return Err(ApiError::BadRequest(message));
+    }
 
     let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
     let cleanup_action = deployment.container().cleanup_actions_for_repos(&repos);
@@ -188,7 +256,23 @@ pub async fn follow_up(
         .filter(|dir| !dir.is_empty())
         .cloned();
 
-    let action_type = if let Some(info) = latest_session_info {
+    let action_type = if let Some(command) = parse_session_command(&prompt) {
+        let latest_session_info =
+            if command.requires_provider_context(payload.executor_config.executor) {
+                CodingAgentTurn::find_latest_session_info(pool, session.id).await?
+            } else {
+                None
+            };
+        ExecutorActionType::CodingAgentSessionCommandRequest(CodingAgentSessionCommandRequest {
+            command,
+            prompt: prompt.clone(),
+            session_id: latest_session_info
+                .as_ref()
+                .map(|info| info.session_id.clone()),
+            executor_config: payload.executor_config.clone(),
+            working_dir: working_dir.clone(),
+        })
+    } else if let Some(info) = CodingAgentTurn::find_latest_session_info(pool, session.id).await? {
         let is_reset = payload.retry_process_id.is_some();
         ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
             prompt: prompt.clone(),
@@ -207,6 +291,27 @@ pub async fn follow_up(
         )
     };
 
+    let cleanup_action = if matches!(
+        &action_type,
+        ExecutorActionType::CodingAgentSessionCommandRequest(_)
+    ) {
+        None
+    } else {
+        cleanup_action
+    };
+    let (action_kind, session_command) = match &action_type {
+        ExecutorActionType::CodingAgentSessionCommandRequest(request) => {
+            let command = match &request.command {
+                SessionCommand::Clear => "clear",
+                SessionCommand::Compact { .. } => "compact",
+            };
+            ("session_command", Some(command))
+        }
+        ExecutorActionType::CodingAgentFollowUpRequest(_) => ("follow_up", None),
+        ExecutorActionType::CodingAgentInitialRequest(_) => ("initial_request", None),
+        ExecutorActionType::ReviewRequest(_) => ("review", None),
+        ExecutorActionType::ScriptRequest(_) => ("script", None),
+    };
     let action = ExecutorAction::new(action_type, cleanup_action.map(Box::new));
 
     let execution_process = deployment
@@ -217,6 +322,17 @@ pub async fn follow_up(
             &action,
             &ExecutionProcessRunReason::CodingAgent,
         )
+        .instrument(tracing::debug_span!(
+            target: "perf.agent_startup",
+            "agent.turn",
+            workspace_id = %workspace.id,
+            session_id = %session.id,
+            executor = %executor_profile_id.executor,
+            action_kind,
+            session_command = ?session_command,
+            retry_process_id = ?retry_process_id,
+            execution_process_id = tracing::field::Empty,
+        ))
         .await?;
 
     // Clear the draft follow-up scratch on successful spawn
@@ -240,6 +356,8 @@ pub async fn reset_process(
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
     let force_when_dirty = payload.force_when_dirty.unwrap_or(false);
     let perform_git_reset = payload.perform_git_reset.unwrap_or(true);
+    let stop_other_sessions_for_git_reset =
+        payload.stop_other_sessions_for_git_reset.unwrap_or(false);
 
     deployment
         .container()
@@ -248,8 +366,31 @@ pub async fn reset_process(
             payload.process_id,
             perform_git_reset,
             force_when_dirty,
+            stop_other_sessions_for_git_reset,
         )
         .await?;
+
+    Ok(ResponseJson(ApiResponse::success(())))
+}
+
+pub async fn stop_session_execution(
+    Extension(session): Extension<Session>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    deployment
+        .container()
+        .stop_running_processes_for_session(session.id, false)
+        .await?;
+
+    deployment
+        .track_if_analytics_allowed(
+            "task_attempt_stopped",
+            serde_json::json!({
+                "workspace_id": session.workspace_id.to_string(),
+                "session_id": session.id.to_string(),
+            }),
+        )
+        .await;
 
     Ok(ResponseJson(ApiResponse::success(())))
 }
@@ -316,6 +457,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/", get(get_session).put(update_session))
         .route("/follow-up", post(follow_up))
         .route("/reset", post(reset_process))
+        .route("/execution/stop", post(stop_session_execution))
         .route("/setup", post(run_setup_script))
         .route("/review", post(review::start_review))
         .layer(from_fn_with_state(
@@ -329,4 +471,38 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .nest("/{session_id}/queue", queue::router(deployment));
 
     Router::new().nest("/sessions", sessions_router)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SessionCommand, invalid_session_command_message, parse_session_command};
+
+    #[test]
+    fn parses_clear_and_compact_session_commands() {
+        assert!(matches!(
+            parse_session_command("/clear"),
+            Some(SessionCommand::Clear)
+        ));
+
+        assert!(matches!(
+            parse_session_command("  /compact focus on current TODOs"),
+            Some(SessionCommand::Compact {
+                instructions: Some(instructions)
+            }) if instructions == "focus on current TODOs"
+        ));
+
+        assert!(parse_session_command("please /clear").is_none());
+        assert!(parse_session_command("/clear now").is_none());
+        assert!(parse_session_command("/status").is_none());
+    }
+
+    #[test]
+    fn rejects_clear_with_arguments() {
+        assert_eq!(
+            invalid_session_command_message("/clear now"),
+            Some("`/clear` does not accept arguments.".to_string())
+        );
+        assert!(invalid_session_command_message("/compact focus").is_none());
+        assert!(invalid_session_command_message("please /clear now").is_none());
+    }
 }

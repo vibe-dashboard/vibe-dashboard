@@ -161,6 +161,13 @@ export const sequentialBindings: SequentialBinding[] = [
     group: 'View',
     actionId: 'toggle-left-main-panel',
   },
+  {
+    id: 'seq-view-zen-mode',
+    keys: ['v', 'z'],
+    description: 'Cycle chat view mode',
+    group: 'View',
+    actionId: 'toggle-chat-view-mode',
+  },
 
   // Git (X = eXecute)
   {

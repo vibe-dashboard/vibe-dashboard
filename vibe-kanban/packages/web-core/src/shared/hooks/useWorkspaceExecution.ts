@@ -4,22 +4,36 @@ import {
   useMutationState,
   useQueries,
 } from '@tanstack/react-query';
-import { workspacesApi, executionProcessesApi } from '@/shared/lib/api';
+import { executionProcessesApi, sessionsApi } from '@/shared/lib/api';
 import { useExecutionProcessesContext } from '@/shared/hooks/useExecutionProcessesContext';
 import type { AttemptData } from '@/shared/lib/types';
 import type { ExecutionProcess } from 'shared/types';
 
+export function getStopExecutionMutationKey(
+  workspaceId: string | undefined,
+  sessionId: string | undefined
+) {
+  return ['stopSessionExecution', workspaceId, sessionId] as const;
+}
+
 export function useWorkspaceExecution(workspaceId?: string) {
+  const {
+    sessionId,
+    executionProcessesVisible: executionProcesses,
+    isAttemptRunningVisible: isAttemptRunning,
+    isLoading: streamLoading,
+  } = useExecutionProcessesContext();
+
   const stopMutationKey = useMemo(
-    () => ['stopWorkspaceExecution', workspaceId] as const,
-    [workspaceId]
+    () => getStopExecutionMutationKey(workspaceId, sessionId),
+    [workspaceId, sessionId]
   );
 
   const stopMutation = useMutation({
     mutationKey: stopMutationKey,
     mutationFn: async () => {
-      if (!workspaceId) return;
-      await workspacesApi.stop(workspaceId);
+      if (!workspaceId || !sessionId) return;
+      await sessionsApi.stopExecution(sessionId);
     },
   });
 
@@ -30,12 +44,6 @@ export function useWorkspaceExecution(workspaceId?: string) {
         status: 'pending',
       },
     }).length > 0;
-
-  const {
-    executionProcessesVisible: executionProcesses,
-    isAttemptRunningVisible: isAttemptRunning,
-    isLoading: streamLoading,
-  } = useExecutionProcessesContext();
 
   // Get setup script processes that need detailed info
   const setupProcesses = useMemo(() => {

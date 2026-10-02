@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use executors::profile::ExecutorConfig;
+use executors::{actions::session_command::SessionCommand, profile::ExecutorConfig};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool};
 use strum_macros::{Display, EnumDiscriminants, EnumString};
@@ -23,6 +23,8 @@ pub struct DraftFollowUpData {
     pub message: String,
     #[serde(alias = "executor_profile_id", alias = "config")]
     pub executor_config: ExecutorConfig,
+    #[serde(default)]
+    pub session_command: Option<SessionCommand>,
 }
 
 /// Data for preview settings scratch (URL override and screen size)
@@ -41,6 +43,13 @@ pub struct PreviewSettingsData {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct WorkspaceNotesData {
     pub content: String,
+}
+
+/// Data for workspace-scoped dev server repo selection
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct WorkspaceDevServerSelectionData {
+    #[serde(default)]
+    pub selected_repo_ids: Vec<Uuid>,
 }
 
 /// Workspace-specific panel state
@@ -126,6 +135,9 @@ pub struct UiPreferencesData {
     /// Global terminal visibility
     #[serde(default)]
     pub is_terminal_visible: Option<bool>,
+    /// Workspace chat view mode (full, mostly-zen, zen)
+    #[serde(default)]
+    pub chat_view_mode: Option<String>,
     /// Workspace-specific panel states
     #[serde(default)]
     pub workspace_panel_states: std::collections::HashMap<String, WorkspacePanelStateData>,
@@ -232,6 +244,7 @@ pub struct DraftIssueData {
 #[strum_discriminants(ts(use_ts_enum))]
 #[strum_discriminants(serde(rename_all = "SCREAMING_SNAKE_CASE"))]
 #[strum_discriminants(strum(serialize_all = "SCREAMING_SNAKE_CASE"))]
+#[allow(clippy::large_enum_variant)]
 pub enum ScratchPayload {
     DraftTask(String),
     DraftFollowUp(DraftFollowUpData),
@@ -239,6 +252,7 @@ pub enum ScratchPayload {
     DraftIssue(DraftIssueData),
     PreviewSettings(PreviewSettingsData),
     WorkspaceNotes(WorkspaceNotesData),
+    WorkspaceDevServerSelection(WorkspaceDevServerSelectionData),
     UiPreferences(UiPreferencesData),
     ProjectRepoDefaults(ProjectRepoDefaultsData),
 }

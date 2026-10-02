@@ -7,7 +7,8 @@
     "check": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "format": "prettier --config ../../packages/local-web/.prettierrc.json --write \"src/**/*.{ts,tsx,js,jsx,json,md}\"",
-    "format:check": "prettier --config ../../packages/local-web/.prettierrc.json --check \"src/**/*.{ts,tsx,js,jsx,json,md}\""
+    "format:check": "prettier --config ../../packages/local-web/.prettierrc.json --check \"src/**/*.{ts,tsx,js,jsx,json,md}\"",
+    "test": "vitest run"
   },
   "sideEffects": false,
   "exports": {
@@ -59,6 +60,7 @@
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-unused-imports": "^4.1.4",
     "prettier": "^3.6.1",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
   }
 }

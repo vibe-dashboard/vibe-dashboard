@@ -288,6 +288,16 @@ html {
     @apply transition-colors duration-200;
     cursor: pointer;
   }
+
+  @media (max-width: 767px) {
+    input:not([type='checkbox']):not([type='radio']):not([type='file']),
+    textarea,
+    select,
+    [contenteditable='true'],
+    [role='textbox'] {
+      font-size: 16px;
+    }
+  }
 }
 
 /* ANSI color classes for fancy-ansi - optimized for both light and dark modes */
@@ -452,12 +462,6 @@ html {
 }
 
 @config '../../../../../local-web/tailwind.new.config.js';
-
-/* Hide Virtuoso Message List license watermark warning (scoped to virtuoso wrappers only) */
-.virtuoso-license-wrapper
-  > div[style*='color: red'][style*='pointer-events: none'] {
-  display: none !important;
-}
 
 /* Mobile-specific styles */
 @media (max-width: 767px) {

@@ -525,7 +525,7 @@ function FileEditEntry({
   );
   const { theme } = useTheme();
   const actualTheme = getActualTheme(theme);
-  const { viewFileInChanges, hasDiffPath } = useChangesViewActions();
+  const { viewFileInChanges, findMatchingDiffPath } = useChangesViewActions();
   const FileIcon = useMemo(
     () => getFileIcon(path, actualTheme),
     [path, actualTheme]
@@ -570,11 +570,9 @@ function FileEditEntry({
   );
   const hasDiffContent = Boolean(diffContent && diffPreviewData.isValid);
 
-  // Only show "open in changes" button if the file exists in current diffs
   const handleOpenInChanges = useCallback(() => {
-    if (!hasDiffPath(path)) return;
-    viewFileInChanges(path);
-  }, [viewFileInChanges, hasDiffPath, path]);
+    viewFileInChanges(findMatchingDiffPath(path) ?? path);
+  }, [viewFileInChanges, findMatchingDiffPath, path]);
   const handleOpenInVSCode = useCallback((filename: string) => {
     openFileInVSCode(filename, { openAsDiff: false });
   }, []);
@@ -1312,7 +1310,7 @@ function AggregatedThinkingGroupEntry({
 function AggregatedDiffGroupEntry({ group }: { group: AggregatedDiffGroup }) {
   const { theme } = useTheme();
   const actualTheme = getActualTheme(theme);
-  const { viewFileInChanges, hasDiffPath } = useChangesViewActions();
+  const { viewFileInChanges, findMatchingDiffPath } = useChangesViewActions();
   const [expanded, toggle] = usePersistedExpanded(
     `diff:${group.patchKey}`,
     false
@@ -1359,9 +1357,8 @@ function AggregatedDiffGroupEntry({ group }: { group: AggregatedDiffGroup }) {
   }, []);
 
   const handleOpenInChanges = useCallback(() => {
-    if (!hasDiffPath(group.filePath)) return;
-    viewFileInChanges(group.filePath);
-  }, [viewFileInChanges, hasDiffPath, group.filePath]);
+    viewFileInChanges(findMatchingDiffPath(group.filePath) ?? group.filePath);
+  }, [viewFileInChanges, findMatchingDiffPath, group.filePath]);
   const handleOpenInVSCode = useCallback((filePath: string) => {
     openFileInVSCode(filePath, { openAsDiff: false });
   }, []);

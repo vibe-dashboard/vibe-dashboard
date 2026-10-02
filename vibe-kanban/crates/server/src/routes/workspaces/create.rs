@@ -1,9 +1,11 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use axum::{Json, extract::State, response::Json as ResponseJson};
 use db::models::{
+    repo::Repo,
     requests::{
         CreateAndStartWorkspaceRequest, CreateAndStartWorkspaceResponse, CreateWorkspaceApiRequest,
+        WorkspaceRepoInput,
     },
     workspace::{CreateWorkspace, Workspace},
 };
@@ -171,6 +173,82 @@ fn parse_attachment_markdown_at(
     })
 }
 
+fn repo_name_collision_key(repo_name: &str) -> String {
+    repo_name.to_lowercase()
+}
+
+#[derive(Debug, thiserror::Error)]
+enum WorkspaceRepoIdentityError {
+    #[error("Repository already attached to workspace")]
+    DuplicateRepoId,
+    #[error("Repository name '{repo_name}' is already attached to workspace")]
+    DuplicateRepoName { repo_name: String },
+}
+
+impl From<WorkspaceRepoIdentityError> for ApiError {
+    fn from(error: WorkspaceRepoIdentityError) -> Self {
+        ApiError::Conflict(error.to_string())
+    }
+}
+
+fn validate_unique_workspace_repo_identity(
+    repo_ids: &mut HashSet<Uuid>,
+    repo_name_keys: &mut HashSet<String>,
+    repo_id: Uuid,
+    repo_name: &str,
+) -> Result<(), WorkspaceRepoIdentityError> {
+    if !repo_ids.insert(repo_id) {
+        return Err(WorkspaceRepoIdentityError::DuplicateRepoId);
+    }
+
+    if !repo_name_keys.insert(repo_name_collision_key(repo_name)) {
+        return Err(WorkspaceRepoIdentityError::DuplicateRepoName {
+            repo_name: repo_name.to_string(),
+        });
+    }
+
+    Ok(())
+}
+
+async fn prevalidate_workspace_repos(
+    deployment: &DeploymentImpl,
+    repos: &[WorkspaceRepoInput],
+) -> Result<(), ApiError> {
+    if repos.is_empty() {
+        return Err(ApiError::BadRequest(
+            "At least one repository is required".to_string(),
+        ));
+    }
+
+    let mut repo_ids = HashSet::with_capacity(repos.len());
+    let mut repo_name_keys = HashSet::with_capacity(repos.len());
+
+    for repo_input in repos {
+        let repo = Repo::find_by_id(&deployment.db().pool, repo_input.repo_id)
+            .await?
+            .ok_or(db::models::repo::RepoError::NotFound)?;
+
+        validate_unique_workspace_repo_identity(
+            &mut repo_ids,
+            &mut repo_name_keys,
+            repo_input.repo_id,
+            &repo.name,
+        )?;
+
+        if !deployment
+            .git()
+            .check_branch_exists(&repo.path, &repo_input.target_branch)?
+        {
+            return Err(ApiError::BadRequest(format!(
+                "Branch '{}' does not exist in repository '{}'",
+                repo_input.target_branch, repo.name
+            )));
+        }
+    }
+
+    Ok(())
+}
+
 fn rewrite_imported_issue_attachments_markdown(
     prompt: &str,
     imported_attachments: &[ImportedIssueAttachment],
@@ -228,11 +306,7 @@ pub async fn create_and_start_workspace(
         )
     })?;
 
-    if repos.is_empty() {
-        return Err(ApiError::BadRequest(
-            "At least one repository is required".to_string(),
-        ));
-    }
+    prevalidate_workspace_repos(&deployment, &repos).await?;
 
     let mut managed_workspace = deployment
         .workspace_manager()
@@ -325,7 +399,10 @@ mod tests {
     use db::models::file::File;
     use uuid::Uuid;
 
-    use super::{ImportedIssueAttachment, rewrite_imported_issue_attachments_markdown};
+    use super::{
+        ImportedIssueAttachment, WorkspaceRepoIdentityError, repo_name_collision_key,
+        rewrite_imported_issue_attachments_markdown, validate_unique_workspace_repo_identity,
+    };
 
     fn imported_file(
         attachment_id: Uuid,
@@ -346,6 +423,66 @@ mod tests {
                 updated_at: Utc::now(),
             },
         }
+    }
+
+    #[test]
+    fn workspace_repo_name_collision_key_is_case_insensitive() {
+        assert_eq!(
+            repo_name_collision_key("Same-Name"),
+            repo_name_collision_key("same-name")
+        );
+    }
+
+    #[test]
+    fn create_prevalidation_rejects_case_variant_repo_names() {
+        let mut repo_ids = std::collections::HashSet::new();
+        let mut repo_name_keys = std::collections::HashSet::new();
+
+        validate_unique_workspace_repo_identity(
+            &mut repo_ids,
+            &mut repo_name_keys,
+            Uuid::new_v4(),
+            "Same-Name",
+        )
+        .unwrap();
+
+        let error = validate_unique_workspace_repo_identity(
+            &mut repo_ids,
+            &mut repo_name_keys,
+            Uuid::new_v4(),
+            "same-name",
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            WorkspaceRepoIdentityError::DuplicateRepoName { repo_name } if repo_name == "same-name"
+        ));
+    }
+
+    #[test]
+    fn create_prevalidation_rejects_duplicate_repo_ids() {
+        let mut repo_ids = std::collections::HashSet::new();
+        let mut repo_name_keys = std::collections::HashSet::new();
+        let repo_id = Uuid::new_v4();
+
+        validate_unique_workspace_repo_identity(
+            &mut repo_ids,
+            &mut repo_name_keys,
+            repo_id,
+            "first",
+        )
+        .unwrap();
+
+        let error = validate_unique_workspace_repo_identity(
+            &mut repo_ids,
+            &mut repo_name_keys,
+            repo_id,
+            "second",
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, WorkspaceRepoIdentityError::DuplicateRepoId));
     }
 
     #[test]

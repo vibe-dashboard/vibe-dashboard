@@ -5,6 +5,7 @@ import type {
   ExecutionProcessState,
   PatchTypeWithKey,
 } from '@/shared/hooks/useConversationHistory/types';
+import { getSessionCommandPrompt } from './sessionCommandDisplay';
 
 export type ConversationSemanticProcessKind = 'agent' | 'script' | 'unknown';
 
@@ -36,9 +37,12 @@ function extractPromptFromActionChain(
     if (
       typ.type === 'CodingAgentInitialRequest' ||
       typ.type === 'CodingAgentFollowUpRequest' ||
+      typ.type === 'CodingAgentSessionCommandRequest' ||
       typ.type === 'ReviewRequest'
     ) {
-      return typ.prompt;
+      return typ.type === 'CodingAgentSessionCommandRequest'
+        ? getSessionCommandPrompt(typ)
+        : typ.prompt;
     }
     current = current.next_action;
   }
@@ -56,6 +60,7 @@ function toConversationSemanticProcessKind(
   if (
     actionType === 'CodingAgentInitialRequest' ||
     actionType === 'CodingAgentFollowUpRequest' ||
+    actionType === 'CodingAgentSessionCommandRequest' ||
     actionType === 'ReviewRequest'
   ) {
     return 'agent';

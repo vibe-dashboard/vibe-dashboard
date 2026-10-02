@@ -1,9 +1,5 @@
-import {
-  ExecutionProcess,
-  ExecutorAction,
-  PatchType,
-  Workspace,
-} from 'shared/types';
+import { ExecutionProcess, ExecutorAction, PatchType } from 'shared/types';
+import type { WorkspaceWithSession } from '@/shared/types/attempt';
 
 export type PatchTypeWithKey = PatchType & {
   patchKey: string;
@@ -123,10 +119,11 @@ export type ExecutionProcessState = {
 export type ExecutionProcessStateStore = Record<string, ExecutionProcessState>;
 
 export interface UseConversationHistoryParams {
-  attempt: Workspace;
+  attempt: WorkspaceWithSession;
   onTimelineUpdated?: OnTimelineUpdated;
   onEntriesUpdated?: OnEntriesUpdated;
   scopeKey: string;
+  previewMode?: 'workspace' | 'session' | 'disabled';
 }
 
 export interface UseConversationHistoryResult {}

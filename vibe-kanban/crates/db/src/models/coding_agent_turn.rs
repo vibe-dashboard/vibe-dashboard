@@ -44,10 +44,18 @@ impl CodingAgentTurn {
                 cat.agent_message_id as "message_id"
                FROM execution_processes ep
                JOIN coding_agent_turns cat ON ep.id = cat.execution_process_id
+               JOIN sessions s ON s.id = ep.session_id
+               LEFT JOIN execution_processes reset_ep
+                 ON reset_ep.id = s.context_reset_execution_process_id
                WHERE ep.session_id = $1
                  AND ep.run_reason = 'codingagent'
                  AND ep.dropped = FALSE
                  AND cat.agent_session_id IS NOT NULL
+                 AND (
+                     s.context_reset_execution_process_id IS NULL
+                     OR reset_ep.id IS NULL
+                     OR ep.rowid > reset_ep.rowid
+                 )
                ORDER BY ep.created_at DESC
                LIMIT 1"#,
             session_id

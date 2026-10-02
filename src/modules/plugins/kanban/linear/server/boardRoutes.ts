@@ -11,19 +11,21 @@ import type { BeadsExternalIssueServiceOptions } from '../../server/beadExternal
 import { EXTERNAL_VIEW_URL_PARAM } from '../../ExternalKanbanRoute';
 
 export type FetchLinearBoardView = typeof fetchLinearBoardView;
+type DbProvider = Kysely<DB> | (() => Promise<Kysely<DB>>);
 
 export function registerLinearBoardRoutes(
   hono: Hono,
   options: {
     /** @deprecated Ignored; external Kanban routes are always registered. */
     enabled?: boolean;
-    db: Kysely<DB>;
+    db: DbProvider;
     fetchLinearBoardView?: FetchLinearBoardView;
     linearAuth?: FetchLinearBoardViewOptions['auth'] | false;
     beads?: BeadsExternalIssueServiceOptions;
   },
 ): void {
   const fetchBoard = options.fetchLinearBoardView ?? fetchLinearBoardView;
+  const getDb = async () => typeof options.db === 'function' ? await options.db() : options.db;
 
   hono.get('/dashboard/api/external-trackers/linear/board', async (c) => {
     const externalViewUrl = c.req.query(EXTERNAL_VIEW_URL_PARAM)?.trim();
@@ -42,7 +44,7 @@ export function registerLinearBoardRoutes(
     });
     if (!result.ok) return c.json({ ok: false, error: linearProviderErrorToDto(result.error, externalViewUrl) }, providerStatus(result.error));
 
-    const workspaceDecoratedBoardView = await decorateExternalKanbanBoardWithWorkspaceMappings(options.db, result.boardView);
+    const workspaceDecoratedBoardView = await decorateExternalKanbanBoardWithWorkspaceMappings(await getDb(), result.boardView);
     const fullyDecoratedBoardView = await decorateExternalKanbanBoardWithBeadLinks(workspaceDecoratedBoardView, options.beads);
     return c.json({ ok: true, boardView: fullyDecoratedBoardView });
   });

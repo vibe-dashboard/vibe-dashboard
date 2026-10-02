@@ -95,3 +95,12 @@ vibe-kanban-cloud/
 *.ts.net.key
 Caddyfile
 Caddyfile.dev
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Local VK build artifacts
+/vibe-kanban
+/vibe-kanban-mcp
+/vibe-kanban-review

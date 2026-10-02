@@ -1,3 +1,16 @@
+Repository licensing note
+=========================
+
+Unless a file or directory states otherwise, this repository is licensed under
+the Apache License, Version 2.0.
+
+The `vibe-kanban/` directory is an embedded copy/fork of the Apache-2.0
+licensed BloopAI/vibe-kanban project. It keeps its own `vibe-kanban/LICENSE`
+file and copyright notices. The initial embedded baseline was imported from
+BloopAI/vibe-kanban commit 4deb7eca8f381f7cbc1f9d15515a9ab8f8009053, and
+changes to that subtree are tracked as ordinary repository changes from that
+baseline.
+
                                  Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/
