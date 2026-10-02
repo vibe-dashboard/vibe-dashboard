@@ -1,0 +1,116 @@
+use axum::{
+    extract::{Path, Request, State},
+    http::StatusCode,
+    middleware::Next,
+    response::Response,
+};
+use db::models::{
+    execution_process::ExecutionProcess, session::Session, tag::Tag, workspace::Workspace,
+};
+use deployment::Deployment;
+use uuid::Uuid;
+
+use crate::DeploymentImpl;
+
+pub async fn load_workspace_middleware(
+    State(deployment): State<DeploymentImpl>,
+    Path(workspace_id): Path<Uuid>,
+    mut request: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    // Load the Workspace from the database
+    let workspace = match Workspace::find_by_id(&deployment.db().pool, workspace_id).await {
+        Ok(Some(w)) => w,
+        Ok(None) => {
+            tracing::warn!("Workspace {} not found", workspace_id);
+            return Err(StatusCode::NOT_FOUND);
+        }
+        Err(e) => {
+            tracing::error!("Failed to fetch Workspace {}: {}", workspace_id, e);
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
+
+    // Insert the workspace into extensions
+    request.extensions_mut().insert(workspace);
+
+    // Continue on
+    Ok(next.run(request).await)
+}
+
+pub async fn load_execution_process_middleware(
+    State(deployment): State<DeploymentImpl>,
+    Path(process_id): Path<Uuid>,
+    mut request: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    // Load the execution process from the database
+    let execution_process =
+        match ExecutionProcess::find_by_id(&deployment.db().pool, process_id).await {
+            Ok(Some(process)) => process,
+            Ok(None) => {
+                tracing::warn!("ExecutionProcess {} not found", process_id);
+                return Err(StatusCode::NOT_FOUND);
+            }
+            Err(e) => {
+                tracing::error!("Failed to fetch execution process {}: {}", process_id, e);
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+        };
+
+    // Inject the execution process into the request
+    request.extensions_mut().insert(execution_process);
+
+    // Continue to the next middleware/handler
+    Ok(next.run(request).await)
+}
+
+// Middleware that loads and injects Tag based on the tag_id path parameter
+pub async fn load_tag_middleware(
+    State(deployment): State<DeploymentImpl>,
+    Path(tag_id): Path<Uuid>,
+    request: axum::extract::Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    // Load the tag from the database
+    let tag = match Tag::find_by_id(&deployment.db().pool, tag_id).await {
+        Ok(Some(tag)) => tag,
+        Ok(None) => {
+            tracing::warn!("Tag {} not found", tag_id);
+            return Err(StatusCode::NOT_FOUND);
+        }
+        Err(e) => {
+            tracing::error!("Failed to fetch tag {}: {}", tag_id, e);
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
+
+    // Insert the tag as an extension
+    let mut request = request;
+    request.extensions_mut().insert(tag);
+
+    // Continue with the next middleware/handler
+    Ok(next.run(request).await)
+}
+
+pub async fn load_session_middleware(
+    State(deployment): State<DeploymentImpl>,
+    Path(session_id): Path<Uuid>,
+    mut request: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let session = match Session::find_by_id(&deployment.db().pool, session_id).await {
+        Ok(Some(session)) => session,
+        Ok(None) => {
+            tracing::warn!("Session {} not found", session_id);
+            return Err(StatusCode::NOT_FOUND);
+        }
+        Err(e) => {
+            tracing::error!("Failed to fetch session {}: {}", session_id, e);
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
+
+    request.extensions_mut().insert(session);
+    Ok(next.run(request).await)
+}
