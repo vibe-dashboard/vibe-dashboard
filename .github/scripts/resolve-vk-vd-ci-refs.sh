@@ -6,7 +6,6 @@ default_branch="${DEFAULT_BRANCH:-main}"
 github_server_url="${GITHUB_SERVER_URL:-https://github.com}"
 github_repository="${GITHUB_REPOSITORY:-mickmister/vibe-dashboard}"
 vd_repo_url="${VD_REPO_URL:-${github_server_url}/${github_repository}.git}"
-vk_repo_url="${VK_REPO_URL_INPUT:-https://github.com/mickmister/vibe-kanban.git}"
 event_name="${GITHUB_EVENT_NAME:-}"
 
 event_ref="${GITHUB_REF:-}"
@@ -18,13 +17,8 @@ pr_number="${PR_NUMBER:-}"
 pr_head_ref="${PR_HEAD_REF:-}"
 pr_head_sha="${PR_HEAD_SHA:-}"
 workflow_vk_ref="${WORKFLOW_VK_REF:-}"
-repository_dispatch_vk_ref="${REPOSITORY_DISPATCH_VK_REF:-}"
-repository_dispatch_vk_content_hash="${REPOSITORY_DISPATCH_VK_CONTENT_HASH:-}"
-repository_dispatch_vk_asset_repository="${REPOSITORY_DISPATCH_VK_ASSET_REPOSITORY:-}"
-repository_dispatch_vk_source_ref="${REPOSITORY_DISPATCH_VK_SOURCE_REF:-}"
-repository_dispatch_vk_source_ref_name="${REPOSITORY_DISPATCH_VK_SOURCE_REF_NAME:-}"
 vk_asset_fallback_policy="${VK_ASSET_FALLBACK_POLICY:-fallback-default-branch-only}"
-vk_asset_repository="${VK_ASSET_REPOSITORY:-${repository_dispatch_vk_asset_repository:-vibe-dashboard/vibe-kanban}}"
+vk_asset_repository="${VK_ASSET_REPOSITORY:-vibe-dashboard/vibe-kanban}"
 
 die() {
   echo "::error::$*" >&2
@@ -94,30 +88,6 @@ resolve_vd() {
       vd_commit="$pr_head_sha"
       vd_resolution_source="pull_request_head"
       ;;
-    repository_dispatch)
-      local candidate_branch=""
-      if [[ "$repository_dispatch_vk_source_ref" == refs/heads/* ]]; then
-        candidate_branch="${repository_dispatch_vk_source_ref#refs/heads/}"
-      elif [[ -n "$repository_dispatch_vk_source_ref_name" && "$repository_dispatch_vk_source_ref" != refs/tags/* ]]; then
-        candidate_branch="$repository_dispatch_vk_source_ref_name"
-      fi
-
-      if [[ -n "$candidate_branch" ]]; then
-        vd_commit="$(remote_head_sha "$vd_repo_url" "$candidate_branch")"
-      fi
-
-      if [[ -n "$candidate_branch" && -n "$vd_commit" ]]; then
-        vd_branch="$candidate_branch"
-        vd_ref="$(head_ref "$vd_branch")"
-        vd_resolution_source="matching_vk_source_branch"
-      else
-        vd_branch="$default_branch"
-        vd_ref="$(head_ref "$vd_branch")"
-        vd_commit="$(remote_head_sha "$vd_repo_url" "$vd_branch")"
-        [[ -n "$vd_commit" ]] || die "Could not resolve VD fallback branch ${vd_branch}"
-        vd_resolution_source="fallback_default_branch"
-      fi
-      ;;
     push)
       [[ -n "$event_ref_name" ]] || die "GITHUB_REF_NAME is required for push events"
       [[ -n "$event_sha" ]] || die "GITHUB_SHA is required for push events"
@@ -176,10 +146,6 @@ resolve_vk() {
       vk_branch="${workflow_vk_ref:-${vd_branch:-main}}"
       vk_resolution_source="monorepo_content_hash"
       ;;
-    repository_dispatch)
-      vk_branch="${repository_dispatch_vk_ref:-${repository_dispatch_vk_content_hash:-main}}"
-      vk_resolution_source="repository_dispatch_payload"
-      ;;
     push)
       vk_branch="$vd_branch"
       vk_resolution_source="monorepo_content_hash"
@@ -189,11 +155,7 @@ resolve_vk() {
       ;;
   esac
 
-  if [[ "$event_name" == "repository_dispatch" && -n "$repository_dispatch_vk_content_hash" ]]; then
-    vk_commit="${repository_dispatch_vk_content_hash,,}"
-  else
-    vk_commit="$(.github/scripts/vk-content-hash.sh)"
-  fi
+  vk_commit="$(.github/scripts/vk-content-hash.sh)"
   is_sha256 "$vk_commit" || die "Resolved VK content hash is not sha256 hex: ${vk_commit}"
   vk_short_commit="${vk_commit:0:7}"
 }
@@ -296,7 +258,6 @@ write_outputs() {
     echo "vk_branch=$vk_branch"
     echo "vk_commit=$vk_commit"
     echo "vk_short_commit=$vk_short_commit"
-    echo "vk_repo_url=$vk_repo_url"
     echo "vk_asset_repository=$vk_asset_repository"
     echo "vk_resolution_source=$vk_resolution_source"
     echo "vd_branch=$vd_branch"

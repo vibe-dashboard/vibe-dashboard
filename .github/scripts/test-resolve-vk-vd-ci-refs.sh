@@ -140,7 +140,6 @@ chmod +x "$fakebin/curl" "$fakebin/sleep"
 
 vd_main_sha="$(git -C "$vd_work" rev-parse main)"
 vd_feature_sha="$(git -C "$vd_work" rev-parse feature/sync)"
-dispatch_hash="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 output="$(run_resolver \
   GITHUB_EVENT_NAME=push \
@@ -171,16 +170,5 @@ assert_fails \
     GITHUB_REF_NAME=main \
     GITHUB_SHA="$vd_main_sha" \
     ASSET_PRESENT_HASH=""
-
-output="$(run_resolver \
-  GITHUB_EVENT_NAME=repository_dispatch \
-  REPOSITORY_DISPATCH_VK_CONTENT_HASH="$dispatch_hash" \
-  REPOSITORY_DISPATCH_VK_REF="$dispatch_hash" \
-  REPOSITORY_DISPATCH_VK_ASSET_REPOSITORY=vibe-dashboard/vibe-kanban \
-  REPOSITORY_DISPATCH_VK_SOURCE_REF=refs/heads/feature/sync \
-  REPOSITORY_DISPATCH_VK_SOURCE_REF_NAME=feature/sync)"
-assert_equals "feature/sync" "$(read_output "$output" vd_branch)" "dispatch selects same-named VD branch"
-assert_equals "$vd_feature_sha" "$(read_output "$output" vd_commit)" "dispatch resolves same-named VD branch"
-assert_equals "$dispatch_hash" "$(read_output "$output" vk_commit)" "dispatch preserves VK content hash"
 
 echo "ok - resolve-vk-vd-ci-refs"
