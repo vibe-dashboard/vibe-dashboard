@@ -67,6 +67,7 @@ export function useSessionQueueInteraction({
       queueApi.queue(sessionId!, {
         message,
         executor_config: executorConfig,
+        session_command: null,
       }),
     onSuccess: (status) => {
       queryClient.setQueryData([QUEUE_STATUS_KEY, sessionId], status);

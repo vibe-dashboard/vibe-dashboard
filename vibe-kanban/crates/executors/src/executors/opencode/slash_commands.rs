@@ -80,8 +80,17 @@ impl<'a> From<SlashCommandCall<'a>> for OpencodeSlashCommand {
 pub(super) fn hardcoded_slash_commands() -> Vec<SlashCommandDescription> {
     vec![
         SlashCommandDescription {
+            name: "clear".to_string(),
+            description: Some(
+                "Clear VK's session context while keeping conversation history visible".to_string(),
+            ),
+        },
+        SlashCommandDescription {
             name: "compact".to_string(),
-            description: Some("compact the session".to_string()),
+            description: Some(
+                "compact the session; extra instructions are provider-dependent best-effort"
+                    .to_string(),
+            ),
         },
         SlashCommandDescription {
             name: "commands".to_string(),

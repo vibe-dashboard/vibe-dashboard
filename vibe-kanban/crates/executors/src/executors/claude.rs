@@ -62,7 +62,7 @@ fn base_command(claude_code_router: bool) -> &'static str {
     if claude_code_router {
         "npx -y @musistudio/claude-code-router@1.0.66 code"
     } else {
-        "npx -y @anthropic-ai/claude-code@2.1.119"
+        "npx -y @anthropic-ai/claude-code@2.1.227"
     }
 }
 
@@ -278,6 +278,7 @@ fn default_discovered_options() -> crate::executor_discovery::ExecutorDiscovered
         model_selector: ModelSelectorConfig {
             providers: vec![],
             models: [
+                ("fable", "Fable"),
                 ("opus", "Opus"),
                 ("opus[1m]", "Opus (1M context)"),
                 ("sonnet", "Sonnet"),
@@ -295,6 +296,7 @@ fn default_discovered_options() -> crate::executor_discovery::ExecutorDiscovered
                 },
             })
             .collect(),
+            model_order: None,
             default_model: Some("opus".to_string()),
             agents: vec![],
             permissions: vec![
@@ -808,63 +810,15 @@ impl ClaudeLogProcessor {
                         continue;
                     }
 
-                    match serde_json::from_str::<ClaudeJson>(trimmed) {
-                        Ok(claude_json) => {
-                            if !session_id_extracted
-                                && let Some(session_id) = Self::extract_session_id(&claude_json)
-                            {
-                                msg_store.push_session_id(session_id);
-                                session_id_extracted = true;
-                            }
-
-                            // Track message UUIDs for --resume-session-at:
-                            // - User messages: always valid, push immediately and clear pending
-                            // - Assistant messages: may have incomplete tool calls, store as pending
-                            // - Result messages: confirms assistant turn is complete, commit pending
-                            match &claude_json {
-                                ClaudeJson::User { uuid, .. } => {
-                                    pending_assistant_uuid = None;
-                                    if let Some(uuid) = uuid {
-                                        msg_store.push_message_id(uuid.clone());
-                                    }
-                                }
-                                ClaudeJson::Assistant { uuid, .. } => {
-                                    pending_assistant_uuid = uuid.clone();
-                                }
-                                ClaudeJson::Result { .. } => {
-                                    if let Some(uuid) = pending_assistant_uuid.take() {
-                                        msg_store.push_message_id(uuid);
-                                    }
-                                }
-                                _ => {}
-                            }
-
-                            let patches = processor.normalize_entries(
-                                &claude_json,
-                                &worktree_path,
-                                &entry_index_provider,
-                            );
-                            for patch in patches {
-                                msg_store.push_patch(patch);
-                            }
-                        }
-                        Err(_) => {
-                            // Handle non-JSON output as raw system message
-                            if !trimmed.is_empty() {
-                                let entry = NormalizedEntry {
-                                    timestamp: None,
-                                    entry_type: NormalizedEntryType::SystemMessage,
-                                    content: trimmed.to_string(),
-                                    metadata: None,
-                                };
-
-                                let patch_id = entry_index_provider.next();
-                                let patch =
-                                    ConversationPatch::add_normalized_entry(patch_id, entry);
-                                msg_store.push_patch(patch);
-                            }
-                        }
-                    }
+                    Self::process_stdout_line(
+                        trimmed,
+                        &msg_store,
+                        &worktree_path,
+                        &entry_index_provider,
+                        &mut processor,
+                        &mut session_id_extracted,
+                        &mut pending_assistant_uuid,
+                    );
                 }
 
                 // Keep the partial line in the buffer
@@ -873,18 +827,81 @@ impl ClaudeLogProcessor {
 
             // Handle any remaining content in buffer
             if !buffer.trim().is_empty() {
-                let entry = NormalizedEntry {
-                    timestamp: None,
-                    entry_type: NormalizedEntryType::SystemMessage,
-                    content: buffer.trim().to_string(),
-                    metadata: None,
-                };
-
-                let patch_id = entry_index_provider.next();
-                let patch = ConversationPatch::add_normalized_entry(patch_id, entry);
-                msg_store.push_patch(patch);
+                Self::process_stdout_line(
+                    buffer.trim(),
+                    &msg_store,
+                    &worktree_path,
+                    &entry_index_provider,
+                    &mut processor,
+                    &mut session_id_extracted,
+                    &mut pending_assistant_uuid,
+                );
             }
         })
+    }
+
+    fn process_stdout_line(
+        trimmed: &str,
+        msg_store: &Arc<MsgStore>,
+        worktree_path: &str,
+        entry_index_provider: &EntryIndexProvider,
+        processor: &mut Self,
+        session_id_extracted: &mut bool,
+        pending_assistant_uuid: &mut Option<String>,
+    ) {
+        match serde_json::from_str::<ClaudeJson>(trimmed) {
+            Ok(claude_json) => {
+                if !*session_id_extracted
+                    && let Some(session_id) = Self::extract_session_id(&claude_json)
+                {
+                    msg_store.push_session_id(session_id);
+                    *session_id_extracted = true;
+                }
+
+                // Track message UUIDs for --resume-session-at:
+                // - User messages: always valid, push immediately and clear pending
+                // - Assistant messages: may have incomplete tool calls, store as pending
+                // - Result messages: confirms assistant turn is complete, commit pending
+                match &claude_json {
+                    ClaudeJson::User { uuid, .. } => {
+                        *pending_assistant_uuid = None;
+                        if let Some(uuid) = uuid {
+                            msg_store.push_message_id(uuid.clone());
+                        }
+                    }
+                    ClaudeJson::Assistant { uuid, .. } => {
+                        *pending_assistant_uuid = uuid.clone();
+                    }
+                    ClaudeJson::Result { .. } => {
+                        if let Some(uuid) = pending_assistant_uuid.take() {
+                            msg_store.push_message_id(uuid);
+                        }
+                    }
+                    _ => {}
+                }
+
+                let patches =
+                    processor.normalize_entries(&claude_json, worktree_path, entry_index_provider);
+                for patch in patches {
+                    msg_store.push_patch(patch);
+                }
+            }
+            Err(_) => {
+                // Handle non-JSON output as raw system message
+                if !trimmed.is_empty() {
+                    let entry = NormalizedEntry {
+                        timestamp: None,
+                        entry_type: NormalizedEntryType::SystemMessage,
+                        content: trimmed.to_string(),
+                        metadata: None,
+                    };
+
+                    let patch_id = entry_index_provider.next();
+                    let patch = ConversationPatch::add_normalized_entry(patch_id, entry);
+                    msg_store.push_patch(patch);
+                }
+            }
+        }
     }
 
     /// Extract session ID from Claude JSON
@@ -1274,7 +1291,12 @@ impl ClaudeLogProcessor {
                             patches.push(add_system_message(status.clone(), entry_index_provider));
                         }
                     }
-                    Some("compact_boundary") => {}
+                    Some("compact_boundary") => {
+                        patches.push(add_system_message(
+                            "Context compacted".to_string(),
+                            entry_index_provider,
+                        ));
+                    }
                     Some("task_started") => {
                         if let Some(tool_use_id) = tool_use_id
                             && !self.tool_map.contains_key(tool_use_id)

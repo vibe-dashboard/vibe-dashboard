@@ -598,6 +598,9 @@ impl ExecutionProcess {
             ExecutorActionType::CodingAgentFollowUpRequest(request) => {
                 Ok(Some(request.executor_config.profile_id()))
             }
+            ExecutorActionType::CodingAgentSessionCommandRequest(request) => {
+                Ok(Some(request.executor_config.profile_id()))
+            }
             ExecutorActionType::ReviewRequest(request) => {
                 Ok(Some(request.executor_config.profile_id()))
             }

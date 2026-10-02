@@ -16,6 +16,11 @@ export interface UseScratchResult {
   error: string | null;
   updateScratch: (update: UpdateScratch) => Promise<void>;
   deleteScratch: () => Promise<void>;
+  updateScratchForId: (
+    targetId: string,
+    update: UpdateScratch
+  ) => Promise<void>;
+  deleteScratchForId: (targetId: string) => Promise<void>;
 }
 
 interface UseScratchOptions {
@@ -60,16 +65,30 @@ export const useScratch = (
   const rawScratch = data?.scratch as (Scratch & { deleted?: boolean }) | null;
   const scratch = rawScratch?.deleted ? null : rawScratch;
 
+  const updateScratchForId = useCallback(
+    async (targetId: string, update: UpdateScratch) => {
+      await scratchApi.update(scratchType, targetId, update);
+    },
+    [scratchType]
+  );
+
   const updateScratch = useCallback(
     async (update: UpdateScratch) => {
-      await scratchApi.update(scratchType, id, update);
+      await updateScratchForId(id, update);
     },
-    [scratchType, id]
+    [id, updateScratchForId]
+  );
+
+  const deleteScratchForId = useCallback(
+    async (targetId: string) => {
+      await scratchApi.delete(scratchType, targetId);
+    },
+    [scratchType]
   );
 
   const deleteScratch = useCallback(async () => {
-    await scratchApi.delete(scratchType, id);
-  }, [scratchType, id]);
+    await deleteScratchForId(id);
+  }, [id, deleteScratchForId]);
 
   const isLoading = !isInitialized && !error;
 
@@ -80,6 +99,8 @@ export const useScratch = (
     error,
     updateScratch,
     deleteScratch,
+    updateScratchForId,
+    deleteScratchForId,
   };
 
   return isRemote ? localResult : serverResult;

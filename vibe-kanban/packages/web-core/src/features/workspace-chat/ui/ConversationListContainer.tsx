@@ -6,9 +6,9 @@ import {
   useMemo,
   useRef,
   useState,
-  type MouseEvent,
 } from 'react';
 import { SpinnerIcon } from '@phosphor-icons/react';
+import { AlertCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -38,18 +38,29 @@ import {
   isAggregatedThinkingGroup,
 } from '@/shared/hooks/useConversationHistory/types';
 import { useConversationHistory } from '../model/hooks/useConversationHistory';
+import { shouldAutoLoadEarlierHistoryAtBoundary } from '../model/hooks/conversationHistoryLoadingPolicy';
 import { useSetTokenUsageInfo } from '../model/contexts/EntriesContext';
 import type { WorkspaceWithSession } from '@/shared/types/attempt';
 import type { RepoWithTargetBranch } from 'shared/types';
+import { Alert, AlertDescription } from '@vibe/ui/components/Alert';
 import { ChatEmptyState } from '@vibe/ui/components/ChatEmptyState';
 import { ChatScriptPlaceholder } from '@vibe/ui/components/ChatScriptPlaceholder';
+import { PrimaryButton } from '@vibe/ui/components/PrimaryButton';
 import { ScriptFixerDialog } from '@/shared/dialogs/scripts/ScriptFixerDialog';
+import {
+  isMobilePerfDiagnosticsEnabled,
+  recordMobilePerfDiagnostic,
+} from '@/shared/lib/mobilePerfDiagnostics';
+
+const HISTORY_BOUNDARY_THRESHOLD_PX = 96;
+const SCROLL_TO_INDEX_SETTLE_FRAMES = 4;
 
 interface ConversationListProps {
   attempt: WorkspaceWithSession;
   repos?: RepoWithTargetBranch[];
   onAtBottomChange?: (atBottom: boolean) => void;
   sessionScopeId?: string;
+  previewMode?: 'workspace' | 'session' | 'disabled';
 }
 
 export interface ConversationListHandle {
@@ -60,9 +71,6 @@ export interface ConversationListHandle {
   scrollToEntryByPatchKey: (patchKey: string) => void;
   getVisibleUserMessagePatchKey: () => string | null;
 }
-
-const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
-const STREAMING_UNVIRTUALIZED_BUFFER_ROWS = 24;
 
 function renderRowContent(
   entry: DisplayEntry,
@@ -148,7 +156,13 @@ export const ConversationList = forwardRef<
   ConversationListHandle,
   ConversationListProps
 >(function ConversationList(
-  { attempt, repos: reposProp = [], onAtBottomChange, sessionScopeId },
+  {
+    attempt,
+    repos: reposProp = [],
+    onAtBottomChange,
+    sessionScopeId,
+    previewMode = attempt.session ? 'session' : 'workspace',
+  },
   ref
 ) {
   const { t } = useTranslation('common');
@@ -161,7 +175,7 @@ export const ConversationList = forwardRef<
   const [hasSetupScriptRun, setHasSetupScriptRun] = useState(false);
   const [hasCleanupScriptRun, setHasCleanupScriptRun] = useState(false);
   const [hasRunningProcess, setHasRunningProcess] = useState(false);
-  const lastSettledTailStartIndexRef = useRef<number | null>(null);
+  const [isNearHistoryBoundary, setIsNearHistoryBoundary] = useState(true);
   const { setEntries, reset } = useEntriesActions();
   const setTokenUsageInfo = useSetTokenUsageInfo();
   const scriptOutputCacheRef = useRef<
@@ -170,6 +184,9 @@ export const ConversationList = forwardRef<
   const scrollOnEntriesChangedRef = useRef<
     ((addType: AddEntryType, isInitialLoad: boolean) => void) | null
   >(null);
+  const prevEntriesRef = useRef<DisplayEntry[]>([]);
+  const prevRowsRef = useRef<ConversationRow[]>([]);
+  const lastScrollDiagnosticAtRef = useRef(0);
   const pendingUpdateRef = useRef<{
     source: ConversationTimelineSource;
     addType: AddEntryType;
@@ -184,13 +201,13 @@ export const ConversationList = forwardRef<
   // rAF naturally limits updates to the display refresh rate (~60fps) while
   // ensuring every frame reflects the latest data.
   const rafIdRef = useRef<number | null>(null);
-  const planRevealSpacerRef = useRef<HTMLDivElement | null>(null);
-  const pendingInteractionAnchorRef = useRef<{
-    element: HTMLElement;
-    top: number;
-  } | null>(null);
-  const pendingInteractionAnchorFrameRef = useRef<number | null>(null);
-  const pendingInteractionAnchorDeadlineRef = useRef(0);
+  const autoLoadEarlierHistoryFrameRef = useRef<number | null>(null);
+  const autoLoadEarlierHistoryRequestedRef = useRef(false);
+  const autoLoadEarlierHistoryArmedRef = useRef(false);
+  const conversationRows = useMemo(
+    () => prevRowsRef.current,
+    [filteredEntries]
+  );
 
   // Use ref to access current repos without causing callback recreation
   const reposRef = useRef(repos);
@@ -235,16 +252,15 @@ export const ConversationList = forwardRef<
     }
     pendingUpdateRef.current = null;
     scriptOutputCacheRef.current.clear();
-    if (planRevealSpacerRef.current) {
-      planRevealSpacerRef.current.style.height = '0px';
-    }
     setLoading(true);
     setHasSetupScriptRun(false);
     setHasCleanupScriptRun(false);
     setHasRunningProcess(false);
+    setIsNearHistoryBoundary(true);
+    autoLoadEarlierHistoryRequestedRef.current = false;
+    autoLoadEarlierHistoryArmedRef.current = false;
     setFilteredEntries([]);
     setDataVersion(0);
-    lastSettledTailStartIndexRef.current = null;
     reset();
   }, [conversationScopeKey, reset]);
 
@@ -253,88 +269,68 @@ export const ConversationList = forwardRef<
       if (rafIdRef.current !== null) {
         cancelAnimationFrame(rafIdRef.current);
       }
+      if (autoLoadEarlierHistoryFrameRef.current !== null) {
+        cancelAnimationFrame(autoLoadEarlierHistoryFrameRef.current);
+      }
     };
   }, []);
 
   // ---- TanStack Virtual plumbing ----
   const tanstackScrollRef = useRef<HTMLDivElement | null>(null);
+  const pendingScrollRetryFrameRef = useRef<number | null>(null);
 
-  const clearPendingInteractionAnchor = useCallback(() => {
-    if (pendingInteractionAnchorFrameRef.current !== null) {
-      cancelAnimationFrame(pendingInteractionAnchorFrameRef.current);
-      pendingInteractionAnchorFrameRef.current = null;
+  const updateIsNearHistoryBoundary = useCallback(() => {
+    const scrollEl = tanstackScrollRef.current;
+    const nextValue = scrollEl
+      ? scrollEl.scrollTop <= HISTORY_BOUNDARY_THRESHOLD_PX
+      : true;
+    if (!nextValue) {
+      autoLoadEarlierHistoryRequestedRef.current = false;
+      autoLoadEarlierHistoryArmedRef.current = true;
     }
-    pendingInteractionAnchorDeadlineRef.current = 0;
-    pendingInteractionAnchorRef.current = null;
-  }, []);
-
-  const programmaticScrollDeadlineRef = useRef(0);
-
-  const shouldSuppressInteractionDrivenSizeAdjustment = useCallback(
-    () =>
-      performance.now() < programmaticScrollDeadlineRef.current ||
-      (pendingInteractionAnchorRef.current !== null &&
-        performance.now() < pendingInteractionAnchorDeadlineRef.current),
-    []
-  );
-
-  const runInteractionAnchorCorrection = useCallback(() => {
-    pendingInteractionAnchorFrameRef.current = null;
-
-    const anchor = pendingInteractionAnchorRef.current;
-    const activeScrollContainer = tanstackScrollRef.current;
-    if (!anchor || !activeScrollContainer || !anchor.element.isConnected) {
-      clearPendingInteractionAnchor();
-      return;
+    if (scrollEl && isMobilePerfDiagnosticsEnabled()) {
+      const now = performance.now();
+      if (now - lastScrollDiagnosticAtRef.current > 1000) {
+        lastScrollDiagnosticAtRef.current = now;
+        recordMobilePerfDiagnostic('conversation.scroll', {
+          has_workspace: true,
+          has_session: !!attempt.session?.id,
+          scroll_top: Math.round(scrollEl.scrollTop),
+          scroll_height: scrollEl.scrollHeight,
+          client_height: scrollEl.clientHeight,
+          row_count: prevRowsRef.current.length,
+          near_history_boundary: nextValue,
+        });
+      }
     }
+    setIsNearHistoryBoundary((current) =>
+      current === nextValue ? current : nextValue
+    );
+  }, [attempt.id, attempt.session?.id]);
 
-    const currentTop = anchor.element.getBoundingClientRect().top;
-    const delta = currentTop - anchor.top;
-    if (Math.abs(delta) >= 0.5) {
-      activeScrollContainer.scrollTop += delta;
-    }
+  useEffect(() => {
+    const scrollEl = tanstackScrollRef.current;
+    if (!scrollEl) return;
 
-    if (performance.now() < pendingInteractionAnchorDeadlineRef.current) {
-      pendingInteractionAnchorFrameRef.current = requestAnimationFrame(
-        runInteractionAnchorCorrection
-      );
-      return;
-    }
+    scrollEl.addEventListener('scroll', updateIsNearHistoryBoundary, {
+      passive: true,
+    });
+    updateIsNearHistoryBoundary();
 
-    clearPendingInteractionAnchor();
-  }, [clearPendingInteractionAnchor]);
-
-  const handleConversationClickCapture = useCallback(
-    (event: MouseEvent<HTMLDivElement>) => {
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-
-      const trigger = target.closest<HTMLElement>(
-        'button, summary, [role="button"], [data-scroll-anchor-target]'
-      );
-      if (!trigger || trigger.closest('[data-scroll-anchor-ignore]')) return;
-
-      const scrollContainer = tanstackScrollRef.current;
-      if (!scrollContainer || !scrollContainer.contains(trigger)) return;
-
-      clearPendingInteractionAnchor();
-      pendingInteractionAnchorRef.current = {
-        element: trigger,
-        top: trigger.getBoundingClientRect().top,
-      };
-
-      pendingInteractionAnchorDeadlineRef.current = performance.now() + 250;
-      pendingInteractionAnchorFrameRef.current = requestAnimationFrame(
-        runInteractionAnchorCorrection
-      );
-    },
-    [clearPendingInteractionAnchor, runInteractionAnchorCorrection]
-  );
+    return () => {
+      scrollEl.removeEventListener('scroll', updateIsNearHistoryBoundary);
+    };
+  }, [updateIsNearHistoryBoundary]);
 
   const flushPendingUpdate = () => {
     rafIdRef.current = null;
     const pending = pendingUpdateRef.current;
     if (!pending) return;
+
+    const diagnosticsEnabled = isMobilePerfDiagnosticsEnabled();
+    const startedAt = diagnosticsEnabled ? performance.now() : 0;
+    const previousEntryCount = prevEntriesRef.current.length;
+    const previousRowCount = prevRowsRef.current.length;
 
     const derivedEntries = deriveConversationEntries({
       source: pending.source,
@@ -346,6 +342,7 @@ export const ConversationList = forwardRef<
     setHasRunningProcess(derivedEntries.hasRunningProcess);
     setTokenUsageInfo(derivedEntries.latestTokenUsageInfo);
 
+    const timelineStartedAt = diagnosticsEnabled ? performance.now() : 0;
     const derivedTimeline = deriveConversationTimeline(
       derivedEntries.entries,
       prevEntriesRef.current,
@@ -359,6 +356,26 @@ export const ConversationList = forwardRef<
     setDataVersion((current) => current + 1);
     setEntries(derivedEntries.entries);
 
+    if (diagnosticsEnabled) {
+      const finishedAt = performance.now();
+      recordMobilePerfDiagnostic('conversation.timeline_flush', {
+        has_workspace: true,
+        has_session: !!attempt.session?.id,
+        add_type: pending.addType,
+        initial_load: pending.isInitialLoad,
+        loading: pending.loading,
+        entry_count: derivedTimeline.displayEntries.length,
+        row_count: derivedTimeline.rows.length,
+        previous_entry_count: previousEntryCount,
+        previous_row_count: previousRowCount,
+        derive_timeline_ms: Math.round(finishedAt - timelineStartedAt),
+        total_duration_ms: Math.round(finishedAt - startedAt),
+        has_running_process: derivedEntries.hasRunningProcess,
+        setup_script_seen: derivedEntries.hasSetupScriptRun,
+        cleanup_script_seen: derivedEntries.hasCleanupScriptRun,
+      });
+    }
+
     scrollOnEntriesChangedRef.current?.(pending.addType, pending.isInitialLoad);
 
     if (loading) {
@@ -371,6 +388,7 @@ export const ConversationList = forwardRef<
     addType: AddEntryType,
     newLoading: boolean
   ) => {
+    const alreadyScheduled = rafIdRef.current !== null;
     pendingUpdateRef.current = {
       source,
       addType,
@@ -378,176 +396,154 @@ export const ConversationList = forwardRef<
       isInitialLoad: addType === 'initial',
     };
 
+    if (isMobilePerfDiagnosticsEnabled()) {
+      recordMobilePerfDiagnostic('conversation.timeline_update', {
+        has_workspace: true,
+        has_session: !!attempt.session?.id,
+        add_type: addType,
+        loading: newLoading,
+        already_scheduled: alreadyScheduled,
+      });
+    }
+
     if (rafIdRef.current === null) {
       rafIdRef.current = requestAnimationFrame(flushPendingUpdate);
     }
   };
 
-  const { isFirstTurn, isLoadingHistory } = useConversationHistory({
+  const {
+    isFirstTurn,
+    isLoadingHistory,
+    hasMoreHistory,
+    loadEarlierHistory,
+    historyError,
+    canRetryHistory,
+    isRetryingHistory,
+    retryHistory,
+  } = useConversationHistory({
     attempt,
     onTimelineUpdated,
+    previewMode,
     scopeKey: conversationScopeKey,
   });
 
-  const prevEntriesRef = useRef<DisplayEntry[]>([]);
-  const prevRowsRef = useRef<ConversationRow[]>([]);
-  const conversationRows = useMemo(
-    () => prevRowsRef.current,
-    [filteredEntries]
-  );
-
-  const hasActiveStreamingTurn = useMemo(
-    () =>
-      hasRunningProcess ||
-      conversationRows.some((row) => row.rowFamily === 'loading'),
-    [conversationRows, hasRunningProcess]
-  );
-
-  const candidateFirstUnvirtualizedRowIndex = useMemo(() => {
-    const firstTailRowIndex = Math.max(
-      conversationRows.length - ALWAYS_UNVIRTUALIZED_TAIL_ROWS,
-      0
-    );
-
-    if (!hasActiveStreamingTurn) {
-      return firstTailRowIndex;
-    }
-
-    for (let index = conversationRows.length - 1; index >= 0; index -= 1) {
-      if (conversationRows[index]?.isUserMessage) {
-        return Math.min(index, firstTailRowIndex);
-      }
-    }
-
-    return firstTailRowIndex;
-  }, [conversationRows, hasActiveStreamingTurn]);
-
-  const streamingFirstUnvirtualizedRowIndex = useMemo(() => {
-    const lastSettledTailStartIndex = lastSettledTailStartIndexRef.current;
-    if (lastSettledTailStartIndex == null) {
-      return candidateFirstUnvirtualizedRowIndex;
-    }
-
-    return Math.min(
-      lastSettledTailStartIndex,
-      candidateFirstUnvirtualizedRowIndex
-    );
-  }, [candidateFirstUnvirtualizedRowIndex]);
-
-  useEffect(() => {
-    if (!hasActiveStreamingTurn) {
-      lastSettledTailStartIndexRef.current =
-        candidateFirstUnvirtualizedRowIndex;
-    }
-  }, [candidateFirstUnvirtualizedRowIndex, hasActiveStreamingTurn]);
-
-  const firstUnvirtualizedRowIndex = hasActiveStreamingTurn
-    ? Math.max(
-        0,
-        streamingFirstUnvirtualizedRowIndex -
-          STREAMING_UNVIRTUALIZED_BUFFER_ROWS
-      )
-    : candidateFirstUnvirtualizedRowIndex;
-
-  const virtualizedRows = useMemo(
-    () => conversationRows.slice(0, firstUnvirtualizedRowIndex),
-    [conversationRows, firstUnvirtualizedRowIndex]
-  );
-
-  const unvirtualizedTailRows = useMemo(
-    () => conversationRows.slice(firstUnvirtualizedRowIndex),
-    [conversationRows, firstUnvirtualizedRowIndex]
-  );
-
   const conversationVirtualizer = useConversationVirtualizer({
-    rows: virtualizedRows,
-    totalRowCount: conversationRows.length,
+    rows: conversationRows,
     scrollContainerRef: tanstackScrollRef,
     onAtBottomChange,
-    shouldSuppressSizeAdjustment: shouldSuppressInteractionDrivenSizeAdjustment,
   });
 
-  // NOTE: Do NOT call conversationVirtualizer.virtualizer.measure() when
-  // firstUnvirtualizedRowIndex changes. measure() wipes ALL cached item sizes,
-  // triggering a massive re-measurement storm and multi-second jitter.
-  // TanStack Virtual handles count changes automatically via getItemKey.
+  useEffect(() => {
+    if (!hasMoreHistory) {
+      autoLoadEarlierHistoryRequestedRef.current = false;
+      return;
+    }
 
-  const scrollToAbsoluteIndex = useCallback(
-    (
-      index: number,
-      align: 'start' | 'center' | 'end' = 'start',
-      behavior: 'auto' | 'smooth' = 'smooth'
-    ): boolean => {
-      if (index < 0 || index >= conversationRows.length) return false;
+    if (!isNearHistoryBoundary || isLoadingHistory || historyError !== null) {
+      return;
+    }
 
+    if (autoLoadEarlierHistoryFrameRef.current !== null) {
+      cancelAnimationFrame(autoLoadEarlierHistoryFrameRef.current);
+    }
+
+    autoLoadEarlierHistoryFrameRef.current = requestAnimationFrame(() => {
+      autoLoadEarlierHistoryFrameRef.current = null;
       const scrollEl = tanstackScrollRef.current;
-      if (!scrollEl) return false;
+      const isScrollable = scrollEl
+        ? scrollEl.scrollHeight - scrollEl.clientHeight > 1
+        : false;
 
-      const targetNode = scrollEl.querySelector<HTMLElement>(
-        `[data-row-index="${index}"]`
-      );
-
-      if (targetNode) {
-        let top = targetNode.offsetTop;
-
-        if (align === 'center') {
-          top =
-            targetNode.offsetTop -
-            scrollEl.clientHeight / 2 +
-            targetNode.offsetHeight / 2;
-        } else if (align === 'end') {
-          top =
-            targetNode.offsetTop -
-            scrollEl.clientHeight +
-            targetNode.offsetHeight;
-        }
-
-        const requestedTop = Math.max(0, top);
-        let maxScrollable = scrollEl.scrollHeight - scrollEl.clientHeight;
-        const deficit = requestedTop - maxScrollable;
-
-        if (deficit > 1 && align === 'start' && planRevealSpacerRef.current) {
-          conversationVirtualizer.releaseBottomLock();
-          planRevealSpacerRef.current.style.height = `${Math.ceil(deficit)}px`;
-          maxScrollable = scrollEl.scrollHeight - scrollEl.clientHeight;
-        }
-
-        scrollEl.scrollTo({
-          top: Math.min(requestedTop, maxScrollable),
-          behavior,
-        });
-        return true;
+      if (
+        !shouldAutoLoadEarlierHistoryAtBoundary({
+          hasMoreHistory,
+          isNearHistoryBoundary,
+          isLoadingHistory,
+          hasHistoryError: historyError !== null,
+          hasRequestedForCurrentBoundary:
+            autoLoadEarlierHistoryRequestedRef.current,
+          hasLeftInitialBoundary: autoLoadEarlierHistoryArmedRef.current,
+          isScrollable,
+          isAtBottom: conversationVirtualizer.checkIsAtBottom(),
+        })
+      ) {
+        return;
       }
 
-      if (index < virtualizedRows.length) {
-        conversationVirtualizer.scrollToIndex(index, { align, behavior });
-        return true;
-      }
+      autoLoadEarlierHistoryRequestedRef.current = true;
+      void loadEarlierHistory();
+    });
 
-      return false;
-    },
-    [conversationRows.length, conversationVirtualizer, virtualizedRows.length]
-  );
-
-  const scrollToBottomAndClearSpacer = useCallback(
-    (behavior?: 'auto' | 'smooth') => {
-      if (planRevealSpacerRef.current) {
-        planRevealSpacerRef.current.style.height = '0px';
+    return () => {
+      if (autoLoadEarlierHistoryFrameRef.current !== null) {
+        cancelAnimationFrame(autoLoadEarlierHistoryFrameRef.current);
+        autoLoadEarlierHistoryFrameRef.current = null;
       }
-      conversationVirtualizer.scrollToBottom(behavior);
-    },
-    [conversationVirtualizer]
-  );
+    };
+  }, [
+    conversationVirtualizer,
+    hasMoreHistory,
+    historyError,
+    isLoadingHistory,
+    isNearHistoryBoundary,
+    loadEarlierHistory,
+  ]);
 
   const scrollExecutor = useScrollCommandExecutor({
     virtualizer: conversationVirtualizer.virtualizer,
     itemCount: conversationRows.length,
     dataVersion,
     checkIsAtBottom: conversationVirtualizer.checkIsAtBottom,
-    scrollToBottom: scrollToBottomAndClearSpacer,
-    scrollToAbsoluteIndex,
+    scrollToBottom: conversationVirtualizer.scrollToBottom,
   });
   scrollOnEntriesChangedRef.current = scrollExecutor.onEntriesChanged;
+
+  const scrollToIndexWithMeasurementRetry = useCallback(
+    (
+      index: number,
+      options?: {
+        align?: 'start' | 'center' | 'end';
+        behavior?: 'auto' | 'smooth';
+      }
+    ) => {
+      if (pendingScrollRetryFrameRef.current !== null) {
+        cancelAnimationFrame(pendingScrollRetryFrameRef.current);
+        pendingScrollRetryFrameRef.current = null;
+      }
+
+      const align = options?.align ?? 'start';
+      const behavior = options?.behavior ?? 'auto';
+      let remainingFrames = SCROLL_TO_INDEX_SETTLE_FRAMES;
+
+      const scroll = (nextBehavior: 'auto' | 'smooth') => {
+        conversationVirtualizer.scrollToIndex(index, {
+          align,
+          behavior: nextBehavior,
+        });
+      };
+
+      const retry = () => {
+        pendingScrollRetryFrameRef.current = null;
+        if (remainingFrames <= 0) return;
+
+        remainingFrames -= 1;
+        scroll('auto');
+        pendingScrollRetryFrameRef.current = requestAnimationFrame(retry);
+      };
+
+      scroll(behavior);
+      pendingScrollRetryFrameRef.current = requestAnimationFrame(retry);
+    },
+    [conversationVirtualizer]
+  );
+
+  useEffect(() => {
+    return () => {
+      if (pendingScrollRetryFrameRef.current !== null) {
+        cancelAnimationFrame(pendingScrollRetryFrameRef.current);
+      }
+    };
+  }, []);
 
   // Determine if there are entries to show placeholders
   const hasEntries = conversationRows.length > 0;
@@ -564,8 +560,6 @@ export const ConversationList = forwardRef<
 
   // Expose scroll functionality via ref — delegates to TanStack Virtual
   const scrollToPreviousUserMessage = useCallback(() => {
-    conversationVirtualizer.releaseBottomLock();
-
     const scrollEl = tanstackScrollRef.current;
     if (!scrollEl || conversationRows.length === 0) return;
 
@@ -594,48 +588,11 @@ export const ConversationList = forwardRef<
 
     if (targetIndex < 0) return;
 
-    programmaticScrollDeadlineRef.current = performance.now() + 1000;
-
-    let attempts = 0;
-    const maxAttempts = 6;
-
-    const correctScroll = () => {
-      if (attempts >= maxAttempts) return;
-      attempts++;
-
-      programmaticScrollDeadlineRef.current = performance.now() + 500;
-
-      const node = scrollEl.querySelector<HTMLElement>(
-        `[data-row-index="${targetIndex}"]`
-      );
-      if (!node) {
-        if (attempts === 1) {
-          conversationVirtualizer.scrollToIndex(targetIndex, {
-            align: 'start',
-            behavior: 'auto',
-          });
-        }
-        requestAnimationFrame(correctScroll);
-        return;
-      }
-
-      const nodeRect = node.getBoundingClientRect();
-      const contRect = scrollEl.getBoundingClientRect();
-      const delta = nodeRect.top - contRect.top;
-
-      if (Math.abs(delta) < 2) return;
-
-      scrollEl.scrollTop += delta;
-      requestAnimationFrame(correctScroll);
-    };
-
-    correctScroll();
-  }, [
-    conversationRows,
-    firstUnvirtualizedRowIndex,
-    conversationVirtualizer,
-    scrollToAbsoluteIndex,
-  ]);
+    scrollToIndexWithMeasurementRetry(targetIndex, {
+      align: 'start',
+      behavior: 'auto',
+    });
+  }, [conversationRows, scrollToIndexWithMeasurementRetry]);
 
   useImperativeHandle(
     ref,
@@ -644,7 +601,7 @@ export const ConversationList = forwardRef<
         scrollToPreviousUserMessage();
       },
       scrollToBottom: (behavior = 'smooth') => {
-        scrollToBottomAndClearSpacer(behavior);
+        conversationVirtualizer.scrollToBottom(behavior);
       },
       adjustScrollBy: (delta) => {
         if (Math.abs(delta) < 0.5) return;
@@ -658,48 +615,10 @@ export const ConversationList = forwardRef<
           (row) => row.entry.patchKey === patchKey
         );
         if (targetIndex < 0) return;
-
-        const scrollEl = tanstackScrollRef.current;
-        if (!scrollEl) return;
-
-        conversationVirtualizer.releaseBottomLock();
-        programmaticScrollDeadlineRef.current = performance.now() + 1000;
-
-        // Initial scroll via scrollToAbsoluteIndex which handles both
-        // virtualized and unvirtualized (tail) rows correctly.
-        scrollToAbsoluteIndex(targetIndex, 'start', 'auto');
-
-        // Correction loop: after the virtualizer lays out the target
-        // row, its actual size may differ from the estimate, so we
-        // iteratively adjust until the row is at the container top.
-        let attempts = 0;
-        const maxAttempts = 5;
-
-        const correctScroll = () => {
-          if (attempts >= maxAttempts) return;
-          attempts++;
-
-          programmaticScrollDeadlineRef.current = performance.now() + 500;
-
-          const node = scrollEl.querySelector<HTMLElement>(
-            `[data-row-index="${targetIndex}"]`
-          );
-          if (!node) {
-            requestAnimationFrame(correctScroll);
-            return;
-          }
-
-          const nodeRect = node.getBoundingClientRect();
-          const contRect = scrollEl.getBoundingClientRect();
-          const delta = nodeRect.top - contRect.top;
-
-          if (Math.abs(delta) < 2) return;
-
-          scrollEl.scrollTop += delta;
-          requestAnimationFrame(correctScroll);
-        };
-
-        requestAnimationFrame(correctScroll);
+        scrollToIndexWithMeasurementRetry(targetIndex, {
+          align: 'start',
+          behavior: 'auto',
+        });
       },
       getVisibleUserMessagePatchKey: () => {
         const scrollEl = tanstackScrollRef.current;
@@ -735,22 +654,19 @@ export const ConversationList = forwardRef<
     [
       conversationRows,
       conversationVirtualizer,
-      scrollToAbsoluteIndex,
-      scrollToBottomAndClearSpacer,
+      scrollToIndexWithMeasurementRetry,
       scrollToPreviousUserMessage,
     ]
   );
 
   const showLoader = loading && conversationRows.length === 0;
   const showEmptyState = !loading && conversationRows.length === 0;
+  const showHistoryStatus =
+    !showLoader &&
+    isNearHistoryBoundary &&
+    (isLoadingHistory || historyError !== null);
 
   const { virtualItems, totalSize, measureElement } = conversationVirtualizer;
-
-  useEffect(() => {
-    return () => {
-      clearPendingInteractionAnchor();
-    };
-  }, [clearPendingInteractionAnchor]);
 
   return (
     <ApprovalFormProvider>
@@ -762,10 +678,60 @@ export const ConversationList = forwardRef<
         )}
         <div
           ref={tanstackScrollRef}
-          className="h-full overflow-y-auto scrollbar-none"
+          className="relative h-full overflow-y-auto scrollbar-none"
           style={{ overflowAnchor: 'none', contain: 'strict' }}
-          onClickCapture={handleConversationClickCapture}
         >
+          {showHistoryStatus && (
+            <div className="pointer-events-none absolute left-0 right-0 top-2 z-10 px-double">
+              {isLoadingHistory ? (
+                <div className="rounded border bg-panel px-double py-3">
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="flex w-full flex-col gap-1.5">
+                      <div className="flex items-center gap-2">
+                        <div className="h-2.5 w-16 animate-pulse rounded-full bg-foreground/10" />
+                        <div className="h-2.5 flex-1 animate-pulse rounded-full bg-foreground/[0.06]" />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="h-2.5 w-24 animate-pulse rounded-full bg-foreground/[0.07]"
+                          style={{ animationDelay: '150ms' }}
+                        />
+                        <div
+                          className="h-2.5 w-32 animate-pulse rounded-full bg-foreground/[0.05]"
+                          style={{ animationDelay: '150ms' }}
+                        />
+                      </div>
+                    </div>
+                    <span className="text-xs text-low">
+                      {t('conversation.loadingEarlierMessages')}
+                    </span>
+                  </div>
+                </div>
+              ) : historyError ? (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription className="space-y-3">
+                    {t('conversation.historyLoadError', {
+                      defaultValue:
+                        'Failed to load some earlier conversation messages. You can keep working, but older history may be incomplete until the retry succeeds.',
+                    })}
+                    {canRetryHistory && (
+                      <div className="pointer-events-auto">
+                        <PrimaryButton
+                          variant="tertiary"
+                          onClick={retryHistory}
+                          disabled={isRetryingHistory}
+                          actionIcon={isRetryingHistory ? 'spinner' : undefined}
+                          value={t('retry')}
+                        />
+                      </div>
+                    )}
+                  </AlertDescription>
+                </Alert>
+              ) : null}
+            </div>
+          )}
+
           <div className="pt-2">
             {showSetupPlaceholder && (
               <div className="my-base px-double">
@@ -776,30 +742,6 @@ export const ConversationList = forwardRef<
               </div>
             )}
           </div>
-
-          {isLoadingHistory && !showLoader && (
-            <div className="flex flex-col items-center gap-2 px-double py-3">
-              <div className="flex w-full max-w-md flex-col gap-1.5">
-                <div className="flex items-center gap-2">
-                  <div className="h-2.5 w-16 animate-pulse rounded-full bg-foreground/10" />
-                  <div className="h-2.5 flex-1 animate-pulse rounded-full bg-foreground/[0.06]" />
-                </div>
-                <div className="flex items-center gap-2">
-                  <div
-                    className="h-2.5 w-24 animate-pulse rounded-full bg-foreground/[0.07]"
-                    style={{ animationDelay: '150ms' }}
-                  />
-                  <div
-                    className="h-2.5 w-32 animate-pulse rounded-full bg-foreground/[0.05]"
-                    style={{ animationDelay: '150ms' }}
-                  />
-                </div>
-              </div>
-              <span className="text-xs text-low">
-                {t('conversation.loadingEarlierMessages')}
-              </span>
-            </div>
-          )}
 
           {showEmptyState && (
             <div className="flex min-h-full items-center justify-center px-double py-12">
@@ -815,7 +757,7 @@ export const ConversationList = forwardRef<
             </div>
           )}
 
-          {virtualizedRows.length > 0 && (
+          {conversationRows.length > 0 && (
             <div
               style={{
                 height: `${totalSize}px`,
@@ -824,7 +766,7 @@ export const ConversationList = forwardRef<
               }}
             >
               {virtualItems.map((virtualItem) => {
-                const row = virtualizedRows[virtualItem.index];
+                const row = conversationRows[virtualItem.index];
                 if (!row) return null;
                 return (
                   <div
@@ -847,24 +789,6 @@ export const ConversationList = forwardRef<
               })}
             </div>
           )}
-
-          {unvirtualizedTailRows.map((row, tailIndex) => {
-            const rowIndex = firstUnvirtualizedRowIndex + tailIndex;
-            return (
-              <div
-                key={row.semanticKey}
-                data-row-index={rowIndex}
-                data-semantic-key={row.semanticKey}
-              >
-                {renderRowContent(row.entry, attempt, resetAction, repos)}
-              </div>
-            );
-          })}
-
-          {/* Plan-reveal spacer: provides extra scroll room so plan-reveal
-              can align the plan entry to the top of the viewport. Height is set
-              imperatively in scrollToAbsoluteIndex and cleared on scrollToBottom. */}
-          <div ref={planRevealSpacerRef} style={{ height: 0 }} />
 
           {/* Footer placeholder */}
           <div className="pb-2">

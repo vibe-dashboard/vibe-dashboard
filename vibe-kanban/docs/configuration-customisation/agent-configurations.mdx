@@ -220,6 +220,20 @@ Options prefixed with "dangerously_" bypass safety confirmations and can perform
 MCP (Model Context Protocol) servers are configured separately under **Settings → MCP Servers** but work alongside agent profiles to extend functionality.
 </Note>
 
+## QA Mock Agent Responses
+
+For local QA runs, set `VK_QA_MODE` to mock agent responses without changing the selected agent profile:
+
+```bash
+VK_QA_MODE=1 pnpm run dev
+```
+
+Accepted truthy values are `1`, `true`, `yes`, and `on`. The legacy `QA_MODE` variable is also supported for existing local harnesses.
+
+<Note>
+QA mode is a backend process-wide runtime switch. It mocks agent response execution and stores a per-run normaliser marker so historical log replay uses the same parser that produced the raw logs, even if the environment variable changes before replay.
+</Note>
+
 <CardGroup cols={2}>
 <Card title="MCP Server Configuration" icon="server" href="/integrations/mcp-server-configuration">
   Configure MCP servers within Vibe Kanban for your coding agents

@@ -1,6 +1,7 @@
 use axum::extract::ws::Message as AxumWsMessage;
 use futures_util::{Sink, SinkExt, Stream, StreamExt};
 use tokio_tungstenite::{tungstenite, tungstenite::client::IntoClientRequest};
+use tracing::Instrument;
 
 use crate::ws_io::{axum_to_tungstenite, tungstenite_to_axum};
 
@@ -75,10 +76,16 @@ where
     let forward = async {
         while let Some(msg) = a_stream.next().await {
             let msg = msg.map_err(|error| WsBridgeError::ReadFromSource(error.into()))?;
-            b_sink
-                .send(a_to_b(msg))
-                .await
-                .map_err(|error| WsBridgeError::WriteToDestination(error.into()))?;
+            let msg = a_to_b(msg);
+            let result = if bridge_trace_enabled() {
+                b_sink
+                    .send(msg)
+                    .instrument(tracing::trace_span!("ws.bridge.send", direction = "a_to_b"))
+                    .await
+            } else {
+                b_sink.send(msg).await
+            };
+            result.map_err(|error| WsBridgeError::WriteToDestination(error.into()))?;
         }
         let _ = b_sink.close().await;
         Ok::<(), WsBridgeError>(())
@@ -87,10 +94,16 @@ where
     let backward = async {
         while let Some(msg) = b_stream.next().await {
             let msg = msg.map_err(|error| WsBridgeError::ReadFromDestination(error.into()))?;
-            a_sink
-                .send(b_to_a(msg))
-                .await
-                .map_err(|error| WsBridgeError::WriteToSource(error.into()))?;
+            let msg = b_to_a(msg);
+            let result = if bridge_trace_enabled() {
+                a_sink
+                    .send(msg)
+                    .instrument(tracing::trace_span!("ws.bridge.send", direction = "b_to_a"))
+                    .await
+            } else {
+                a_sink.send(msg).await
+            };
+            result.map_err(|error| WsBridgeError::WriteToSource(error.into()))?;
         }
         let _ = a_sink.close().await;
         Ok::<(), WsBridgeError>(())
@@ -137,4 +150,8 @@ where
     EB: Into<BridgeSourceError>,
 {
     ws_copy_bidirectional(a, b, std::convert::identity, std::convert::identity).await
+}
+
+fn bridge_trace_enabled() -> bool {
+    tracing::enabled!(target: "ws_bridge", tracing::Level::TRACE)
 }

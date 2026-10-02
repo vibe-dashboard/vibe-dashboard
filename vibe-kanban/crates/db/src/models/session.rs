@@ -26,6 +26,7 @@ pub struct Session {
     pub name: Option<String>,
     pub executor: Option<String>,
     pub agent_working_dir: Option<String>,
+    pub context_reset_execution_process_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -45,6 +46,7 @@ impl Session {
                       name,
                       executor,
                       agent_working_dir,
+                      context_reset_execution_process_id AS "context_reset_execution_process_id?: Uuid",
                       created_at AS "created_at!: DateTime<Utc>",
                       updated_at AS "updated_at!: DateTime<Utc>"
                FROM sessions
@@ -69,6 +71,7 @@ impl Session {
                       s.name,
                       s.executor,
                       s.agent_working_dir,
+                      s.context_reset_execution_process_id AS "context_reset_execution_process_id?: Uuid",
                       s.created_at AS "created_at!: DateTime<Utc>",
                       s.updated_at AS "updated_at!: DateTime<Utc>"
                FROM sessions s
@@ -100,6 +103,7 @@ impl Session {
                       s.name,
                       s.executor,
                       s.agent_working_dir,
+                      s.context_reset_execution_process_id AS "context_reset_execution_process_id?: Uuid",
                       s.created_at AS "created_at!: DateTime<Utc>",
                       s.updated_at AS "updated_at!: DateTime<Utc>"
                FROM sessions s
@@ -130,6 +134,7 @@ impl Session {
                       name,
                       executor,
                       agent_working_dir,
+                      context_reset_execution_process_id,
                       created_at,
                       updated_at
                FROM sessions
@@ -160,6 +165,7 @@ impl Session {
                          name,
                          executor,
                          agent_working_dir,
+                         context_reset_execution_process_id AS "context_reset_execution_process_id?: Uuid",
                          created_at AS "created_at!: DateTime<Utc>",
                          updated_at AS "updated_at!: DateTime<Utc>""#,
             id,
@@ -225,5 +231,263 @@ impl Session {
         .execute(pool)
         .await?;
         Ok(())
+    }
+
+    pub async fn mark_context_cleared(
+        pool: &SqlitePool,
+        id: Uuid,
+        execution_process_id: Uuid,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE sessions
+               SET context_reset_execution_process_id = $2,
+                   updated_at = datetime('now', 'subsec')
+               WHERE id = $1"#,
+        )
+        .bind(id)
+        .bind(execution_process_id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Recompute the `/clear` context boundary after execution processes are
+    /// soft-dropped.
+    ///
+    /// Reset/retry keeps historical rows but hides dropped processes from the
+    /// visible timeline. If the previous boundary pointed at a dropped
+    /// `/clear` process, future resume context must use the latest remaining
+    /// non-dropped `/clear` process, or no boundary when none remains.
+    pub async fn recompute_context_reset_boundary(
+        pool: &SqlitePool,
+        id: Uuid,
+    ) -> Result<Option<Uuid>, sqlx::Error> {
+        sqlx::query_scalar::<_, Option<Uuid>>(
+            r#"UPDATE sessions
+               SET context_reset_execution_process_id = (
+                       SELECT ep.id
+                         FROM execution_processes ep
+                        WHERE ep.session_id = ?1
+                          AND ep.dropped = FALSE
+                          AND ep.run_reason = 'codingagent'
+                          AND json_extract(ep.executor_action, '$.typ.type') = 'CodingAgentSessionCommandRequest'
+                          AND json_extract(ep.executor_action, '$.typ.command.type') = 'clear'
+                        ORDER BY ep.rowid DESC
+                        LIMIT 1
+                   ),
+                   updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?1
+         RETURNING context_reset_execution_process_id"#,
+        )
+        .bind(id)
+        .fetch_one(pool)
+        .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sqlx::{Executor, SqlitePool, sqlite::SqlitePoolOptions};
+    use uuid::Uuid;
+
+    use super::Session;
+
+    async fn test_pool() -> SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+
+        pool.execute(
+            r#"CREATE TABLE sessions (
+                id BLOB PRIMARY KEY,
+                workspace_id BLOB NOT NULL,
+                context_reset_execution_process_id BLOB NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )"#,
+        )
+        .await
+        .unwrap();
+        pool.execute(
+            r#"CREATE TABLE execution_processes (
+                id BLOB PRIMARY KEY,
+                session_id BLOB NOT NULL,
+                run_reason TEXT NOT NULL,
+                executor_action TEXT NOT NULL,
+                dropped BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )"#,
+        )
+        .await
+        .unwrap();
+
+        pool
+    }
+
+    fn clear_action_json() -> String {
+        serde_json::json!({
+            "typ": {
+                "type": "CodingAgentSessionCommandRequest",
+                "command": { "type": "clear" },
+                "prompt": "/clear",
+                "session_id": null,
+                "executor_config": { "executor": "claude_code" },
+                "working_dir": null
+            },
+            "next_action": null
+        })
+        .to_string()
+    }
+
+    fn follow_up_action_json() -> String {
+        serde_json::json!({
+            "typ": {
+                "type": "CodingAgentFollowUpRequest",
+                "prompt": "continue",
+                "session_id": "agent-session",
+                "reset_to_message_id": null,
+                "executor_config": { "executor": "claude_code" },
+                "working_dir": null
+            },
+            "next_action": null
+        })
+        .to_string()
+    }
+
+    async fn insert_process(
+        pool: &SqlitePool,
+        session_id: Uuid,
+        id: Uuid,
+        action_json: String,
+        dropped: bool,
+    ) {
+        sqlx::query(
+            r#"INSERT INTO execution_processes (
+                id, session_id, run_reason, executor_action, dropped, created_at
+            )
+            VALUES (?1, ?2, 'codingagent', ?3, ?4, CURRENT_TIMESTAMP)"#,
+        )
+        .bind(id)
+        .bind(session_id)
+        .bind(action_json)
+        .bind(dropped)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn context_reset_boundary(pool: &SqlitePool, session_id: Uuid) -> Option<Uuid> {
+        sqlx::query_scalar::<_, Option<Uuid>>(
+            "SELECT context_reset_execution_process_id FROM sessions WHERE id = ?",
+        )
+        .bind(session_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn recompute_context_reset_boundary_ignores_dropped_clear_processes() {
+        let pool = test_pool().await;
+        let session_id = Uuid::new_v4();
+        let workspace_id = Uuid::new_v4();
+        let first_clear_id = Uuid::new_v4();
+        let later_follow_up_id = Uuid::new_v4();
+        let dropped_clear_id = Uuid::new_v4();
+
+        sqlx::query(
+            r#"INSERT INTO sessions (
+                id, workspace_id, context_reset_execution_process_id, updated_at
+            )
+            VALUES (?1, ?2, ?3, CURRENT_TIMESTAMP)"#,
+        )
+        .bind(session_id)
+        .bind(workspace_id)
+        .bind(dropped_clear_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        insert_process(
+            &pool,
+            session_id,
+            first_clear_id,
+            clear_action_json(),
+            false,
+        )
+        .await;
+        insert_process(
+            &pool,
+            session_id,
+            later_follow_up_id,
+            follow_up_action_json(),
+            false,
+        )
+        .await;
+        insert_process(
+            &pool,
+            session_id,
+            dropped_clear_id,
+            clear_action_json(),
+            true,
+        )
+        .await;
+
+        let recomputed = Session::recompute_context_reset_boundary(&pool, session_id)
+            .await
+            .unwrap();
+
+        assert_eq!(recomputed, Some(first_clear_id));
+        assert_eq!(
+            context_reset_boundary(&pool, session_id).await,
+            Some(first_clear_id)
+        );
+    }
+
+    #[tokio::test]
+    async fn recompute_context_reset_boundary_clears_when_no_visible_clear_remains() {
+        let pool = test_pool().await;
+        let session_id = Uuid::new_v4();
+        let workspace_id = Uuid::new_v4();
+        let dropped_clear_id = Uuid::new_v4();
+        let follow_up_id = Uuid::new_v4();
+
+        sqlx::query(
+            r#"INSERT INTO sessions (
+                id, workspace_id, context_reset_execution_process_id, updated_at
+            )
+            VALUES (?1, ?2, ?3, CURRENT_TIMESTAMP)"#,
+        )
+        .bind(session_id)
+        .bind(workspace_id)
+        .bind(dropped_clear_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        insert_process(
+            &pool,
+            session_id,
+            dropped_clear_id,
+            clear_action_json(),
+            true,
+        )
+        .await;
+        insert_process(
+            &pool,
+            session_id,
+            follow_up_id,
+            follow_up_action_json(),
+            false,
+        )
+        .await;
+
+        let recomputed = Session::recompute_context_reset_boundary(&pool, session_id)
+            .await
+            .unwrap();
+
+        assert_eq!(recomputed, None);
+        assert_eq!(context_reset_boundary(&pool, session_id).await, None);
     }
 }

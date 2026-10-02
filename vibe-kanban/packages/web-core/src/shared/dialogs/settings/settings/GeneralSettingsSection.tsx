@@ -66,7 +66,8 @@ export function GeneralSettingsSection() {
       defaultValue: 'Browser Default',
     })
   );
-  const { config, loading, updateAndSaveConfig, profiles } = useUserSystem();
+  const { config, loading, updateAndSaveConfig, profiles, buildCommitHash } =
+    useUserSystem();
 
   const [draft, setDraft] = useState(() => (config ? cloneDeep(config) : null));
   const [dirty, setDirty] = useState(false);
@@ -835,6 +836,11 @@ export function GeneralSettingsSection() {
           />
         </div>
       </SettingsCard>
+
+      <div className="pb-2 text-center text-xs text-low">
+        Build commit:{' '}
+        <code className="font-mono">{buildCommitHash ?? 'unknown'}</code>
+      </div>
 
       <SettingsSaveBar
         show={hasUnsavedChanges}

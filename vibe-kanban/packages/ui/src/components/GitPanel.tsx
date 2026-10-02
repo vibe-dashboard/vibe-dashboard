@@ -1,4 +1,4 @@
-import { GitBranchIcon } from '@phosphor-icons/react';
+import { GitBranchIcon, PlusIcon } from '@phosphor-icons/react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../lib/cn';
 import { RepoCard, type RepoAction } from './RepoCard';
@@ -45,6 +45,7 @@ export function GitPanel({
   onRepoActionChange,
   onPushClick,
   onMoreClick,
+  onAddRepo,
   className,
   error,
 }: GitPanelProps) {
@@ -86,6 +87,16 @@ export function GitPanel({
             onMoreClick={() => onMoreClick?.(repo.id)}
           />
         ))}
+        {onAddRepo && (
+          <button
+            type="button"
+            onClick={onAddRepo}
+            className="bg-primary flex w-full items-center gap-base rounded-sm p-base my-base text-left text-low transition-colors hover:bg-tertiary hover:text-base"
+          >
+            <PlusIcon className="size-icon-md shrink-0" weight="bold" />
+            <span className="font-medium">{t('gitPanel.addRepo')}</span>
+          </button>
+        )}
         <div className="bg-primary flex flex-col gap-base w-full p-base rounded-sm my-base">
           <div className="flex gap-base items-center">
             <GitBranchIcon className="size-icon-md text-base" weight="fill" />

@@ -25,7 +25,12 @@ async fn queue_message(
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<QueueMessageRequest>,
 ) -> Result<ResponseJson<ApiResponse<QueueStatus>>, ApiError> {
+    if let Some(message) = super::invalid_session_command_message(&payload.message) {
+        return Err(ApiError::BadRequest(message));
+    }
+
     let data = DraftFollowUpData {
+        session_command: super::parse_session_command(&payload.message),
         message: payload.message,
         executor_config: payload.executor_config,
     };

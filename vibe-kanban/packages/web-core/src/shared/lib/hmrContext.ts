@@ -18,7 +18,8 @@ export function createHmrContext<T>(key: string, defaultValue: T): Context<T> {
   const existing = import.meta.hot?.data?.[key] as Context<T> | undefined;
   const ctx = existing ?? createContext<T>(defaultValue);
   if (import.meta.hot) {
-    import.meta.hot.data[key] = ctx;
+    const hotData = (import.meta.hot.data ?? {}) as Record<string, unknown>;
+    hotData[key] = ctx;
   }
   return ctx;
 }

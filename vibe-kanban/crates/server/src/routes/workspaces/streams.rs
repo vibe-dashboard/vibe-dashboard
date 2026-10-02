@@ -1,3 +1,8 @@
+use std::{
+    sync::atomic::{AtomicUsize, Ordering},
+    time::Instant,
+};
+
 use axum::{
     Extension,
     extract::{Query, State, ws::Message},
@@ -6,11 +11,15 @@ use axum::{
 use deployment::Deployment;
 use serde::Deserialize;
 use services::services::container::ContainerService;
+use utils::process_diag;
 
 use crate::{
     DeploymentImpl,
     middleware::signed_ws::{MaybeSignedWebSocket, SignedWsUpgrade},
 };
+
+static ACTIVE_WORKSPACES_WS: AtomicUsize = AtomicUsize::new(0);
+static ACTIVE_DIFF_WS: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug, Deserialize)]
 pub struct DiffStreamQuery {
@@ -30,10 +39,26 @@ pub async fn stream_workspaces_ws(
     State(deployment): State<DeploymentImpl>,
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| async move {
+        let started_at = Instant::now();
+        let active = ACTIVE_WORKSPACES_WS.fetch_add(1, Ordering::SeqCst) + 1;
+        log_ws_event(
+            "workspaces_ws_open",
+            active,
+            Some(format!(
+                "archived={:?} limit={:?}",
+                query.archived, query.limit
+            )),
+        );
         if let Err(e) = handle_workspaces_ws(socket, deployment, query.archived, query.limit).await
         {
             tracing::warn!("workspaces WS closed: {}", e);
         }
+        let active = ACTIVE_WORKSPACES_WS.fetch_sub(1, Ordering::SeqCst) - 1;
+        log_ws_event(
+            "workspaces_ws_close",
+            active,
+            Some(format!("lifetime_ms={}", started_at.elapsed().as_millis())),
+        );
     })
 }
 
@@ -46,9 +71,25 @@ pub async fn stream_workspace_diff_ws(
     let _ = deployment.container().touch(&workspace).await;
     let stats_only = params.stats_only;
     ws.on_upgrade(move |socket| async move {
+        let started_at = Instant::now();
+        let active = ACTIVE_DIFF_WS.fetch_add(1, Ordering::SeqCst) + 1;
+        log_ws_event(
+            "diff_ws_open",
+            active,
+            Some(format!(
+                "workspace_id={} stats_only={}",
+                workspace.id, stats_only
+            )),
+        );
         if let Err(e) = handle_workspace_diff_ws(socket, deployment, workspace, stats_only).await {
             tracing::warn!("diff WS closed: {}", e);
         }
+        let active = ACTIVE_DIFF_WS.fetch_sub(1, Ordering::SeqCst) - 1;
+        log_ws_event(
+            "diff_ws_close",
+            active,
+            Some(format!("lifetime_ms={}", started_at.elapsed().as_millis())),
+        );
     })
 }
 
@@ -95,6 +136,26 @@ async fn handle_workspace_diff_ws(
         }
     }
     Ok(())
+}
+
+fn log_ws_event(event: &str, active_connections: usize, detail: Option<String>) {
+    if !crate::startup::runtime_diagnostics_enabled() {
+        return;
+    }
+
+    let snapshot = process_diag::sample_current_process();
+    tracing::info!(
+        event,
+        active_connections,
+        detail = detail.as_deref().unwrap_or(""),
+        rss_mb = process_diag::bytes_to_mb(snapshot.rss_bytes),
+        vm_size_mb = process_diag::bytes_to_mb(snapshot.virtual_bytes),
+        threads = snapshot.thread_count,
+        fds = snapshot.open_fd_count,
+        child_processes = snapshot.child_process_count,
+        elapsed_ms = process_diag::elapsed_since_start().as_millis() as u64,
+        "runtime_diag_ws"
+    );
 }
 
 async fn handle_workspaces_ws(

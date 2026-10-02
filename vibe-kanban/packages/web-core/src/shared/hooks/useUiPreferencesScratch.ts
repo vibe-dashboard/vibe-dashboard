@@ -42,6 +42,7 @@ function storeToScratchData(state: {
   isLeftSidebarVisible: boolean;
   isRightSidebarVisible: boolean;
   isTerminalVisible: boolean;
+  chatViewMode: string;
   workspacePanelStates: Record<string, WorkspacePanelState>;
   workspaceFilters: WorkspaceFilterState;
   workspaceSort: WorkspaceSortState;
@@ -72,6 +73,7 @@ function storeToScratchData(state: {
     is_left_sidebar_visible: state.isLeftSidebarVisible,
     is_right_sidebar_visible: state.isRightSidebarVisible,
     is_terminal_visible: state.isTerminalVisible,
+    chat_view_mode: state.chatViewMode,
     workspace_panel_states: workspacePanelStates,
     workspace_filters: {
       project_ids: state.workspaceFilters.projectIds,
@@ -106,6 +108,7 @@ function scratchDataToStore(data: UiPreferencesData): {
   isLeftSidebarVisible: boolean;
   isRightSidebarVisible: boolean;
   isTerminalVisible: boolean;
+  chatViewMode: 'full' | 'mostly-zen' | 'zen';
   workspacePanelStates: Record<string, WorkspacePanelState>;
   workspaceFilters: WorkspaceFilterState;
   workspaceSort: WorkspaceSortState;
@@ -155,6 +158,12 @@ function scratchDataToStore(data: UiPreferencesData): {
     isLeftSidebarVisible: data.is_left_sidebar_visible ?? true,
     isRightSidebarVisible: data.is_right_sidebar_visible ?? true,
     isTerminalVisible: data.is_terminal_visible ?? true,
+    chatViewMode:
+      data.chat_view_mode === 'full' ||
+      data.chat_view_mode === 'mostly-zen' ||
+      data.chat_view_mode === 'zen'
+        ? data.chat_view_mode
+        : 'mostly-zen',
     workspacePanelStates,
     workspaceFilters: {
       projectIds: data.workspace_filters?.project_ids ?? [],
@@ -204,6 +213,7 @@ export function useUiPreferencesScratch() {
     isLeftSidebarVisible: state.isLeftSidebarVisible,
     isRightSidebarVisible: state.isRightSidebarVisible,
     isTerminalVisible: state.isTerminalVisible,
+    chatViewMode: state.chatViewMode,
     workspacePanelStates: state.workspacePanelStates,
     workspaceFilters: state.workspaceFilters,
     workspaceSort: state.workspaceSort,
@@ -236,6 +246,7 @@ export function useUiPreferencesScratch() {
       isLeftSidebarVisible: currentState.isLeftSidebarVisible,
       isRightSidebarVisible: currentState.isRightSidebarVisible,
       isTerminalVisible: currentState.isTerminalVisible,
+      chatViewMode: currentState.chatViewMode,
       workspacePanelStates: currentState.workspacePanelStates,
       workspaceFilters: currentState.workspaceFilters,
       workspaceSort: currentState.workspaceSort,
@@ -284,6 +295,7 @@ export function useUiPreferencesScratch() {
         isLeftSidebarVisible: serverState.isLeftSidebarVisible,
         isRightSidebarVisible: serverState.isRightSidebarVisible,
         isTerminalVisible: serverState.isTerminalVisible,
+        chatViewMode: serverState.chatViewMode,
         workspacePanelStates: serverState.workspacePanelStates,
         workspaceFilters: serverState.workspaceFilters,
         workspaceSort: serverState.workspaceSort,

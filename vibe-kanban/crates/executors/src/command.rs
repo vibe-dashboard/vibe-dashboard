@@ -18,6 +18,11 @@ pub enum CommandBuildError {
     QuoteError(#[from] shlex::QuoteError),
     #[error("invalid shell parameters: {0}")]
     InvalidShellParams(String),
+    #[error("{variable} must point to an existing executable file: {path}")]
+    InvalidConfiguredExecutable {
+        variable: &'static str,
+        path: String,
+    },
 }
 
 #[derive(Debug, Clone)]

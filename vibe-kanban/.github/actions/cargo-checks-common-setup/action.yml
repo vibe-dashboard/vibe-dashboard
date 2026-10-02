@@ -59,6 +59,9 @@ runs:
       if: ${{ inputs.setup-sqlx-cli == 'true' }}
       uses: taiki-e/cache-cargo-install-action@34ce5120836e5f9f1508d8713d7fdea0e8facd6f # v3.0.1
       with:
-        tool: sqlx-cli
+        # sqlx-cli 0.9.0 requires rustc 1.94+, but CI currently runs
+        # nightly-2025-12-04 (rustc 1.93). Keep the schema checks on a
+        # compatible sqlx-cli release until the CI toolchain is upgraded.
+        tool: sqlx-cli@0.8.6
         no-default-features: true
         features: sqlite,postgres

@@ -21,7 +21,7 @@ To use a slash command:
 6. Send the message as normal
 
 <Tip>
-Some commands accept optional arguments. For example, with Claude Code or Codex, `/compact focus on the authentication changes` will compact the conversation while emphasising the authentication work in the summary.
+Some commands accept optional arguments. For example, `/compact focus on the authentication changes` requests that the provider emphasise authentication work while compacting. Support for custom compaction instructions is provider-dependent best-effort.
 </Tip>
 
 ## Available Commands by Agent
@@ -38,7 +38,7 @@ Claude Code provides built-in commands, user-defined commands, and skills. For f
 
 | Command | Description |
 |---------|-------------|
-| `/compact` | Clear conversation history but keep a summary in context |
+| `/compact` | Clear conversation history but keep a summary in context. Custom instructions are provider-dependent best-effort |
 | `/review` | Review a pull request |
 | `/security-review` | Complete a security review of pending changes |
 | `/init` | Initialize a new CLAUDE.md file with codebase documentation |
@@ -55,7 +55,7 @@ Vibe Kanban surfaces a curated subset of Codex built-in commands. For the full u
 
 | Command | Description |
 |---------|-------------|
-| `/compact` | Summarize the conversation to free tokens |
+| `/compact` | Summarise the conversation to free tokens. Custom instructions are provider-dependent best-effort |
 | `/init` | Generate an AGENTS.md scaffold in the current directory |
 | `/status` | Display session configuration and token usage |
 | `/mcp` | List configured MCP tools |
@@ -68,7 +68,7 @@ OpenCode provides built-in commands and custom commands. For full details, see t
 
 | Command | Description |
 |---------|-------------|
-| `/compact` | Compact the session |
+| `/compact` | Compact the session. Custom instructions are provider-dependent best-effort |
 | `/commands` | Show all available commands |
 | `/models` | List available models |
 | `/agents` | List available agents |

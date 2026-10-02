@@ -375,6 +375,7 @@ fn default_discovered_options() -> crate::executor_discovery::ExecutorDiscovered
         model_selector: ModelSelectorConfig {
             providers: vec![],
             models: vec![],
+            model_order: None,
             default_model: None,
             agents: vec![],
             permissions: vec![PermissionPolicy::Auto, PermissionPolicy::Supervised],

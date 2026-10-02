@@ -14,6 +14,21 @@ fn generate_types_content() -> String {
         db::models::repo::Repo::decl(),
         db::models::project::Project::decl(),
         db::models::repo::UpdateRepo::decl(),
+        db::models::repo_dev_server_script::RepoDevServerScript::decl(),
+        db::models::repo_dev_server_script::UpdateRepoDevServerScript::decl(),
+        db::models::run_config::RunConfig::decl(),
+        db::models::run_config::RunConfigKind::decl(),
+        db::models::run_config::UpsertRunConfig::decl(),
+        db::models::preview_slot::PreviewSlot::decl(),
+        db::models::preview_slot::UpsertPreviewSlot::decl(),
+        db::models::preview_process_link::PreviewProcessLink::decl(),
+        db::models::preview_process_link::PreviewProcessStatusSnapshot::decl(),
+        server::routes::workspaces::execution::RunConfigStartResponse::decl(),
+        server::routes::workspaces::execution::WorkspaceRunConfigsResponse::decl(),
+        server::routes::workspaces::execution::PreviewSlotUrlParts::decl(),
+        server::routes::workspaces::execution::PreviewSlotUrlResponse::decl(),
+        server::routes::preview::NamedPreviewResolveRequest::decl(),
+        server::routes::preview::NamedPreviewResolveResponse::decl(),
         db::models::repo::SearchResult::decl(),
         db::models::repo::SearchMatchType::decl(),
         db::models::workspace_repo::WorkspaceRepo::decl(),
@@ -30,6 +45,7 @@ fn generate_types_content() -> String {
         db::models::scratch::DraftIssueData::decl(),
         db::models::scratch::PreviewSettingsData::decl(),
         db::models::scratch::WorkspaceNotesData::decl(),
+        db::models::scratch::WorkspaceDevServerSelectionData::decl(),
         db::models::scratch::WorkspacePanelStateData::decl(),
         db::models::scratch::WorkspacePrFilterData::decl(),
         db::models::scratch::WorkspaceSortByData::decl(),
@@ -102,6 +118,15 @@ fn generate_types_content() -> String {
         server::routes::config::CheckEditorAvailabilityResponse::decl(),
         server::routes::config::CheckAgentAvailabilityQuery::decl(),
         server::routes::config::AgentPresetOptionsQuery::decl(),
+        services::services::conversation_preview::ConversationPreviewMessageRole::decl(),
+        services::services::conversation_preview::ConversationPreviewMessage::decl(),
+        services::services::conversation_preview::ConversationPreviewSource::decl(),
+        services::services::conversation_preview::ConversationPreview::decl(),
+        services::services::conversation_preview::WarmWorkspaceSessionsRequest::decl(),
+        services::services::conversation_preview::WarmConversationPreviewRequest::decl(),
+        services::services::conversation_preview::WarmConversationPreviewItem::decl(),
+        services::services::conversation_preview::WarmConversationPreviewError::decl(),
+        services::services::conversation_preview::WarmConversationPreviewResponse::decl(),
         server::routes::oauth::CurrentUserResponse::decl(),
         relay_types::StartSpake2EnrollmentRequest::decl(),
         relay_types::FinishSpake2EnrollmentRequest::decl(),
@@ -194,11 +219,14 @@ fn generate_types_content() -> String {
         services::services::queued_message::QueueStatus::decl(),
         git::ConflictOp::decl(),
         executors::actions::ExecutorAction::decl(),
+        executors::actions::ExecutorActionLogNormalizer::decl(),
         executors::mcp_config::McpConfig::decl(),
         executors::actions::ExecutorActionType::decl(),
         executors::profile::ExecutorConfig::decl(),
         executors::actions::script::ScriptContext::decl(),
         executors::actions::script::ScriptRequest::decl(),
+        executors::actions::session_command::SessionCommand::decl(),
+        executors::actions::session_command::CodingAgentSessionCommandRequest::decl(),
         executors::actions::script::ScriptRequestLanguage::decl(),
         executors::executors::BaseCodingAgent::decl(),
         executors::executors::CodingAgent::decl(),
@@ -290,7 +318,17 @@ fn generate_types_content() -> String {
         serde_json::to_string(DEFAULT_COMMIT_REMINDER_PROMPT).unwrap()
     );
 
-    format!("{HEADER}\n\n{body}\n\n{constants}")
+    trim_trailing_line_whitespace(format!("{HEADER}\n\n{body}\n\n{constants}"))
+}
+
+fn trim_trailing_line_whitespace(content: String) -> String {
+    let mut trimmed = content
+        .lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n");
+    trimmed.push('\n');
+    trimmed
 }
 
 fn generate_json_schema<T: JsonSchema>() -> Result<String, serde_json::Error> {

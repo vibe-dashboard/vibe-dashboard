@@ -14,7 +14,7 @@
  * No setTimeout chains. All sequencing is via React lifecycle.
  */
 
-import { useCallback, useLayoutEffect, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 
 import type { Virtualizer } from '@tanstack/react-virtual';
 
@@ -23,6 +23,8 @@ import type { AddEntryType } from '@/shared/hooks/useConversationHistory/types';
 // TanStack Virtual only accepts 'auto' | 'smooth', not DOM's full ScrollBehavior
 type TanStackScrollBehavior = 'auto' | 'smooth';
 type TanStackScrollAlign = 'start' | 'center' | 'end';
+
+const INITIAL_BOTTOM_SETTLE_FRAME_COUNT = 4;
 
 function toTanStackBehavior(behavior: ScrollBehavior): TanStackScrollBehavior {
   return behavior === 'instant' ? 'auto' : behavior;
@@ -89,6 +91,55 @@ export interface ScrollCommandExecutorResult {
   pendingIntent: ScrollIntent | null;
 }
 
+export function getBottomScrollSettleFrameCount(intent: ScrollIntent): number {
+  return intent.type === 'initial-bottom'
+    ? INITIAL_BOTTOM_SETTLE_FRAME_COUNT
+    : 0;
+}
+
+interface BottomScrollSettlingOptions {
+  frameCount: number;
+  scrollToBottom: (behavior?: TanStackScrollBehavior) => void;
+  requestFrame?: (callback: FrameRequestCallback) => number;
+  cancelFrame?: (handle: number) => void;
+}
+
+export function scheduleBottomScrollSettling({
+  frameCount,
+  scrollToBottom,
+  requestFrame = globalThis.requestAnimationFrame,
+  cancelFrame = globalThis.cancelAnimationFrame,
+}: BottomScrollSettlingOptions): () => void {
+  if (frameCount <= 0 || typeof requestFrame !== 'function') {
+    return () => {};
+  }
+
+  let remainingFrames = frameCount;
+  let frameHandle: number | null = null;
+  let cancelled = false;
+
+  const tick: FrameRequestCallback = () => {
+    frameHandle = null;
+    if (cancelled || remainingFrames <= 0) return;
+
+    remainingFrames -= 1;
+    scrollToBottom('auto');
+
+    if (remainingFrames > 0) {
+      frameHandle = requestFrame(tick);
+    }
+  };
+
+  frameHandle = requestFrame(tick);
+
+  return () => {
+    cancelled = true;
+    if (frameHandle !== null && typeof cancelFrame === 'function') {
+      cancelFrame(frameHandle);
+    }
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
@@ -103,6 +154,12 @@ export function useScrollCommandExecutor({
 }: ScrollCommandExecutorOptions): ScrollCommandExecutorResult {
   const stateRef = useRef<ScrollState>(createInitialScrollState());
   const prevDataVersionRef = useRef(dataVersion);
+  const cancelBottomScrollSettlingRef = useRef<(() => void) | null>(null);
+
+  const cancelBottomScrollSettling = useCallback(() => {
+    cancelBottomScrollSettlingRef.current?.();
+    cancelBottomScrollSettlingRef.current = null;
+  }, []);
 
   // -------------------------------------------------------------------------
   // Intent resolution (called by the container when entries update)
@@ -126,6 +183,7 @@ export function useScrollCommandExecutor({
 
   const requestJumpToBottom = useCallback(
     (behavior: ScrollBehavior = 'smooth') => {
+      cancelBottomScrollSettling();
       const intent: ScrollIntent = {
         type: 'jump-to-bottom',
         behavior,
@@ -140,7 +198,13 @@ export function useScrollCommandExecutor({
       );
       stateRef.current = markIntentApplied(stateRef.current);
     },
-    [itemCount, scrollToAbsoluteIndex, scrollToBottom, virtualizer]
+    [
+      cancelBottomScrollSettling,
+      itemCount,
+      scrollToAbsoluteIndex,
+      scrollToBottom,
+      virtualizer,
+    ]
   );
 
   const requestJumpToIndex = useCallback(
@@ -149,6 +213,7 @@ export function useScrollCommandExecutor({
       align: 'start' | 'center' | 'end' = 'start',
       behavior: ScrollBehavior = 'smooth'
     ) => {
+      cancelBottomScrollSettling();
       const intent: ScrollIntent = {
         type: 'jump-to-index',
         index,
@@ -165,8 +230,18 @@ export function useScrollCommandExecutor({
       );
       stateRef.current = markIntentApplied(stateRef.current);
     },
-    [itemCount, scrollToAbsoluteIndex, scrollToBottom, virtualizer]
+    [
+      cancelBottomScrollSettling,
+      itemCount,
+      scrollToAbsoluteIndex,
+      scrollToBottom,
+      virtualizer,
+    ]
   );
+
+  useEffect(() => {
+    return cancelBottomScrollSettling;
+  }, [cancelBottomScrollSettling]);
 
   // -------------------------------------------------------------------------
   // Intent execution — runs after React commit + TanStack measurement
@@ -193,9 +268,18 @@ export function useScrollCommandExecutor({
       scrollToBottom,
       scrollToAbsoluteIndex
     );
+    cancelBottomScrollSettling();
+    const settleFrameCount = getBottomScrollSettleFrameCount(intent);
+    if (itemCount > 0 && settleFrameCount > 0) {
+      cancelBottomScrollSettlingRef.current = scheduleBottomScrollSettling({
+        frameCount: settleFrameCount,
+        scrollToBottom,
+      });
+    }
     stateRef.current = markIntentApplied(stateRef.current);
     prevDataVersionRef.current = dataVersion;
   }, [
+    cancelBottomScrollSettling,
     dataVersion,
     itemCount,
     scrollToAbsoluteIndex,

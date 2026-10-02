@@ -25,6 +25,21 @@ type RootOptions = {
   desktop?: boolean;
 };
 
+type PreviewUrlOptions = {
+  api?: string;
+  workspace?: string;
+  repo?: string;
+  runConfig?: string;
+  slot?: string;
+  customer?: string;
+  baseDomain?: string;
+  slug?: string;
+  name?: string;
+  command?: string;
+  kind?: string;
+  title?: string;
+};
+
 // Resolve effective arch for our published 64-bit binaries only.
 // Any ARM → arm64; anything else → x64. On macOS, handle Rosetta.
 function getEffectiveArch(): "arm64" | "x64" {
@@ -241,6 +256,130 @@ async function runReview(args: string[]): Promise<void> {
   });
 }
 
+function previewApiBaseUrl(options: PreviewUrlOptions): string {
+  const configured = options.api || process.env.VIBE_API_URL || process.env.VK_API_URL || "http://localhost:3007";
+  const withoutTrailingSlash = configured.replace(/\/+$/, "");
+  return withoutTrailingSlash.endsWith("/api") ? withoutTrailingSlash : `${withoutTrailingSlash}/api`;
+}
+
+function requirePreviewOption(options: PreviewUrlOptions, key: keyof PreviewUrlOptions): string {
+  const value = options[key];
+  if (typeof value === "string" && value.trim()) return value.trim();
+  console.error(`Missing required option: --${key.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`)}`);
+  process.exit(1);
+}
+
+async function previewApiRequest<T>(
+  options: PreviewUrlOptions,
+  path: string,
+  init?: RequestInit,
+): Promise<T> {
+  const response = await fetch(`${previewApiBaseUrl(options)}${path}`, {
+    ...init,
+    headers: {
+      "content-type": "application/json",
+      ...init?.headers,
+    },
+  });
+  const bodyText = await response.text();
+  if (!response.ok) {
+    throw new Error(`VK API ${path} failed: HTTP ${response.status} ${response.statusText}\n${bodyText}`);
+  }
+  const envelope = JSON.parse(bodyText) as { success: boolean; data: T; message?: string | null };
+  if (!envelope.success) {
+    throw new Error(envelope.message || `VK API ${path} returned an unsuccessful response`);
+  }
+  return envelope.data;
+}
+
+async function runPreviewUrlCommand(action: string, options: PreviewUrlOptions): Promise<void> {
+  const workspaceId = requirePreviewOption(options, "workspace");
+  if (action === "list") {
+    const data = await previewApiRequest(options, `/workspaces/${encodeURIComponent(workspaceId)}/execution/run-configs`);
+    console.log(JSON.stringify(data, null, 2));
+    return;
+  }
+
+  if (action === "upsert-run-config") {
+    const repoId = requirePreviewOption(options, "repo");
+    const slug = requirePreviewOption(options, "slug");
+    const name = options.name || slug;
+    const command = requirePreviewOption(options, "command");
+    const kind = options.kind || "long_running";
+    const data = await previewApiRequest(options, `/workspaces/${encodeURIComponent(workspaceId)}/execution/run-configs`, {
+      method: "POST",
+      body: JSON.stringify({
+        repo_id: repoId,
+        slug,
+        name,
+        command,
+        kind,
+        enabled: true,
+      }),
+    });
+    console.log(JSON.stringify(data, null, 2));
+    return;
+  }
+
+  if (action === "upsert-slot") {
+    const repoId = requirePreviewOption(options, "repo");
+    const runConfigId = requirePreviewOption(options, "runConfig");
+    const slotSlug = requirePreviewOption(options, "slot");
+    const title = options.title || slotSlug;
+    const data = await previewApiRequest(options, `/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots`, {
+      method: "POST",
+      body: JSON.stringify({
+        repo_id: repoId,
+        run_config_id: runConfigId,
+        slot_slug: slotSlug,
+        title,
+        enabled: true,
+      }),
+    });
+    console.log(JSON.stringify(data, null, 2));
+    return;
+  }
+
+  if (action === "url") {
+    const slotId = requirePreviewOption(options, "slot");
+    const customerSlug = requirePreviewOption(options, "customer");
+    const params = new URLSearchParams({ customerSlug });
+    if (options.baseDomain) params.set("baseDomain", options.baseDomain);
+    const data = await previewApiRequest<{ url: string }>(
+      options,
+      `/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots/${encodeURIComponent(slotId)}/url?${params}`,
+    );
+    console.log(data.url);
+    return;
+  }
+
+  if (action === "start-run-config") {
+    const runConfigId = requirePreviewOption(options, "runConfig");
+    const data = await previewApiRequest(
+      options,
+      `/workspaces/${encodeURIComponent(workspaceId)}/execution/run-configs/${encodeURIComponent(runConfigId)}/start`,
+      { method: "POST", body: "{}" },
+    );
+    console.log(JSON.stringify(data, null, 2));
+    return;
+  }
+
+  if (action === "start-slot") {
+    const slotId = requirePreviewOption(options, "slot");
+    const data = await previewApiRequest(
+      options,
+      `/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots/${encodeURIComponent(slotId)}/start`,
+      { method: "POST", body: "{}" },
+    );
+    console.log(JSON.stringify(data, null, 2));
+    return;
+  }
+
+  console.error(`Unknown preview-url action: ${action}`);
+  console.error("Actions: list, upsert-run-config, upsert-slot, url, start-run-config, start-slot");
+  process.exit(1);
+}
+
 async function runMain(desktopMode: boolean): Promise<void> {
   checkForUpdates();
 
@@ -329,6 +468,24 @@ async function main(): Promise<void> {
     .allowUnknownOptions()
     .action((args: string[]) => {
       runOrExit(runMcp(args));
+    });
+
+  cli
+    .command("preview-url <action>", "Manage stored Preview URL run configs and slots via the local VK API")
+    .option("--api <url>", "VK API base URL (default: VIBE_API_URL, VK_API_URL, or http://localhost:3007/api)")
+    .option("--workspace <id>", "Workspace ID")
+    .option("--repo <id>", "Repository ID for upsert actions")
+    .option("--run-config <id>", "Run config ID")
+    .option("--slot <idOrSlug>", "Preview slot ID for url/start-slot, or slot slug for upsert-slot")
+    .option("--customer <slug>", "Customer slug for canonical URL generation")
+    .option("--base-domain <domain>", "Preview base domain for URL generation")
+    .option("--slug <slug>", "Run config slug")
+    .option("--name <name>", "Run config display name")
+    .option("--command <command>", "Stored shell command")
+    .option("--kind <kind>", "Run config kind: long_running, one_shot, or test")
+    .option("--title <title>", "Preview slot display title")
+    .action((action: string, options: PreviewUrlOptions) => {
+      runOrExit(runPreviewUrlCommand(action, options));
     });
 
   cli.help();

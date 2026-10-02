@@ -25,10 +25,11 @@ import {
   estimateSizeForRow,
   findPreviousUserMessageIndex,
 } from './conversation-row-model';
+import { NEAR_BOTTOM_THRESHOLD_PX } from './conversation-scroll-commands';
 import {
-  NEAR_BOTTOM_THRESHOLD_PX,
-  isNearBottom,
-} from './conversation-scroll-commands';
+  isMobilePerfDiagnosticsEnabled,
+  recordMobilePerfDiagnostic,
+} from '@/shared/lib/mobilePerfDiagnostics';
 
 // TanStack Virtual's ScrollBehavior ('auto' | 'smooth' | 'instant') shadows
 // the DOM ScrollBehavior. Use a narrow type to avoid TS2322 mismatches.
@@ -41,22 +42,46 @@ type ScrollToOptionsBehavior = 'auto' | 'smooth';
 /** Number of items to render beyond the visible area in each direction. */
 const OVERSCAN = 8;
 
+/**
+ * Auto-follow must be stricter than the "near bottom" UI affordance threshold.
+ * A broad threshold is useful for hiding the jump-to-bottom button, but during
+ * streaming output it also causes small intentional upward scrolls to be
+ * treated as pinned and yanked back to the bottom.
+ */
+export const AUTO_FOLLOW_BOTTOM_THRESHOLD_PX = 4;
+
+export interface ConversationSizeAdjustmentInput {
+  /** End offset of the measured virtual item. */
+  itemEnd: number;
+  /** Current scroll offset of the virtualizer. */
+  scrollOffset: number;
+  /** Whether the reader is currently at the end of the chat. */
+  isAtEnd: boolean;
+}
+
+/**
+ * Preserve the reader's viewport when content that is already fully above the
+ * viewport changes size. This is intentionally narrow: TanStack owns normal
+ * chat anchoring/follow behavior, and we only opt into compensation for the
+ * eager historic-replay case where measured rows above the reader settle after
+ * render.
+ */
+export function shouldAdjustConversationScrollPositionOnItemSizeChange({
+  itemEnd,
+  scrollOffset,
+  isAtEnd,
+}: ConversationSizeAdjustmentInput): boolean {
+  if (isAtEnd) return false;
+  return itemEnd <= scrollOffset;
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 export interface ConversationVirtualizerOptions {
-  /** The semantic row model driving the list (virtualized head only). */
+  /** The semantic row model driving the list. */
   rows: ConversationRow[];
-
-  /**
-   * Total number of conversation rows (virtualized + unvirtualized tail).
-   * The bottom-lock correction must fire when ANY row is added — including
-   * unvirtualized tail rows that don't change `rows.length` or `totalSize`.
-   * Without this, streaming entries appended to the tail silently grow the
-   * scroll container while the correction never fires.
-   */
-  totalRowCount: number;
 
   /** Ref to the scrollable container element. */
   scrollContainerRef: RefObject<HTMLDivElement | null>;
@@ -66,8 +91,6 @@ export interface ConversationVirtualizerOptions {
    * the scroll-to-bottom affordance.
    */
   onAtBottomChange?: (atBottom: boolean) => void;
-
-  shouldSuppressSizeAdjustment?: () => boolean;
 }
 
 export interface ConversationVirtualizerResult {
@@ -116,8 +139,7 @@ export interface ConversationVirtualizerResult {
   checkIsAtBottom: () => boolean;
 
   /**
-   * Release the bottom-lock. Call when navigating away from the
-   * bottom (e.g., scrollToPreviousUserMessage).
+   * Compatibility no-op retained while call sites are simplified.
    */
   releaseBottomLock: () => void;
 
@@ -147,19 +169,9 @@ export interface ConversationVirtualizerResult {
  */
 export function useConversationVirtualizer({
   rows,
-  totalRowCount,
   scrollContainerRef,
   onAtBottomChange,
-  shouldSuppressSizeAdjustment,
 }: ConversationVirtualizerOptions): ConversationVirtualizerResult {
-  const bottomLockedRef = useRef(false);
-  const smoothScrollDeadlineRef = useRef(0);
-
-  const isBottomScrollCorrectionActive = useCallback(
-    () => bottomLockedRef.current,
-    []
-  );
-
   // -------------------------------------------------------------------------
   // Virtualizer instance
   // -------------------------------------------------------------------------
@@ -177,18 +189,16 @@ export function useConversationVirtualizer({
       const row = rows[index];
       return row ? row.semanticKey : index;
     },
+    anchorTo: 'end',
+    followOnAppend: 'auto',
+    scrollEndThreshold: AUTO_FOLLOW_BOTTOM_THRESHOLD_PX,
     overscan: OVERSCAN,
     measureElement: defaultMeasureElement,
     useAnimationFrameWithResizeObserver: false,
   });
 
   // -------------------------------------------------------------------------
-  // shouldAdjustScrollPositionOnItemSizeChange
-  //
-  // Preserve the reader's position only when a row fully above the viewport
-  // changes size. Mid-list flicker happens when we compensate for rows that
-  // are still visible or below the viewport, because those corrections can
-  // move the render window and trigger another measurement pass.
+  // Historic replay preservation
   // -------------------------------------------------------------------------
 
   useEffect(() => {
@@ -196,32 +206,17 @@ export function useConversationVirtualizer({
       item,
       _delta,
       instance
-    ) => {
-      const scrollElement = scrollContainerRef.current;
-      const viewportHeight =
-        scrollElement?.clientHeight ?? instance.scrollRect?.height ?? 0;
-      const scrollOffset =
-        scrollElement?.scrollTop ?? instance.scrollOffset ?? 0;
-      const totalScrollableSize =
-        scrollElement?.scrollHeight ?? instance.getTotalSize();
-      const remainingDistance =
-        totalScrollableSize - (scrollOffset + viewportHeight);
-      const isItemFullyAboveViewport = item.end <= scrollOffset;
-      const isBottomLocked = bottomLockedRef.current;
-
-      const shouldAdjust =
-        !isBottomLocked &&
-        !shouldSuppressSizeAdjustment?.() &&
-        isItemFullyAboveViewport &&
-        remainingDistance > NEAR_BOTTOM_THRESHOLD_PX;
-
-      return shouldAdjust;
-    };
+    ) =>
+      shouldAdjustConversationScrollPositionOnItemSizeChange({
+        itemEnd: item.end,
+        scrollOffset: instance.scrollOffset ?? 0,
+        isAtEnd: instance.isAtEnd(AUTO_FOLLOW_BOTTOM_THRESHOLD_PX),
+      });
 
     return () => {
       virtualizer.shouldAdjustScrollPositionOnItemSizeChange = undefined;
     };
-  }, [shouldSuppressSizeAdjustment, virtualizer]);
+  }, [virtualizer]);
 
   // -------------------------------------------------------------------------
   // Reactive isAtBottom state
@@ -231,14 +226,10 @@ export function useConversationVirtualizer({
   const onAtBottomChangeRef = useRef(onAtBottomChange);
   onAtBottomChangeRef.current = onAtBottomChange;
   const lastAtBottomRef = useRef(true);
+  const lastVirtualizerDiagnosticAtRef = useRef(0);
 
   const syncIsAtBottom = useCallback(() => {
-    const el = scrollContainerRef.current;
-    const nextValue = isBottomScrollCorrectionActive()
-      ? true
-      : el
-        ? isNearBottom(el.scrollTop, el.clientHeight, el.scrollHeight)
-        : true;
+    const nextValue = virtualizer.isAtEnd(NEAR_BOTTOM_THRESHOLD_PX);
 
     if (nextValue !== lastAtBottomRef.current) {
       lastAtBottomRef.current = nextValue;
@@ -250,34 +241,13 @@ export function useConversationVirtualizer({
     setIsAtBottomState((current) =>
       current === nextValue ? current : nextValue
     );
-  }, [isBottomScrollCorrectionActive, scrollContainerRef]);
-
-  const prevScrollTopRef = useRef(0);
+  }, [scrollContainerRef, virtualizer]);
 
   useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
 
-    prevScrollTopRef.current = el.scrollTop;
-
     const handleScroll = () => {
-      const currentScrollTop = el.scrollTop;
-
-      // Release bottom lock on any user-initiated upward scroll.
-      // Guards prevent false positives from programmatic scroll sources:
-      // - smoothScrollDeadlineRef: set during scrollToBottom('smooth')
-      // - shouldSuppressSizeAdjustment: set during interaction anchor corrections
-      // - 5px threshold: filters input-resize micro-adjustments
-      if (
-        bottomLockedRef.current &&
-        prevScrollTopRef.current - currentScrollTop > 5 &&
-        performance.now() > smoothScrollDeadlineRef.current &&
-        !shouldSuppressSizeAdjustment?.()
-      ) {
-        bottomLockedRef.current = false;
-      }
-
-      prevScrollTopRef.current = currentScrollTop;
       syncIsAtBottom();
     };
 
@@ -287,7 +257,7 @@ export function useConversationVirtualizer({
     return () => {
       el.removeEventListener('scroll', handleScroll);
     };
-  }, [scrollContainerRef, shouldSuppressSizeAdjustment, syncIsAtBottom]);
+  }, [scrollContainerRef, syncIsAtBottom]);
 
   // -------------------------------------------------------------------------
   // Derived state
@@ -295,26 +265,31 @@ export function useConversationVirtualizer({
 
   const virtualItems = virtualizer.getVirtualItems();
   const totalSize = virtualizer.getTotalSize();
-
   useLayoutEffect(() => {
     syncIsAtBottom();
+    if (!isMobilePerfDiagnosticsEnabled()) return;
 
-    if (!bottomLockedRef.current) return;
-    if (performance.now() < smoothScrollDeadlineRef.current) return;
+    const now = performance.now();
+    if (now - lastVirtualizerDiagnosticAtRef.current < 1000) return;
+    lastVirtualizerDiagnosticAtRef.current = now;
 
-    const el = scrollContainerRef.current;
-    if (!el) return;
-
-    const maxScroll = el.scrollHeight - el.clientHeight;
-    if (maxScroll > 0 && Math.abs(maxScroll - el.scrollTop) > 1) {
-      el.scrollTop = maxScroll;
-    }
+    const scrollEl = scrollContainerRef.current;
+    recordMobilePerfDiagnostic('conversation.virtualizer_layout', {
+      row_count: rows.length,
+      virtual_item_count: virtualItems.length,
+      total_size: Math.round(totalSize),
+      scroll_top: scrollEl ? Math.round(scrollEl.scrollTop) : null,
+      scroll_height: scrollEl?.scrollHeight ?? null,
+      client_height: scrollEl?.clientHeight ?? null,
+      is_at_bottom: virtualizer.isAtEnd(NEAR_BOTTOM_THRESHOLD_PX),
+    });
   }, [
     rows.length,
-    totalRowCount,
-    totalSize,
-    syncIsAtBottom,
     scrollContainerRef,
+    syncIsAtBottom,
+    totalSize,
+    virtualItems.length,
+    virtualizer,
   ]);
 
   // -------------------------------------------------------------------------
@@ -323,19 +298,19 @@ export function useConversationVirtualizer({
 
   const scrollToBottom = useCallback(
     (behavior: ScrollToOptionsBehavior = 'smooth') => {
-      const el = scrollContainerRef.current;
-      if (!el) return;
-
-      bottomLockedRef.current = true;
-
-      if (behavior === 'smooth') {
-        smoothScrollDeadlineRef.current = performance.now() + 500;
-        el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-      } else {
-        el.scrollTop = el.scrollHeight - el.clientHeight;
+      if (isMobilePerfDiagnosticsEnabled()) {
+        const scrollEl = scrollContainerRef.current;
+        recordMobilePerfDiagnostic('conversation.scroll_to_bottom', {
+          behavior,
+          row_count: rows.length,
+          scroll_top: scrollEl ? Math.round(scrollEl.scrollTop) : null,
+          scroll_height: scrollEl?.scrollHeight ?? null,
+          client_height: scrollEl?.clientHeight ?? null,
+        });
       }
+      virtualizer.scrollToEnd({ behavior });
     },
-    [scrollContainerRef, virtualizer]
+    [scrollContainerRef, rows.length, virtualizer]
   );
 
   const scrollToIndex = useCallback(
@@ -346,16 +321,20 @@ export function useConversationVirtualizer({
         behavior?: ScrollToOptionsBehavior;
       }
     ) => {
-      if (bottomLockedRef.current) {
-        bottomLockedRef.current = false;
+      if (isMobilePerfDiagnosticsEnabled()) {
+        recordMobilePerfDiagnostic('conversation.scroll_to_index', {
+          index,
+          row_count: rows.length,
+          align: options?.align ?? 'start',
+          behavior: options?.behavior ?? 'smooth',
+        });
       }
-
       virtualizer.scrollToIndex(index, {
         align: options?.align ?? 'start',
         behavior: options?.behavior ?? 'smooth',
       });
     },
-    [virtualizer]
+    [rows.length, virtualizer]
   );
 
   const scrollToPreviousUserMessage = useCallback((): boolean => {
@@ -378,15 +357,10 @@ export function useConversationVirtualizer({
   }, [scrollContainerRef, virtualizer, rows]);
 
   const checkIsAtBottom = useCallback((): boolean => {
-    const el = scrollContainerRef.current;
-    if (!el) return true;
-    return isNearBottom(el.scrollTop, el.clientHeight, el.scrollHeight);
-  }, [scrollContainerRef]);
+    return virtualizer.isAtEnd(AUTO_FOLLOW_BOTTOM_THRESHOLD_PX);
+  }, [virtualizer]);
 
-  const releaseBottomLock = useCallback(() => {
-    if (!bottomLockedRef.current) return;
-    bottomLockedRef.current = false;
-  }, []);
+  const releaseBottomLock = useCallback(() => {}, []);
 
   // -------------------------------------------------------------------------
   // Row ↔ VirtualItem mapping
@@ -404,9 +378,21 @@ export function useConversationVirtualizer({
 
   const measureElement = useCallback(
     (node: Element | null) => {
+      if (node && isMobilePerfDiagnosticsEnabled()) {
+        const index = Number((node as HTMLElement).dataset.index);
+        if (Number.isFinite(index) && index % 25 === 0) {
+          const rect = node.getBoundingClientRect();
+          recordMobilePerfDiagnostic('conversation.row_measure_sample', {
+            index,
+            row_count: rows.length,
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+          });
+        }
+      }
       virtualizer.measureElement(node);
     },
-    [virtualizer]
+    [rows.length, virtualizer]
   );
 
   // -------------------------------------------------------------------------

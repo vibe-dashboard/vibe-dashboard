@@ -38,6 +38,7 @@ export type RestoreLogsDialogResult = {
   action: 'confirmed' | 'canceled';
   performGitReset?: boolean;
   forceWhenDirty?: boolean;
+  stopOtherSessionsForGitReset?: boolean;
 };
 
 const RestoreLogsDialogImpl = create<RestoreLogsDialogProps>(
@@ -56,6 +57,8 @@ const RestoreLogsDialogImpl = create<RestoreLogsDialogProps>(
       initialWorktreeResetOn
     );
     const [forceReset, setForceReset] = useState(initialForceReset);
+    const [stopOtherSessionsForGitReset, setStopOtherSessionsForGitReset] =
+      useState(false);
     const [acknowledgeUncommitted, setAcknowledgeUncommitted] = useState(false);
 
     // Fetched data - stores all repo states for multi-repo support
@@ -161,6 +164,7 @@ const RestoreLogsDialogImpl = create<RestoreLogsDialogProps>(
         action: 'confirmed',
         performGitReset: worktreeResetOn,
         forceWhenDirty: forceReset,
+        stopOtherSessionsForGitReset,
       } as RestoreLogsDialogResult);
       modal.hide();
     };
@@ -181,6 +185,35 @@ const RestoreLogsDialogImpl = create<RestoreLogsDialogProps>(
       scope: Scope.DIALOG,
       when: modal.visible && !isConfirmDisabled,
     });
+
+    const stopOtherSessionsToggle = worktreeResetOn ? (
+      <div
+        className="mt-3 w-full flex items-center cursor-pointer select-none rounded border border-destructive/30 bg-destructive/10 p-2"
+        role="switch"
+        aria-checked={stopOtherSessionsForGitReset}
+        onClick={() => setStopOtherSessionsForGitReset((v) => !v)}
+      >
+        <div className="text-xs font-medium text-destructive flex-1 min-w-0 break-words">
+          {t('restoreLogsDialog.resetWorktree.stopOtherSessions')}
+        </div>
+        <div className="ml-auto relative inline-flex h-5 w-9 items-center rounded-full">
+          <span
+            className={
+              (stopOtherSessionsForGitReset ? 'bg-destructive' : 'bg-panel') +
+              ' absolute inset-0 rounded-full transition-colors'
+            }
+          />
+          <span
+            className={
+              (stopOtherSessionsForGitReset
+                ? 'translate-x-5'
+                : 'translate-x-1') +
+              ' pointer-events-none relative inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform'
+            }
+          />
+        </div>
+      </div>
+    ) : null;
 
     return (
       <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
@@ -439,6 +472,7 @@ const RestoreLogsDialogImpl = create<RestoreLogsDialogProps>(
                                 )}
                               </ul>
                             )}
+                            {stopOtherSessionsToggle}
                           </>
                         )}
                       </div>
@@ -538,6 +572,7 @@ const RestoreLogsDialogImpl = create<RestoreLogsDialogProps>(
                                 'restoreLogsDialog.resetWorktree.uncommittedPresentHint'
                               )}
                         </p>
+                        {stopOtherSessionsToggle}
                         {repoInfo.length > 0 && (
                           <>
                             <p className="mt-2 text-xs text-muted-foreground">

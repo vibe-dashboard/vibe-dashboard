@@ -1,6 +1,8 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
+    sync::{Arc, OnceLock},
+    time::{Duration, Instant},
 };
 
 use axum::{
@@ -19,6 +21,7 @@ use deployment::Deployment;
 use git::{ConflictOp, GitCliError, GitServiceError};
 use serde::{Deserialize, Serialize};
 use services::services::{container::ContainerService, diff_stream, remote_sync};
+use tokio::sync::{Mutex, Notify};
 use ts_rs::TS;
 use utils::response::ApiResponse;
 use uuid::Uuid;
@@ -97,6 +100,42 @@ pub struct RepoBranchStatus {
     pub repo_name: String,
     #[serde(flatten)]
     pub status: BranchStatus,
+}
+
+const GIT_STATUS_CACHE_TTL: Duration = Duration::from_secs(2);
+
+#[derive(Clone)]
+struct CachedGitStatusResponse {
+    response: Vec<RepoBranchStatus>,
+    computed_at: Instant,
+}
+
+enum GitStatusCacheState {
+    Ready(Option<CachedGitStatusResponse>),
+    Computing { notify: Arc<Notify> },
+}
+
+impl Default for GitStatusCacheState {
+    fn default() -> Self {
+        Self::Ready(None)
+    }
+}
+
+type GitStatusCache = Arc<Mutex<HashMap<Uuid, GitStatusCacheState>>>;
+
+fn git_status_cache() -> &'static GitStatusCache {
+    static CACHE: OnceLock<GitStatusCache> = OnceLock::new();
+    CACHE.get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
+}
+
+fn git_status_cache_fresh(entry: &CachedGitStatusResponse) -> bool {
+    entry.computed_at.elapsed() < GIT_STATUS_CACHE_TTL
+}
+
+async fn invalidate_git_status_cache(workspace_id: Uuid) {
+    let cache = git_status_cache();
+    let mut cache_guard = cache.lock().await;
+    cache_guard.remove(&workspace_id);
 }
 
 #[derive(Deserialize, Debug, TS)]
@@ -253,6 +292,8 @@ pub async fn merge_workspace(
         tracing::error!("Failed to archive workspace {}: {}", workspace.id, e);
     }
 
+    invalidate_git_status_cache(workspace.id).await;
+
     deployment
         .track_if_analytics_allowed(
             "task_attempt_merged",
@@ -293,6 +334,7 @@ pub async fn push_workspace_branch(
         .push_to_remote(&worktree_path, &workspace.branch, false)
     {
         Ok(_) => {
+            invalidate_git_status_cache(workspace.id).await;
             if let Ok(client) = deployment.remote_client() {
                 let pool = deployment.db().pool.clone();
                 let git = deployment.git().clone();
@@ -346,6 +388,8 @@ pub async fn force_push_workspace_branch(
         .git()
         .push_to_remote(&worktree_path, &workspace.branch, true)?;
 
+    invalidate_git_status_cache(workspace.id).await;
+
     if let Ok(client) = deployment.remote_client() {
         let pool = deployment.db().pool.clone();
         let git = deployment.git().clone();
@@ -364,6 +408,63 @@ pub async fn get_workspace_branch_status(
     Extension(workspace): Extension<Workspace>,
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<Vec<RepoBranchStatus>>>, ApiError> {
+    let response = get_cached_workspace_branch_status(&deployment, &workspace).await?;
+    Ok(ResponseJson(ApiResponse::success(response)))
+}
+
+async fn get_cached_workspace_branch_status(
+    deployment: &DeploymentImpl,
+    workspace: &Workspace,
+) -> Result<Vec<RepoBranchStatus>, ApiError> {
+    let cache = git_status_cache();
+
+    loop {
+        let mut cache_guard = cache.lock().await;
+        let state = cache_guard.entry(workspace.id).or_default();
+
+        match state {
+            GitStatusCacheState::Ready(Some(entry)) if git_status_cache_fresh(entry) => {
+                return Ok(entry.response.clone());
+            }
+            GitStatusCacheState::Ready(_) => {
+                let notify = Arc::new(Notify::new());
+                *state = GitStatusCacheState::Computing {
+                    notify: notify.clone(),
+                };
+                drop(cache_guard);
+
+                let compute_result = compute_workspace_branch_status(deployment, workspace).await;
+
+                let mut cache_guard = cache.lock().await;
+                let state = cache_guard.entry(workspace.id).or_default();
+                match &compute_result {
+                    Ok(response) => {
+                        *state = GitStatusCacheState::Ready(Some(CachedGitStatusResponse {
+                            response: response.clone(),
+                            computed_at: Instant::now(),
+                        }));
+                    }
+                    Err(_) => {
+                        *state = GitStatusCacheState::Ready(None);
+                    }
+                }
+                drop(cache_guard);
+                notify.notify_waiters();
+                return compute_result;
+            }
+            GitStatusCacheState::Computing { notify } => {
+                let notify = notify.clone();
+                drop(cache_guard);
+                notify.notified().await;
+            }
+        }
+    }
+}
+
+async fn compute_workspace_branch_status(
+    deployment: &DeploymentImpl,
+    workspace: &Workspace,
+) -> Result<Vec<RepoBranchStatus>, ApiError> {
     let pool = &deployment.db().pool;
 
     let repositories = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
@@ -375,7 +476,7 @@ pub async fn get_workspace_branch_status(
 
     let container_ref = deployment
         .container()
-        .ensure_container_exists(&workspace)
+        .ensure_container_exists(workspace)
         .await?;
     let workspace_dir = PathBuf::from(&container_ref);
 
@@ -498,7 +599,7 @@ pub async fn get_workspace_branch_status(
         });
     }
 
-    Ok(ResponseJson(ApiResponse::success(results)))
+    Ok(results)
 }
 
 #[axum::debug_handler]
@@ -534,6 +635,8 @@ pub async fn change_target_branch(
         deployment
             .git()
             .get_branch_status(&repo.path, &workspace.branch, &new_target_branch)?;
+
+    invalidate_git_status_cache(workspace.id).await;
 
     deployment
         .track_if_analytics_allowed(
@@ -677,6 +780,8 @@ pub async fn rename_branch(
         );
     }
 
+    invalidate_git_status_cache(workspace.id).await;
+
     deployment
         .track_if_analytics_allowed(
             "task_attempt_branch_renamed",
@@ -788,6 +893,8 @@ pub async fn rebase_workspace(
         )
         .await;
 
+    invalidate_git_status_cache(workspace.id).await;
+
     Ok(ResponseJson(ApiResponse::success(())))
 }
 
@@ -812,6 +919,8 @@ pub async fn abort_workspace_conflicts(
 
     deployment.git().abort_conflicts(&worktree_path)?;
 
+    invalidate_git_status_cache(workspace.id).await;
+
     Ok(ResponseJson(ApiResponse::success(())))
 }
 
@@ -835,6 +944,8 @@ pub async fn continue_workspace_rebase(
     let worktree_path = workspace_path.join(&repo.name);
 
     deployment.git().continue_rebase(&worktree_path)?;
+
+    invalidate_git_status_cache(workspace.id).await;
 
     Ok(ResponseJson(ApiResponse::success(())))
 }

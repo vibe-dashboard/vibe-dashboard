@@ -11,6 +11,7 @@ const defaultOptions: ExecutorDiscoveredOptions = {
   model_selector: {
     providers: [],
     models: [],
+    model_order: [],
     default_model: null,
     agents: [],
     permissions: [],
@@ -47,7 +48,10 @@ function useExecutorDiscovery(
     useJsonPatchWsStream<ExecutorDiscoveryStreamState>(
       endpoint,
       !!endpoint,
-      initialData
+      initialData,
+      {
+        reconnectOnCleanClose: false,
+      }
     );
 
   // Prefer the backend-reported error from the data payload. Only fall back

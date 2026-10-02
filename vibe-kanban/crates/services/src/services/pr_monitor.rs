@@ -81,6 +81,19 @@ impl<C: ContainerService + Send + Sync + 'static> PrMonitorService<C> {
             "Starting PR monitoring service with interval {:?}",
             self.poll_interval
         );
+        if runtime_diagnostics_enabled() {
+            let snapshot = utils::process_diag::sample_current_process();
+            tracing::info!(
+                poll_interval_secs = self.poll_interval.as_secs(),
+                rss_mb = utils::process_diag::bytes_to_mb(snapshot.rss_bytes),
+                vm_size_mb = utils::process_diag::bytes_to_mb(snapshot.virtual_bytes),
+                threads = snapshot.thread_count,
+                fds = snapshot.open_fd_count,
+                child_processes = snapshot.child_process_count,
+                elapsed_ms = utils::process_diag::elapsed_since_start().as_millis() as u64,
+                "runtime_diag_pr_monitor_started"
+            );
+        }
 
         let mut interval = interval(self.poll_interval);
 
@@ -101,6 +114,7 @@ impl<C: ContainerService + Send + Sync + 'static> PrMonitorService<C> {
 
     /// Check all open PRs for updates
     async fn check_all_open_prs(&self) -> Result<(), PrMonitorError> {
+        let before = utils::process_diag::sample_current_process();
         let open_prs = PullRequest::get_open(&self.db.pool).await?;
 
         if open_prs.is_empty() {
@@ -120,6 +134,25 @@ impl<C: ContainerService + Send + Sync + 'static> PrMonitorService<C> {
                     error!("Error checking PR #{}: {}", pr.pr_number, e);
                 }
             }
+        }
+
+        if runtime_diagnostics_enabled() {
+            let after = utils::process_diag::sample_current_process();
+            tracing::info!(
+                open_pr_count = open_prs.len(),
+                rss_mb_before = utils::process_diag::bytes_to_mb(before.rss_bytes),
+                rss_mb_after = utils::process_diag::bytes_to_mb(after.rss_bytes),
+                vm_size_mb_before = utils::process_diag::bytes_to_mb(before.virtual_bytes),
+                vm_size_mb_after = utils::process_diag::bytes_to_mb(after.virtual_bytes),
+                threads_before = before.thread_count,
+                threads_after = after.thread_count,
+                fds_before = before.open_fd_count,
+                fds_after = after.open_fd_count,
+                child_processes_before = before.child_process_count,
+                child_processes_after = after.child_process_count,
+                elapsed_ms = utils::process_diag::elapsed_since_start().as_millis() as u64,
+                "runtime_diag_pr_monitor_iteration"
+            );
         }
 
         Ok(())
@@ -289,4 +322,8 @@ impl<C: ContainerService + Send + Sync + 'static> PrMonitorService<C> {
             }
         }
     }
+}
+
+fn runtime_diagnostics_enabled() -> bool {
+    std::env::var("VK_DEBUG_MEMORY_LOGS").is_ok()
 }

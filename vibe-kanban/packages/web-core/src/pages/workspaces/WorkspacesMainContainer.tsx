@@ -1,5 +1,6 @@
 import {
   forwardRef,
+  type ReactNode,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -8,6 +9,7 @@ import {
   useState,
 } from 'react';
 import type { Workspace, Session, RepoWithTargetBranch } from 'shared/types';
+import type { ChatViewMode } from '@/shared/stores/useUiPreferencesStore';
 import { createWorkspaceWithSession } from '@/shared/types/attempt';
 import { WorkspacesMain } from '@vibe/ui/components/WorkspacesMain';
 import {
@@ -33,6 +35,8 @@ function ChatBoxWithDiffStats({
   session,
   workspaceId,
   isNewSessionMode,
+  chatViewMode,
+  chatViewModeSelector,
   sessions,
   onSelectSession,
   onStartNewSession,
@@ -44,6 +48,8 @@ function ChatBoxWithDiffStats({
   session: Session | undefined;
   workspaceId: string | undefined;
   isNewSessionMode: boolean;
+  chatViewMode: ChatViewMode;
+  chatViewModeSelector?: ReactNode;
   sessions: Session[];
   onSelectSession: (sessionId: string) => void;
   onStartNewSession: () => void;
@@ -76,6 +82,8 @@ function ChatBoxWithDiffStats({
       filesChanged={diffStats.files_changed}
       linesAdded={diffStats.lines_added}
       linesRemoved={diffStats.lines_removed}
+      chatViewMode={chatViewMode}
+      chatViewModeSelector={chatViewModeSelector}
       disableViewCode={false}
       showOpenWorkspaceButton={false}
       onScrollToPreviousMessage={onScrollToPreviousMessage}
@@ -101,6 +109,8 @@ interface WorkspacesMainContainerProps {
   isSessionsLoading?: boolean;
   isNewSessionMode: boolean;
   onStartNewSession: () => void;
+  chatViewMode?: ChatViewMode;
+  chatViewModeSelector?: ReactNode;
 }
 
 export const WorkspacesMainContainer = forwardRef<
@@ -115,9 +125,11 @@ export const WorkspacesMainContainer = forwardRef<
     repos,
     onSelectSession,
     isLoading,
-    isSessionsLoading: _isSessionsLoading,
+    isSessionsLoading,
     isNewSessionMode,
     onStartNewSession,
+    chatViewMode = 'full',
+    chatViewModeSelector,
   },
   ref
 ) {
@@ -214,6 +226,15 @@ export const WorkspacesMainContainer = forwardRef<
             repos={repos}
             onAtBottomChange={handleAtBottomChange}
             sessionScopeId={selectedSessionId}
+            previewMode={
+              selectedSession
+                ? 'session'
+                : isSessionsLoading
+                  ? 'workspace'
+                  : isNewSessionMode
+                    ? 'disabled'
+                    : 'workspace'
+            }
           />
         </RetryUiProvider>
       </div>
@@ -225,6 +246,8 @@ export const WorkspacesMainContainer = forwardRef<
       session={session}
       workspaceId={workspaceWithSession?.id}
       isNewSessionMode={isNewSessionMode}
+      chatViewMode={chatViewMode}
+      chatViewModeSelector={chatViewModeSelector}
       sessions={sessions}
       onSelectSession={onSelectSession}
       onStartNewSession={onStartNewSession}
@@ -235,9 +258,10 @@ export const WorkspacesMainContainer = forwardRef<
     />
   );
 
-  const contextBarContent = workspaceWithSession ? (
-    <ContextBarContainer containerRef={containerRef} />
-  ) : null;
+  const contextBarContent =
+    workspaceWithSession && chatViewMode === 'full' ? (
+      <ContextBarContainer containerRef={containerRef} />
+    ) : null;
 
   useImperativeHandle(
     ref,

@@ -8,9 +8,14 @@ import { useRef, useEffect } from 'react';
 export function useDebouncedCallback<Args extends unknown[]>(
   callback: (...args: Args) => void,
   delay: number
-): { debounced: (...args: Args) => void; cancel: () => void } {
+): {
+  debounced: (...args: Args) => void;
+  cancel: () => void;
+  flush: () => void;
+} {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const callbackRef = useRef(callback);
+  const lastArgsRef = useRef<Args | null>(null);
 
   // Keep callback ref up to date
   useEffect(() => {
@@ -31,8 +36,11 @@ export function useDebouncedCallback<Args extends unknown[]>(
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
     }
+    lastArgsRef.current = args;
     timeoutRef.current = setTimeout(() => {
+      timeoutRef.current = null;
       callbackRef.current(...args);
+      lastArgsRef.current = null;
     }, delay);
   });
 
@@ -42,7 +50,25 @@ export function useDebouncedCallback<Args extends unknown[]>(
       clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
     }
+    lastArgsRef.current = null;
   });
 
-  return { debounced: debouncedRef.current, cancel: cancelRef.current };
+  const flushRef = useRef(() => {
+    if (!timeoutRef.current || !lastArgsRef.current) {
+      return;
+    }
+
+    clearTimeout(timeoutRef.current);
+    timeoutRef.current = null;
+
+    const args = lastArgsRef.current;
+    lastArgsRef.current = null;
+    callbackRef.current(...args);
+  });
+
+  return {
+    debounced: debouncedRef.current,
+    cancel: cancelRef.current,
+    flush: flushRef.current,
+  };
 }

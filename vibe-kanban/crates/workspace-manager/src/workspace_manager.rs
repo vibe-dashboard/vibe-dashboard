@@ -48,6 +48,8 @@ pub enum WorkspaceError {
     WorkspaceNotFound,
     #[error("Repository already attached to workspace")]
     RepoAlreadyAttached,
+    #[error("Repository name '{repo_name}' is already attached to workspace")]
+    RepoNameAlreadyAttached { repo_name: String },
     #[error("Branch '{branch}' does not exist in repository '{repo_name}'")]
     BranchNotFound { repo_name: String, branch: String },
     #[error("No repositories provided")]
@@ -98,7 +100,10 @@ impl ManagedWorkspace {
         }
     }
 
-    async fn attach_repository(&self, repo: &WorkspaceRepoInput) -> Result<(), sqlx::Error> {
+    async fn attach_repository(
+        &self,
+        repo: &WorkspaceRepoInput,
+    ) -> Result<WorkspaceRepo, sqlx::Error> {
         let create_repo = CreateWorkspaceRepo {
             repo_id: repo.repo_id,
             target_branch: repo.target_branch.clone(),
@@ -110,7 +115,7 @@ impl ManagedWorkspace {
             std::slice::from_ref(&create_repo),
         )
         .await
-        .map(|_| ())
+        .map(|mut repos| repos.remove(0))
     }
 
     async fn refresh(&mut self) -> Result<(), WorkspaceError> {
@@ -129,17 +134,10 @@ impl ManagedWorkspace {
         &mut self,
         repo_ref: &WorkspaceRepoInput,
         git: &GitService,
-    ) -> Result<(), WorkspaceError> {
+    ) -> Result<WorkspaceRepo, WorkspaceError> {
         let repo = Repo::find_by_id(&self.db.pool, repo_ref.repo_id)
             .await?
             .ok_or(RepoError::NotFound)?;
-
-        if !git.check_branch_exists(&repo.path, &repo_ref.target_branch)? {
-            return Err(WorkspaceError::BranchNotFound {
-                repo_name: repo.name,
-                branch: repo_ref.target_branch.clone(),
-            });
-        }
 
         if WorkspaceRepo::find_by_workspace_and_repo_id(
             &self.db.pool,
@@ -152,9 +150,29 @@ impl ManagedWorkspace {
             return Err(WorkspaceError::RepoAlreadyAttached);
         }
 
-        self.attach_repository(repo_ref).await?;
+        if WorkspaceRepo::find_by_workspace_and_repo_name(
+            &self.db.pool,
+            self.workspace.id,
+            &repo.name,
+        )
+        .await?
+        .is_some()
+        {
+            return Err(WorkspaceError::RepoNameAlreadyAttached {
+                repo_name: repo.name,
+            });
+        }
+
+        if !git.check_branch_exists(&repo.path, &repo_ref.target_branch)? {
+            return Err(WorkspaceError::BranchNotFound {
+                repo_name: repo.name,
+                branch: repo_ref.target_branch.clone(),
+            });
+        }
+
+        let workspace_repo = self.attach_repository(repo_ref).await?;
         self.refresh().await?;
-        Ok(())
+        Ok(workspace_repo)
     }
 
     pub async fn associate_attachments(&self, attachment_ids: &[Uuid]) -> Result<(), sqlx::Error> {
@@ -649,5 +667,232 @@ impl WorkspaceManager {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::{Path, PathBuf};
+
+    use db::{
+        DBService,
+        models::{
+            repo::Repo,
+            requests::WorkspaceRepoInput,
+            workspace::{CreateWorkspace, Workspace},
+            workspace_repo::WorkspaceRepo,
+        },
+    };
+    use git::GitService;
+    use sqlx::sqlite::SqlitePoolOptions;
+    use tempfile::TempDir;
+    use uuid::Uuid;
+
+    use super::{WorkspaceError, WorkspaceManager};
+
+    async fn test_db() -> DBService {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+
+        for statement in [
+            r#"
+            CREATE TABLE repos (
+                id BLOB PRIMARY KEY,
+                path TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                setup_script TEXT,
+                cleanup_script TEXT,
+                archive_script TEXT,
+                copy_files TEXT,
+                parallel_setup_script INTEGER NOT NULL DEFAULT 0,
+                dev_server_script TEXT,
+                default_target_branch TEXT,
+                default_working_dir TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
+            )
+            "#,
+            r#"
+            CREATE TABLE workspaces (
+                id BLOB PRIMARY KEY,
+                task_id BLOB,
+                container_ref TEXT,
+                branch TEXT NOT NULL,
+                setup_completed_at TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+                archived INTEGER NOT NULL DEFAULT 0,
+                pinned INTEGER NOT NULL DEFAULT 0,
+                name TEXT,
+                worktree_deleted BOOLEAN NOT NULL DEFAULT FALSE
+            )
+            "#,
+            r#"
+            CREATE TABLE workspace_repos (
+                id BLOB PRIMARY KEY,
+                workspace_id BLOB NOT NULL,
+                repo_id BLOB NOT NULL,
+                target_branch TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+                UNIQUE (workspace_id, repo_id)
+            )
+            "#,
+            r#"
+            CREATE TABLE repo_dev_server_scripts (
+                id BLOB PRIMARY KEY,
+                repo_id BLOB NOT NULL,
+                name TEXT NOT NULL,
+                script TEXT NOT NULL,
+                working_dir TEXT,
+                is_default BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+                updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
+            )
+            "#,
+        ] {
+            sqlx::query(statement).execute(&pool).await.unwrap();
+        }
+
+        DBService { pool }
+    }
+
+    fn init_git_repo(path: &Path) {
+        GitService::new()
+            .initialize_repo_with_main_branch(path)
+            .unwrap();
+    }
+
+    async fn create_repo(db: &DBService, path: PathBuf) -> Repo {
+        Repo::find_or_create(&db.pool, &path, path.file_name().unwrap().to_str().unwrap())
+            .await
+            .unwrap()
+    }
+
+    async fn create_workspace(db: &DBService) -> Workspace {
+        Workspace::create(
+            &db.pool,
+            &CreateWorkspace {
+                branch: "vk/test-workspace".to_string(),
+                name: Some("test workspace".to_string()),
+            },
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn add_repository_rejects_duplicate_repo_name() {
+        let db = test_db().await;
+        let temp_dir = TempDir::new().unwrap();
+        let first_repo_path = temp_dir.path().join("first").join("same-name");
+        let second_repo_path = temp_dir.path().join("second").join("same-name");
+        init_git_repo(&first_repo_path);
+        init_git_repo(&second_repo_path);
+        let first_repo = create_repo(&db, first_repo_path).await;
+        let second_repo = create_repo(&db, second_repo_path).await;
+        assert_ne!(first_repo.id, second_repo.id);
+        assert_eq!(first_repo.name, second_repo.name);
+
+        let workspace = create_workspace(&db).await;
+        let mut managed_workspace = WorkspaceManager::new(db.clone())
+            .load_managed_workspace(workspace)
+            .await
+            .unwrap();
+
+        managed_workspace
+            .add_repository(
+                &WorkspaceRepoInput {
+                    repo_id: first_repo.id,
+                    target_branch: "main".to_string(),
+                },
+                &GitService::new(),
+            )
+            .await
+            .unwrap();
+
+        let error = managed_workspace
+            .add_repository(
+                &WorkspaceRepoInput {
+                    repo_id: second_repo.id,
+                    target_branch: "main".to_string(),
+                },
+                &GitService::new(),
+            )
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            WorkspaceError::RepoNameAlreadyAttached { repo_name } if repo_name == "same-name"
+        ));
+        let attached =
+            WorkspaceRepo::find_by_workspace_id(&db.pool, managed_workspace.workspace.id)
+                .await
+                .unwrap();
+        assert_eq!(attached.len(), 1);
+        assert_eq!(attached[0].repo_id, first_repo.id);
+    }
+
+    #[tokio::test]
+    async fn add_repository_rejects_case_variant_repo_name() {
+        let db = test_db().await;
+        let temp_dir = TempDir::new().unwrap();
+        let first_repo_path = temp_dir.path().join("first").join("Same-Name");
+        let second_repo_path = temp_dir.path().join("second").join("same-name");
+        init_git_repo(&first_repo_path);
+        init_git_repo(&second_repo_path);
+        let first_repo = create_repo(&db, first_repo_path).await;
+        let second_repo = create_repo(&db, second_repo_path).await;
+        assert_ne!(first_repo.id, second_repo.id);
+        assert_ne!(first_repo.name, second_repo.name);
+        assert_eq!(
+            first_repo.name.to_lowercase(),
+            second_repo.name.to_lowercase()
+        );
+
+        let workspace = create_workspace(&db).await;
+        let mut managed_workspace = WorkspaceManager::new(db.clone())
+            .load_managed_workspace(workspace)
+            .await
+            .unwrap();
+
+        managed_workspace
+            .add_repository(
+                &WorkspaceRepoInput {
+                    repo_id: first_repo.id,
+                    target_branch: "main".to_string(),
+                },
+                &GitService::new(),
+            )
+            .await
+            .unwrap();
+
+        let error = managed_workspace
+            .add_repository(
+                &WorkspaceRepoInput {
+                    repo_id: second_repo.id,
+                    target_branch: "main".to_string(),
+                },
+                &GitService::new(),
+            )
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            WorkspaceError::RepoNameAlreadyAttached { repo_name } if repo_name == "same-name"
+        ));
+        let attached =
+            WorkspaceRepo::find_by_workspace_id(&db.pool, managed_workspace.workspace.id)
+                .await
+                .unwrap();
+        assert_eq!(attached.len(), 1);
+        assert_eq!(attached[0].repo_id, first_repo.id);
     }
 }

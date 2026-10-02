@@ -3,7 +3,7 @@ use std::{
     io,
     path::{Path, PathBuf},
     sync::{
-        Arc,
+        Arc, OnceLock,
         atomic::{AtomicUsize, Ordering},
     },
     time::{Duration, SystemTime},
@@ -39,12 +39,30 @@ pub struct DiffStats {
     pub lines_removed: usize,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct DiffComputationReport {
+    pub stats: DiffStats,
+    pub repo_count: usize,
+    pub base_commit_failures: usize,
+    pub diff_fetch_failures: usize,
+}
+
 /// Computes diff stats for a workspace by comparing against target branches.
 pub async fn compute_diff_stats(
     pool: &SqlitePool,
     git: &GitService,
     workspace: &Workspace,
 ) -> Option<DiffStats> {
+    compute_diff_stats_with_report(pool, git, workspace)
+        .await
+        .map(|report| report.stats)
+}
+
+pub async fn compute_diff_stats_with_report(
+    pool: &SqlitePool,
+    git: &GitService,
+    workspace: &Workspace,
+) -> Option<DiffComputationReport> {
     let container_ref = workspace.container_ref.as_ref()?;
 
     let workspace_repos =
@@ -52,7 +70,10 @@ pub async fn compute_diff_stats(
             .await
             .ok()?;
 
-    let mut stats = DiffStats::default();
+    let mut report = DiffComputationReport {
+        repo_count: workspace_repos.len(),
+        ..Default::default()
+    };
 
     for repo_with_branch in workspace_repos {
         let worktree_path = PathBuf::from(container_ref).join(&repo_with_branch.repo.name);
@@ -69,7 +90,10 @@ pub async fn compute_diff_stats(
 
         let base_commit = match base_commit_result {
             Ok(Ok(commit)) => commit,
-            _ => continue,
+            _ => {
+                report.base_commit_failures += 1;
+                continue;
+            }
         };
 
         let diffs_result = tokio::task::spawn_blocking({
@@ -81,14 +105,16 @@ pub async fn compute_diff_stats(
 
         if let Ok(Ok(diffs)) = diffs_result {
             for diff in diffs {
-                stats.files_changed += 1;
-                stats.lines_added += diff.additions.unwrap_or(0);
-                stats.lines_removed += diff.deletions.unwrap_or(0);
+                report.stats.files_changed += 1;
+                report.stats.lines_added += diff.additions.unwrap_or(0);
+                report.stats.lines_removed += diff.deletions.unwrap_or(0);
             }
+        } else {
+            report.diff_fetch_failures += 1;
         }
     }
 
-    Some(stats)
+    Some(report)
 }
 
 /// Maximum cumulative diff bytes to stream before omitting content (200MB)
@@ -132,6 +158,20 @@ impl futures::Stream for DiffStreamHandle {
 
 impl Drop for DiffStreamHandle {
     fn drop(&mut self) {
+        let active_streams = active_diff_streams().fetch_sub(1, Ordering::SeqCst) - 1;
+        if runtime_diagnostics_enabled() {
+            let snapshot = utils::process_diag::sample_current_process();
+            tracing::info!(
+                active_streams,
+                rss_mb = utils::process_diag::bytes_to_mb(snapshot.rss_bytes),
+                vm_size_mb = utils::process_diag::bytes_to_mb(snapshot.virtual_bytes),
+                threads = snapshot.thread_count,
+                fds = snapshot.open_fd_count,
+                child_processes = snapshot.child_process_count,
+                elapsed_ms = utils::process_diag::elapsed_since_start().as_millis() as u64,
+                "runtime_diag_diff_stream_drop"
+            );
+        }
         if let Some(handle) = self._watcher_task.take() {
             handle.abort();
         }
@@ -192,6 +232,24 @@ enum DiffEvent {
 pub async fn create(args: DiffStreamArgs) -> Result<DiffStreamHandle, DiffStreamError> {
     let (tx, rx) = mpsc::channel::<Result<LogMsg, io::Error>>(DIFF_STREAM_CHANNEL_CAPACITY);
     let manager_args = args.clone();
+    let active_streams = active_diff_streams().fetch_add(1, Ordering::SeqCst) + 1;
+    if runtime_diagnostics_enabled() {
+        let snapshot = utils::process_diag::sample_current_process();
+        tracing::info!(
+            workspace_id = %args.workspace_id,
+            repo_id = %args.repo_id,
+            stats_only = args.stats_only,
+            active_streams,
+            worktree_path = %args.worktree_path.display(),
+            rss_mb = utils::process_diag::bytes_to_mb(snapshot.rss_bytes),
+            vm_size_mb = utils::process_diag::bytes_to_mb(snapshot.virtual_bytes),
+            threads = snapshot.thread_count,
+            fds = snapshot.open_fd_count,
+            child_processes = snapshot.child_process_count,
+            elapsed_ms = utils::process_diag::elapsed_since_start().as_millis() as u64,
+            "runtime_diag_diff_stream_create"
+        );
+    }
 
     let watcher_task = tokio::spawn(async move {
         let mut manager = DiffStreamManager::new(manager_args, tx);
@@ -205,6 +263,15 @@ pub async fn create(args: DiffStreamArgs) -> Result<DiffStreamHandle, DiffStream
         ReceiverStream::new(rx).boxed(),
         Some(watcher_task),
     ))
+}
+
+fn active_diff_streams() -> &'static AtomicUsize {
+    static ACTIVE: OnceLock<AtomicUsize> = OnceLock::new();
+    ACTIVE.get_or_init(|| AtomicUsize::new(0))
+}
+
+fn runtime_diagnostics_enabled() -> bool {
+    std::env::var("VK_DEBUG_MEMORY_LOGS").is_ok()
 }
 
 impl DiffStreamManager {

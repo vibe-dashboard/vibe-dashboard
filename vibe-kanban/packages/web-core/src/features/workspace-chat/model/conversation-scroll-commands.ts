@@ -129,6 +129,10 @@ export function resolveScrollIntent(
       : { type: 'preserve-anchor' };
   }
 
+  if (addType === 'historic') {
+    return { type: 'preserve-anchor' };
+  }
+
   return isAtBottom
     ? { type: 'follow-bottom', behavior: 'auto' }
     : { type: 'preserve-anchor' };

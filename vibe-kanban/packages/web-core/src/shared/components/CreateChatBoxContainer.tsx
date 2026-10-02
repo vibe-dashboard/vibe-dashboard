@@ -1,4 +1,10 @@
-import { useMemo, useCallback, useState, useEffect } from 'react';
+import {
+  type ReactNode,
+  useMemo,
+  useCallback,
+  useState,
+  useEffect,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDropzone } from 'react-dropzone';
 import { useCreateMode } from '@/features/create-mode/model/useCreateMode';
@@ -19,6 +25,7 @@ import { CreateChatBox } from '@vibe/ui/components/CreateChatBox';
 import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
 import { CreateModeRepoPickerBar } from './CreateModeRepoPickerBar';
 import { ModelSelectorContainer } from '@/shared/components/ModelSelectorContainer';
+import type { ChatViewMode } from '@/shared/stores/useUiPreferencesStore';
 
 function getRepoDisplayName(repo: Repo) {
   return repo.display_name || repo.name;
@@ -34,10 +41,14 @@ function truncateBranchLabel(branch: string) {
 
 interface CreateChatBoxContainerProps {
   onWorkspaceCreated: (workspaceId: string) => void;
+  chatViewMode?: ChatViewMode;
+  chatViewModeSelector?: ReactNode;
 }
 
 export function CreateChatBoxContainer({
   onWorkspaceCreated,
+  chatViewMode = 'full',
+  chatViewModeSelector,
 }: CreateChatBoxContainerProps) {
   const { t } = useTranslation('common');
   const { profiles, config } = useUserSystem();
@@ -61,8 +72,12 @@ export function CreateChatBoxContainer({
   const { createWorkspace } = useCreateWorkspace();
   const hasSelectedRepos = repos.length > 0;
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
-  const [hasInitializedStep, setHasInitializedStep] = useState(false);
-  const [isSelectingRepos, setIsSelectingRepos] = useState(true);
+  const [hasInitializedStep, setHasInitializedStep] = useState(
+    () => hasSelectedRepos || hasResolvedInitialRepoDefaults
+  );
+  const [isSelectingRepos, setIsSelectingRepos] = useState(
+    () => !hasSelectedRepos
+  );
 
   useEffect(() => {
     if (!hasInitialValue || hasInitializedStep) return;
@@ -292,9 +307,9 @@ export function CreateChatBoxContainer({
             : 'Failed to create workspace'
           : null;
 
-  // Wait for initial value to be applied before rendering
-  // This ensures the editor mounts with content ready, so autoFocus works correctly
-  if (!hasInitialValue) {
+  // Wait for initial value and initial step resolution before rendering.
+  // This prevents a brief repo-step flash when the draft already has selected repos.
+  if (!hasInitialValue || !hasInitializedStep) {
     return null;
   }
 
@@ -321,6 +336,8 @@ export function CreateChatBoxContainer({
 
               <div className="flex justify-center @container">
                 <CreateChatBox
+                  chatViewMode={chatViewMode}
+                  chatViewModeSelector={chatViewModeSelector}
                   editor={{
                     value: message,
                     onChange: setMessage,
@@ -343,6 +360,7 @@ export function CreateChatBoxContainer({
                       onCmdEnter={onCmdEnter}
                       disabled={disabled}
                       className="min-h-double max-h-[50vh] overflow-y-auto"
+                      constrainMobileComposerHeight
                       repoIds={repoIds}
                       repoId={repoId}
                       executor={executor}

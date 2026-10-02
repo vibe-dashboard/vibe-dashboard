@@ -6,7 +6,8 @@
   "gitPanel": {
     "advanced": {
       "placeholder": "ex: Acme Corp"
-    }
+    },
+    "addRepo": "Ajouter un dépôt"
   },
   "loading": "Chargement des tâches...",
   "actions": {
@@ -448,7 +449,8 @@
       "untrackedPresent_other": "{{count}} fichiers non suivis présents (non affectés par la réinitialisation).",
       "forceReset": "Forcer la réinitialisation (abandonner les modifications non commitées)",
       "uncommittedWillDiscard": "Les modifications non commitées seront abandonnées.",
-      "uncommittedPresentHint": "Modifications non commitées présentes. Activez la réinitialisation forcée ou commitez/stashez pour continuer."
+      "uncommittedPresentHint": "Modifications non commitées présentes. Activez la réinitialisation forcée ou commitez/stashez pour continuer.",
+      "stopOtherSessions": "Stop other running sessions before resetting worktree"
     },
     "buttons": {
       "retry": "Réessayer",

@@ -30,6 +30,7 @@ use executors::{
         Executable, ExecutorAction, ExecutorActionType,
         coding_agent_follow_up::CodingAgentFollowUpRequest,
         coding_agent_initial::CodingAgentInitialRequest,
+        session_command::CodingAgentSessionCommandRequest,
     },
     approvals::{ExecutorApprovalService, NoopExecutorApprovalService},
     env::{ExecutionEnv, RepoContext},
@@ -44,6 +45,7 @@ use services::services::{
     approvals::{Approvals, executor_approvals::ExecutorApprovalBridge},
     config::{Config, DEFAULT_COMMIT_REMINDER_PROMPT},
     container::{ContainerError, ContainerRef, ContainerService},
+    conversation_preview,
     diff_stream::{self, DiffStreamHandle},
     file::FileService,
     notification::NotificationService,
@@ -53,6 +55,7 @@ use services::services::{
 };
 use tokio::{sync::RwLock, task::JoinHandle};
 use tokio_util::io::ReaderStream;
+use tracing::Instrument;
 use utils::{
     log_msg::LogMsg,
     msg_store::MsgStore,
@@ -147,6 +150,12 @@ impl LocalContainerService {
             }
             WorkspaceError::RepoAlreadyAttached => {
                 ContainerError::Other(anyhow!("Repository already attached to workspace"))
+            }
+            WorkspaceError::RepoNameAlreadyAttached { repo_name } => {
+                ContainerError::Other(anyhow!(
+                    "Repository name '{}' is already attached to workspace",
+                    repo_name
+                ))
             }
             WorkspaceError::BranchNotFound { repo_name, branch } => ContainerError::Other(anyhow!(
                 "Branch '{}' does not exist in repository '{}'",
@@ -299,6 +308,18 @@ impl LocalContainerService {
     fn spawn_workspace_cleanup(&self) {
         let container = self.clone();
         tokio::spawn(async move {
+            if runtime_diagnostics_enabled() {
+                let snapshot = utils::process_diag::sample_current_process();
+                tracing::info!(
+                    rss_mb = utils::process_diag::bytes_to_mb(snapshot.rss_bytes),
+                    vm_size_mb = utils::process_diag::bytes_to_mb(snapshot.virtual_bytes),
+                    threads = snapshot.thread_count,
+                    fds = snapshot.open_fd_count,
+                    child_processes = snapshot.child_process_count,
+                    elapsed_ms = utils::process_diag::elapsed_since_start().as_millis() as u64,
+                    "runtime_diag_workspace_cleanup_loop_started"
+                );
+            }
             container
                 .workspace_manager
                 .cleanup_orphan_workspaces()
@@ -309,12 +330,30 @@ impl LocalContainerService {
             loop {
                 cleanup_interval.tick().await;
                 tracing::info!("Starting periodic workspace cleanup...");
+                let before = utils::process_diag::sample_current_process();
                 container
                     .cleanup_expired_workspaces()
                     .await
                     .unwrap_or_else(|e| {
                         tracing::error!("Failed to clean up expired workspaces: {}", e)
                     });
+                if runtime_diagnostics_enabled() {
+                    let after = utils::process_diag::sample_current_process();
+                    tracing::info!(
+                        rss_mb_before = utils::process_diag::bytes_to_mb(before.rss_bytes),
+                        rss_mb_after = utils::process_diag::bytes_to_mb(after.rss_bytes),
+                        vm_size_mb_before = utils::process_diag::bytes_to_mb(before.virtual_bytes),
+                        vm_size_mb_after = utils::process_diag::bytes_to_mb(after.virtual_bytes),
+                        threads_before = before.thread_count,
+                        threads_after = after.thread_count,
+                        fds_before = before.open_fd_count,
+                        fds_after = after.open_fd_count,
+                        child_processes_before = before.child_process_count,
+                        child_processes_after = after.child_process_count,
+                        elapsed_ms = utils::process_diag::elapsed_since_start().as_millis() as u64,
+                        "runtime_diag_workspace_cleanup_iteration"
+                    );
+                }
             }
         });
     }
@@ -565,7 +604,7 @@ impl LocalContainerService {
                     ExecutionProcessStatus::Running
                 );
 
-                let mut already_finalized = false;
+                let mut skipped_cleanup_no_changes = false;
 
                 if success || cleanup_done {
                     // Commit changes (if any) and get feedback about whether changes were made
@@ -602,14 +641,13 @@ impl LocalContainerService {
                             "Skipping cleanup script for workspace {} - no changes made by coding agent",
                             ctx.workspace.id
                         );
-
-                        // Manually finalize task since we're bypassing normal execution flow
-                        container.finalize_task(&ctx).await;
-                        already_finalized = true;
+                        // Force the finalize block below to run so any queued
+                        // follow-up still gets consumed even when cleanup is skipped.
+                        skipped_cleanup_no_changes = true;
                     }
                 }
 
-                if !already_finalized && container.should_finalize(&ctx) {
+                if skipped_cleanup_no_changes || container.should_finalize(&ctx) {
                     let has_chained_follow_up = ctx
                         .execution_process
                         .executor_action()
@@ -864,21 +902,28 @@ impl LocalContainerService {
             .await
             .ok_or_else(|| ContainerError::Other(anyhow!("MsgStore not found for execution")))?;
         let out = child.inner().stdout.take().expect("no stdout");
-        let err = child.inner().stderr.take().expect("no stderr");
+        let err = child.inner().stderr.take();
 
         // Map stdout bytes -> LogMsg::Stdout
         let out = ReaderStream::new(out)
             .map_ok(|chunk| LogMsg::Stdout(String::from_utf8_lossy(&chunk).into_owned()));
 
-        // Map stderr bytes -> LogMsg::Stderr
-        let err = ReaderStream::new(err)
-            .map_ok(|chunk| LogMsg::Stderr(String::from_utf8_lossy(&chunk).into_owned()));
+        if let Some(err) = err {
+            // Map stderr bytes -> LogMsg::Stderr
+            let err = ReaderStream::new(err)
+                .map_ok(|chunk| LogMsg::Stderr(String::from_utf8_lossy(&chunk).into_owned()));
 
-        // If you have a JSON Patch source, map it to LogMsg::JsonPatch too, then select all three.
+            // If you have a JSON Patch source, map it to LogMsg::JsonPatch too, then select all three.
 
-        // Merge and forward into the store
-        let merged = select(out, err); // Stream<Item = Result<LogMsg, io::Error>>
-        store.clone().spawn_forwarder(merged);
+            // Merge and forward into the store
+            let merged = select(out, err); // Stream<Item = Result<LogMsg, io::Error>>
+            store.clone().spawn_forwarder(merged);
+        } else {
+            // Some executors intentionally discard child stderr to avoid pipe
+            // backpressure or exposing internal diagnostics. Continue forwarding
+            // stdout in those cases.
+            store.clone().spawn_forwarder(out);
+        }
         Ok(())
     }
 
@@ -937,6 +982,17 @@ impl LocalContainerService {
                 } else {
                     tracing::debug!("No assistant message found for execution {}", exec_id);
                 }
+            }
+
+            if let Err(error) =
+                conversation_preview::refresh_execution_process_preview(&self.db.pool, *exec_id)
+                    .await
+            {
+                tracing::warn!(
+                    "Failed to refresh conversation preview for execution {}: {}",
+                    exec_id,
+                    error
+                );
             }
         }
 
@@ -1075,7 +1131,7 @@ impl LocalContainerService {
             .await?;
         }
 
-        // Get latest agent turn for session continuity (from coding agent turns)
+        // Get latest agent turn for session continuity (from coding agent turns).
         let latest_session_info =
             CodingAgentTurn::find_latest_session_info(&self.db.pool, ctx.session.id).await?;
 
@@ -1090,7 +1146,23 @@ impl LocalContainerService {
             .filter(|dir| !dir.is_empty())
             .cloned();
 
-        let action_type = if let Some(info) = latest_session_info {
+        let action_type = if let Some(command) = queued_data.session_command.clone() {
+            let latest_session_info =
+                if command.requires_provider_context(queued_data.executor_config.executor) {
+                    latest_session_info
+                } else {
+                    None
+                };
+            ExecutorActionType::CodingAgentSessionCommandRequest(CodingAgentSessionCommandRequest {
+                command,
+                prompt: queued_data.message.clone(),
+                session_id: latest_session_info
+                    .as_ref()
+                    .map(|info| info.session_id.clone()),
+                executor_config: queued_data.executor_config.clone(),
+                working_dir: working_dir.clone(),
+            })
+        } else if let Some(info) = latest_session_info {
             ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
                 prompt: queued_data.message.clone(),
                 session_id: info.session_id,
@@ -1106,6 +1178,14 @@ impl LocalContainerService {
             })
         };
 
+        let cleanup_action = if matches!(
+            &action_type,
+            ExecutorActionType::CodingAgentSessionCommandRequest(_)
+        ) {
+            None
+        } else {
+            cleanup_action
+        };
         let action = ExecutorAction::new(action_type, cleanup_action.map(Box::new));
 
         self.start_execution(
@@ -1114,6 +1194,15 @@ impl LocalContainerService {
             &action,
             &ExecutionProcessRunReason::CodingAgent,
         )
+        .instrument(tracing::debug_span!(
+            target: "perf.agent_startup",
+            "agent.turn",
+            workspace_id = %ctx.workspace.id,
+            session_id = %ctx.session.id,
+            executor = %executor_profile_id.executor,
+            queued = true,
+            execution_process_id = tracing::field::Empty,
+        ))
         .await
     }
 }
@@ -1313,6 +1402,18 @@ impl ContainerService for LocalContainerService {
         Ok(true)
     }
 
+    #[tracing::instrument(
+        name = "agent.turn.start_execution_inner",
+        target = "perf.agent_startup",
+        level = "debug",
+        skip(self, workspace, execution_process, executor_action),
+        fields(
+            workspace_id = %workspace.id,
+            session_id = %execution_process.session_id,
+            execution_process_id = %execution_process.id,
+            executor = ?executor_action.base_executor(),
+        )
+    )]
     async fn start_execution_inner(
         &self,
         workspace: &Workspace,
@@ -1365,11 +1466,19 @@ impl ContainerService for LocalContainerService {
         // Always inject workspace/session context
         env.insert("VK_WORKSPACE_ID", workspace.id.to_string());
         env.insert("VK_WORKSPACE_BRANCH", &workspace.branch);
+        env.insert("VK_SESSION_ID", execution_process.session_id.to_string());
 
         // Create the child and stream, add to execution tracker with timeout
         let mut spawned = tokio::time::timeout(
             Duration::from_secs(30),
-            executor_action.spawn(&current_dir, approvals_service, &env),
+            executor_action
+                .spawn(&current_dir, approvals_service, &env)
+                .instrument(tracing::debug_span!(
+                    target: "perf.agent_startup",
+                    "agent.turn.executor_spawn",
+                    execution_process_id = %execution_process.id,
+                    executor = ?executor_action.base_executor(),
+                )),
         )
         .await
         .map_err(|_| {
@@ -1491,6 +1600,7 @@ impl ContainerService for LocalContainerService {
 
         let repositories =
             WorkspaceRepo::find_repos_for_workspace(&self.db.pool, workspace.id).await?;
+        let repo_count = repositories.len();
 
         let mut streams = Vec::new();
 
@@ -1544,7 +1654,42 @@ impl ContainerService for LocalContainerService {
         }
 
         if streams.is_empty() {
+            if runtime_diagnostics_enabled() {
+                let snapshot = utils::process_diag::sample_current_process();
+                tracing::info!(
+                    workspace_id = %workspace.id,
+                    stats_only,
+                    repo_count,
+                    target_branch_count = target_branches.len(),
+                    created_stream_count = 0,
+                    rss_mb = utils::process_diag::bytes_to_mb(snapshot.rss_bytes),
+                    vm_size_mb = utils::process_diag::bytes_to_mb(snapshot.virtual_bytes),
+                    threads = snapshot.thread_count,
+                    fds = snapshot.open_fd_count,
+                    child_processes = snapshot.child_process_count,
+                    elapsed_ms = utils::process_diag::elapsed_since_start().as_millis() as u64,
+                    "runtime_diag_stream_diff"
+                );
+            }
             return Ok(Box::pin(futures::stream::empty()));
+        }
+
+        if runtime_diagnostics_enabled() {
+            let snapshot = utils::process_diag::sample_current_process();
+            tracing::info!(
+                workspace_id = %workspace.id,
+                stats_only,
+                repo_count,
+                target_branch_count = target_branches.len(),
+                created_stream_count = streams.len(),
+                rss_mb = utils::process_diag::bytes_to_mb(snapshot.rss_bytes),
+                vm_size_mb = utils::process_diag::bytes_to_mb(snapshot.virtual_bytes),
+                threads = snapshot.thread_count,
+                fds = snapshot.open_fd_count,
+                child_processes = snapshot.child_process_count,
+                elapsed_ms = utils::process_diag::elapsed_since_start().as_millis() as u64,
+                "runtime_diag_stream_diff"
+            );
         }
 
         // Merge all streams into one
@@ -1631,6 +1776,10 @@ impl ContainerService for LocalContainerService {
 
         Ok(())
     }
+}
+
+fn runtime_diagnostics_enabled() -> bool {
+    std::env::var("VK_DEBUG_MEMORY_LOGS").is_ok()
 }
 fn success_exit_status() -> std::process::ExitStatus {
     #[cfg(unix)]

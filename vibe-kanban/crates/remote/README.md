@@ -24,7 +24,6 @@ SELF_HOST_LOCAL_AUTH_PASSWORD=
 # Optional
 PUBLIC_BASE_URL=http://localhost:3000
 VITE_RELAY_API_BASE_URL=http://localhost:8082
-VITE_PUBLIC_REACT_VIRTUOSO_LICENSE_KEY=
 LOOPS_EMAIL_API_KEY=
 
 # Loops transactional email template IDs (optional — defaults are the upstream templates).

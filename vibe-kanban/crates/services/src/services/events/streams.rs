@@ -2,6 +2,7 @@ use db::models::{execution_process::ExecutionProcess, scratch::Scratch, workspac
 use futures::StreamExt;
 use serde_json::json;
 use tokio_stream::wrappers::BroadcastStream;
+use tracing::Instrument;
 use utils::log_msg::LogMsg;
 use uuid::Uuid;
 
@@ -22,9 +23,23 @@ impl EventService {
         super::types::EventError,
     > {
         // Get execution processes for this session
-        let processes =
-            ExecutionProcess::find_by_session_id(&self.db.pool, session_id, show_soft_deleted)
-                .await?;
+        let processes = async {
+            ExecutionProcess::find_by_session_id(&self.db.pool, session_id, show_soft_deleted).await
+        }
+        .instrument(tracing::debug_span!(
+            "events.stream_execution_processes.initial_snapshot",
+            session_id = %session_id,
+            show_soft_deleted = show_soft_deleted,
+        ))
+        .await?;
+        let process_count = processes.len();
+
+        tracing::debug!(
+            session_id = %session_id,
+            show_soft_deleted = show_soft_deleted,
+            process_count = process_count,
+            "events.stream_execution_processes.initial_snapshot_loaded"
+        );
 
         // Convert processes array to object keyed by process ID
         let processes_map: serde_json::Map<String, serde_json::Value> = processes
@@ -233,6 +248,21 @@ impl EventService {
         super::types::EventError,
     > {
         let workspaces = Workspace::find_all_with_status(&self.db.pool, archived, limit).await?;
+        if runtime_diagnostics_enabled() {
+            let snapshot = utils::process_diag::sample_current_process();
+            tracing::info!(
+                archived = archived.unwrap_or(false),
+                limit,
+                initial_workspace_count = workspaces.len(),
+                rss_mb = utils::process_diag::bytes_to_mb(snapshot.rss_bytes),
+                vm_size_mb = utils::process_diag::bytes_to_mb(snapshot.virtual_bytes),
+                threads = snapshot.thread_count,
+                fds = snapshot.open_fd_count,
+                child_processes = snapshot.child_process_count,
+                elapsed_ms = utils::process_diag::elapsed_since_start().as_millis() as u64,
+                "runtime_diag_workspaces_stream_init"
+            );
+        }
         let workspaces_map: serde_json::Map<String, serde_json::Value> = workspaces
             .into_iter()
             .map(|ws| (ws.id.to_string(), serde_json::to_value(ws).unwrap()))
@@ -314,4 +344,8 @@ impl EventService {
         let initial_stream = futures::stream::iter(vec![Ok(initial_msg), Ok(LogMsg::Ready)]);
         Ok(initial_stream.chain(filtered_stream).boxed())
     }
+}
+
+fn runtime_diagnostics_enabled() -> bool {
+    std::env::var("VK_DEBUG_MEMORY_LOGS").is_ok()
 }

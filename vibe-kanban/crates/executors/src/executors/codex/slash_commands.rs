@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 
-use codex_app_server_protocol::{ConfigEdit, JSONRPCNotification, MergeStrategy};
+use codex_app_server_protocol::{
+    ConfigEdit, JSONRPCNotification, JSONRPCResponse, MergeStrategy, RequestId,
+};
 use codex_protocol::{
     config_types::ServiceTier,
     protocol::{AgentMessageEvent, ErrorEvent, EventMsg},
@@ -164,9 +166,15 @@ impl Codex {
                         let fork_response = client
                             .thread_fork(fork_params_from(old_thread_id, thread_start_params))
                             .await?;
-                        let thread_id = fork_response.thread.id;
+                        let thread_id = fork_response.thread.id.clone();
                         tracing::debug!("forked thread for compact, new thread_id={thread_id}");
                         client.thread_compact_start(thread_id).await?;
+                        log_jsonrpc_response(
+                            client.log_writer(),
+                            "vk-compact-thread-fork",
+                            &fork_response,
+                        )
+                        .await?;
                     }
                     CodexSlashCommand::Status => {
                         let message =
@@ -191,7 +199,7 @@ impl Codex {
                             .await
                             .ok()
                             .and_then(|r| r.config.service_tier)
-                            .map(|t| matches!(t, ServiceTier::Fast))
+                            .map(|t| t == ServiceTier::Fast.request_value())
                             .unwrap_or(false);
                         if status {
                             let message = if current_is_fast || session_fast {
@@ -225,7 +233,7 @@ impl Codex {
                         // Fork current session with new tier if one is active
                         if let Some(old_thread_id) = session_id {
                             let service_tier = if want_fast {
-                                Some(Some(ServiceTier::Fast))
+                                Some(Some(ServiceTier::Fast.request_value().to_string()))
                             } else {
                                 Some(None)
                             };
@@ -339,6 +347,21 @@ pub async fn log_event_raw(log_writer: &LogWriter, message: String) -> Result<()
     .await
 }
 
+async fn log_jsonrpc_response<T: serde::Serialize>(
+    log_writer: &LogWriter,
+    id: &str,
+    result: &T,
+) -> Result<(), ExecutorError> {
+    let response = JSONRPCResponse {
+        id: RequestId::String(id.to_string()),
+        result: serde_json::to_value(result)
+            .map_err(|err| ExecutorError::Io(std::io::Error::other(err.to_string())))?,
+    };
+    let raw = serde_json::to_string(&response)
+        .map_err(|err| ExecutorError::Io(std::io::Error::other(err.to_string())))?;
+    log_writer.log_raw(&raw).await
+}
+
 async fn fetch_status_message(
     client: &AppServerClient,
     thread_id: Option<&str>,
@@ -401,7 +424,7 @@ async fn fetch_status_message(
     let global_fast = config_resp
         .as_ref()
         .and_then(|r| r.config.service_tier.as_ref())
-        .map(|t| matches!(t, ServiceTier::Fast))
+        .map(|t| t == ServiceTier::Fast.request_value())
         .unwrap_or(false);
     if global_fast || session_fast {
         lines.push("- **Service Tier**: `fast ⚡`".to_string());
@@ -658,6 +681,7 @@ fn format_mcp_status(servers: &[codex_app_server_protocol::McpServerStatus]) -> 
 
 fn format_mcp_auth_status(status: &codex_app_server_protocol::McpAuthStatus) -> &'static str {
     match status {
+        codex_app_server_protocol::McpAuthStatus::Unknown => "unknown",
         codex_app_server_protocol::McpAuthStatus::Unsupported => "unsupported",
         codex_app_server_protocol::McpAuthStatus::NotLoggedIn => "not logged in",
         codex_app_server_protocol::McpAuthStatus::BearerToken => "bearer token",

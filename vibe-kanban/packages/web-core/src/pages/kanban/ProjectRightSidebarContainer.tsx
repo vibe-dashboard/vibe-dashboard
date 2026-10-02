@@ -290,6 +290,15 @@ function WorkspaceSessionPanel({
                         attempt={workspaceWithSession}
                         onAtBottomChange={handleAtBottomChange}
                         sessionScopeId={selectedSessionId}
+                        previewMode={
+                          selectedSession
+                            ? 'session'
+                            : isSessionsLoading
+                              ? 'workspace'
+                              : isNewSessionMode
+                                ? 'disabled'
+                                : 'workspace'
+                        }
                       />
                     </RetryUiProvider>
                   </div>

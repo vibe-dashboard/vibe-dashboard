@@ -7,6 +7,7 @@ import {
 
 import type { ConversationSemanticProcessItem } from './deriveConversationSemanticTimeline';
 import { deriveConversationSemanticTimeline } from './deriveConversationSemanticTimeline';
+import { getSessionCommandPrompt } from './sessionCommandDisplay';
 import type { ConversationTimelineSource } from '@/shared/hooks/useConversationHistory/types';
 
 type ScriptTurnKind =
@@ -77,9 +78,12 @@ function getPromptFromActionChain(
     if (
       typ.type === 'CodingAgentInitialRequest' ||
       typ.type === 'CodingAgentFollowUpRequest' ||
+      typ.type === 'CodingAgentSessionCommandRequest' ||
       typ.type === 'ReviewRequest'
     ) {
-      return typ.prompt;
+      return typ.type === 'CodingAgentSessionCommandRequest'
+        ? getSessionCommandPrompt(typ)
+        : typ.prompt;
     }
     current = current.next_action;
   }

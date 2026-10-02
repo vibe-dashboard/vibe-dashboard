@@ -1,0 +1,562 @@
+name: Release Binaries
+
+on:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      vk_ref:
+        description: "VK ref/SHA to build or look up. Defaults to the workflow ref."
+        required: false
+        type: string
+      force_rebuild:
+        description: "Rebuild and republish even if the SHA-addressed release already has all required runtime assets."
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: release-binaries-${{ github.event.inputs.vk_ref || github.sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  NODE_VERSION: 22
+  PNPM_VERSION: 10.13.1
+  RUST_TOOLCHAIN: nightly-2025-12-04
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      should_run: ${{ steps.prepare.outputs.should_run }}
+      assets_exist: ${{ steps.preflight.outputs.assets_exist }}
+      checkout_ref: ${{ steps.prepare.outputs.checkout_ref }}
+      target_commitish: ${{ steps.prepare.outputs.target_commitish }}
+      vk_sha: ${{ steps.prepare.outputs.vk_sha }}
+      release_tag: ${{ steps.prepare.outputs.release_tag }}
+      release_name: ${{ steps.prepare.outputs.release_name }}
+      release_body: ${{ steps.prepare.outputs.release_body }}
+      release_draft: ${{ steps.prepare.outputs.release_draft }}
+      release_prerelease: ${{ steps.prepare.outputs.release_prerelease }}
+      generate_release_notes: ${{ steps.prepare.outputs.generate_release_notes }}
+      matrix: ${{ steps.prepare.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve VK ref and prepare release metadata
+        id: prepare
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VK_REF: ${{ github.event.inputs.vk_ref }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          git fetch --force --tags origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+
+          requested_ref="$GITHUB_SHA"
+          if [[ "$EVENT_NAME" == "workflow_dispatch" && -n "${INPUT_VK_REF:-}" ]]; then
+            requested_ref="$INPUT_VK_REF"
+          fi
+
+          if vk_sha="$(git rev-parse "${requested_ref}^{commit}" 2>/dev/null)"; then
+            :
+          elif vk_sha="$(git rev-parse "origin/${requested_ref}^{commit}" 2>/dev/null)"; then
+            :
+          else
+            echo "Unable to resolve VK ref/SHA: ${requested_ref}" >&2
+            exit 1
+          fi
+
+          short_sha="${vk_sha:0:12}"
+          release_tag="vk-assets-${vk_sha}"
+          release_name="VK Runtime Assets (${short_sha})"
+
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
+          echo "checkout_ref=$vk_sha" >> "$GITHUB_OUTPUT"
+          echo "target_commitish=$vk_sha" >> "$GITHUB_OUTPUT"
+          echo "vk_sha=$vk_sha" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "release_name=$release_name" >> "$GITHUB_OUTPUT"
+          echo "release_draft=false" >> "$GITHUB_OUTPUT"
+          echo "release_prerelease=true" >> "$GITHUB_OUTPUT"
+          echo "generate_release_notes=false" >> "$GITHUB_OUTPUT"
+          echo 'matrix<<EOF' >> "$GITHUB_OUTPUT"
+          cat <<'JSON' >> "$GITHUB_OUTPUT"
+          {"include":[
+            {"target":"x86_64-unknown-linux-musl","os":"ubuntu-24.04","name":"linux-x64","archive_ext":"tar.gz","package_format":"tar.gz"},
+            {"target":"aarch64-unknown-linux-musl","os":"ubuntu-24.04-arm","name":"linux-arm64","archive_ext":"tar.gz","package_format":"tar.gz"},
+            {"target":"aarch64-apple-darwin","os":"macos-15","name":"macos-arm64","archive_ext":"tar.gz","package_format":"tar.gz"}
+          ]}
+          JSON
+          echo 'EOF' >> "$GITHUB_OUTPUT"
+          echo 'release_body<<EOF' >> "$GITHUB_OUTPUT"
+          cat <<EOF >> "$GITHUB_OUTPUT"
+          Runtime assets for VK commit ${vk_sha}.
+
+          Deterministic lookup tag: \`${release_tag}\`
+
+          Runtime contract for release consumers:
+          - Linux container consumers should use \`vibe-kanban-linux-x64.tar.gz\` or \`vibe-kanban-linux-arm64.tar.gz\`, selected by container architecture.
+          - macOS ARM consumers should use \`vibe-kanban-macos-arm64.tar.gz\`.
+          - Each archive contains the \`vibe-kanban\` executable, built from the VK \`server\` binary.
+          - The local web UI is embedded into the executable at build time; no separate frontend/dist artifact is required.
+          - The executable creates and uses its normal local data directory at runtime. Containers should provide a writable HOME/XDG data location if persistence is needed; macOS release builds use the platform Application Support data location.
+          - Runtime ports are configured with \`HOST\`, \`PORT\`/\`BACKEND_PORT\`, and optionally \`PREVIEW_PROXY_PORT\`.
+          - \`vibe-kanban-mcp\` is not part of this runtime contract and is not required to run the VK app side.
+
+          Release assets include runtime archives, checksum files, and a machine-readable \`manifest.json\`.
+          EOF
+          echo 'EOF' >> "$GITHUB_OUTPUT"
+
+      - name: Preflight existing release assets
+        id: preflight
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.prepare.outputs.release_tag }}
+          VK_SHA: ${{ steps.prepare.outputs.vk_sha }}
+          FORCE_REBUILD: ${{ github.event.inputs.force_rebuild || 'false' }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$FORCE_REBUILD" == "true" ]]; then
+            echo "assets_exist=false" >> "$GITHUB_OUTPUT"
+            echo "force_rebuild=true; skipping preflight reuse"
+            exit 0
+          fi
+
+          if ! gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' > existing-assets.txt 2>/dev/null; then
+            echo "assets_exist=false" >> "$GITHUB_OUTPUT"
+            echo "release $RELEASE_TAG does not exist yet"
+            exit 0
+          fi
+
+          required_assets=(
+            "manifest.json"
+            "vibe-kanban-linux-x64.tar.gz"
+            "vibe-kanban-linux-x64.tar.gz.sha256"
+            "vibe-kanban-linux-arm64.tar.gz"
+            "vibe-kanban-linux-arm64.tar.gz.sha256"
+            "vibe-kanban-macos-arm64.tar.gz"
+            "vibe-kanban-macos-arm64.tar.gz.sha256"
+          )
+
+          missing=0
+          for asset in "${required_assets[@]}"; do
+            if ! grep -Fxq "$asset" existing-assets.txt; then
+              echo "missing expected asset: $asset"
+              missing=1
+            fi
+          done
+
+          if [[ "$missing" -eq 0 ]]; then
+            echo "assets_exist=true" >> "$GITHUB_OUTPUT"
+            echo "all expected assets already exist for $VK_SHA at $RELEASE_TAG"
+          else
+            echo "assets_exist=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-frontend:
+    needs: prepare
+    if: needs.prepare.outputs.should_run == 'true' && needs.prepare.outputs.assets_exist != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      VITE_PUBLIC_REACT_VIRTUOSO_LICENSE_KEY: ${{ secrets.PUBLIC_REACT_VIRTUOSO_LICENSE_KEY }}
+      VITE_VK_SHARED_API_BASE: ${{ secrets.VK_SHARED_API_BASE }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.checkout_ref }}
+
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        run: cd packages/local-web && npm run build
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          VITE_POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+          VITE_POSTHOG_API_ENDPOINT: ${{ secrets.POSTHOG_API_ENDPOINT }}
+          VITE_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: frontend-dist
+          path: packages/local-web/dist/
+          retention-days: 1
+
+  build-binaries:
+    needs: [prepare, build-frontend]
+    if: needs.prepare.outputs.should_run == 'true' && needs.prepare.outputs.assets_exist != 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      CARGO_PROFILE_RELEASE_DEBUG: "0"
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: sccache
+      SCCACHE_CACHE_SIZE: 10G
+      CARGO_HOME: ${{ github.workspace }}/.cargo
+      RUSTUP_HOME: ${{ github.workspace }}/.rustup
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.checkout_ref }}
+
+      - name: Free up disk space
+        if: runner.os == 'Linux'
+        uses: insightsengineering/disk-space-reclaimer@v1
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          swap-storage: true
+          docker-images: true
+          tools-cache: false
+
+      - name: Setup sccache
+        uses: BloopAI/sccache-action@main
+
+      - name: Cache Rust toolchain
+        uses: actions/cache@v5
+        with:
+          path: .rustup/toolchains
+          key: rust-toolchain-${{ runner.os }}-${{ matrix.target }}-${{ env.RUST_TOOLCHAIN }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ matrix.target }}
+
+      - name: Restore Rust caches
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: "."
+          shared-key: release-binaries-${{ runner.os }}-${{ matrix.target }}
+          cache-provider: github
+          cache-all-crates: "true"
+          cache-on-failure: "true"
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get \
+            -o Acquire::Retries=5 \
+            -o Acquire::ForceIPv4=true \
+            update
+          DEBIAN_FRONTEND=noninteractive sudo apt-get \
+            -o Acquire::Retries=5 \
+            -o Acquire::ForceIPv4=true \
+            install -y --fix-missing \
+            clang libclang-dev lld llvm nasm cmake ninja-build
+
+      - name: Install Zig
+        if: runner.os == 'Linux'
+        uses: BloopAI/setup-zig@main
+        with:
+          version: 0.15.2
+
+      - name: Install cargo zigbuild
+        if: runner.os == 'Linux'
+        uses: taiki-e/cache-cargo-install-action@34ce5120836e5f9f1508d8713d7fdea0e8facd6f # v3.0.1
+        with:
+          tool: cargo-zigbuild
+          git: https://github.com/rust-cross/cargo-zigbuild
+          rev: bbb57ac6a5eb90f53617a5c218fda03080599e4a # v0.20.1
+
+      - name: Download frontend artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: frontend-dist
+          path: packages/local-web/dist/
+
+      - name: Build Linux runtime binary
+        if: runner.os == 'Linux'
+        run: |
+          cargo zigbuild --locked --release --target ${{ matrix.target }} \
+            -p server --bin server
+        env:
+          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+          POSTHOG_API_ENDPOINT: ${{ secrets.POSTHOG_API_ENDPOINT }}
+          VK_SHARED_API_BASE: ${{ secrets.VK_SHARED_API_BASE }}
+          VK_SHARED_RELAY_API_BASE: ${{ secrets.VK_SHARED_RELAY_API_BASE }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          VK_BUILD_COMMIT_HASH: ${{ needs.prepare.outputs.vk_sha }}
+
+      - name: Build macOS runtime binary
+        if: runner.os == 'macOS'
+        run: |
+          export MACOSX_DEPLOYMENT_TARGET=11.0
+          cargo build --locked --release --target ${{ matrix.target }} \
+            -p server --bin server
+        env:
+          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+          POSTHOG_API_ENDPOINT: ${{ secrets.POSTHOG_API_ENDPOINT }}
+          VK_SHARED_API_BASE: ${{ secrets.VK_SHARED_API_BASE }}
+          VK_SHARED_RELAY_API_BASE: ${{ secrets.VK_SHARED_RELAY_API_BASE }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          VK_BUILD_COMMIT_HASH: ${{ needs.prepare.outputs.vk_sha }}
+
+      - name: Prepare package directory
+        run: |
+          mkdir -p package dist
+          cp target/${{ matrix.target }}/release/server package/vibe-kanban
+          chmod 755 package/vibe-kanban
+
+      - name: Package runtime artifact
+        run: |
+          tar -C package -czf dist/vibe-kanban-${{ matrix.name }}.tar.gz vibe-kanban
+
+      - name: Generate checksums
+        run: |
+          node <<'EOF'
+          const crypto = require('crypto');
+          const fs = require('fs');
+          const path = require('path');
+
+          for (const file of fs.readdirSync('dist')) {
+            const fullPath = path.join('dist', file);
+            if (!fs.statSync(fullPath).isFile() || file.endsWith('.sha256')) {
+              continue;
+            }
+            const sha256 = crypto
+              .createHash('sha256')
+              .update(fs.readFileSync(fullPath))
+              .digest('hex');
+            fs.writeFileSync(`${fullPath}.sha256`, `${sha256}  ${file}\n`);
+          }
+          EOF
+
+      - name: Upload packaged artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-assets-${{ matrix.name }}
+          path: dist/
+          retention-days: 1
+          compression-level: 0
+
+  publish-release:
+    needs: [prepare, build-binaries]
+    if: needs.prepare.outputs.should_run == 'true' && needs.prepare.outputs.assets_exist != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Download packaged artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: release-assets-*
+          path: release-assets/
+          merge-multiple: true
+
+      - name: Generate manifest
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          VK_SHA: ${{ needs.prepare.outputs.vk_sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          node <<'EOF'
+          const fs = require('fs');
+          const path = require('path');
+
+          const dir = 'release-assets';
+          const releaseTag = process.env.RELEASE_TAG;
+          const vkSha = process.env.VK_SHA;
+          const repository = process.env.REPOSITORY;
+          const releaseBaseUrl = `https://github.com/${repository}/releases/download/${releaseTag}`;
+          const manifest = {
+            schema_version: 1,
+            release_tag: releaseTag,
+            vk_sha: vkSha,
+            commit: vkSha,
+            mode: 'standalone-runtime-assets',
+            generated_at: new Date().toISOString(),
+            release_url: `https://github.com/${repository}/releases/tag/${releaseTag}`,
+            asset_naming: {
+              release_tag: 'vk-assets-<full_vk_sha>',
+              archive: 'vibe-kanban-<platform>.tar.gz',
+              checksum: 'vibe-kanban-<platform>.tar.gz.sha256',
+            },
+            runtime_contract: {
+              consumer: 'vibe-dashboard',
+              required_binary: 'vibe-kanban',
+              optional_binaries: [],
+              frontend_embedded: true,
+              mcp_binary_included: false,
+              notes: [
+                'The vibe-kanban executable is the server binary with packages/local-web/dist embedded at build time.',
+                'No separate frontend assets are required to run the VK app side.',
+                'The runtime environment must provide a writable data directory/home if VK state should persist.',
+                'macOS release builds use the platform Application Support data location for the local SQLite database.',
+                'Configure bind address with HOST and PORT/BACKEND_PORT; PREVIEW_PROXY_PORT is optional.',
+                'Agent CLIs/tools invoked by VK remain external runtime dependencies.',
+              ],
+            },
+            required_assets: [
+              'manifest.json',
+              'vibe-kanban-linux-x64.tar.gz',
+              'vibe-kanban-linux-x64.tar.gz.sha256',
+              'vibe-kanban-linux-arm64.tar.gz',
+              'vibe-kanban-linux-arm64.tar.gz.sha256',
+              'vibe-kanban-macos-arm64.tar.gz',
+              'vibe-kanban-macos-arm64.tar.gz.sha256',
+            ],
+            platforms: {},
+          };
+
+          const entries = fs.readdirSync(dir).sort();
+          for (const file of entries) {
+            if (file.endsWith('.sha256')) continue;
+
+            const match = file.match(/^(vibe-kanban)-((?:linux)-(?:x64|arm64)|macos-arm64)\.tar\.gz$/);
+            if (!match) continue;
+
+            const [, binaryName, platform] = match;
+            const fullPath = path.join(dir, file);
+            const shaPath = `${fullPath}.sha256`;
+            const shaLine = fs.readFileSync(shaPath, 'utf8').trim();
+            const sha256 = shaLine.split(/\s+/)[0];
+            const size = fs.statSync(fullPath).size;
+
+            const [osName, archName] = platform.split('-');
+
+            manifest.platforms[platform] = {
+              arch: archName === 'x64' ? 'amd64' : 'arm64',
+              os: osName,
+              assets: {
+                [binaryName]: {
+                  file,
+                  download_url: `${releaseBaseUrl}/${file}`,
+                  sha256,
+                  size,
+                  archive_format: 'tar.gz',
+                  contains: ['vibe-kanban'],
+                },
+              },
+            };
+          }
+
+          for (const asset of manifest.required_assets) {
+            if (asset === 'manifest.json') continue;
+            if (!entries.includes(asset)) {
+              throw new Error(`Missing required release asset: ${asset}`);
+            }
+          }
+
+          fs.writeFileSync(
+            path.join(dir, 'manifest.json'),
+            JSON.stringify(manifest, null, 2) + '\n'
+          );
+          EOF
+
+      - name: Create or update GitHub Release
+        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.release_tag }}
+          target_commitish: ${{ needs.prepare.outputs.target_commitish }}
+          name: ${{ needs.prepare.outputs.release_name }}
+          body: ${{ needs.prepare.outputs.release_body }}
+          draft: ${{ needs.prepare.outputs.release_draft == 'true' }}
+          prerelease: ${{ needs.prepare.outputs.release_prerelease == 'true' }}
+          generate_release_notes: ${{ needs.prepare.outputs.generate_release_notes == 'true' }}
+          overwrite_files: true
+          files: |
+            release-assets/*
+
+  dispatch-vd-publish:
+    needs: [prepare, publish-release]
+    if: >-
+      ${{
+        always() &&
+        needs.prepare.outputs.should_run == 'true' &&
+        (needs.prepare.outputs.assets_exist == 'true' || needs.publish-release.result == 'success')
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch VD VK/VD Docker publish
+        env:
+          GH_TOKEN: ${{ secrets.VD_REPOSITORY_DISPATCH_TOKEN }}
+          VD_REPOSITORY: ${{ vars.VD_REPOSITORY || 'mickmister/vibe-dashboard' }}
+          VK_REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
+          VK_SHA: ${{ needs.prepare.outputs.vk_sha }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          RELEASE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ needs.prepare.outputs.release_tag }}
+          WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          VK_SOURCE_REF: ${{ github.ref }}
+          VK_SOURCE_REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "Missing VD_REPOSITORY_DISPATCH_TOKEN secret; cannot dispatch VD publish workflow." >&2
+            exit 1
+          fi
+
+          jq -n \
+            --arg event_type "vk-release-assets-ready" \
+            --arg vk_sha "$VK_SHA" \
+            --arg vk_ref "$VK_SHA" \
+            --arg vk_repo_url "$VK_REPO_URL" \
+            --arg release_tag "$RELEASE_TAG" \
+            --arg release_url "$RELEASE_URL" \
+            --arg workflow_run_url "$WORKFLOW_RUN_URL" \
+            --arg vk_source_ref "$VK_SOURCE_REF" \
+            --arg vk_source_ref_name "$VK_SOURCE_REF_NAME" \
+            '{
+              event_type: $event_type,
+              client_payload: {
+                vk_sha: $vk_sha,
+                vk_ref: $vk_ref,
+                vk_repo_url: $vk_repo_url,
+                release_tag: $release_tag,
+                release_url: $release_url,
+                workflow_run_url: $workflow_run_url,
+                vk_source_ref: $vk_source_ref,
+                vk_source_ref_name: $vk_source_ref_name
+              }
+            }' > dispatch-payload.json
+
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${VD_REPOSITORY}/dispatches" \
+            --input dispatch-payload.json
+
+          {
+            echo "### VD publish dispatch"
+            echo
+            echo "- Target repository: \`${VD_REPOSITORY}\`"
+            echo "- VK SHA: \`${VK_SHA}\`"
+            echo "- VK source ref: \`${VK_SOURCE_REF}\`"
+            echo "- VK release: ${RELEASE_URL}"
+            echo "- VK workflow run: ${WORKFLOW_RUN_URL}"
+            echo
+            echo "If this step fails, verify that \`VD_REPOSITORY_DISPATCH_TOKEN\` can create repository dispatch events in \`${VD_REPOSITORY}\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "Dispatched vk-release-assets-ready to ${VD_REPOSITORY} for ${VK_SHA}."

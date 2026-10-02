@@ -7,6 +7,7 @@ import { DropdownMenuItem, DropdownMenuLabel } from './Dropdown';
 import { PrimaryButton } from './PrimaryButton';
 import type { LocalAttachmentMetadata } from './WorkspaceContext';
 import { ToolbarDropdown, ToolbarIconButton } from './Toolbar';
+import type { ChatViewMode } from './SessionChatBox';
 
 export interface EditorProps {
   value: string;
@@ -56,6 +57,8 @@ export interface CreateChatBoxEditorRenderProps<
 }
 
 interface CreateChatBoxProps<TExecutor extends string = string> {
+  chatViewMode?: ChatViewMode;
+  chatViewModeSelector?: ReactNode;
   editor: EditorProps;
   renderEditor: (props: CreateChatBoxEditorRenderProps<TExecutor>) => ReactNode;
   agentIcon?: ReactNode;
@@ -79,10 +82,6 @@ interface CreateChatBoxProps<TExecutor extends string = string> {
   linkedIssue?: LinkedIssueBadgeProps | null;
 }
 
-/**
- * Lightweight chat box for create mode.
- * Supports sending and attachments - no queue, stop, or feedback functionality.
- */
 function defaultExecutorLabel(executor: string) {
   return executor
     .replace(/[_-]+/g, ' ')
@@ -91,6 +90,8 @@ function defaultExecutorLabel(executor: string) {
 }
 
 export function CreateChatBox<TExecutor extends string = string>({
+  chatViewMode = 'full',
+  chatViewModeSelector,
   editor,
   renderEditor,
   agentIcon,
@@ -117,6 +118,7 @@ export function CreateChatBox<TExecutor extends string = string>({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isDisabled = disabled || isSending;
   const canSend = editor.value.trim().length > 0 && !isDisabled;
+  const isMinimalZen = chatViewMode === 'zen';
 
   const handleCmdEnter = () => {
     if (canSend) {
@@ -140,6 +142,30 @@ export function CreateChatBox<TExecutor extends string = string>({
     ? formatExecutorLabel(executor.selected)
     : emptyExecutorLabel;
 
+  const repoSummaryNode = (
+    <button
+      type="button"
+      onClick={onEditRepos}
+      title={repoSummaryTitle}
+      disabled={isDisabled}
+      className="max-w-[320px] truncate text-sm text-normal hover:text-high disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {repoSummaryLabel}
+    </button>
+  );
+  const footerActionContent = (
+    <PrimaryButton
+      onClick={onSend}
+      disabled={!canSend}
+      actionIcon={isSending ? 'spinner' : undefined}
+      value={
+        isSending
+          ? t('tasks:conversation.workspace.creating')
+          : t('tasks:conversation.workspace.create')
+      }
+    />
+  );
+
   return (
     <ChatBoxBase
       editor={renderEditor({
@@ -156,97 +182,84 @@ export function CreateChatBox<TExecutor extends string = string>({
       error={error}
       visualVariant={VisualVariant.NORMAL}
       dropzone={dropzone}
-      modelSelector={modelSelector}
+      modelSelector={isMinimalZen ? undefined : modelSelector}
       headerLeft={
-        <>
-          {agentIcon}
-          <ToolbarDropdown label={executorLabel} disabled={isDisabled}>
-            <DropdownMenuLabel>
-              {t('tasks:conversation.executors')}
-            </DropdownMenuLabel>
-            {executor.options.map((exec) => (
-              <DropdownMenuItem
-                key={exec}
-                icon={executor.selected === exec ? CheckIcon : undefined}
-                onClick={() => executor.onChange(exec)}
-              >
-                {formatExecutorLabel(exec)}
-              </DropdownMenuItem>
-            ))}
-          </ToolbarDropdown>
-          {saveAsDefault?.visible && (
-            <label className="flex items-center gap-1.5 text-sm text-low cursor-pointer ml-2">
-              <Checkbox
-                checked={saveAsDefault.checked}
-                onCheckedChange={saveAsDefault.onChange}
-                className="h-3.5 w-3.5"
-                disabled={isDisabled}
-              />
-              <span>{t('tasks:conversation.saveAsDefault')}</span>
-            </label>
-          )}
-        </>
+        isMinimalZen ? undefined : (
+          <>
+            {agentIcon}
+            <ToolbarDropdown label={executorLabel} disabled={isDisabled}>
+              <DropdownMenuLabel>
+                {t('tasks:conversation.executors')}
+              </DropdownMenuLabel>
+              {executor.options.map((exec) => (
+                <DropdownMenuItem
+                  key={exec}
+                  icon={executor.selected === exec ? CheckIcon : undefined}
+                  onClick={() => executor.onChange(exec)}
+                >
+                  {formatExecutorLabel(exec)}
+                </DropdownMenuItem>
+              ))}
+            </ToolbarDropdown>
+            {saveAsDefault?.visible && (
+              <label className="ml-2 flex cursor-pointer items-center gap-1.5 text-sm text-low">
+                <Checkbox
+                  checked={saveAsDefault.checked}
+                  onCheckedChange={saveAsDefault.onChange}
+                  className="h-3.5 w-3.5"
+                  disabled={isDisabled}
+                />
+                <span>{t('tasks:conversation.saveAsDefault')}</span>
+              </label>
+            )}
+          </>
+        )
       }
+      headerRight={undefined}
       footerLeft={
         <>
-          <ToolbarIconButton
-            icon={PaperclipIcon}
-            aria-label={t('tasks:taskFormDialog.attachFile')}
-            title={t('tasks:taskFormDialog.attachFile')}
-            onClick={handleAttachClick}
-            disabled={isDisabled}
-          />
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={handleFileInputChange}
-          />
-          <button
-            type="button"
-            onClick={onEditRepos}
-            title={repoSummaryTitle}
-            disabled={isDisabled}
-            className="max-w-[320px] truncate text-sm text-normal hover:text-high disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {repoSummaryLabel}
-          </button>
-          {linkedIssue && (
+          {!isMinimalZen && (
             <>
-              <div
-                className="inline-flex items-center gap-half whitespace-nowrap text-sm text-low"
-                title={linkedIssue.title}
-              >
-                <span className="font-mono text-xs text-normal">
-                  {linkedIssue.simpleId}
-                </span>
-                <button
-                  type="button"
-                  onClick={linkedIssue.onRemove}
-                  disabled={isDisabled}
-                  className="inline-flex items-center text-low hover:text-error transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-                  aria-label={`Remove link to ${linkedIssue.simpleId}`}
-                >
-                  <XIcon className="size-icon-xs" weight="bold" />
-                </button>
-              </div>
+              <ToolbarIconButton
+                icon={PaperclipIcon}
+                aria-label={t('tasks:taskFormDialog.attachFile')}
+                title={t('tasks:taskFormDialog.attachFile')}
+                onClick={handleAttachClick}
+                disabled={isDisabled}
+              />
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={handleFileInputChange}
+              />
             </>
+          )}
+          {repoSummaryNode}
+          {chatViewModeSelector}
+          {linkedIssue && (
+            <div
+              className="inline-flex items-center gap-half whitespace-nowrap text-sm text-low"
+              title={linkedIssue.title}
+            >
+              <span className="font-mono text-xs text-normal">
+                {linkedIssue.simpleId}
+              </span>
+              <button
+                type="button"
+                onClick={linkedIssue.onRemove}
+                disabled={isDisabled}
+                className="inline-flex items-center text-low transition-colors hover:text-error disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label={`Remove link to ${linkedIssue.simpleId}`}
+              >
+                <XIcon className="size-icon-xs" weight="bold" />
+              </button>
+            </div>
           )}
         </>
       }
-      footerRight={
-        <PrimaryButton
-          onClick={onSend}
-          disabled={!canSend}
-          actionIcon={isSending ? 'spinner' : undefined}
-          value={
-            isSending
-              ? t('tasks:conversation.workspace.creating')
-              : t('tasks:conversation.workspace.create')
-          }
-        />
-      }
+      footerRight={footerActionContent}
     />
   );
 }

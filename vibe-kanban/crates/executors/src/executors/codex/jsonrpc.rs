@@ -10,7 +10,7 @@ use std::{
     fmt::Debug,
     io,
     sync::{
-        Arc,
+        Arc, OnceLock,
         atomic::{AtomicI64, Ordering},
     },
 };
@@ -19,6 +19,8 @@ use async_trait::async_trait;
 use codex_app_server_protocol::{
     JSONRPCError, JSONRPCMessage, JSONRPCNotification, JSONRPCRequest, JSONRPCResponse, RequestId,
 };
+use codex_protocol::protocol::W3cTraceContext;
+use opentelemetry::trace::TraceContextExt;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use tokio::{
@@ -27,8 +29,71 @@ use tokio::{
     sync::{Mutex, oneshot},
 };
 use tokio_util::sync::CancellationToken;
+use tracing::Instrument;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::executors::{ExecutorError, ExecutorExitResult};
+
+fn perf_agent_startup_tracing_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(workspace_utils::perf_trace::enabled)
+}
+
+fn request_id_attr(request_id: &RequestId) -> String {
+    match request_id {
+        RequestId::Integer(id) => id.to_string(),
+        RequestId::String(id) => id.clone(),
+    }
+}
+
+fn current_span_trace_context() -> Option<W3cTraceContext> {
+    let context = tracing::Span::current().context();
+    let span_context = context.span().span_context().clone();
+    if !span_context.is_valid() {
+        return None;
+    }
+
+    Some(W3cTraceContext {
+        traceparent: Some(format!(
+            "00-{}-{}-{:02x}",
+            span_context.trace_id(),
+            span_context.span_id(),
+            span_context.trace_flags().to_u8()
+        )),
+        tracestate: {
+            let header = span_context.trace_state().header();
+            (!header.is_empty()).then_some(header)
+        },
+    })
+}
+
+fn encode_request_with_trace<T>(
+    request_id: RequestId,
+    message: &T,
+    trace: Option<W3cTraceContext>,
+) -> io::Result<String>
+where
+    T: Serialize + Sync,
+{
+    let mut value =
+        serde_json::to_value(message).map_err(|err| io::Error::other(err.to_string()))?;
+    let method = value
+        .get("method")
+        .and_then(Value::as_str)
+        .ok_or_else(|| io::Error::other("JSON-RPC request missing method"))?
+        .to_string();
+    let params = value
+        .as_object_mut()
+        .and_then(|object| object.remove("params"));
+
+    serde_json::to_string(&JSONRPCRequest {
+        id: request_id,
+        method,
+        params,
+        trace,
+    })
+    .map_err(|err| io::Error::other(err.to_string()))
+}
 
 #[derive(Debug)]
 pub enum PendingResponse {
@@ -80,6 +145,7 @@ impl JsonRpcPeer {
         let reader_peer = peer.clone();
         let callbacks = callbacks.clone();
 
+        let reader_span = tracing::Span::current();
         tokio::spawn(async move {
             let mut reader = BufReader::new(stdout);
             let mut buffer = String::new();
@@ -168,7 +234,7 @@ impl JsonRpcPeer {
 
             exit_tx.send_exit_signal(ExecutorExitResult::Success).await;
             let _ = reader_peer.shutdown().await;
-        });
+        }.instrument(reader_span));
 
         peer
     }
@@ -217,6 +283,88 @@ impl JsonRpcPeer {
         R: DeserializeOwned + Debug,
         T: Serialize + Sync,
     {
+        if perf_agent_startup_tracing_enabled() {
+            let request_id_value = request_id_attr(&request_id);
+            let span = tracing::debug_span!(
+                target: "perf.agent_startup",
+                "codex.rpc.request",
+                rpc_method = label,
+                rpc_request_id = %request_id_value,
+            );
+            return async move {
+                tracing::debug!(
+                    target: "perf.agent_startup",
+                    rpc_method = label,
+                    rpc_request_id = %request_id_value,
+                    "codex.rpc.register_pending"
+                );
+                let receiver = self.register(request_id.clone()).await;
+
+                tracing::debug!(
+                    target: "perf.agent_startup",
+                    rpc_method = label,
+                    rpc_request_id = %request_id_value,
+                    "codex.rpc.serialize"
+                );
+                let trace = current_span_trace_context();
+                let raw = encode_request_with_trace(request_id.clone(), message, trace).map_err(
+                    |err| {
+                        tracing::debug!(
+                            target: "perf.agent_startup",
+                            rpc_method = label,
+                            rpc_request_id = %request_id_value,
+                            error = %err,
+                            "codex.rpc.serialize_failed"
+                        );
+                        ExecutorError::Io(io::Error::other(err.to_string()))
+                    },
+                )?;
+
+                tracing::debug!(
+                    target: "perf.agent_startup",
+                    rpc_method = label,
+                    rpc_request_id = %request_id_value,
+                    rpc_request_bytes = raw.len(),
+                    "codex.rpc.stdin_write"
+                );
+                self.send_raw(&raw).await.inspect_err(|err| {
+                    tracing::debug!(
+                        target: "perf.agent_startup",
+                        rpc_method = label,
+                        rpc_request_id = %request_id_value,
+                        error = %err,
+                        "codex.rpc.stdin_write_failed"
+                    );
+                })?;
+
+                tracing::debug!(
+                    target: "perf.agent_startup",
+                    rpc_method = label,
+                    rpc_request_id = %request_id_value,
+                    "codex.rpc.await_response"
+                );
+                let response = await_response(receiver, label, cancel).await;
+                match &response {
+                    Ok(_) => tracing::debug!(
+                        target: "perf.agent_startup",
+                        rpc_method = label,
+                        rpc_request_id = %request_id_value,
+                        "codex.rpc.response_deserialized"
+                    ),
+                    Err(err) => tracing::debug!(
+                        target: "perf.agent_startup",
+                        rpc_method = label,
+                        rpc_request_id = %request_id_value,
+                        error = %err,
+                        "codex.rpc.request_failed"
+                    ),
+                }
+                response
+            }
+            .instrument(span)
+            .await;
+        }
+
         let receiver = self.register(request_id).await;
         self.send(message).await?;
         await_response(receiver, label, cancel).await
@@ -246,6 +394,13 @@ where
 {
     let response = tokio::select! {
         _ = cancel.cancelled() => {
+            if perf_agent_startup_tracing_enabled() {
+                tracing::debug!(
+                    target: "perf.agent_startup",
+                    rpc_method = label,
+                    "codex.rpc.await_cancelled"
+                );
+            }
             return Err(ExecutorError::Io(io::Error::other(format!(
                 "{label} request cancelled",
             ))));
@@ -254,21 +409,72 @@ where
     };
 
     match response {
-        Ok(PendingResponse::Result(value)) => serde_json::from_value(value).map_err(|err| {
-            ExecutorError::Io(io::Error::other(format!(
-                "failed to decode {label} response: {err}",
-            )))
-        }),
-        Ok(PendingResponse::Error(error)) => Err(ExecutorError::Io(io::Error::other(format!(
-            "{label} request failed: {}",
-            error.error.message
-        )))),
-        Ok(PendingResponse::Shutdown) => Err(ExecutorError::Io(io::Error::other(format!(
-            "server was shutdown while waiting for {label} response",
-        )))),
-        Err(_) => Err(ExecutorError::Io(io::Error::other(format!(
-            "{label} request was dropped",
-        )))),
+        Ok(PendingResponse::Result(value)) => {
+            if perf_agent_startup_tracing_enabled() {
+                tracing::debug!(
+                    target: "perf.agent_startup",
+                    rpc_method = label,
+                    "codex.rpc.response_received"
+                );
+                tracing::debug!(
+                    target: "perf.agent_startup",
+                    rpc_method = label,
+                    "codex.rpc.deserialize_response"
+                );
+            }
+            serde_json::from_value(value).map_err(|err| {
+                if perf_agent_startup_tracing_enabled() {
+                    tracing::debug!(
+                        target: "perf.agent_startup",
+                        rpc_method = label,
+                        error = %err,
+                        "codex.rpc.deserialize_failed"
+                    );
+                }
+                ExecutorError::Io(io::Error::other(format!(
+                    "failed to decode {label} response: {err}",
+                )))
+            })
+        }
+        Ok(PendingResponse::Error(error)) => {
+            if perf_agent_startup_tracing_enabled() {
+                tracing::debug!(
+                    target: "perf.agent_startup",
+                    rpc_method = label,
+                    rpc_error_code = error.error.code,
+                    rpc_error_message_len = error.error.message.len(),
+                    "codex.rpc.error_response"
+                );
+            }
+            Err(ExecutorError::Io(io::Error::other(format!(
+                "{label} request failed: {}",
+                error.error.message
+            ))))
+        }
+        Ok(PendingResponse::Shutdown) => {
+            if perf_agent_startup_tracing_enabled() {
+                tracing::debug!(
+                    target: "perf.agent_startup",
+                    rpc_method = label,
+                    "codex.rpc.await_shutdown"
+                );
+            }
+            Err(ExecutorError::Io(io::Error::other(format!(
+                "server was shutdown while waiting for {label} response",
+            ))))
+        }
+        Err(_) => {
+            if perf_agent_startup_tracing_enabled() {
+                tracing::debug!(
+                    target: "perf.agent_startup",
+                    rpc_method = label,
+                    "codex.rpc.await_dropped"
+                );
+            }
+            Err(ExecutorError::Io(io::Error::other(format!(
+                "{label} request was dropped",
+            ))))
+        }
     }
 }
 
@@ -303,4 +509,47 @@ pub trait JsonRpcCallbacks: Send + Sync {
     ) -> Result<bool, ExecutorError>;
 
     async fn on_non_json(&self, _raw: &str) -> Result<(), ExecutorError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use serde::Serialize;
+
+    use super::*;
+
+    #[derive(Serialize)]
+    struct TestRequest {
+        method: &'static str,
+        id: RequestId,
+        params: serde_json::Value,
+    }
+
+    #[test]
+    fn encode_request_with_trace_wraps_typed_request_in_jsonrpc_envelope() {
+        let raw = encode_request_with_trace(
+            RequestId::Integer(7),
+            &TestRequest {
+                method: "thread/fork",
+                id: RequestId::Integer(7),
+                params: serde_json::json!({ "threadId": "thread-1" }),
+            },
+            Some(W3cTraceContext {
+                traceparent: Some(
+                    "00-00000000000000000000000000000001-0000000000000002-01".to_string(),
+                ),
+                tracestate: Some("vk=1".to_string()),
+            }),
+        )
+        .expect("request should encode");
+
+        let value: serde_json::Value = serde_json::from_str(&raw).expect("valid JSON");
+        assert_eq!(value["id"], 7);
+        assert_eq!(value["method"], "thread/fork");
+        assert_eq!(value["params"]["threadId"], "thread-1");
+        assert_eq!(
+            value["trace"]["traceparent"],
+            "00-00000000000000000000000000000001-0000000000000002-01"
+        );
+        assert_eq!(value["trace"]["tracestate"], "vk=1");
+    }
 }

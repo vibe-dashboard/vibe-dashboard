@@ -11,6 +11,7 @@ import {
   type ConversationScriptTurn,
   type ConversationTurn,
 } from './deriveConversationTurns';
+import { getSessionCommandType } from './sessionCommandDisplay';
 
 export interface DerivedConversationEntriesResult {
   readonly entries: PatchTypeWithKey[];
@@ -167,8 +168,19 @@ export function deriveConversationEntries({
     const turnEntries: PatchTypeWithKey[] = [];
 
     if (isAgentTurn(turn)) {
+      const sessionCommandType = getSessionCommandType(
+        turn.process.executionProcess.executor_action.typ
+      );
       if (turn.latestTokenUsageInfo) {
         latestTokenUsageInfo = turn.latestTokenUsageInfo;
+      } else if (sessionCommandType) {
+        latestTokenUsageInfo =
+          sessionCommandType === 'clear' && latestTokenUsageInfo
+            ? {
+                total_tokens: 0,
+                model_context_window: latestTokenUsageInfo.model_context_window,
+              }
+            : null;
       }
 
       if (turn.kind === 'agent_pending_approval') {

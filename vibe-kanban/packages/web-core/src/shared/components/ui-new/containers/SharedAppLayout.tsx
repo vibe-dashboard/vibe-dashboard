@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DropResult } from '@hello-pangea/dnd';
-import { Outlet, useNavigate, useParams } from '@tanstack/react-router';
+import {
+  Outlet,
+  useLocation,
+  useNavigate,
+  useParams,
+} from '@tanstack/react-router';
 import { siDiscord, siGithub } from 'simple-icons';
 import {
   XIcon,
@@ -59,11 +64,13 @@ import { CloudShutdownExportBanner } from '@/shared/components/CloudShutdownExpo
 export function SharedAppLayout() {
   const appNavigation = useAppNavigation();
   const currentDestination = useCurrentAppDestination();
+  const location = useLocation();
   const isMobile = useIsMobile();
   const mobileFontScale = useUiPreferencesStore((s) => s.mobileFontScale);
   const isLeftSidebarVisible = useUiPreferencesStore(
     (s) => s.isLeftSidebarVisible
   );
+  const chatViewMode = useUiPreferencesStore((s) => s.chatViewMode);
   const { isSignedIn } = useAuth();
   const { appVersion } = useUserSystem();
   const updateVersion = useAppUpdateStore((s) => s.updateVersion);
@@ -177,6 +184,11 @@ export function SharedAppLayout() {
     isExportActive || (isSignedIn && isProjectDestination(currentDestination));
   const isWorkspaceSidebarPreviewEnabled =
     !isMobile && isWorkspacesActive && !isLeftSidebarVisible;
+  const isZenSupportedRoute = /\/workspaces(?:\/create|\/[^/]+)(?:\/|$)/.test(
+    location.pathname
+  );
+  const isZenShellActive =
+    !isMobile && chatViewMode !== 'full' && isZenSupportedRoute;
   const activeProjectId = projectDestination?.projectId ?? null;
   const activeHostId =
     getDestinationHostId(currentDestination) ?? routeHostId ?? null;
@@ -303,74 +315,93 @@ export function SharedAppLayout() {
           'bg-primary',
           isMobile
             ? 'flex fixed inset-0 pb-[env(safe-area-inset-bottom)]'
-            : cn(
-                'grid grid-cols-[auto_1fr] h-screen',
-                showCloudShutdownBanner
-                  ? 'grid-rows-[auto_auto_1fr]'
-                  : 'grid-rows-[auto_1fr]'
-              )
+            : isZenShellActive
+              ? cn(
+                  'grid h-screen grid-cols-[1fr]',
+                  showCloudShutdownBanner
+                    ? 'grid-rows-[auto_1fr]'
+                    : 'grid-rows-[1fr]'
+                )
+              : cn(
+                  'grid grid-cols-[auto_1fr] h-screen',
+                  showCloudShutdownBanner
+                    ? 'grid-rows-[auto_auto_1fr]'
+                    : 'grid-rows-[auto_1fr]'
+                )
         )}
       >
         {!isMobile && (
           <>
             {showCloudShutdownBanner && (
-              <div className="col-span-2">
+              <div
+                className={cn(isZenShellActive ? 'col-span-1' : 'col-span-2')}
+              >
                 <CloudShutdownExportBanner onClick={handleExportClick} />
               </div>
             )}
-            {/* Desktop corner spacer. */}
-            <div
-              data-tauri-drag-region
-              className="bg-secondary"
-              style={isTauriMac() ? { minWidth: 56 } : undefined}
-            />
-            {/* Desktop navbar. */}
-            <NavbarContainer
-              onOrgSelect={setSelectedOrgId}
-              onOpenDrawer={() => setIsDrawerOpen(true)}
-            />
-            {/* Desktop AppBar sidebar. */}
-            <AppBar
-              projects={orderedProjects}
-              hosts={remoteCloudHosts}
-              activeHostId={activeHostId}
-              onCreateProject={handleCreateProject}
-              onExportClick={handleExportClick}
-              onWorkspacesClick={handleWorkspacesClick}
-              onHostClick={handleHostClick}
-              onPairHostClick={handlePairHostClick}
-              onProjectClick={handleProjectClick}
-              onProjectsDragEnd={handleProjectsDragEnd}
-              isSavingProjectOrder={isSavingProjectOrder}
-              isWorkspacesActive={isWorkspacesActive}
-              isExportActive={isExportActive}
-              activeProjectId={activeProjectId}
-              isSignedIn={isSignedIn}
-              isLoadingProjects={isLoading}
-              onSignIn={handleSignIn}
-              onHoverStart={() => setIsAppBarHovered(true)}
-              onHoverEnd={() => setIsAppBarHovered(false)}
-              notificationBell={
-                isSignedIn ? <AppBarNotificationBellContainer /> : undefined
-              }
-              userPopover={
-                <AppBarUserPopoverContainer
-                  organizations={organizations}
-                  selectedOrgId={selectedOrgId ?? ''}
-                  onOrgSelect={setSelectedOrgId}
+            {!isZenShellActive && (
+              <>
+                {/* Desktop corner spacer. */}
+                <div
+                  data-tauri-drag-region
+                  className="bg-secondary"
+                  style={isTauriMac() ? { minWidth: 56 } : undefined}
                 />
-              }
-              starCount={starCount}
-              onlineCount={onlineCount}
-              appVersion={appVersion}
-              updateVersion={updateVersion}
-              onUpdateClick={restartForUpdate ?? undefined}
-              githubIconPath={siGithub.path}
-              discordIconPath={siDiscord.path}
-            />
+                {/* Desktop navbar. */}
+                <NavbarContainer
+                  onOrgSelect={setSelectedOrgId}
+                  onOpenDrawer={() => setIsDrawerOpen(true)}
+                />
+                {/* Desktop AppBar sidebar. */}
+                <AppBar
+                  projects={orderedProjects}
+                  hosts={remoteCloudHosts}
+                  activeHostId={activeHostId}
+                  onCreateProject={handleCreateProject}
+                  onExportClick={handleExportClick}
+                  onWorkspacesClick={handleWorkspacesClick}
+                  onHostClick={handleHostClick}
+                  onPairHostClick={handlePairHostClick}
+                  onProjectClick={handleProjectClick}
+                  onProjectsDragEnd={handleProjectsDragEnd}
+                  isSavingProjectOrder={isSavingProjectOrder}
+                  isWorkspacesActive={isWorkspacesActive}
+                  isExportActive={isExportActive}
+                  activeProjectId={activeProjectId}
+                  isSignedIn={isSignedIn}
+                  isLoadingProjects={isLoading}
+                  onSignIn={handleSignIn}
+                  onHoverStart={() => setIsAppBarHovered(true)}
+                  onHoverEnd={() => setIsAppBarHovered(false)}
+                  notificationBell={
+                    isSignedIn ? <AppBarNotificationBellContainer /> : undefined
+                  }
+                  userPopover={
+                    <AppBarUserPopoverContainer
+                      organizations={organizations}
+                      selectedOrgId={selectedOrgId ?? ''}
+                      onOrgSelect={setSelectedOrgId}
+                    />
+                  }
+                  starCount={starCount}
+                  onlineCount={onlineCount}
+                  appVersion={appVersion}
+                  updateVersion={updateVersion}
+                  onUpdateClick={restartForUpdate ?? undefined}
+                  githubIconPath={siGithub.path}
+                  discordIconPath={siDiscord.path}
+                />
+              </>
+            )}
             {/* Desktop content. */}
             <div className="relative min-h-0 overflow-hidden">
-              {isWorkspaceSidebarPreviewEnabled && (
+              {isZenShellActive && (
+                <div
+                  data-tauri-drag-region
+                  className="absolute inset-x-0 top-0 z-10 h-8"
+                />
+              )}
+              {!isZenShellActive && isWorkspaceSidebarPreviewEnabled && (
                 <div className="absolute inset-y-0 left-0 z-20 flex items-center">
                   <WorkspacesSidebarReopenTag
                     active={sidebarPreview.isPreviewOpen}
@@ -381,7 +412,7 @@ export function SharedAppLayout() {
                 </div>
               )}
 
-              {isWorkspaceSidebarPreviewEnabled && (
+              {!isZenShellActive && isWorkspaceSidebarPreviewEnabled && (
                 <div
                   className={cn(
                     'absolute left-0 top-0 z-30 h-full w-[300px] transition-transform duration-150 ease-out',

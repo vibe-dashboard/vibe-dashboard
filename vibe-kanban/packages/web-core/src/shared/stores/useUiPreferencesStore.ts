@@ -13,6 +13,7 @@ export type RightMainPanelMode =
   (typeof RIGHT_MAIN_PANEL_MODES)[keyof typeof RIGHT_MAIN_PANEL_MODES];
 
 export type LayoutMode = 'workspaces' | 'kanban';
+export type ChatViewMode = 'full' | 'mostly-zen' | 'zen';
 
 export type MobileTab =
   | 'workspaces'
@@ -320,6 +321,7 @@ type State = {
   isLeftSidebarVisible: boolean;
   isRightSidebarVisible: boolean;
   isTerminalVisible: boolean;
+  chatViewMode: ChatViewMode;
   previewRefreshKey: number;
   // Note: Kanban issue panel state (selectedKanbanIssueId, createMode, etc.)
   // is derived from URL via app navigation route state
@@ -373,6 +375,7 @@ type State = {
   toggleRightSidebar: () => void;
   toggleTerminal: () => void;
   setTerminalVisible: (value: boolean) => void;
+  setChatViewMode: (value: ChatViewMode) => void;
   // Note: Kanban panel actions (openKanbanIssuePanel, closeKanbanIssuePanel, etc.)
   // are handled by app navigation
   toggleRightMainPanelMode: (
@@ -459,6 +462,7 @@ export const useUiPreferencesStore = create<State>()((set, get) => ({
   isLeftSidebarVisible: true,
   isRightSidebarVisible: true,
   isTerminalVisible: true,
+  chatViewMode: 'mostly-zen' as ChatViewMode,
   previewRefreshKey: 0,
 
   // Workspace-specific panel state
@@ -547,29 +551,32 @@ export const useUiPreferencesStore = create<State>()((set, get) => ({
     set((s) => ({ isTerminalVisible: !s.isTerminalVisible })),
 
   setTerminalVisible: (value) => set({ isTerminalVisible: value }),
+  setChatViewMode: (value) => set({ chatViewMode: value }),
 
   toggleRightMainPanelMode: (mode, workspaceId) => {
     if (!workspaceId) return;
     const state = get();
     const wsState =
       state.workspacePanelStates[workspaceId] ?? DEFAULT_WORKSPACE_PANEL_STATE;
-    const isCurrentlyActive = wsState.rightMainPanelMode === mode;
     const isMobile = window.matchMedia('(max-width: 767px)').matches;
+    const isCurrentlyVisible =
+      wsState.rightMainPanelMode === mode &&
+      (!isMobile || state.mobileActiveTab === mode);
     set({
       workspacePanelStates: {
         ...state.workspacePanelStates,
         [workspaceId]: {
           ...wsState,
-          rightMainPanelMode: isCurrentlyActive ? null : mode,
+          rightMainPanelMode: isCurrentlyVisible ? null : mode,
         },
       },
-      isLeftSidebarVisible: isCurrentlyActive
+      isLeftSidebarVisible: isCurrentlyVisible
         ? true
         : isWideScreen()
           ? state.isLeftSidebarVisible
           : false,
       ...(isMobile &&
-        !isCurrentlyActive && { mobileActiveTab: mode as MobileTab }),
+        !isCurrentlyVisible && { mobileActiveTab: mode as MobileTab }),
     });
   },
 
