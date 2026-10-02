@@ -383,11 +383,7 @@ export function registerExternalTrackerBoardRoutes(
       return c.json({ ok: false, error: { code: 'invalid_workspace_link_request', message: 'The workspace link request was invalid.', userAction: 'Provide an externalIssue object and workspace object.' } }, 400);
     }
 
-<<<<<<< HEAD
-    const mapping = await upsertExternalIssueWorkspaceMapping(db, body);
-=======
-    const mapping = await upsertExternalIssueWorkspaceMapping(options.db, body, options.workspaceBeads || undefined);
->>>>>>> d5a5220e (feat: manage workspace-scoped beads in VD)
+    const mapping = await upsertExternalIssueWorkspaceMapping(db, body, options.workspaceBeads || undefined);
     return c.json({ ok: true, mapping });
   });
 
