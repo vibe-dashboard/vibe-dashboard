@@ -23,14 +23,16 @@ import type { CreateAndStartWorkspaceRequest, DirectoryEntry, Executor, Executor
 
 export type FetchJiraBoardView = typeof fetchJiraBoardView;
 export type CreateJiraIssue = typeof createJiraIssue;
+type DbProvider = Kysely<DB> | (() => Promise<Kysely<DB>>);
+type AuthProvider = ExternalTrackerAuthService | (() => Promise<ExternalTrackerAuthService>);
 
 export function registerExternalTrackerBoardRoutes(
   hono: Hono,
   options: {
     /** @deprecated Ignored; external Kanban routes are always registered. */
     enabled?: boolean;
-    auth: ExternalTrackerAuthService;
-    db: Kysely<DB>;
+    auth: AuthProvider;
+    db: DbProvider;
     fetchJiraBoardView?: FetchJiraBoardView;
     jiraBotAuth?: JiraBasicAuthConfig | false;
     beads?: BeadsExternalIssueServiceOptions;
@@ -47,6 +49,8 @@ export function registerExternalTrackerBoardRoutes(
   const createJiraIssueForWorkspace = options.createJiraIssue ?? createJiraIssue;
   const upsertWorkspaceMapping = options.upsertWorkspaceMapping ?? upsertExternalIssueWorkspaceMapping;
   const siteOrigin = normalizeVdSiteOrigin(options.siteOrigin ?? process.env.SITE_ORIGIN);
+  const getDb = async () => typeof options.db === 'function' ? await options.db() : options.db;
+  const getAuth = async () => typeof options.auth === 'function' ? await options.auth() : options.auth;
 
 
   hono.get('/dashboard/api/external-trackers/vk/workspace-create-options', async (c) => {
@@ -107,7 +111,7 @@ export function registerExternalTrackerBoardRoutes(
     }
     try {
       const result = await vkClient.createAndStartWorkspace(body.workspace);
-      await upsertExternalIssueWorkspaceMapping(options.db, {
+      await upsertExternalIssueWorkspaceMapping(await getDb(), {
         externalIssue: body.externalIssue,
         workspace: {
           workspaceId: result.workspace.id,
@@ -140,7 +144,8 @@ export function registerExternalTrackerBoardRoutes(
     try {
       const workspaces = (await vkClient.getWorkspaces()).filter((workspace) => !workspace.archived);
       const workspaceIds = workspaces.map((workspace) => workspace.id);
-      const linkedJiraIssuesByWorkspace = await getLinkedExternalIssuesForWorkspaces(options.db, workspaceIds, 'jira');
+      const db = await getDb();
+      const linkedJiraIssuesByWorkspace = await getLinkedExternalIssuesForWorkspaces(db, workspaceIds, 'jira');
       const reposByWorkspaceId = new Map<string, RepoWithBranch[]>();
       const repoResults = await Promise.allSettled(workspaces.map(async (workspace) => ({
         workspaceId: workspace.id,
@@ -154,7 +159,7 @@ export function registerExternalTrackerBoardRoutes(
         .map((workspace) => workspaceToBulkConversionOption(workspace, reposByWorkspaceId.get(workspace.id) ?? [], linkedJiraIssuesByWorkspace.get(workspace.id) ?? []))
         .sort((a, b) => Number(a.hasLinkedJiraIssue) - Number(b.hasLinkedJiraIssue) || a.displayName.localeCompare(b.displayName));
       const repoIds = [...new Set(conversionWorkspaces.flatMap((workspace) => workspace.repos.map((repo) => repo.id)))];
-      const repoProjectMappings = await getBulkJiraRepoProjectMappings(options.db, repoIds);
+      const repoProjectMappings = await getBulkJiraRepoProjectMappings(db, repoIds);
       return c.json({ ok: true, options: { workspaces: conversionWorkspaces, repoProjectMappings } });
     } catch {
       return c.json({ ok: false, error: { code: 'vk_workspace_conversion_options_failed', message: 'Could not load VK workspaces for Jira conversion.', userAction: 'Verify the VK server is running and try again.' } }, 502);
@@ -162,7 +167,8 @@ export function registerExternalTrackerBoardRoutes(
   });
 
   hono.post('/dashboard/api/external-trackers/jira/workspaces/bulk-create-issues', async (c) => {
-    const session = await options.auth.getSession(c.req.raw.headers).catch(() => null);
+    const [db, auth] = await Promise.all([getDb(), getAuth()]);
+    const session = await auth.getSession(c.req.raw.headers).catch(() => null);
 
     const body = await c.req.json().catch(() => undefined) as unknown;
     if (!isBulkJiraWorkspaceConversionRequest(body)) {
@@ -170,7 +176,7 @@ export function registerExternalTrackerBoardRoutes(
     }
 
     const authResult = await resolveJiraBoardAuth({
-      db: options.db,
+      db,
       userId: session?.user.id,
       botAuth: options.jiraBotAuth === undefined ? getEnvJiraBotAuth() : options.jiraBotAuth || undefined,
     });
@@ -182,7 +188,7 @@ export function registerExternalTrackerBoardRoutes(
     const allWorkspaces = (await vkClient.getWorkspaces()).filter((workspace) => !workspace.archived);
     const workspacesById = new Map(allWorkspaces.map((workspace) => [workspace.id, workspace]));
     const workspaceIds = [...new Set(body.workspaceIds.map((workspaceId) => workspaceId.trim()))];
-    const linkedJiraIssuesByWorkspace = await getLinkedExternalIssuesForWorkspaces(options.db, workspaceIds, 'jira');
+    const linkedJiraIssuesByWorkspace = await getLinkedExternalIssuesForWorkspaces(db, workspaceIds, 'jira');
     const results: BulkJiraWorkspaceConversionResult[] = [];
     let shouldPersistRepoProjectMapping = false;
 
@@ -223,7 +229,7 @@ export function registerExternalTrackerBoardRoutes(
         continue;
       }
 
-      const mappingResult = await upsertWorkspaceMapping(options.db, {
+      const mappingResult = await upsertWorkspaceMapping(db, {
         externalIssue: {
           provider: 'jira',
           key: issueResult.issue.key,
@@ -252,7 +258,7 @@ export function registerExternalTrackerBoardRoutes(
     }
 
     if (body.repoProjectMappingRepoId && shouldPersistRepoProjectMapping) {
-      await upsertBulkJiraRepoProjectMapping(options.db, {
+      await upsertBulkJiraRepoProjectMapping(db, {
         repoId: body.repoProjectMappingRepoId,
         provider: 'jira',
         siteHostname: body.siteHostname,
@@ -293,9 +299,10 @@ export function registerExternalTrackerBoardRoutes(
 
     const adapter = options.fetchJiraBoardView ?? fetchJiraBoardView;
     const authResult = await withOtelSpan('external_jira.resolve_auth', { 'jira.site_hostname': jiraLocator.siteHostname }, async (authSpan) => {
-      const session = await options.auth.getSession(c.req.raw.headers);
+      const [db, auth] = await Promise.all([getDb(), getAuth()]);
+      const session = await auth.getSession(c.req.raw.headers);
       const resolved = await resolveJiraBoardAuth({
-        db: options.db,
+        db,
         userId: session?.user.id,
         botAuth: options.jiraBotAuth === undefined ? getEnvJiraBotAuth() : options.jiraBotAuth || undefined,
       });
@@ -322,7 +329,7 @@ export function registerExternalTrackerBoardRoutes(
       return c.json({ ok: false, error: result.error }, statusForJiraAdapterError(result));
     }
 
-    const workspaceDecoratedBoardView = await withOtelSpan('external_jira.decorate_workspaces', { 'jira.issue_count': result.boardView.pagination.issueCount }, () => decorateExternalKanbanBoardWithWorkspaceMappings(options.db, result.boardView));
+    const workspaceDecoratedBoardView = await withOtelSpan('external_jira.decorate_workspaces', { 'jira.issue_count': result.boardView.pagination.issueCount }, async () => decorateExternalKanbanBoardWithWorkspaceMappings(await getDb(), result.boardView));
     const fullyDecoratedBoardView = await withOtelSpan('external_jira.decorate_beads', { 'jira.issue_count': workspaceDecoratedBoardView.pagination.issueCount }, () => decorateExternalKanbanBoardWithBeadLinks(workspaceDecoratedBoardView, options.beads));
     const boardViewWithDiagnostics = {
       ...fullyDecoratedBoardView,
@@ -343,7 +350,8 @@ export function registerExternalTrackerBoardRoutes(
   }));
 
   hono.post('/dashboard/api/external-trackers/workspace-links', async (c) => {
-    const session = await options.auth.getSession(c.req.raw.headers);
+    const [db, auth] = await Promise.all([getDb(), getAuth()]);
+    const session = await auth.getSession(c.req.raw.headers);
     if (!session) {
       return c.json({ ok: false, error: { code: 'authentication_required', message: 'Sign in before linking external issues to workspaces.', userAction: 'Sign in and try again.' } }, 401);
     }
@@ -353,12 +361,12 @@ export function registerExternalTrackerBoardRoutes(
       return c.json({ ok: false, error: { code: 'invalid_workspace_link_request', message: 'The workspace link request was invalid.', userAction: 'Provide an externalIssue object and workspace object.' } }, 400);
     }
 
-    const mapping = await upsertExternalIssueWorkspaceMapping(options.db, body);
+    const mapping = await upsertExternalIssueWorkspaceMapping(db, body);
     return c.json({ ok: true, mapping });
   });
 
   hono.post('/dashboard/api/external-trackers/bead-links', async (c) => {
-    const session = await options.auth.getSession(c.req.raw.headers);
+    const session = await (await getAuth()).getSession(c.req.raw.headers);
     if (!session) {
       return c.json({ ok: false, error: { code: 'authentication_required', message: 'Sign in before linking Beads to external issues.', userAction: 'Sign in and try again.' } }, 401);
     }
@@ -377,7 +385,7 @@ export function registerExternalTrackerBoardRoutes(
   });
 
   hono.delete('/dashboard/api/external-trackers/bead-links', async (c) => {
-    const session = await options.auth.getSession(c.req.raw.headers);
+    const session = await (await getAuth()).getSession(c.req.raw.headers);
     if (!session) {
       return c.json({ ok: false, error: { code: 'authentication_required', message: 'Sign in before unlinking Beads from external issues.', userAction: 'Sign in and try again.' } }, 401);
     }

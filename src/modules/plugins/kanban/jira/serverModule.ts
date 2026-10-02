@@ -5,12 +5,14 @@ import { registerExternalTrackerBoardRoutes } from './server/boardRoutes';
 import { registerExternalTrackerAuthRoutes } from './server/routes';
 
 serverRegistry.registerServerModule(async (api) => {
-  const handle = await getExternalIntegrationsDb();
-  const auth = createExternalTrackerAuthService(createExternalTrackerAuth({
+  const handlePromise = getExternalIntegrationsDb();
+  const authPromise = handlePromise.then((handle) => createExternalTrackerAuthService(createExternalTrackerAuth({
     sqlite: handle.sqlite,
     kysely: handle.db,
-  }));
+  })));
+  const getDb = async () => (await handlePromise).db;
+  const getAuth = async () => authPromise;
 
-  registerExternalTrackerAuthRoutes(api.hono, { auth });
-  registerExternalTrackerBoardRoutes(api.hono, { auth, db: handle.db });
+  registerExternalTrackerAuthRoutes(api.hono, { auth: getAuth });
+  registerExternalTrackerBoardRoutes(api.hono, { auth: getAuth, db: getDb });
 });
