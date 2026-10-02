@@ -15,6 +15,7 @@ import { addBeadExternalIssueLink, decorateExternalKanbanBoardWithBeadLinks, isV
 import type { BeadsExternalIssueServiceOptions } from '../../server/beadExternalIssues';
 import { decorateExternalKanbanBoardWithWorkspaceMappings, getLinkedExternalIssuesForWorkspaces, upsertExternalIssueWorkspaceMapping } from '../../server/workspaceMappings';
 import type { LinkedExternalIssue } from '../../server/workspaceMappings';
+import { buildWorkspaceBeadsOverlay, ensureWorkspaceBeadsDatabase, newWorkspaceId, type WorkspaceBeadsOptions } from '../../server/workspaceBeads';
 import { loadRelatedWorkspaceMetrics, withTimeoutCall } from '../../server/workspaceMetrics';
 import { getExternalRepoProjectMappings, upsertExternalRepoProjectMapping } from '../../server/repoProjectMappings';
 import type { ExternalRepoProjectDefaultMapping } from '../../server/repoProjectMappings';
@@ -36,6 +37,7 @@ export function registerExternalTrackerBoardRoutes(
     fetchJiraBoardView?: FetchJiraBoardView;
     jiraBotAuth?: JiraBasicAuthConfig | false;
     beads?: BeadsExternalIssueServiceOptions;
+    workspaceBeads?: WorkspaceBeadsOptions | false;
     vkClient?: Pick<VibeKanbanServerClient, 'getInfo' | 'listRepos' | 'listDirectory' | 'registerRepo' | 'getRepoBranches' | 'createAndStartWorkspace' | 'getWorkspaceSummaries' | 'getSessions' | 'getWorkspaces' | 'getWorkspaceRepos'>;
     createJiraIssue?: CreateJiraIssue;
     reposRoot?: string;
@@ -110,8 +112,24 @@ export function registerExternalTrackerBoardRoutes(
       return c.json({ ok: false, error: { code: 'invalid_vk_workspace_create_request', message: 'The workspace creation request was invalid.', userAction: 'Provide a prompt, selected repositories, executor config, and external issue.' } }, 400);
     }
     try {
+<<<<<<< HEAD
       const result = await vkClient.createAndStartWorkspace(body.workspace);
       await upsertExternalIssueWorkspaceMapping(await getDb(), {
+=======
+      const workspaceBeads = options.workspaceBeads || undefined;
+      const workspaceId = workspaceBeads ? newWorkspaceId() : undefined;
+      if (workspaceId && workspaceBeads) {
+        await ensureWorkspaceBeadsDatabase(workspaceId, workspaceBeads);
+      }
+      const result = await vkClient.createAndStartWorkspace({
+        ...body.workspace,
+        ...(workspaceId ? {
+          workspace_id: workspaceId,
+          workspace_overlay: await buildWorkspaceBeadsOverlay(workspaceId, workspaceBeads),
+        } : {}),
+      });
+      await upsertExternalIssueWorkspaceMapping(options.db, {
+>>>>>>> d5a5220e (feat: manage workspace-scoped beads in VD)
         externalIssue: body.externalIssue,
         workspace: {
           workspaceId: result.workspace.id,
@@ -120,7 +138,7 @@ export function registerExternalTrackerBoardRoutes(
         },
         isPrimary: true,
         lastOpenedAt: new Date().toISOString(),
-      });
+      }, options.workspaceBeads || undefined);
       return c.json({ ok: true, workspace: result.workspace, executionProcess: result.execution_process });
     } catch {
       return c.json({ ok: false, error: { code: 'vk_workspace_create_failed', message: 'Could not create the VK workspace.', userAction: 'Verify selected repositories, branches, and executor settings, then try again.' } }, 502);
@@ -361,7 +379,11 @@ export function registerExternalTrackerBoardRoutes(
       return c.json({ ok: false, error: { code: 'invalid_workspace_link_request', message: 'The workspace link request was invalid.', userAction: 'Provide an externalIssue object and workspace object.' } }, 400);
     }
 
+<<<<<<< HEAD
     const mapping = await upsertExternalIssueWorkspaceMapping(db, body);
+=======
+    const mapping = await upsertExternalIssueWorkspaceMapping(options.db, body, options.workspaceBeads || undefined);
+>>>>>>> d5a5220e (feat: manage workspace-scoped beads in VD)
     return c.json({ ok: true, mapping });
   });
 

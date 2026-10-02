@@ -13,6 +13,11 @@ serverRegistry.registerServerModule(async (api) => {
   const getDb = async () => (await handlePromise).db;
   const getAuth = async () => authPromise;
 
+<<<<<<< HEAD
   registerExternalTrackerAuthRoutes(api.hono, { auth: getAuth });
   registerExternalTrackerBoardRoutes(api.hono, { auth: getAuth, db: getDb });
+=======
+  registerExternalTrackerAuthRoutes(api.hono, { auth });
+  registerExternalTrackerBoardRoutes(api.hono, { auth, db: handle.db, workspaceBeads: {} });
+>>>>>>> d5a5220e (feat: manage workspace-scoped beads in VD)
 });

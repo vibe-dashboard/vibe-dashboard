@@ -84,12 +84,17 @@ export interface UserSystemInfo {
 }
 
 export interface CreateAndStartWorkspaceRequest {
+  workspace_id?: string | null;
   name: string | null;
   repos: Array<{ repo_id: string; target_branch: string }>;
   linked_issue: { remote_project_id: string; issue_id: string } | null;
   executor_config: ExecutorConfig;
   prompt: string;
   attachment_ids: string[] | null;
+  workspace_overlay?: {
+    files: Array<{ path: string; content: string }>;
+    managed_blocks: Array<{ path: string; marker: string; content: string }>;
+  } | null;
 }
 
 export interface CreateAndStartWorkspaceResponse {

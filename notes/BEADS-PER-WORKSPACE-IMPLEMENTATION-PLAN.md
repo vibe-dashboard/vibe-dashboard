@@ -4,7 +4,7 @@
 
 Move beads from repo-scoped usage to workspace-scoped usage:
 
-- each VK workspace gets a durable beads DB under `/var/lib/vd/beads`;
+- each workspace gets a durable VD-owned beads DB under `/var/lib/vd/beads`;
 - the workspace root gets `.beads/redirect` pointing at that DB;
 - generated workspace instructions tell agents to run `bd` from the workspace root;
 - a machine-wide aggregate DB has one deterministic bead per workspace;
@@ -14,15 +14,18 @@ Move beads from repo-scoped usage to workspace-scoped usage:
 
 - `bd` native `.beads/redirect` is the primary routing mechanism.
 - Actual beads databases live under `/var/lib/vd/beads`, not under `VK_SETTINGS_DIRECTORY`.
-- `VK_SETTINGS_DIRECTORY` still exists for version-controllable machine/workspace hook config and defaults to `/var/lib/vd/vk-config` in VD Docker.
-- Generated per-workspace beads DB config uses embedded Dolt, not the current shared-server default.
+- `VK_SETTINGS_DIRECTORY` still exists for generic VK/VD machine config and defaults to `/var/lib/vd/vk-config` in VD Docker.
+- `VD_BEADS_DIRECTORY` defaults to `/var/lib/vd/beads` and is owned by VD, not VK.
+- VK remains bead-unaware. VK provides only a generic pre-agent workspace file/managed-block overlay primitive.
+- VD supplies beads-specific files and instruction content through the generic VK overlay primitive before the first agent starts.
+- Generated per-workspace beads DB config uses embedded Dolt. The current shared Dolt server is migrated away offline.
 - Existing repo-scoped beads metadata is migration input only.
 
 ## Requirements
 
 1. Workspace bead commands are scoped to the top-level workspace directory, not repository subdirectories.
 2. Workspace cleanup must not delete bead data.
-3. VK must create beads routing and generated instructions before the first agent session starts.
+3. VK must apply generic VD-supplied workspace file/managed-block overlays before the first agent session starts.
 4. Adding a repo to a workspace updates workspace/aggregate repo metadata.
 5. The aggregate workspace DB stores one deterministic bead per workspace.
 6. The all-beads aggregate is out of scope for this branch.
@@ -62,15 +65,15 @@ Use absolute redirect targets by default. Keep a flat-file policy so deployments
 sequenceDiagram
   participant API as VK create workspace API
   participant WM as WorkspaceManager
-  participant Beads as WorkspaceBeads setup
+  participant VD as VD beads orchestration
+  participant Overlay as VK generic overlay primitive
   participant FS as Workspace filesystem
   participant Agent as First agent process
 
   API->>WM: create workspace + worktrees
-  WM->>Beads: ensure workspace beads DB and aggregate bead
-  Beads->>FS: write .beads/redirect
-  Beads->>FS: update AGENTS.md/CLAUDE.md generated block
-  Beads->>Beads: upsert aggregate workspace bead
+  VD->>VD: ensure workspace beads DB and aggregate bead
+  VD->>Overlay: provide .beads/redirect and instruction block
+  Overlay->>FS: write files and upsert managed blocks
   WM->>Agent: start setup/coding process
 ```
 
@@ -86,7 +89,13 @@ Do not initialize beads inside repository subdirectories.
 <!-- END VK WORKSPACE BEADS -->
 ```
 
-Config files can change this wording and whether to write AGENTS.md, CLAUDE.md, or both.
+VK stores no beads names in functions, types, or environment variables. VD owns the beads wording and sends it as ordinary managed-block content.
+
+Instruction customization uses a TOML manifest plus markdown fragments:
+
+- checked-in VD required beads fragment is always included;
+- persisted user append fragment is seeded on first startup only and never overwritten later;
+- generated workspace `AGENTS.md`/`CLAUDE.md` receives fully inlined text, not references the agent must follow.
 
 ### Databases
 
@@ -221,56 +230,60 @@ No provider status writes in this branch. Future provider updates should be agen
 
 ## Build plan
 
-### 1. VK flat settings and VD Docker defaults
+### 1. Update VD/VK config defaults and remove shared-server assumptions
 
-- Add `VK_SETTINGS_DIRECTORY` resolution in VK.
-- Default VD compose/image env to `/var/lib/vd/vk-config`.
+- Keep `VK_SETTINGS_DIRECTORY` for generic persisted config and default VD compose/image env to `/var/lib/vd/vk-config`.
+- Add `VD_BEADS_DIRECTORY` in VD only, defaulting to `/var/lib/vd/beads`.
 - Add `/var/lib/vd/beads` directory creation in VD image/startup.
-- Keep beads DB storage separate from settings.
+- Seed TOML + markdown instruction config into the persisted settings directory without overwriting existing user files.
+- Remove shared Dolt server env/config from the steady-state image/compose after migration support exists.
 
 Tests:
 
 - unit test default path resolution;
-- compose/Dockerfile smoke check for env/default directory.
+- seed test proves existing user fragments are not overwritten;
+- compose/Dockerfile smoke check for env/default directory and absence of shared-server env.
 
-### 2. VK workspace beads setup primitive
+### 2. VK generic pre-agent overlay primitive
 
-Add a small VK service/function that takes:
+Add a small VK service/function that takes generic file/block overlay input:
 
 - workspace ID;
 - workspace root path;
-- workspace display name;
-- repo list;
-- optional primary external issue snapshot.
+- file writes such as relative path + content;
+- managed block updates such as target file + marker + content.
 
 It:
 
-1. creates `/var/lib/vd/beads/workspaces/<workspace-id>/.beads`;
-2. initializes it with embedded Dolt config if missing;
-3. writes `<workspace-root>/.beads/redirect`;
-4. inserts/updates generated AGENTS.md/CLAUDE.md block;
-5. upserts aggregate workspace bead in `/var/lib/vd/beads/aggregate-workspaces/.beads`.
+1. writes safe relative files under the workspace root;
+2. inserts/updates owned managed blocks while preserving human content/imports;
+3. runs before the first agent process.
+
+No VK symbol/type/env should mention beads.
+
+Tests:
+
+- idempotent repeated overlay;
+- rejects absolute paths and `..` traversal;
+- generated block preserves existing repo import lines and human text;
+- overlay runs before first agent start.
+
+### 3. VD workspace beads setup using VK overlay
+
+VD ensures:
+
+1. `/var/lib/vd/beads/workspaces/<workspace-id>/.beads` exists and uses embedded Dolt;
+2. `<workspace-root>/.beads/redirect` points at the absolute persisted path;
+3. aggregate workspace bead exists/updates in `/var/lib/vd/beads/aggregate-workspaces/.beads`;
+4. workspace instructions are rendered from checked-in required fragment plus persisted user append fragment;
+5. VD supplies redirect/instruction overlay to VK before session start.
 
 Tests:
 
 - idempotent repeated setup;
 - redirect file points at absolute persisted path;
-- generated block preserves existing repo import lines and human text;
-- aggregate bead repo metadata updates when repo list changes.
-
-### 3. Wire setup into VK workspace lifecycle
-
-Call the primitive from:
-
-- initial workspace create/ensure path before first agent start;
-- `ensure_container_exists` when a cleaned worktree is recreated;
-- add-workspace-repo path after the repo is attached.
-
-Tests:
-
-- workspace creation runs beads setup before `start_execution`;
-- worktree recreation restores redirect/instructions without deleting DB;
-- adding a repo updates aggregate metadata.
+- aggregate bead repo metadata updates when repo list changes;
+- worktree recreation restores redirect/instructions without deleting DB.
 
 ### 4. VD external issue SQL migration
 
@@ -327,34 +340,53 @@ Tests:
 
 ### 7. Punt CLI
 
-Add a VK or VD CLI command:
+Add a VD-owned CLI command:
 
 ```bash
-vk beads punt --bead <id> --from-workspace <id> --to-workspace <id>
+vd beads punt --bead <id> --from-workspace <id> --to-workspace <id>
+vd beads punt --bead <id> --from-workspace <id> --new-workspace \
+  --repo <repo>:<branch> [--repo <repo>:<branch> ...] \
+  [--append-to-prompt <text>] [--no-start]
 ```
 
 Behavior:
 
 1. read source bead from source workspace DB;
-2. create copied bead in destination workspace DB;
-3. link metadata both ways;
-4. close original as moved.
+2. for new workspace, confirm repos/branches and prompt before executing;
+3. create copied bead in destination workspace DB with `move.pending`;
+4. update/link/close source as moved;
+5. mark destination `move.complete`;
+6. reruns repair either pending or source-updated states.
+
+New workspace defaults to create+start. `--no-start` creates/links only. The canned initial prompt references the destination bead ID and appends optional user text.
 
 Tests:
 
 - copy preserves title/body/metadata;
 - original closes with moved note;
 - destination bead points back to source;
-- invalid workspace/bead fails without partial close.
+- invalid workspace/bead fails without partial close;
+- pending rerun repairs to complete;
+- new workspace path confirms inputs and builds canned prompt.
 
-### 8. One-time migration command
+### 8. Offline shared-server and repo-scoped migration commands
 
-Add an explicit migration command, not a runtime scan:
+Add explicit migration commands, not runtime scans:
 
 ```bash
-vk beads migrate-repo-scoped --dry-run
-vk beads migrate-repo-scoped --apply
+vd beads migrate-shared-server --dry-run
+vd beads migrate-shared-server --apply
+vd beads migrate-repo-scoped --dry-run
+vd beads migrate-repo-scoped --apply
 ```
+
+Shared-server migration:
+
+- requires app/agent downtime;
+- backs up/exports current shared-server data;
+- initializes embedded per-workspace/aggregate DBs under `VD_BEADS_DIRECTORY`;
+- verifies counts and required metadata;
+- then removes shared-server env/config from steady-state compose/image.
 
 Inputs:
 
@@ -370,6 +402,8 @@ Outputs:
 Tests:
 
 - dry run reports planned copies;
+- apply refuses if guard/downtime checks fail;
+- backup/export and verification are required before config removal;
 - apply is idempotent;
 - missing workspace IDs are skipped with report.
 
@@ -380,4 +414,3 @@ Tests:
 - Provider comments/status updates are future work.
 - Runtime repo-beads scanning is deliberately out; use one-time migration only.
 - If embedded Dolt initialization is slow under many concurrent workspaces, measure before adding a queue.
-
