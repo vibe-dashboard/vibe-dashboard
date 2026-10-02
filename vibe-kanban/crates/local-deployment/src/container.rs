@@ -53,7 +53,7 @@ use services::services::{
     remote_client::RemoteClient,
     remote_sync,
 };
-use tokio::{sync::RwLock, task::JoinHandle};
+use tokio::{process::Command, sync::RwLock, task::JoinHandle, time::timeout};
 use tokio_util::io::ReaderStream;
 use tracing::Instrument;
 use utils::{
@@ -67,6 +67,99 @@ use workspace_manager::{RepoWorkspaceInput, WorkspaceError, WorkspaceManager};
 use crate::{command, copy};
 
 const WORKSPACE_TOUCH_DEBOUNCE: Duration = Duration::from_mins(2);
+const WORKSPACE_SETUP_CONFIG_FILE: &str = "workspace-setup.toml";
+const DEFAULT_WORKSPACE_SETUP_TIMEOUT_SECONDS: u64 = 120;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WorkspaceSetupConfig {
+    enabled: bool,
+    required: bool,
+    command: String,
+    timeout: Duration,
+}
+
+fn vk_settings_directory() -> PathBuf {
+    std::env::var_os("VK_SETTINGS_DIRECTORY")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/var/lib/vd/vk-config"))
+}
+
+async fn read_workspace_setup_config() -> Result<Option<WorkspaceSetupConfig>, ContainerError> {
+    let config_path = vk_settings_directory().join(WORKSPACE_SETUP_CONFIG_FILE);
+    let content = match tokio::fs::read_to_string(&config_path).await {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+
+    parse_workspace_setup_config(&content).map(Some)
+}
+
+fn parse_workspace_setup_config(content: &str) -> Result<WorkspaceSetupConfig, ContainerError> {
+    let enabled = parse_bool_key(content, "enabled").unwrap_or(true);
+    let required = parse_bool_key(content, "required").unwrap_or(true);
+    let timeout_seconds = parse_u64_key(content, "timeout_seconds")
+        .unwrap_or(DEFAULT_WORKSPACE_SETUP_TIMEOUT_SECONDS);
+    let command = parse_string_key(content, "command").ok_or_else(|| {
+        ContainerError::Other(anyhow!(
+            "{WORKSPACE_SETUP_CONFIG_FILE} requires a command string"
+        ))
+    })?;
+
+    Ok(WorkspaceSetupConfig {
+        enabled,
+        required,
+        command,
+        timeout: Duration::from_secs(timeout_seconds),
+    })
+}
+
+fn trusted_setup_command_path(
+    settings_dir: &Path,
+    command: &str,
+) -> Result<PathBuf, ContainerError> {
+    let command_path = Path::new(command);
+    if command_path.is_absolute()
+        || command_path.components().any(|part| {
+            !matches!(
+                part,
+                std::path::Component::Normal(_) | std::path::Component::CurDir
+            )
+        })
+    {
+        return Err(ContainerError::Other(anyhow!(
+            "workspace setup command must be relative to VK_SETTINGS_DIRECTORY"
+        )));
+    }
+
+    Ok(settings_dir.join(command_path))
+}
+
+fn parse_bool_key(content: &str, key: &str) -> Option<bool> {
+    parse_scalar_key(content, key).and_then(|value| match value {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    })
+}
+
+fn parse_u64_key(content: &str, key: &str) -> Option<u64> {
+    parse_scalar_key(content, key).and_then(|value| value.parse().ok())
+}
+
+fn parse_string_key(content: &str, key: &str) -> Option<String> {
+    let value = parse_scalar_key(content, key)?;
+    let stripped = value.strip_prefix('"')?.strip_suffix('"')?;
+    Some(stripped.to_string())
+}
+
+fn parse_scalar_key<'a>(content: &'a str, key: &str) -> Option<&'a str> {
+    content.lines().find_map(|line| {
+        let line = line.split('#').next()?.trim();
+        let (left, right) = line.split_once('=')?;
+        (left.trim() == key).then_some(right.trim())
+    })
+}
 
 #[derive(Clone)]
 pub struct LocalContainerService {
@@ -1072,15 +1165,11 @@ impl LocalContainerService {
                 }
             }
 
-            if import_lines.is_empty() {
-                tracing::trace!(
-                    "No repos have {}, skipping workspace config creation",
-                    config_file
-                );
-                continue;
-            }
-
-            let content = import_lines.join("\n") + "\n";
+            let content = if import_lines.is_empty() {
+                String::new()
+            } else {
+                import_lines.join("\n") + "\n"
+            };
             if let Err(e) = tokio::fs::write(&workspace_config_path, &content).await {
                 tracing::warn!(
                     "Failed to create workspace config file {}: {}",
@@ -1095,6 +1184,96 @@ impl LocalContainerService {
                 config_file,
                 import_lines.len()
             );
+        }
+
+        Ok(())
+    }
+
+    async fn run_workspace_setup_command(
+        workspace_dir: &Path,
+        workspace: &Workspace,
+        workspace_inputs: &[RepoWorkspaceInput],
+    ) -> Result<(), ContainerError> {
+        let Some(config) = read_workspace_setup_config().await? else {
+            return Ok(());
+        };
+
+        if !config.enabled {
+            return Ok(());
+        }
+
+        let settings_dir = vk_settings_directory();
+        let command_path = trusted_setup_command_path(&settings_dir, &config.command)?;
+        let repos_json = serde_json::to_string(
+            &workspace_inputs
+                .iter()
+                .map(|input| {
+                    json!({
+                        "id": input.repo.id,
+                        "name": input.repo.name,
+                        "displayName": input.repo.display_name,
+                        "path": input.repo.path.to_string_lossy(),
+                        "targetBranch": input.target_branch,
+                    })
+                })
+                .collect::<Vec<_>>(),
+        )
+        .map_err(|error| ContainerError::Other(anyhow!(error)))?;
+
+        tracing::info!(
+            workspace_id = %workspace.id,
+            command = %command_path.display(),
+            "Running generic workspace setup command"
+        );
+
+        let child = Command::new(&command_path)
+            .current_dir(workspace_dir)
+            .env("VK_WORKSPACE_ID", workspace.id.to_string())
+            .env("VK_WORKSPACE_DIR", workspace_dir)
+            .env("VK_WORKSPACE_REPOS_JSON", repos_json)
+            .env("VK_SETTINGS_DIRECTORY", &settings_dir)
+            .kill_on_drop(true)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()?;
+
+        let output = match timeout(config.timeout, child.wait_with_output()).await {
+            Ok(result) => result?,
+            Err(_) => {
+                let message = format!(
+                    "Workspace setup command timed out after {}s: {}",
+                    config.timeout.as_secs(),
+                    command_path.display()
+                );
+                if config.required {
+                    return Err(ContainerError::Other(anyhow!(message)));
+                }
+                tracing::warn!("{message}");
+                return Ok(());
+            }
+        };
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !stdout.trim().is_empty() {
+            tracing::info!(workspace_id = %workspace.id, stdout = %stdout, "Workspace setup stdout");
+        }
+        if !stderr.trim().is_empty() {
+            tracing::warn!(workspace_id = %workspace.id, stderr = %stderr, "Workspace setup stderr");
+        }
+
+        if !output.status.success() {
+            let message = format!(
+                "Workspace setup command failed with status {}: {}\nstdout:\n{}\nstderr:\n{}",
+                output.status,
+                command_path.display(),
+                stdout,
+                stderr
+            );
+            if config.required {
+                return Err(ContainerError::Other(anyhow!(message)));
+            }
+            tracing::warn!("{message}");
         }
 
         Ok(())
@@ -1309,6 +1488,12 @@ impl ContainerService for LocalContainerService {
 
         Self::create_workspace_config_files(&created_workspace.workspace_dir, &repositories)
             .await?;
+        Self::run_workspace_setup_command(
+            &created_workspace.workspace_dir,
+            workspace,
+            &workspace_inputs,
+        )
+        .await?;
 
         Workspace::update_container_ref(
             &self.db.pool,
@@ -1371,6 +1556,7 @@ impl ContainerService for LocalContainerService {
             .await?;
 
         Self::create_workspace_config_files(&workspace_dir, &repositories).await?;
+        Self::run_workspace_setup_command(&workspace_dir, workspace, &workspace_inputs).await?;
 
         Ok(workspace_dir.to_string_lossy().to_string())
     }

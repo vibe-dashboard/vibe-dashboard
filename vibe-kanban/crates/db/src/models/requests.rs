@@ -23,6 +23,20 @@ pub struct CreateWorkspaceApiRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
+pub struct CreateOnlyWorkspaceRequest {
+    pub workspace_id: Option<Uuid>,
+    pub name: Option<String>,
+    pub repos: Vec<WorkspaceRepoInput>,
+    pub linked_issue: Option<LinkedIssueInfo>,
+    pub attachment_ids: Option<Vec<Uuid>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct CreateOnlyWorkspaceResponse {
+    pub workspace: Workspace,
+}
+
+#[derive(Debug, Serialize, Deserialize, TS)]
 pub struct LinkedIssueInfo {
     pub remote_project_id: Uuid,
     pub issue_id: Uuid,
@@ -30,6 +44,7 @@ pub struct LinkedIssueInfo {
 
 #[derive(Debug, Serialize, Deserialize, TS)]
 pub struct CreateAndStartWorkspaceRequest {
+    pub workspace_id: Option<Uuid>,
     pub name: Option<String>,
     pub repos: Vec<WorkspaceRepoInput>,
     pub linked_issue: Option<LinkedIssueInfo>,

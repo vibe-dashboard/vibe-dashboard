@@ -4,7 +4,8 @@ use axum::{Json, extract::State, response::Json as ResponseJson};
 use db::models::{
     repo::Repo,
     requests::{
-        CreateAndStartWorkspaceRequest, CreateAndStartWorkspaceResponse, CreateWorkspaceApiRequest,
+        CreateAndStartWorkspaceRequest, CreateAndStartWorkspaceResponse,
+        CreateOnlyWorkspaceRequest, CreateOnlyWorkspaceResponse, CreateWorkspaceApiRequest,
         WorkspaceRepoInput,
     },
     workspace::{CreateWorkspace, Workspace},
@@ -24,9 +25,10 @@ use crate::{
 
 pub(crate) async fn create_workspace_record(
     deployment: &DeploymentImpl,
+    workspace_id: Option<Uuid>,
     name: Option<String>,
 ) -> Result<Workspace, ApiError> {
-    let workspace_id = Uuid::new_v4();
+    let workspace_id = workspace_id.unwrap_or_else(Uuid::new_v4);
     let branch_label = name
         .as_deref()
         .filter(|branch_label| !branch_label.is_empty())
@@ -53,7 +55,7 @@ pub async fn create_workspace(
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<CreateWorkspaceApiRequest>,
 ) -> Result<ResponseJson<ApiResponse<Workspace>>, ApiError> {
-    let workspace = create_workspace_record(&deployment, payload.name).await?;
+    let workspace = create_workspace_record(&deployment, None, payload.name).await?;
 
     deployment
         .track_if_analytics_allowed(
@@ -65,6 +67,91 @@ pub async fn create_workspace(
         .await;
 
     Ok(ResponseJson(ApiResponse::success(workspace)))
+}
+
+pub async fn create_only_workspace(
+    State(deployment): State<DeploymentImpl>,
+    Json(payload): Json<CreateOnlyWorkspaceRequest>,
+) -> Result<ResponseJson<ApiResponse<CreateOnlyWorkspaceResponse>>, ApiError> {
+    let CreateOnlyWorkspaceRequest {
+        workspace_id,
+        name,
+        repos,
+        linked_issue,
+        attachment_ids,
+    } = payload;
+
+    prevalidate_workspace_repos(&deployment, &repos).await?;
+
+    let mut managed_workspace = deployment
+        .workspace_manager()
+        .load_managed_workspace(create_workspace_record(&deployment, workspace_id, name).await?)
+        .await?;
+
+    for repo in &repos {
+        managed_workspace
+            .add_repository(repo, deployment.git())
+            .await
+            .map_err(ApiError::from)?;
+    }
+
+    if let Some(ids) = &attachment_ids {
+        managed_workspace.associate_attachments(ids).await?;
+    }
+
+    if let Some(linked_issue) = &linked_issue
+        && let Ok(client) = deployment.remote_client()
+    {
+        match import_issue_attachments_from_remote(
+            &client,
+            deployment.file(),
+            linked_issue.issue_id,
+        )
+        .await
+        {
+            Ok(imported_attachments) if !imported_attachments.is_empty() => {
+                let imported_ids = imported_attachments
+                    .iter()
+                    .map(|imported| imported.file.id)
+                    .collect::<Vec<_>>();
+
+                if let Err(e) = managed_workspace.associate_attachments(&imported_ids).await {
+                    tracing::warn!("Failed to associate imported files with workspace: {}", e);
+                }
+            }
+            Ok(_) => {}
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to import issue attachments for issue {}: {}",
+                    linked_issue.issue_id,
+                    e
+                );
+            }
+        }
+    }
+
+    let workspace = managed_workspace.workspace.clone();
+    deployment
+        .container()
+        .ensure_container_exists(&workspace)
+        .await?;
+    let workspace = Workspace::find_by_id(&deployment.db().pool, workspace.id)
+        .await?
+        .unwrap_or(workspace);
+
+    deployment
+        .track_if_analytics_allowed(
+            "workspace_created",
+            serde_json::json!({
+                "workspace_id": workspace.id.to_string(),
+                "create_only": true,
+            }),
+        )
+        .await;
+
+    Ok(ResponseJson(ApiResponse::success(
+        CreateOnlyWorkspaceResponse { workspace },
+    )))
 }
 
 fn normalize_prompt(prompt: &str) -> Option<String> {
@@ -293,6 +380,7 @@ pub async fn create_and_start_workspace(
 ) -> Result<ResponseJson<ApiResponse<CreateAndStartWorkspaceResponse>>, ApiError> {
     let CreateAndStartWorkspaceRequest {
         name,
+        workspace_id,
         repos,
         linked_issue,
         executor_config,
@@ -310,7 +398,7 @@ pub async fn create_and_start_workspace(
 
     let mut managed_workspace = deployment
         .workspace_manager()
-        .load_managed_workspace(create_workspace_record(&deployment, name).await?)
+        .load_managed_workspace(create_workspace_record(&deployment, workspace_id, name).await?)
         .await?;
 
     for repo in &repos {
