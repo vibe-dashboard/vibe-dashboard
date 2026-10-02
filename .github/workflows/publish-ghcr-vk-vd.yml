@@ -570,6 +570,13 @@ jobs:
 
   publish:
     needs: [resolve-vk-ref, check-types, ensure-vk-assets]
+    if: >-
+      ${{
+        always() &&
+        needs.resolve-vk-ref.result == 'success' &&
+        needs.check-types.result == 'success' &&
+        needs.ensure-vk-assets.result == 'success'
+      }}
     uses: ./.github/workflows/docker-github-builder-build.yml
     permissions:
       contents: read
