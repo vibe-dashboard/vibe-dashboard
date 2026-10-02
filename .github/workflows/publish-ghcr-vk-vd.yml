@@ -604,7 +604,7 @@ jobs:
       # dependency installer and toolchain stages are the expensive part of
       # this image and need to survive application-source changes.
       cache-mode: max
-      sign: false
+      sign: ${{ 'false' }}
       meta-images: ghcr.io/${{ github.repository_owner }}/vk-vd
       meta-tags: |
         type=raw,value=${{ needs.resolve-vk-ref.outputs.image_tag }},enable=${{ needs.resolve-vk-ref.outputs.image_tag != '' }}
