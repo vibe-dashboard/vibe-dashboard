@@ -16,15 +16,15 @@ use db::models::{
     execution_process_repo_state::ExecutionProcessRepoState,
 };
 use deployment::Deployment;
+use executors::logs::{NormalizedEntryType, utils::patch::extract_normalized_entry_from_patch};
 use futures_util::{
     FutureExt, StreamExt, TryStreamExt,
     future::{BoxFuture, Shared},
     stream::{self, BoxStream},
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use services::services::container::ContainerService;
 use tokio::sync::Mutex;
-use tracing::Instrument;
 use utils::{log_msg::LogMsg, msg_store::MsgStore, response::ApiResponse};
 use uuid::Uuid;
 
@@ -70,6 +70,35 @@ async fn get_execution_process_by_id(
     State(_deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<ExecutionProcess>>, ApiError> {
     Ok(ResponseJson(ApiResponse::success(execution_process)))
+}
+
+#[derive(Debug, Serialize)]
+struct ExecutionProcessFinalResponse {
+    process_id: Uuid,
+    status: ExecutionProcessStatus,
+    finished: bool,
+    final_response: Option<String>,
+    terminal_no_response: bool,
+}
+
+async fn get_execution_process_final_response(
+    Extension(execution_process): Extension<ExecutionProcess>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<ExecutionProcessFinalResponse>>, ApiError> {
+    let process_id = execution_process.id;
+    let final_response = get_final_assistant_response_for_process(&deployment, process_id).await;
+    let finished = execution_process.status != ExecutionProcessStatus::Running;
+    let terminal_no_response = finished && final_response.is_none();
+
+    Ok(ResponseJson(ApiResponse::success(
+        ExecutionProcessFinalResponse {
+            process_id,
+            status: execution_process.status,
+            finished,
+            final_response,
+            terminal_no_response,
+        },
+    )))
 }
 
 async fn stream_raw_logs_ws(
@@ -172,13 +201,7 @@ async fn stream_normalized_logs_ws(
     Path(exec_id): Path<Uuid>,
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| async move {
-        if let Some(store) = async { deployment.container().get_msg_store_by_id(&exec_id).await }
-            .instrument(tracing::debug_span!(
-                "normalized_logs.lookup_live_store",
-                execution_process_id = %exec_id,
-            ))
-            .await
-        {
+        if let Some(store) = deployment.container().get_msg_store_by_id(&exec_id).await {
             let stream = build_live_normalized_logs_stream(exec_id, store).await;
             if let Err(e) = handle_normalized_logs_ws(socket, stream).await {
                 tracing::warn!("normalized logs WS closed: {}", e);
@@ -209,19 +232,12 @@ async fn stream_normalized_logs_ws(
     })
 }
 
-#[tracing::instrument(level = "debug", skip(store), fields(execution_process_id = %exec_id))]
 async fn build_live_normalized_logs_stream(
     exec_id: Uuid,
     store: Arc<MsgStore>,
 ) -> BoxStream<'static, anyhow::Result<Message>> {
     let receiver = store.get_receiver();
     let messages = collect_live_normalized_log_messages(&store);
-    tracing::debug!(
-        execution_process_id = %exec_id,
-        history_message_count = messages.payloads.len(),
-        history_finished = messages.finished,
-        "normalized_logs.live_history_loaded"
-    );
     let history_stream = stream::iter(
         messages
             .payloads
@@ -269,7 +285,6 @@ async fn build_live_normalized_logs_stream(
         .boxed()
 }
 
-#[tracing::instrument(level = "debug", skip(deployment), fields(execution_process_id = %exec_id))]
 async fn get_historic_normalized_log_messages_single_flight(
     deployment: &DeploymentImpl,
     exec_id: Uuid,
@@ -281,11 +296,6 @@ async fn get_historic_normalized_log_messages_single_flight(
     .await
 }
 
-#[tracing::instrument(
-    level = "debug",
-    skip(future),
-    fields(execution_process_id = %exec_id, mode = ?mode)
-)]
 async fn get_normalized_log_messages_single_flight(
     mode: NormalizedLogReplayMode,
     exec_id: Uuid,
@@ -314,11 +324,10 @@ async fn get_normalized_log_messages_single_flight(
     result
 }
 
-#[tracing::instrument(level = "debug", skip(store))]
 fn collect_live_normalized_log_messages(store: &MsgStore) -> LiveNormalizedLogMessages {
     let history = store.get_history();
     let finished = history.iter().any(|msg| matches!(msg, LogMsg::Finished));
-    let payloads: Vec<String> = history
+    let payloads = history
         .into_iter()
         .take_while(|msg| !matches!(msg, LogMsg::Finished))
         .filter_map(|msg| match msg {
@@ -330,16 +339,49 @@ fn collect_live_normalized_log_messages(store: &MsgStore) -> LiveNormalizedLogMe
         })
         .collect();
 
-    tracing::debug!(
-        history_message_count = payloads.len(),
-        history_finished = finished,
-        "normalized_logs.live_history_collected"
-    );
-
     LiveNormalizedLogMessages { payloads, finished }
 }
 
-#[tracing::instrument(level = "debug", skip(deployment), fields(execution_process_id = %exec_id))]
+fn final_assistant_response_from_msg_store(store: &MsgStore) -> Option<String> {
+    store
+        .get_history()
+        .iter()
+        .rev()
+        .find_map(final_assistant_response_from_log_msg)
+}
+
+fn final_assistant_response_from_log_msg(msg: &LogMsg) -> Option<String> {
+    let LogMsg::JsonPatch(patch) = msg else {
+        return None;
+    };
+    let (_, entry) = extract_normalized_entry_from_patch(patch)?;
+    if !matches!(entry.entry_type, NormalizedEntryType::AssistantMessage) {
+        return None;
+    }
+    let trimmed = entry.content.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+fn final_assistant_response_from_ws_payloads(payloads: &[String]) -> Option<String> {
+    payloads
+        .iter()
+        .rev()
+        .filter_map(|payload| serde_json::from_str::<LogMsg>(payload).ok())
+        .find_map(|msg| final_assistant_response_from_log_msg(&msg))
+}
+
+async fn get_final_assistant_response_for_process(
+    deployment: &DeploymentImpl,
+    exec_id: Uuid,
+) -> Option<String> {
+    if let Some(store) = deployment.container().get_msg_store_by_id(&exec_id).await {
+        return final_assistant_response_from_msg_store(&store);
+    }
+
+    let messages = get_historic_normalized_log_messages_single_flight(deployment, exec_id).await?;
+    final_assistant_response_from_ws_payloads(&messages)
+}
+
 async fn collect_historic_normalized_log_messages(
     deployment: &DeploymentImpl,
     exec_id: Uuid,
@@ -368,16 +410,9 @@ async fn collect_historic_normalized_log_messages(
         }
     }
 
-    let messages = Arc::new(messages);
-    tracing::debug!(
-        execution_process_id = %exec_id,
-        history_message_count = messages.len(),
-        "normalized_logs.historic_history_collected"
-    );
-    Some(messages)
+    Some(Arc::new(messages))
 }
 
-#[tracing::instrument(level = "debug", skip(socket, stream))]
 async fn handle_normalized_logs_ws(
     mut socket: MaybeSignedWebSocket,
     stream: impl futures_util::Stream<Item = anyhow::Result<Message>> + Unpin + Send + 'static,
@@ -444,11 +479,6 @@ async fn stream_execution_processes_by_session_ws(
     })
 }
 
-#[tracing::instrument(
-    level = "debug",
-    skip(socket, deployment),
-    fields(session_id = %session_id, show_soft_deleted = show_soft_deleted)
-)]
 async fn handle_execution_processes_by_session_ws(
     mut socket: MaybeSignedWebSocket,
     deployment: DeploymentImpl,
@@ -504,6 +534,7 @@ async fn get_execution_process_repo_states(
 pub(super) fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let workspace_id_router = Router::new()
         .route("/", get(get_execution_process_by_id))
+        .route("/final-response", get(get_execution_process_final_response))
         .route("/stop", post(stop_execution_process))
         .route("/repo-states", get(get_execution_process_repo_states))
         .route("/raw-logs/ws", get(stream_raw_logs_ws))
@@ -533,6 +564,7 @@ mod tests {
         time::Duration,
     };
 
+    use executors::logs::{NormalizedEntry, NormalizedEntryType, utils::ConversationPatch};
     use futures_util::{FutureExt, StreamExt};
     use serde_json::json;
     use tokio::{
@@ -544,8 +576,62 @@ mod tests {
 
     use super::{
         NormalizedLogReplayMode, build_live_normalized_logs_stream,
+        final_assistant_response_from_msg_store, final_assistant_response_from_ws_payloads,
         get_normalized_log_messages_single_flight,
     };
+
+    fn assistant_entry(content: &str) -> NormalizedEntry {
+        NormalizedEntry {
+            timestamp: None,
+            entry_type: NormalizedEntryType::AssistantMessage,
+            content: content.to_string(),
+            metadata: None,
+        }
+    }
+
+    #[test]
+    fn final_response_uses_latest_non_empty_assistant_message_from_live_store() {
+        let store = MsgStore::new();
+        store.push(LogMsg::JsonPatch(ConversationPatch::add_normalized_entry(
+            0,
+            assistant_entry("first"),
+        )));
+        store.push(LogMsg::JsonPatch(ConversationPatch::add_normalized_entry(
+            1,
+            assistant_entry("  DONE  "),
+        )));
+
+        assert_eq!(
+            final_assistant_response_from_msg_store(&store),
+            Some("DONE".to_string())
+        );
+    }
+
+    #[test]
+    fn final_response_ignores_terminal_logs_without_assistant_message() {
+        let store = MsgStore::new();
+        store.push(LogMsg::Finished);
+
+        assert_eq!(final_assistant_response_from_msg_store(&store), None);
+    }
+
+    #[test]
+    fn final_response_can_read_historic_ws_payloads() {
+        let payload = match LogMsg::JsonPatch(ConversationPatch::add_normalized_entry(
+            0,
+            assistant_entry("historic"),
+        ))
+        .to_ws_message_unchecked()
+        {
+            axum::extract::ws::Message::Text(payload) => payload.to_string(),
+            _ => panic!("expected text payload"),
+        };
+
+        assert_eq!(
+            final_assistant_response_from_ws_payloads(&[payload]),
+            Some("historic".to_string())
+        );
+    }
 
     #[tokio::test]
     async fn live_normalized_stream_finishes_when_history_already_finished() {

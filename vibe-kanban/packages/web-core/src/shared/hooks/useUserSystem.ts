@@ -10,7 +10,6 @@ import type { ExecutorProfile } from 'shared/types';
 
 export interface UserSystemState {
   appVersion: string | null;
-  buildCommitHash: string | null;
   previewProxyPort: number | null;
   config: Config | null;
   environment: Environment | null;
@@ -27,7 +26,6 @@ export interface UserSystemContextType {
 
   // Hot path - config helpers (most frequently used)
   appVersion: string | null;
-  buildCommitHash: string | null;
   previewProxyPort: number | null;
   config: Config | null;
   updateConfig: (updates: Partial<Config>) => void;

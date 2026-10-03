@@ -44,21 +44,6 @@ function getModelKey(model: ModelListModel): string {
   return model.provider_id ? `${model.provider_id}/${model.id}` : model.id;
 }
 
-export function modelMatchesSearch(
-  model: ModelListModel,
-  normalizedQuery: string
-): boolean {
-  if (!normalizedQuery) return true;
-  const name = model.name?.toLowerCase() ?? '';
-  const id = model.id?.toLowerCase() ?? '';
-  const key = getModelKey(model).toLowerCase();
-  return (
-    name.includes(normalizedQuery) ||
-    id.includes(normalizedQuery) ||
-    key.includes(normalizedQuery)
-  );
-}
-
 interface ReasoningDropdownProps {
   options: ModelReasoningOption[];
   selectedId: string | null;
@@ -152,7 +137,11 @@ export function ModelList({
   const normalizedSearch = searchQuery.trim().toLowerCase();
 
   const filteredModels = normalizedSearch
-    ? models.filter((model) => modelMatchesSearch(model, normalizedSearch))
+    ? models.filter((model) => {
+        const name = model.name?.toLowerCase() ?? '';
+        const id = model.id?.toLowerCase() ?? '';
+        return name.includes(normalizedSearch) || id.includes(normalizedSearch);
+      })
     : models;
 
   const showEmptyState = filteredModels.length === 0 && !showDefaultOption;

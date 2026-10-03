@@ -39,7 +39,6 @@ export function useUserSystemController({
 
   const config = userSystemInfo?.config || null;
   const appVersion = userSystemInfo?.version || null;
-  const buildCommitHash = userSystemInfo?.commit_hash || null;
   const previewProxyPort = userSystemInfo?.preview_proxy_port ?? null;
   const environment = userSystemInfo?.environment || null;
   const machineId = userSystemInfo?.machine_id || null;
@@ -146,7 +145,6 @@ export function useUserSystemController({
     () => ({
       system: {
         appVersion,
-        buildCommitHash,
         previewProxyPort,
         config,
         environment,
@@ -157,7 +155,6 @@ export function useUserSystemController({
         remoteAuthDegraded,
       },
       appVersion,
-      buildCommitHash,
       previewProxyPort,
       config,
       environment,
@@ -178,7 +175,6 @@ export function useUserSystemController({
     [
       machineId,
       appVersion,
-      buildCommitHash,
       capabilities,
       config,
       environment,

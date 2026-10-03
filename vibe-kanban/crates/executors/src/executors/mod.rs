@@ -39,6 +39,7 @@ pub mod cursor;
 pub mod droid;
 pub mod gemini;
 pub mod opencode;
+#[cfg(feature = "qa-mode")]
 pub mod qa_mock;
 pub mod qwen;
 pub mod utils;

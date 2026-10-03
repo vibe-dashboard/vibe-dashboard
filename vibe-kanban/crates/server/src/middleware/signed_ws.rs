@@ -1,7 +1,6 @@
 use std::{
     borrow::Cow,
     pin::Pin,
-    sync::OnceLock,
     task::{Context, Poll},
 };
 
@@ -17,8 +16,6 @@ use deployment::Deployment;
 use futures_util::{Sink, SinkExt, Stream, StreamExt};
 use relay_control::signing::{RelaySigningService, RequestSignature};
 use relay_ws::{SignedAxumSocket, signed_axum_websocket};
-use tracing::Instrument;
-use utils::perf_trace;
 
 use crate::{DeploymentImpl, middleware::RelayRequestSignatureContext};
 
@@ -123,11 +120,7 @@ impl SignedWsUpgrade {
                 }
                 None => WebSocketInner::Plain(Box::new(socket)),
             };
-            let socket = MaybeSignedWebSocket { inner };
-            let mode = socket.mode();
-            callback(socket)
-                .instrument(tracing::trace_span!("ws.upgrade", mode))
-                .await;
+            callback(MaybeSignedWebSocket { inner }).await;
         })
     }
 }
@@ -138,93 +131,29 @@ pub struct MaybeSignedWebSocket {
 
 impl MaybeSignedWebSocket {
     pub async fn send(&mut self, message: Message) -> anyhow::Result<()> {
-        if !websocket_trace_enabled() {
-            return match &mut self.inner {
-                WebSocketInner::Plain(ws) => SinkExt::send(ws, message)
-                    .await
-                    .map_err(anyhow::Error::from),
-                WebSocketInner::Signed(ws) => ws.send(message).await,
-            };
+        match &mut self.inner {
+            WebSocketInner::Plain(ws) => SinkExt::send(ws, message)
+                .await
+                .map_err(anyhow::Error::from),
+            WebSocketInner::Signed(ws) => ws.send(message).await,
         }
-
-        let mode = self.mode();
-        let metadata = WsMessageMetadata::from(&message);
-
-        async move {
-            match &mut self.inner {
-                WebSocketInner::Plain(ws) => SinkExt::send(ws, message)
-                    .await
-                    .map_err(anyhow::Error::from),
-                WebSocketInner::Signed(ws) => ws.send(message).await,
-            }
-        }
-        .instrument(tracing::trace_span!(
-            "ws.send",
-            mode,
-            message.kind = metadata.kind,
-            message.len_bytes = metadata.len_bytes,
-            message.has_close_frame = metadata.has_close_frame,
-        ))
-        .await
     }
 
     pub async fn recv(&mut self) -> anyhow::Result<Option<Message>> {
-        if !websocket_trace_enabled() {
-            return match &mut self.inner {
-                WebSocketInner::Plain(ws) => match ws.next().await {
-                    Some(Ok(msg)) => Ok(Some(msg)),
-                    Some(Err(e)) => Err(anyhow::Error::from(e)),
-                    None => Ok(None),
-                },
-                WebSocketInner::Signed(ws) => ws.recv().await,
-            };
+        match &mut self.inner {
+            WebSocketInner::Plain(ws) => match ws.next().await {
+                Some(Ok(msg)) => Ok(Some(msg)),
+                Some(Err(e)) => Err(anyhow::Error::from(e)),
+                None => Ok(None),
+            },
+            WebSocketInner::Signed(ws) => ws.recv().await,
         }
-
-        let mode = self.mode();
-        async move {
-            let message = match &mut self.inner {
-                WebSocketInner::Plain(ws) => match ws.next().await {
-                    Some(Ok(msg)) => Ok(Some(msg)),
-                    Some(Err(e)) => Err(anyhow::Error::from(e)),
-                    None => Ok(None),
-                },
-                WebSocketInner::Signed(ws) => ws.recv().await,
-            }?;
-
-            if let Some(message) = &message {
-                let metadata = WsMessageMetadata::from(message);
-                tracing::trace!(
-                    message.kind = metadata.kind,
-                    message.len_bytes = metadata.len_bytes,
-                    message.has_close_frame = metadata.has_close_frame,
-                    "ws.recv.message"
-                );
-            } else {
-                tracing::trace!("ws.recv.closed");
-            }
-
-            Ok(message)
-        }
-        .instrument(tracing::trace_span!("ws.recv", mode))
-        .await
     }
 
     pub async fn close(&mut self) -> anyhow::Result<()> {
-        let mode = self.mode();
-        async move {
-            match &mut self.inner {
-                WebSocketInner::Plain(ws) => SinkExt::close(ws).await.map_err(anyhow::Error::from),
-                WebSocketInner::Signed(ws) => ws.close().await,
-            }
-        }
-        .instrument(tracing::trace_span!("ws.close", mode))
-        .await
-    }
-
-    fn mode(&self) -> &'static str {
-        match &self.inner {
-            WebSocketInner::Plain(_) => "plain",
-            WebSocketInner::Signed(_) => "signed",
+        match &mut self.inner {
+            WebSocketInner::Plain(ws) => SinkExt::close(ws).await.map_err(anyhow::Error::from),
+            WebSocketInner::Signed(ws) => ws.close().await,
         }
     }
 }
@@ -248,9 +177,6 @@ impl Sink<Message> for MaybeSignedWebSocket {
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let this = self.get_mut();
-        if ws_poll_tracing_enabled() {
-            tracing::trace!(mode = this.mode(), "ws.sink.poll_ready");
-        }
         match &mut this.inner {
             WebSocketInner::Plain(ws) => Pin::new(ws).poll_ready(cx).map_err(anyhow::Error::from),
             WebSocketInner::Signed(ws) => Pin::new(ws).poll_ready(cx),
@@ -259,16 +185,6 @@ impl Sink<Message> for MaybeSignedWebSocket {
 
     fn start_send(self: Pin<&mut Self>, item: Message) -> Result<(), Self::Error> {
         let this = self.get_mut();
-        if ws_poll_tracing_enabled() && websocket_trace_enabled() {
-            let metadata = WsMessageMetadata::from(&item);
-            tracing::trace!(
-                mode = this.mode(),
-                message.kind = metadata.kind,
-                message.len_bytes = metadata.len_bytes,
-                message.has_close_frame = metadata.has_close_frame,
-                "ws.sink.start_send"
-            );
-        }
         match &mut this.inner {
             WebSocketInner::Plain(ws) => Pin::new(ws).start_send(item).map_err(anyhow::Error::from),
             WebSocketInner::Signed(ws) => Pin::new(ws).start_send(item),
@@ -277,9 +193,6 @@ impl Sink<Message> for MaybeSignedWebSocket {
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let this = self.get_mut();
-        if ws_poll_tracing_enabled() {
-            tracing::trace!(mode = this.mode(), "ws.sink.poll_flush");
-        }
         match &mut this.inner {
             WebSocketInner::Plain(ws) => Pin::new(ws).poll_flush(cx).map_err(anyhow::Error::from),
             WebSocketInner::Signed(ws) => Pin::new(ws).poll_flush(cx),
@@ -288,90 +201,9 @@ impl Sink<Message> for MaybeSignedWebSocket {
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let this = self.get_mut();
-        if ws_poll_tracing_enabled() {
-            tracing::trace!(mode = this.mode(), "ws.sink.poll_close");
-        }
         match &mut this.inner {
             WebSocketInner::Plain(ws) => Pin::new(ws).poll_close(cx).map_err(anyhow::Error::from),
             WebSocketInner::Signed(ws) => Pin::new(ws).poll_close(cx),
         }
-    }
-}
-
-fn websocket_trace_enabled() -> bool {
-    tracing::enabled!(
-        target: "server::middleware::signed_ws",
-        tracing::Level::TRACE
-    )
-}
-
-fn ws_poll_tracing_enabled() -> bool {
-    static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(perf_trace::ws_poll_tracing_enabled)
-}
-
-struct WsMessageMetadata {
-    kind: &'static str,
-    len_bytes: usize,
-    has_close_frame: bool,
-}
-
-impl From<&Message> for WsMessageMetadata {
-    fn from(message: &Message) -> Self {
-        match message {
-            Message::Text(text) => Self {
-                kind: "text",
-                len_bytes: text.len(),
-                has_close_frame: false,
-            },
-            Message::Binary(bytes) => Self {
-                kind: "binary",
-                len_bytes: bytes.len(),
-                has_close_frame: false,
-            },
-            Message::Ping(bytes) => Self {
-                kind: "ping",
-                len_bytes: bytes.len(),
-                has_close_frame: false,
-            },
-            Message::Pong(bytes) => Self {
-                kind: "pong",
-                len_bytes: bytes.len(),
-                has_close_frame: false,
-            },
-            Message::Close(frame) => Self {
-                kind: "close",
-                len_bytes: frame.as_ref().map(|frame| frame.reason.len()).unwrap_or(0),
-                has_close_frame: frame.is_some(),
-            },
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use axum::extract::ws::{CloseFrame, Message};
-
-    use super::WsMessageMetadata;
-
-    #[test]
-    fn websocket_message_metadata_records_kind_and_size() {
-        let metadata = WsMessageMetadata::from(&Message::Text("hello".into()));
-        assert_eq!(metadata.kind, "text");
-        assert_eq!(metadata.len_bytes, 5);
-        assert!(!metadata.has_close_frame);
-
-        let metadata = WsMessageMetadata::from(&Message::Binary(vec![1, 2, 3].into()));
-        assert_eq!(metadata.kind, "binary");
-        assert_eq!(metadata.len_bytes, 3);
-        assert!(!metadata.has_close_frame);
-
-        let metadata = WsMessageMetadata::from(&Message::Close(Some(CloseFrame {
-            code: axum::extract::ws::close_code::NORMAL,
-            reason: "done".into(),
-        })));
-        assert_eq!(metadata.kind, "close");
-        assert_eq!(metadata.len_bytes, 4);
-        assert!(metadata.has_close_frame);
     }
 }

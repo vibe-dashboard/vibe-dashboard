@@ -1,6 +1,5 @@
 use axum::{Extension, Json, Router, extract::State, response::Json as ResponseJson, routing::get};
 use db::models::{
-    execution_process::ExecutionProcess,
     requests::WorkspaceRepoInput,
     workspace::{Workspace, WorkspaceError},
     workspace_repo::{RepoWithTargetBranch, WorkspaceRepo},
@@ -46,17 +45,6 @@ pub async fn add_workspace_repo(
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<AddWorkspaceRepoRequest>,
 ) -> Result<ResponseJson<ApiResponse<AddWorkspaceRepoResponse>>, ApiError> {
-    let pool = &deployment.db().pool;
-
-    if ExecutionProcess::has_running_non_dev_server_processes_for_workspace(pool, workspace.id)
-        .await?
-    {
-        return Err(ApiError::Conflict(
-            "Cannot add repository while processes are running. Stop all non-dev-server processes first."
-                .to_string(),
-        ));
-    }
-
     let mut managed_workspace = deployment
         .workspace_manager()
         .load_managed_workspace(workspace)
@@ -67,28 +55,17 @@ pub async fn add_workspace_repo(
         target_branch: payload.target_branch,
     };
 
-    let workspace_repo = managed_workspace
+    managed_workspace
         .add_repository(&repo_input, deployment.git())
         .await
         .map_err(ApiError::from)?;
 
-    if let Err(err) = deployment
+    deployment
         .container()
         .ensure_container_exists(&managed_workspace.workspace)
-        .await
-    {
-        if let Err(rollback_err) = WorkspaceRepo::delete_by_id(pool, workspace_repo.id).await {
-            tracing::error!(
-                "Failed to roll back workspace repo {} after container ensure failure for workspace {}: {}",
-                workspace_repo.id,
-                managed_workspace.workspace.id,
-                rollback_err
-            );
-        }
-        return Err(err.into());
-    }
+        .await?;
 
-    let workspace = Workspace::find_by_id(pool, managed_workspace.workspace.id)
+    let workspace = Workspace::find_by_id(&deployment.db().pool, managed_workspace.workspace.id)
         .await?
         .ok_or(WorkspaceError::WorkspaceNotFound)?;
     let repo = managed_workspace

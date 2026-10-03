@@ -114,12 +114,10 @@ COPY crates/ws-bridge/ crates/ws-bridge/
 COPY assets/ assets/
 COPY --from=fe-builder /app/packages/local-web/dist packages/local-web/dist
 
-ARG VK_BUILD_COMMIT_HASH
-
 RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git \
     --mount=type=cache,id=workspace-target,target=/app/target \
-    VK_BUILD_COMMIT_HASH="${VK_BUILD_COMMIT_HASH}" cargo build --locked --release --bin server \
+    cargo build --locked --release --bin server \
  && cp /app/target/release/server /usr/local/bin/server
 
 FROM debian:bookworm-slim AS runtime

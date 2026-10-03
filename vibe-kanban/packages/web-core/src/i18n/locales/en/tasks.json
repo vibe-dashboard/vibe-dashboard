@@ -4,7 +4,6 @@
     "supportedFormats": "PNG, JPG, GIF, WebP, SVG supported"
   },
   "gitPanel": {
-    "addRepo": "Add repository",
     "advanced": {
       "placeholder": "e.g acme Corp"
     }
@@ -449,8 +448,7 @@
       "untrackedPresent_other": "{{count}} untracked files present (not affected by reset).",
       "forceReset": "Force reset (discard uncommitted changes)",
       "uncommittedWillDiscard": "Uncommitted changes will be discarded.",
-      "uncommittedPresentHint": "Uncommitted changes present. Turn on Force reset or commit/stash to proceed.",
-      "stopOtherSessions": "Stop other running sessions before resetting worktree"
+      "uncommittedPresentHint": "Uncommitted changes present. Turn on Force reset or commit/stash to proceed."
     },
     "buttons": {
       "retry": "Retry",

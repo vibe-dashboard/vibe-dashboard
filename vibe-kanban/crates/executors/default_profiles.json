@@ -24,10 +24,7 @@
     "CODEX": {
       "DEFAULT": {
         "CODEX": {
-          "sandbox": "danger-full-access",
-          "env": {
-            "CODEX_SQLITE_LOGS": "off"
-          }
+          "sandbox": "danger-full-access"
         }
       }
     },

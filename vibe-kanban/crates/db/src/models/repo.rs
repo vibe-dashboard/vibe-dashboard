@@ -8,8 +8,6 @@ use thiserror::Error;
 use ts_rs::TS;
 use uuid::Uuid;
 
-use super::repo_dev_server_script::{RepoDevServerScript, UpdateRepoDevServerScript};
-
 #[derive(Debug, Serialize, TS)]
 pub struct SearchResult {
     pub path: String,
@@ -33,11 +31,9 @@ pub enum RepoError {
     Database(#[from] sqlx::Error),
     #[error("Repository not found")]
     NotFound,
-    #[error("Validation error: {0}")]
-    Validation(String),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
 pub struct Repo {
     pub id: Uuid,
     pub path: PathBuf,
@@ -49,31 +45,11 @@ pub struct Repo {
     pub copy_files: Option<String>,
     pub parallel_setup_script: bool,
     pub dev_server_script: Option<String>,
-    #[serde(default)]
-    pub dev_server_scripts: Vec<RepoDevServerScript>,
     pub default_target_branch: Option<String>,
     pub default_working_dir: Option<String>,
     #[ts(type = "Date")]
     pub created_at: DateTime<Utc>,
     #[ts(type = "Date")]
-    pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, FromRow)]
-struct RepoRow {
-    pub id: Uuid,
-    pub path: String,
-    pub name: String,
-    pub display_name: String,
-    pub setup_script: Option<String>,
-    pub cleanup_script: Option<String>,
-    pub archive_script: Option<String>,
-    pub copy_files: Option<String>,
-    pub parallel_setup_script: bool,
-    pub dev_server_script: Option<String>,
-    pub default_target_branch: Option<String>,
-    pub default_working_dir: Option<String>,
-    pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
@@ -135,10 +111,6 @@ pub struct UpdateRepo {
     #[ts(optional, type = "string | null")]
     pub dev_server_script: Option<Option<String>>,
 
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub dev_server_scripts: Option<Vec<UpdateRepoDevServerScript>>,
-
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -157,130 +129,12 @@ pub struct UpdateRepo {
 }
 
 impl Repo {
-    fn from_row(row: RepoRow, dev_server_scripts: Vec<RepoDevServerScript>) -> Self {
-        Self {
-            id: row.id,
-            path: PathBuf::from(row.path),
-            name: row.name,
-            display_name: row.display_name,
-            setup_script: row.setup_script,
-            cleanup_script: row.cleanup_script,
-            archive_script: row.archive_script,
-            copy_files: row.copy_files,
-            parallel_setup_script: row.parallel_setup_script,
-            dev_server_script: row.dev_server_script,
-            dev_server_scripts,
-            default_target_branch: row.default_target_branch,
-            default_working_dir: row.default_working_dir,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-        }
-    }
-
-    async fn with_scripts(pool: &SqlitePool, rows: Vec<RepoRow>) -> Result<Vec<Self>, sqlx::Error> {
-        let ids: Vec<Uuid> = rows.iter().map(|row| row.id).collect();
-        let scripts_by_repo = RepoDevServerScript::find_by_repo_ids(pool, &ids).await?;
-
-        Ok(rows
-            .into_iter()
-            .map(|row| {
-                let scripts = scripts_by_repo.get(&row.id).cloned().unwrap_or_default();
-                Self::from_row(row, scripts)
-            })
-            .collect())
-    }
-
-    fn normalize_dev_server_scripts(
-        scripts: &[UpdateRepoDevServerScript],
-    ) -> Result<Vec<UpdateRepoDevServerScript>, RepoError> {
-        let mut normalized = Vec::with_capacity(scripts.len());
-
-        for script in scripts {
-            let name = script.name.trim().to_string();
-            if name.is_empty() {
-                return Err(RepoError::Validation(
-                    "Dev server script name cannot be empty".to_string(),
-                ));
-            }
-
-            let body = script.script.trim().to_string();
-            if body.is_empty() {
-                return Err(RepoError::Validation(
-                    "Dev server script body cannot be empty".to_string(),
-                ));
-            }
-
-            let working_dir = script
-                .working_dir
-                .as_ref()
-                .map(|value| value.trim().to_string())
-                .filter(|value| !value.is_empty());
-
-            normalized.push(UpdateRepoDevServerScript {
-                id: script.id,
-                name,
-                script: body,
-                working_dir,
-                is_default: script.is_default,
-            });
-        }
-
-        let default_count = normalized.iter().filter(|script| script.is_default).count();
-        if let Some(first) = normalized.first_mut() {
-            if default_count == 0 {
-                first.is_default = true;
-            } else if default_count > 1 {
-                let mut seen_default = false;
-                for script in &mut normalized {
-                    if script.is_default {
-                        if seen_default {
-                            script.is_default = false;
-                        } else {
-                            seen_default = true;
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(normalized)
-    }
-
-    async fn replace_dev_server_scripts(
-        tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
-        repo_id: Uuid,
-        scripts: &[UpdateRepoDevServerScript],
-    ) -> Result<(), RepoError> {
-        sqlx::query("DELETE FROM repo_dev_server_scripts WHERE repo_id = ?")
-            .bind(repo_id)
-            .execute(&mut **tx)
-            .await?;
-
-        for script in scripts {
-            let script_id = script.id.unwrap_or_else(Uuid::new_v4);
-            sqlx::query(
-                r#"INSERT INTO repo_dev_server_scripts
-                   (id, repo_id, name, script, working_dir, is_default)
-                   VALUES (?, ?, ?, ?, ?, ?)"#,
-            )
-            .bind(script_id)
-            .bind(repo_id)
-            .bind(&script.name)
-            .bind(&script.script)
-            .bind(&script.working_dir)
-            .bind(script.is_default)
-            .execute(&mut **tx)
-            .await?;
-        }
-
-        Ok(())
-    }
-
     /// Get repos that still have the migration sentinel as their name.
     /// Used by the startup backfill to fix repo names.
     pub async fn list_needing_name_fix(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, RepoRow>(
-            r#"SELECT id,
+        sqlx::query_as!(
+            Repo,
+            r#"SELECT id as "id!: Uuid",
                       path,
                       name,
                       display_name,
@@ -288,19 +142,17 @@ impl Repo {
                       cleanup_script,
                       archive_script,
                       copy_files,
-                      parallel_setup_script,
+                      parallel_setup_script as "parallel_setup_script!: bool",
                       dev_server_script,
                       default_target_branch,
                       default_working_dir,
-                      created_at,
-                      updated_at
+                      created_at as "created_at!: DateTime<Utc>",
+                      updated_at as "updated_at!: DateTime<Utc>"
                FROM repos
-               WHERE name = '__NEEDS_BACKFILL__'"#,
+               WHERE name = '__NEEDS_BACKFILL__'"#
         )
         .fetch_all(pool)
-        .await?;
-
-        Self::with_scripts(pool, rows).await
+        .await
     }
 
     pub async fn update_name(
@@ -321,8 +173,9 @@ impl Repo {
     }
 
     pub async fn find_by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Self>, sqlx::Error> {
-        let row = sqlx::query_as::<_, RepoRow>(
-            r#"SELECT id,
+        sqlx::query_as!(
+            Repo,
+            r#"SELECT id as "id!: Uuid",
                       path,
                       name,
                       display_name,
@@ -330,26 +183,18 @@ impl Repo {
                       cleanup_script,
                       archive_script,
                       copy_files,
-                      parallel_setup_script,
+                      parallel_setup_script as "parallel_setup_script!: bool",
                       dev_server_script,
                       default_target_branch,
                       default_working_dir,
-                      created_at,
-                      updated_at
+                      created_at as "created_at!: DateTime<Utc>",
+                      updated_at as "updated_at!: DateTime<Utc>"
                FROM repos
-               WHERE id = ?"#,
+               WHERE id = $1"#,
+            id
         )
-        .bind(id)
         .fetch_optional(pool)
-        .await?;
-
-        match row {
-            Some(row) => {
-                let scripts = RepoDevServerScript::find_by_repo_id(pool, row.id).await?;
-                Ok(Some(Self::from_row(row, scripts)))
-            }
-            None => Ok(None),
-        }
+        .await
     }
 
     pub async fn find_by_ids(pool: &SqlitePool, ids: &[Uuid]) -> Result<Vec<Self>, sqlx::Error> {
@@ -383,11 +228,12 @@ impl Repo {
             .unwrap_or_else(|| id.to_string());
 
         // Use INSERT OR IGNORE + SELECT to handle race conditions atomically
-        let row = sqlx::query_as::<_, RepoRow>(
+        sqlx::query_as!(
+            Repo,
             r#"INSERT INTO repos (id, path, name, display_name)
-               VALUES (?, ?, ?, ?)
+               VALUES ($1, $2, $3, $4)
                ON CONFLICT(path) DO UPDATE SET updated_at = updated_at
-               RETURNING id,
+               RETURNING id as "id!: Uuid",
                          path,
                          name,
                          display_name,
@@ -395,26 +241,25 @@ impl Repo {
                          cleanup_script,
                          archive_script,
                          copy_files,
-                         parallel_setup_script,
+                         parallel_setup_script as "parallel_setup_script!: bool",
                          dev_server_script,
                          default_target_branch,
                          default_working_dir,
-                         created_at,
-                         updated_at"#,
+                         created_at as "created_at!: DateTime<Utc>",
+                         updated_at as "updated_at!: DateTime<Utc>""#,
+            id,
+            path_str,
+            repo_name,
+            display_name,
         )
-        .bind(id)
-        .bind(path_str)
-        .bind(repo_name)
-        .bind(display_name)
         .fetch_one(executor)
-        .await?;
-
-        Ok(Self::from_row(row, Vec::new()))
+        .await
     }
 
     pub async fn list_all(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, RepoRow>(
-            r#"SELECT id,
+        sqlx::query_as!(
+            Repo,
+            r#"SELECT id as "id!: Uuid",
                       path,
                       name,
                       display_name,
@@ -422,26 +267,25 @@ impl Repo {
                       cleanup_script,
                       archive_script,
                       copy_files,
-                      parallel_setup_script,
+                      parallel_setup_script as "parallel_setup_script!: bool",
                       dev_server_script,
                       default_target_branch,
                       default_working_dir,
-                      created_at,
-                      updated_at
+                      created_at as "created_at!: DateTime<Utc>",
+                      updated_at as "updated_at!: DateTime<Utc>"
                FROM repos
-               ORDER BY display_name ASC"#,
+               ORDER BY display_name ASC"#
         )
         .fetch_all(pool)
-        .await?;
-
-        Self::with_scripts(pool, rows).await
+        .await
     }
 
     pub async fn list_by_recent_workspace_usage(
         pool: &SqlitePool,
     ) -> Result<Vec<Self>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, RepoRow>(
-            r#"SELECT r.id,
+        sqlx::query_as!(
+            Repo,
+            r#"SELECT r.id as "id!: Uuid",
                       r.path,
                       r.name,
                       r.display_name,
@@ -449,24 +293,22 @@ impl Repo {
                       r.cleanup_script,
                       r.archive_script,
                       r.copy_files,
-                      r.parallel_setup_script,
+                      r.parallel_setup_script as "parallel_setup_script!: bool",
                       r.dev_server_script,
                       r.default_target_branch,
                       r.default_working_dir,
-                      r.created_at,
-                      r.updated_at
+                      r.created_at as "created_at!: DateTime<Utc>",
+                      r.updated_at as "updated_at!: DateTime<Utc>"
                FROM repos r
                LEFT JOIN (
                    SELECT repo_id, MAX(updated_at) AS last_used_at
                    FROM workspace_repos
                    GROUP BY repo_id
                ) wr ON wr.repo_id = r.id
-               ORDER BY wr.last_used_at DESC, r.display_name ASC"#,
+               ORDER BY wr.last_used_at DESC, r.display_name ASC"#
         )
         .fetch_all(pool)
-        .await?;
-
-        Self::with_scripts(pool, rows).await
+        .await
     }
 
     /// Returns the names of active (non-archived) workspaces that reference this repo.
@@ -548,22 +390,21 @@ impl Repo {
             Some(v) => v.clone(),
         };
 
-        let mut tx = pool.begin().await?;
-
-        let row = sqlx::query_as::<_, RepoRow>(
+        sqlx::query_as!(
+            Repo,
             r#"UPDATE repos
-               SET display_name = ?,
-                   setup_script = ?,
-                   cleanup_script = ?,
-                   archive_script = ?,
-                   copy_files = ?,
-                   parallel_setup_script = ?,
-                   dev_server_script = ?,
-                   default_target_branch = ?,
-                   default_working_dir = ?,
+               SET display_name = $1,
+                   setup_script = $2,
+                   cleanup_script = $3,
+                   archive_script = $4,
+                   copy_files = $5,
+                   parallel_setup_script = $6,
+                   dev_server_script = $7,
+                   default_target_branch = $8,
+                   default_working_dir = $9,
                    updated_at = datetime('now', 'subsec')
-               WHERE id = ?
-               RETURNING id,
+               WHERE id = $10
+               RETURNING id as "id!: Uuid",
                          path,
                          name,
                          display_name,
@@ -571,68 +412,25 @@ impl Repo {
                          cleanup_script,
                          archive_script,
                          copy_files,
-                         parallel_setup_script,
+                         parallel_setup_script as "parallel_setup_script!: bool",
                          dev_server_script,
                          default_target_branch,
                          default_working_dir,
-                         created_at,
-                         updated_at"#,
+                         created_at as "created_at!: DateTime<Utc>",
+                         updated_at as "updated_at!: DateTime<Utc>""#,
+            display_name,
+            setup_script,
+            cleanup_script,
+            archive_script,
+            copy_files,
+            parallel_setup_script,
+            dev_server_script,
+            default_target_branch,
+            default_working_dir,
+            id
         )
-        .bind(display_name)
-        .bind(setup_script)
-        .bind(cleanup_script)
-        .bind(archive_script)
-        .bind(copy_files)
-        .bind(parallel_setup_script)
-        .bind(dev_server_script.clone())
-        .bind(default_target_branch)
-        .bind(default_working_dir)
-        .bind(id)
-        .fetch_one(&mut *tx)
-        .await?;
-
-        if let Some(scripts) = &payload.dev_server_scripts {
-            let normalized = Self::normalize_dev_server_scripts(scripts)?;
-            let default_script = normalized
-                .iter()
-                .find(|script| script.is_default)
-                .map(|script| script.script.clone());
-
-            sqlx::query(
-                "UPDATE repos SET dev_server_script = ?, updated_at = datetime('now', 'subsec') WHERE id = ?",
-            )
-            .bind(default_script)
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
-
-            Self::replace_dev_server_scripts(&mut tx, id, &normalized).await?;
-        } else if payload.dev_server_script.is_some() && existing.dev_server_scripts.len() <= 1 {
-            let normalized = match dev_server_script.as_ref() {
-                Some(script) if !script.trim().is_empty() => vec![UpdateRepoDevServerScript {
-                    id: existing.dev_server_scripts.first().map(|script| script.id),
-                    name: existing
-                        .dev_server_scripts
-                        .first()
-                        .map(|script| script.name.clone())
-                        .unwrap_or_else(|| "Default".to_string()),
-                    script: script.trim().to_string(),
-                    working_dir: existing
-                        .dev_server_scripts
-                        .first()
-                        .and_then(|script| script.working_dir.clone()),
-                    is_default: true,
-                }],
-                _ => Vec::new(),
-            };
-
-            Self::replace_dev_server_scripts(&mut tx, id, &normalized).await?;
-        }
-
-        tx.commit().await?;
-
-        Self::find_by_id(pool, row.id)
-            .await?
-            .ok_or(RepoError::NotFound)
+        .fetch_one(pool)
+        .await
+        .map_err(RepoError::from)
     }
 }

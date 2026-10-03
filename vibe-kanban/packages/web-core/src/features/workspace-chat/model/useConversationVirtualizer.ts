@@ -26,10 +26,6 @@ import {
   findPreviousUserMessageIndex,
 } from './conversation-row-model';
 import { NEAR_BOTTOM_THRESHOLD_PX } from './conversation-scroll-commands';
-import {
-  isMobilePerfDiagnosticsEnabled,
-  recordMobilePerfDiagnostic,
-} from '@/shared/lib/mobilePerfDiagnostics';
 
 // TanStack Virtual's ScrollBehavior ('auto' | 'smooth' | 'instant') shadows
 // the DOM ScrollBehavior. Use a narrow type to avoid TS2322 mismatches.
@@ -41,14 +37,6 @@ type ScrollToOptionsBehavior = 'auto' | 'smooth';
 
 /** Number of items to render beyond the visible area in each direction. */
 const OVERSCAN = 8;
-
-/**
- * Auto-follow must be stricter than the "near bottom" UI affordance threshold.
- * A broad threshold is useful for hiding the jump-to-bottom button, but during
- * streaming output it also causes small intentional upward scrolls to be
- * treated as pinned and yanked back to the bottom.
- */
-export const AUTO_FOLLOW_BOTTOM_THRESHOLD_PX = 4;
 
 export interface ConversationSizeAdjustmentInput {
   /** End offset of the measured virtual item. */
@@ -191,7 +179,7 @@ export function useConversationVirtualizer({
     },
     anchorTo: 'end',
     followOnAppend: 'auto',
-    scrollEndThreshold: AUTO_FOLLOW_BOTTOM_THRESHOLD_PX,
+    scrollEndThreshold: NEAR_BOTTOM_THRESHOLD_PX,
     overscan: OVERSCAN,
     measureElement: defaultMeasureElement,
     useAnimationFrameWithResizeObserver: false,
@@ -210,7 +198,7 @@ export function useConversationVirtualizer({
       shouldAdjustConversationScrollPositionOnItemSizeChange({
         itemEnd: item.end,
         scrollOffset: instance.scrollOffset ?? 0,
-        isAtEnd: instance.isAtEnd(AUTO_FOLLOW_BOTTOM_THRESHOLD_PX),
+        isAtEnd: instance.isAtEnd(NEAR_BOTTOM_THRESHOLD_PX),
       });
 
     return () => {
@@ -226,7 +214,6 @@ export function useConversationVirtualizer({
   const onAtBottomChangeRef = useRef(onAtBottomChange);
   onAtBottomChangeRef.current = onAtBottomChange;
   const lastAtBottomRef = useRef(true);
-  const lastVirtualizerDiagnosticAtRef = useRef(0);
 
   const syncIsAtBottom = useCallback(() => {
     const nextValue = virtualizer.isAtEnd(NEAR_BOTTOM_THRESHOLD_PX);
@@ -267,30 +254,7 @@ export function useConversationVirtualizer({
   const totalSize = virtualizer.getTotalSize();
   useLayoutEffect(() => {
     syncIsAtBottom();
-    if (!isMobilePerfDiagnosticsEnabled()) return;
-
-    const now = performance.now();
-    if (now - lastVirtualizerDiagnosticAtRef.current < 1000) return;
-    lastVirtualizerDiagnosticAtRef.current = now;
-
-    const scrollEl = scrollContainerRef.current;
-    recordMobilePerfDiagnostic('conversation.virtualizer_layout', {
-      row_count: rows.length,
-      virtual_item_count: virtualItems.length,
-      total_size: Math.round(totalSize),
-      scroll_top: scrollEl ? Math.round(scrollEl.scrollTop) : null,
-      scroll_height: scrollEl?.scrollHeight ?? null,
-      client_height: scrollEl?.clientHeight ?? null,
-      is_at_bottom: virtualizer.isAtEnd(NEAR_BOTTOM_THRESHOLD_PX),
-    });
-  }, [
-    rows.length,
-    scrollContainerRef,
-    syncIsAtBottom,
-    totalSize,
-    virtualItems.length,
-    virtualizer,
-  ]);
+  }, [rows.length, totalSize, syncIsAtBottom]);
 
   // -------------------------------------------------------------------------
   // Imperative helpers
@@ -298,19 +262,9 @@ export function useConversationVirtualizer({
 
   const scrollToBottom = useCallback(
     (behavior: ScrollToOptionsBehavior = 'smooth') => {
-      if (isMobilePerfDiagnosticsEnabled()) {
-        const scrollEl = scrollContainerRef.current;
-        recordMobilePerfDiagnostic('conversation.scroll_to_bottom', {
-          behavior,
-          row_count: rows.length,
-          scroll_top: scrollEl ? Math.round(scrollEl.scrollTop) : null,
-          scroll_height: scrollEl?.scrollHeight ?? null,
-          client_height: scrollEl?.clientHeight ?? null,
-        });
-      }
       virtualizer.scrollToEnd({ behavior });
     },
-    [scrollContainerRef, rows.length, virtualizer]
+    [virtualizer]
   );
 
   const scrollToIndex = useCallback(
@@ -321,20 +275,12 @@ export function useConversationVirtualizer({
         behavior?: ScrollToOptionsBehavior;
       }
     ) => {
-      if (isMobilePerfDiagnosticsEnabled()) {
-        recordMobilePerfDiagnostic('conversation.scroll_to_index', {
-          index,
-          row_count: rows.length,
-          align: options?.align ?? 'start',
-          behavior: options?.behavior ?? 'smooth',
-        });
-      }
       virtualizer.scrollToIndex(index, {
         align: options?.align ?? 'start',
         behavior: options?.behavior ?? 'smooth',
       });
     },
-    [rows.length, virtualizer]
+    [virtualizer]
   );
 
   const scrollToPreviousUserMessage = useCallback((): boolean => {
@@ -357,7 +303,7 @@ export function useConversationVirtualizer({
   }, [scrollContainerRef, virtualizer, rows]);
 
   const checkIsAtBottom = useCallback((): boolean => {
-    return virtualizer.isAtEnd(AUTO_FOLLOW_BOTTOM_THRESHOLD_PX);
+    return virtualizer.isAtEnd(NEAR_BOTTOM_THRESHOLD_PX);
   }, [virtualizer]);
 
   const releaseBottomLock = useCallback(() => {}, []);
@@ -378,21 +324,9 @@ export function useConversationVirtualizer({
 
   const measureElement = useCallback(
     (node: Element | null) => {
-      if (node && isMobilePerfDiagnosticsEnabled()) {
-        const index = Number((node as HTMLElement).dataset.index);
-        if (Number.isFinite(index) && index % 25 === 0) {
-          const rect = node.getBoundingClientRect();
-          recordMobilePerfDiagnostic('conversation.row_measure_sample', {
-            index,
-            row_count: rows.length,
-            width: Math.round(rect.width),
-            height: Math.round(rect.height),
-          });
-        }
-      }
       virtualizer.measureElement(node);
     },
-    [rows.length, virtualizer]
+    [virtualizer]
   );
 
   // -------------------------------------------------------------------------

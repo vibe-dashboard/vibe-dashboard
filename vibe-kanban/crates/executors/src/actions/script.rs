@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::Path, sync::Arc};
+use std::{path::Path, sync::Arc};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -36,9 +36,6 @@ pub struct ScriptRequest {
     /// If None, uses the container_ref directory directly.
     #[serde(default)]
     pub working_dir: Option<String>,
-    /// Optional environment overrides for this script invocation.
-    #[serde(default)]
-    pub env: HashMap<String, String>,
 }
 
 #[async_trait]
@@ -66,8 +63,7 @@ impl Executable for ScriptRequest {
             .arg(&self.script)
             .current_dir(&effective_dir);
 
-        // Apply environment variables; request-scoped overrides take precedence.
-        let env = env.clone().with_overrides(&self.env);
+        // Apply environment variables
         env.apply_to_command(&mut command);
 
         let child = command.group_spawn_no_window()?;

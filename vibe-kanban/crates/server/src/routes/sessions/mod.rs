@@ -28,7 +28,6 @@ use executors::{
 };
 use serde::Deserialize;
 use services::services::container::ContainerService;
-use tracing::Instrument;
 use ts_rs::TS;
 use utils::response::ApiResponse;
 use uuid::Uuid;
@@ -55,31 +54,10 @@ pub async fn get_sessions(
     Query(query): Query<SessionQuery>,
 ) -> Result<ResponseJson<ApiResponse<Vec<Session>>>, ApiError> {
     let pool = &deployment.db().pool;
-    let sessions = async { Session::find_by_workspace_id(pool, query.workspace_id).await }
-        .instrument(tracing::debug_span!(
-            "sessions.find_by_workspace_id",
-            workspace_id = %query.workspace_id,
-        ))
-        .await?;
-
-    tracing::debug!(
-        workspace_id = %query.workspace_id,
-        session_count = sessions.len(),
-        "sessions.list.loaded"
-    );
-
+    let sessions = Session::find_by_workspace_id(pool, query.workspace_id).await?;
     Ok(ResponseJson(ApiResponse::success(sessions)))
 }
 
-#[tracing::instrument(
-    level = "debug",
-    skip(session),
-    fields(
-        session_id = %session.id,
-        workspace_id = %session.workspace_id,
-        has_name = session.name.is_some(),
-    )
-)]
 pub async fn get_session(
     Extension(session): Extension<Session>,
 ) -> Result<ResponseJson<ApiResponse<Session>>, ApiError> {
@@ -136,8 +114,6 @@ pub struct CreateFollowUpAttempt {
     pub retry_process_id: Option<Uuid>,
     pub force_when_dirty: Option<bool>,
     pub perform_git_reset: Option<bool>,
-    #[ts(skip)]
-    pub stop_other_sessions_for_git_reset: Option<bool>,
 }
 
 pub(super) fn parse_session_command(prompt: &str) -> Option<SessionCommand> {
@@ -175,8 +151,6 @@ pub struct ResetProcessRequest {
     pub process_id: Uuid,
     pub force_when_dirty: Option<bool>,
     pub perform_git_reset: Option<bool>,
-    #[ts(skip)]
-    pub stop_other_sessions_for_git_reset: Option<bool>,
 }
 
 pub async fn follow_up(
@@ -224,21 +198,12 @@ pub async fn follow_up(
             .await?;
     }
 
-    let retry_process_id = payload.retry_process_id;
-    if let Some(proc_id) = retry_process_id {
+    if let Some(proc_id) = payload.retry_process_id {
         let force_when_dirty = payload.force_when_dirty.unwrap_or(false);
         let perform_git_reset = payload.perform_git_reset.unwrap_or(true);
-        let stop_other_sessions_for_git_reset =
-            payload.stop_other_sessions_for_git_reset.unwrap_or(false);
         deployment
             .container()
-            .reset_session_to_process(
-                session.id,
-                proc_id,
-                perform_git_reset,
-                force_when_dirty,
-                stop_other_sessions_for_git_reset,
-            )
+            .reset_session_to_process(session.id, proc_id, perform_git_reset, force_when_dirty)
             .await?;
     }
 
@@ -299,19 +264,6 @@ pub async fn follow_up(
     } else {
         cleanup_action
     };
-    let (action_kind, session_command) = match &action_type {
-        ExecutorActionType::CodingAgentSessionCommandRequest(request) => {
-            let command = match &request.command {
-                SessionCommand::Clear => "clear",
-                SessionCommand::Compact { .. } => "compact",
-            };
-            ("session_command", Some(command))
-        }
-        ExecutorActionType::CodingAgentFollowUpRequest(_) => ("follow_up", None),
-        ExecutorActionType::CodingAgentInitialRequest(_) => ("initial_request", None),
-        ExecutorActionType::ReviewRequest(_) => ("review", None),
-        ExecutorActionType::ScriptRequest(_) => ("script", None),
-    };
     let action = ExecutorAction::new(action_type, cleanup_action.map(Box::new));
 
     let execution_process = deployment
@@ -322,17 +274,6 @@ pub async fn follow_up(
             &action,
             &ExecutionProcessRunReason::CodingAgent,
         )
-        .instrument(tracing::debug_span!(
-            target: "perf.agent_startup",
-            "agent.turn",
-            workspace_id = %workspace.id,
-            session_id = %session.id,
-            executor = %executor_profile_id.executor,
-            action_kind,
-            session_command = ?session_command,
-            retry_process_id = ?retry_process_id,
-            execution_process_id = tracing::field::Empty,
-        ))
         .await?;
 
     // Clear the draft follow-up scratch on successful spawn
@@ -356,8 +297,6 @@ pub async fn reset_process(
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
     let force_when_dirty = payload.force_when_dirty.unwrap_or(false);
     let perform_git_reset = payload.perform_git_reset.unwrap_or(true);
-    let stop_other_sessions_for_git_reset =
-        payload.stop_other_sessions_for_git_reset.unwrap_or(false);
 
     deployment
         .container()
@@ -366,31 +305,8 @@ pub async fn reset_process(
             payload.process_id,
             perform_git_reset,
             force_when_dirty,
-            stop_other_sessions_for_git_reset,
         )
         .await?;
-
-    Ok(ResponseJson(ApiResponse::success(())))
-}
-
-pub async fn stop_session_execution(
-    Extension(session): Extension<Session>,
-    State(deployment): State<DeploymentImpl>,
-) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
-    deployment
-        .container()
-        .stop_running_processes_for_session(session.id, false)
-        .await?;
-
-    deployment
-        .track_if_analytics_allowed(
-            "task_attempt_stopped",
-            serde_json::json!({
-                "workspace_id": session.workspace_id.to_string(),
-                "session_id": session.id.to_string(),
-            }),
-        )
-        .await;
 
     Ok(ResponseJson(ApiResponse::success(())))
 }
@@ -457,7 +373,6 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/", get(get_session).put(update_session))
         .route("/follow-up", post(follow_up))
         .route("/reset", post(reset_process))
-        .route("/execution/stop", post(stop_session_execution))
         .route("/setup", post(run_setup_script))
         .route("/review", post(review::start_review))
         .layer(from_fn_with_state(

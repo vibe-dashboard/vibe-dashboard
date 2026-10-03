@@ -7,6 +7,8 @@ use tokio::io::AsyncWriteExt;
 use ts_rs::TS;
 use workspace_utils::{log_msg::LogMsg, msg_store::MsgStore};
 
+#[cfg(not(feature = "qa-mode"))]
+use crate::profile::ExecutorConfigs;
 use crate::{
     actions::Executable,
     approvals::ExecutorApprovalService,
@@ -16,7 +18,7 @@ use crate::{
         NormalizedEntry, NormalizedEntryType,
         utils::{ConversationPatch, EntryIndexProvider},
     },
-    profile::{ExecutorConfig, ExecutorConfigs},
+    profile::ExecutorConfig,
     stdout_dup::spawn_local_output_process,
 };
 
@@ -113,6 +115,7 @@ impl CodingAgentSessionCommandRequest {
 
 #[async_trait]
 impl Executable for CodingAgentSessionCommandRequest {
+    #[cfg_attr(feature = "qa-mode", allow(unused_variables))]
     async fn spawn(
         &self,
         current_dir: &Path,
@@ -131,31 +134,35 @@ impl Executable for CodingAgentSessionCommandRequest {
         })?;
         let prompt = self.prompt();
 
-        if crate::executors::qa_mock::QaMockExecutor::runtime_enabled() {
-            tracing::info!("QA mode env enabled: using mock executor for session command");
+        #[cfg(feature = "qa-mode")]
+        {
+            tracing::info!("QA mode: using mock executor for session command");
             let executor = crate::executors::qa_mock::QaMockExecutor;
             return executor
-                .spawn_follow_up_mock(&effective_dir, &prompt, session_id, None, env)
+                .spawn_follow_up(&effective_dir, &prompt, session_id, None, env)
                 .await;
         }
 
-        let profile_id = self.executor_config.profile_id();
-        let mut agent = ExecutorConfigs::get_cached()
-            .get_coding_agent(&profile_id)
-            .ok_or(ExecutorError::UnknownExecutorType(profile_id.to_string()))?;
+        #[cfg(not(feature = "qa-mode"))]
+        {
+            let profile_id = self.executor_config.profile_id();
+            let mut agent = ExecutorConfigs::get_cached()
+                .get_coding_agent(&profile_id)
+                .ok_or(ExecutorError::UnknownExecutorType(profile_id.to_string()))?;
 
-        if self.executor_config.has_overrides() {
-            agent.apply_overrides(&self.executor_config);
+            if self.executor_config.has_overrides() {
+                agent.apply_overrides(&self.executor_config);
+            }
+            agent.use_approvals(approvals);
+
+            agent
+                .spawn_follow_up(&effective_dir, &prompt, session_id, None, env)
+                .await
         }
-        agent.use_approvals(approvals);
-
-        agent
-            .spawn_follow_up(&effective_dir, &prompt, session_id, None, env)
-            .await
     }
 }
 
-pub(crate) async fn spawn_static_session_command_reply(
+async fn spawn_static_session_command_reply(
     message: String,
 ) -> Result<SpawnedChild, ExecutorError> {
     let (mut spawned, mut writer) = spawn_local_output_process()?;

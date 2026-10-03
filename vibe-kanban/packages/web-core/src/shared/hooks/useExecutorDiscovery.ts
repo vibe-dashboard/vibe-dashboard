@@ -11,7 +11,6 @@ const defaultOptions: ExecutorDiscoveredOptions = {
   model_selector: {
     providers: [],
     models: [],
-    model_order: [],
     default_model: null,
     agents: [],
     permissions: [],

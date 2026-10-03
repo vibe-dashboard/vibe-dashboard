@@ -99,8 +99,3 @@ Caddyfile.dev
 # Python cache
 __pycache__/
 *.pyc
-
-# Local VK build artifacts
-/vibe-kanban
-/vibe-kanban-mcp
-/vibe-kanban-review

@@ -24,11 +24,7 @@ import { useActions } from '@/shared/hooks/useActions';
 import { useTodos } from '../model/hooks/useTodos';
 import { getLatestConfigFromProcesses } from '@/shared/lib/executor';
 import { useExecutorConfig } from '@/shared/hooks/useExecutorConfig';
-import {
-  resolveSessionMessageScratchId,
-  restoreQueuedFollowUpDraftAfterCancel,
-  useSessionMessageEditor,
-} from '../model/hooks/useSessionMessageEditor';
+import { useSessionMessageEditor } from '../model/hooks/useSessionMessageEditor';
 import { useSessionQueueInteraction } from '../model/hooks/useSessionQueueInteraction';
 import { useSessionSend } from '../model/hooks/useSessionSend';
 import { useSessionAttachments } from '../model/hooks/useSessionAttachments';
@@ -70,10 +66,6 @@ import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { sessionsApi } from '@/shared/lib/api';
 import { RenameSessionDialog } from '@vibe/ui/components/RenameSessionDialog';
 import type { TurnNavigationItem } from '@vibe/ui/components/TurnNavigationPopup';
-import {
-  isMobilePerfDiagnosticsEnabled,
-  recordMobilePerfDiagnostic,
-} from '@/shared/lib/mobilePerfDiagnostics';
 
 /** Compute execution status from boolean flags */
 function computeExecutionStatus(params: {
@@ -185,7 +177,6 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     mode === 'existing-session' ? props.onStartNewSession : undefined;
 
   const sessionId = session?.id;
-  const lastComposerDiagnosticAtRef = useRef(0);
   const queryClient = useQueryClient();
   const hostId = useHostId();
 
@@ -291,12 +282,10 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   // Use approval_id as scratch key when pending approval exists to avoid
   // prefilling approval response with queued follow-up message
   const scratchId = useMemo(() => {
-    return resolveSessionMessageScratchId({
-      approvalId: pendingApproval?.approvalId,
-      isNewSessionMode,
-      workspaceId,
-      sessionId,
-    });
+    if (pendingApproval?.approvalId) {
+      return pendingApproval.approvalId;
+    }
+    return isNewSessionMode ? workspaceId : sessionId;
   }, [pendingApproval?.approvalId, isNewSessionMode, workspaceId, sessionId]);
 
   // Get repos for file search
@@ -418,8 +407,6 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     hasInitialValue,
     saveToScratch,
     clearDraft,
-    discardLocalDraft,
-    deleteDraftScratch,
     cancelDebouncedSave,
     handleMessageChange,
   } = useSessionMessageEditor({ scratchId });
@@ -524,25 +511,14 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
       reviewMarkdown,
     ]);
 
-    recordMobilePerfDiagnostic('composer.send', {
-      has_workspace: !!workspaceId,
-      has_session: !!sessionId,
-      mode,
-      prompt_length: prompt.length,
-      has_review_markdown: reviewMarkdown.length > 0,
-      attachment_count: localAttachments.length,
-      is_slash_command: isSlashCommand,
-    });
-
     onScrollToBottom('auto');
 
     const success = await send(prompt);
     if (success) {
       cancelDebouncedSave();
-      discardLocalDraft();
       setLocalMessage('');
       clearUploadedAttachments();
-      await deleteDraftScratch();
+      if (isNewSessionMode) await clearDraft();
       if (!isSlashCommand) {
         reviewContext?.clearComments();
       }
@@ -558,15 +534,11 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     localMessage,
     reviewMarkdown,
     cancelDebouncedSave,
-    discardLocalDraft,
     setLocalMessage,
     clearUploadedAttachments,
-    deleteDraftScratch,
+    isNewSessionMode,
+    clearDraft,
     reviewContext,
-    workspaceId,
-    sessionId,
-    mode,
-    localAttachments.length,
   ]);
 
   // Track previous process count for queue refresh
@@ -601,10 +573,8 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     await queueMessage(prompt, executorConfig);
 
     // Clear local state after queueing (same as handleSend)
-    discardLocalDraft();
     setLocalMessage('');
     clearUploadedAttachments();
-    await deleteDraftScratch();
     reviewContext?.clearComments();
   }, [
     localMessage,
@@ -613,31 +583,14 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     queueMessage,
     cancelDebouncedSave,
     saveToScratch,
-    discardLocalDraft,
     setLocalMessage,
     clearUploadedAttachments,
-    deleteDraftScratch,
     reviewContext,
   ]);
 
   // Editor change handler
   const handleEditorChange = useCallback(
     (value: string) => {
-      if (isMobilePerfDiagnosticsEnabled()) {
-        const now = performance.now();
-        if (now - lastComposerDiagnosticAtRef.current > 1000) {
-          lastComposerDiagnosticAtRef.current = now;
-          recordMobilePerfDiagnostic('composer.change', {
-            has_workspace: !!workspaceId,
-            has_session: !!sessionId,
-            mode,
-            value_length: value.length,
-            newline_count: (value.match(/\n/g) ?? []).length,
-            queued: isQueued,
-            has_executor_config: !!executorConfig,
-          });
-        }
-      }
       if (isQueued) cancelQueue();
       if (executorConfig) {
         handleMessageChange(value, executorConfig);
@@ -654,9 +607,6 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
       sendError,
       clearError,
       setLocalMessage,
-      workspaceId,
-      sessionId,
-      mode,
     ]
   );
 
@@ -686,23 +636,19 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
   // Handle cancel queue - restore message to editor
   const handleCancelQueue = useCallback(async () => {
-    await restoreQueuedFollowUpDraftAfterCancel({
-      queuedMessage,
-      queuedConfig,
-      cancelQueue,
-      setLocalMessage,
-      setExecutorOverrides,
-      handleMessageChange,
-      saveToScratch,
-    });
+    if (queuedMessage) {
+      setLocalMessage(queuedMessage);
+    }
+    if (queuedConfig) {
+      setExecutorOverrides(queuedConfig);
+    }
+    await cancelQueue();
   }, [
     queuedMessage,
     queuedConfig,
-    cancelQueue,
     setLocalMessage,
     setExecutorOverrides,
-    handleMessageChange,
-    saveToScratch,
+    cancelQueue,
   ]);
 
   // Message edit retry mutation

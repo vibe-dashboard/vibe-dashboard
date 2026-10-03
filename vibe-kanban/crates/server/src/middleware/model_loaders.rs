@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use axum::{
     extract::{Path, Request, State},
     http::StatusCode,
@@ -16,15 +14,10 @@ use crate::DeploymentImpl;
 
 pub async fn load_workspace_middleware(
     State(deployment): State<DeploymentImpl>,
-    Path(path): Path<HashMap<String, String>>,
+    Path(workspace_id): Path<Uuid>,
     mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let workspace_id = path
-        .get("id")
-        .and_then(|id| id.parse::<Uuid>().ok())
-        .ok_or(StatusCode::BAD_REQUEST)?;
-
     // Load the Workspace from the database
     let workspace = match Workspace::find_by_id(&deployment.db().pool, workspace_id).await {
         Ok(Some(w)) => w,

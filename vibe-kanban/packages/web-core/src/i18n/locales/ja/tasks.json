@@ -6,8 +6,7 @@
   "gitPanel": {
     "advanced": {
       "placeholder": "例: acme Corp"
-    },
-    "addRepo": "リポジトリを追加"
+    }
   },
   "actions": {
     "addTask": "タスクを追加"
@@ -367,8 +366,7 @@
       "untrackedPresent_other": "{{count}}件の未追跡ファイルがあります（リセットの影響を受けません）。",
       "forceReset": "強制リセット（未コミットの変更を破棄）",
       "uncommittedWillDiscard": "未コミットの変更は破棄されます。",
-      "uncommittedPresentHint": "未コミットの変更があります。強制リセットをオンにするか、コミット/スタッシュしてから続行してください。",
-      "stopOtherSessions": "Stop other running sessions before resetting worktree"
+      "uncommittedPresentHint": "未コミットの変更があります。強制リセットをオンにするか、コミット/スタッシュしてから続行してください。"
     },
     "buttons": {
       "retry": "リトライ",

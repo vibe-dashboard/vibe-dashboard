@@ -1,18 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  AUTO_FOLLOW_BOTTOM_THRESHOLD_PX,
-  shouldAdjustConversationScrollPositionOnItemSizeChange,
-} from './useConversationVirtualizer';
-import { NEAR_BOTTOM_THRESHOLD_PX } from './conversation-scroll-commands';
+import { shouldAdjustConversationScrollPositionOnItemSizeChange } from './useConversationVirtualizer';
 
 describe('useConversationVirtualizer', () => {
-  it('uses a stricter pinned threshold for auto-follow than for the near-bottom UI', () => {
-    expect(AUTO_FOLLOW_BOTTOM_THRESHOLD_PX).toBeLessThan(
-      NEAR_BOTTOM_THRESHOLD_PX
-    );
-  });
-
   it('preserves scrolled-up readers when measured content above the viewport changes size', () => {
     expect(
       shouldAdjustConversationScrollPositionOnItemSizeChange({
