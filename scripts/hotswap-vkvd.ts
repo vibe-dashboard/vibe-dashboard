@@ -115,7 +115,7 @@ function parseVkSource(
   if (sourceKind === 'github-prerelease') {
     return {
       kind: 'github-prerelease',
-      repository: args.get('vk-repository') ?? 'mickmister/vibe-kanban',
+      repository: args.get('vk-repository') ?? 'vibe-dashboard/vibe-kanban',
       ref: requiredArg(args, 'vk-ref'),
       platform,
     };

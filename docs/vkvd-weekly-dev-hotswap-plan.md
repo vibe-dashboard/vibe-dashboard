@@ -21,7 +21,7 @@ VK release assets are produced by `Vktest/.github/workflows/release-binaries.yml
 - The manifest uses `schema_version: 1`, records both `release_tag` and `commit`, and has per-platform `assets.vibe-kanban.file`, `download_url`, `sha256`, and `archive_format` fields.
 - Runtime contract: each archive contains a single executable named `vibe-kanban`; the local VK web UI is embedded into that executable.
 
-VD already consumes those assets in `Dockerfile.vkvd` by downloading `https://github.com/mickmister/vibe-kanban/releases/download/vk-assets-${VK_COMMIT}/manifest.json`, validating schema/mode/tag/commit, selecting `linux-x64` or `linux-arm64`, verifying SHA256, extracting `vibe-kanban`, installing it to `/usr/local/bin/vibe-kanban`, and writing `/usr/local/share/vibe-kanban-build-version`.
+VD already consumes those assets in `Dockerfile.vkvd` by downloading `https://github.com/vibe-dashboard/vibe-kanban/releases/download/vk-assets-${VK_COMMIT}/manifest.json`, validating schema/mode/tag/commit, selecting `linux-x64` or `linux-arm64`, verifying SHA256, extracting `vibe-kanban`, installing it to `/usr/local/bin/vibe-kanban`, and writing `/usr/local/share/vibe-kanban-build-version`.
 
 ### Local VK build fallback
 

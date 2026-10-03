@@ -30,7 +30,7 @@ DEFAULT_VK_REPO=$(cd "$VD_REPO/.." && pwd)/Vktest
 
 VK_REPO=${VK_REPO:-$DEFAULT_VK_REPO}
 VK_REF=${VK_REF:-HEAD}
-VK_GH_REPO=${VK_GH_REPO:-mickmister/vibe-kanban}
+VK_GH_REPO=${VK_GH_REPO:-vibe-dashboard/vibe-kanban}
 VK_GH_WORKFLOW=${VK_GH_WORKFLOW:-Release Binaries}
 VK_GH_RUN_ID=${VK_GH_RUN_ID:-}
 VK_GH_REQUIRE_TEST_WORKFLOW=${VK_GH_REQUIRE_TEST_WORKFLOW:-1}

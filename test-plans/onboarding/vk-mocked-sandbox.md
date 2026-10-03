@@ -227,7 +227,7 @@ is `VK_CHECKOUT` in this sandbox.
 | `VK_MOCKED_VK_BACKEND` | Set to `ci-release` through `npm run *:vk-mocked-sandbox:ci-release` to run VK from a CI release artifact instead of local source. |
 | `VK_MOCKED_RELEASE_SHA` | Required for CI-release mode; full 40-character VK commit SHA. |
 | `VK_MOCKED_RELEASE_RUN_ID` | Optional CI-release mode override for the `Release Binaries` GitHub Actions run ID. Example smoke run: `31655931916` for `ff79144e3842e5454ffc36b5546a1336ab4da993`. |
-| `VK_MOCKED_GH_REPO` | CI-release mode GitHub repo; defaults to `mickmister/vibe-kanban`. |
+| `VK_MOCKED_GH_REPO` | CI-release mode GitHub repo; defaults to `vibe-dashboard/vibe-kanban`. |
 | `VK_MOCKED_GH_ARTIFACT_NAME` | CI-release mode artifact name; defaults to `release-assets-linux-x64`. |
 | `VK_MOCKED_GH_ARCHIVE_NAME` | CI-release mode archive name; defaults to `vibe-kanban-linux-x64.tar.gz`. |
 | `RUST_LOG` | VK backend log level; defaults to `debug` in the sandbox. |
