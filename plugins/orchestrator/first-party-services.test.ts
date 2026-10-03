@@ -238,7 +238,7 @@ describe('first-party service plugin inventory and golden supervisor config', ()
   it('plans idempotent first-party release asset installs and no-ops matching installed versions', () => {
     const requested = {
       serviceId: 'first-party.vibe-kanban',
-      repository: 'mickmister/vibe-kanban',
+      repository: 'vibe-dashboard/vibe-kanban',
       releaseTag: 'vk-assets-abc123',
       commitSha: 'abc123',
       assetName: 'vibe-kanban-linux-x64.tar.gz',
@@ -251,8 +251,8 @@ describe('first-party service plugin inventory and golden supervisor config', ()
       action: 'install',
       serviceId: 'first-party.vibe-kanban',
       versionKey: 'github-release:vk-assets-abc123@abc123',
-      artifactUrl: 'https://github.com/mickmister/vibe-kanban/releases/download/vk-assets-abc123/vibe-kanban-linux-x64.tar.gz',
-      checksumUrl: 'https://github.com/mickmister/vibe-kanban/releases/download/vk-assets-abc123/vibe-kanban-linux-x64.tar.gz.sha256',
+      artifactUrl: 'https://github.com/vibe-dashboard/vibe-kanban/releases/download/vk-assets-abc123/vibe-kanban-linux-x64.tar.gz',
+      checksumUrl: 'https://github.com/vibe-dashboard/vibe-kanban/releases/download/vk-assets-abc123/vibe-kanban-linux-x64.tar.gz.sha256',
       installPath: '/var/lib/vd/first-party/first-party.vibe-kanban/github-release_vk-assets-abc123_abc123',
       rollbackPointer: null,
       verify: { sha256: 'a'.repeat(64) },

@@ -24,7 +24,7 @@ export type SharedPreviewConfig = Required<Omit<SharedPreviewOptions, 'printOnly
 
 const DEFAULT_CHECKOUT_DIR = '/var/tmp/beadsform-preview-stable/vibe-kanban-vscode-web';
 const DEFAULT_BRANCH = 'vk/8299-beads-web-show-m';
-const DEFAULT_REPO_URL = 'https://github.com/mickmister/vibe-dashboard.git';
+const DEFAULT_REPO_URL = 'https://github.com/vibe-dashboard/vibe-dashboard.git';
 const DEFAULT_SESSION = 'beadsform-shared-preview-55123';
 const DEFAULT_FORMS_DIR = '/tmp/beads-form-preview';
 const DEFAULT_PARENT_DIR = '/var/tmp/vibe-kanban/worktrees';

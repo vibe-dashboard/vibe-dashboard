@@ -68,7 +68,7 @@ describe('shared BeadsForm preview server helper', () => {
 
     expect(commands[0]).toBe("tmux kill-session -t 'preview' || true");
     expect(commands).toContain("mkdir -p '/stable'");
-    expect(commands).toContain("git clone --branch 'feature/forms' 'https://github.com/mickmister/vibe-dashboard.git' '/stable/vd'");
+    expect(commands).toContain("git clone --branch 'feature/forms' 'https://github.com/vibe-dashboard/vibe-dashboard.git' '/stable/vd'");
     expect(commands).toContain("pnpm --dir '/stable/vd' install --frozen-lockfile");
     expect(commands).not.toContain('pnpm install --frozen-lockfile');
     expect(commands.at(-1)).toContain("tmux new-session -d -s 'preview'");

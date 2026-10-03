@@ -1,6 +1,6 @@
 services:
   code-vibe:
-    image: ghcr.io/mickmister/vk-vd:${VKVD_IMAGE_VERSION:-latest}
+    image: ghcr.io/vibe-dashboard/vk-vd:${VKVD_IMAGE_VERSION:-latest}
     pull_policy: always
 
     ports:

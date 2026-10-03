@@ -21,7 +21,7 @@ env:
   RUSTC_WRAPPER: sccache
   SCCACHE_GHA_ENABLED: "true"
   RUST_TOOLCHAIN: nightly-2025-12-04
-  VK_REPOSITORY: mickmister/vibe-kanban
+  VK_REPOSITORY: vibe-dashboard/vibe-kanban
 
 jobs:
   tests-e2e:

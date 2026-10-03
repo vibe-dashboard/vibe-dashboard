@@ -4,9 +4,9 @@ import { spawnSync } from 'node:child_process';
 const DEFAULT_PROJECT_UUID = 'qggkwso04cgg0kgcos8gskk8';
 const DEFAULT_ENVIRONMENT_UUID = 'dksgc48844g4o8kko8gosk48';
 const DEFAULT_SERVER_UUID = 'y80og4woc8osok44s4s84gss';
-const DEFAULT_REPO = 'https://github.com/mickmister/vibe-dashboard';
+const DEFAULT_REPO = 'https://github.com/vibe-dashboard/vibe-dashboard';
 const DEFAULT_COMPOSE_LOCATION = '/docker-compose.yaml';
-const DEFAULT_IMAGE = 'ghcr.io/mickmister/vk-vd';
+const DEFAULT_IMAGE = 'ghcr.io/vibe-dashboard/vk-vd';
 
 function usage() {
   console.log(`Usage:
