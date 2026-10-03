@@ -247,7 +247,7 @@ function request(overrides: Partial<VkvdHotswapRequest> = {}): VkvdHotswapReques
     id: 'hot-1',
     vkSource: {
       kind: 'github-prerelease',
-      repository: 'mickmister/vibe-kanban',
+      repository: 'vibe-dashboard/vibe-kanban',
       ref: 'feature/test',
       platform: 'linux-x64',
     },

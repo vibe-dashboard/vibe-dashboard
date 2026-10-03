@@ -18,7 +18,7 @@ describe('parseVkvdHotswapCliArgs', () => {
     expect(parsed.applyConfirmed).toBe(false);
     expect(parsed.request.vkSource).toEqual({
       kind: 'github-prerelease',
-      repository: 'mickmister/vibe-kanban',
+      repository: 'vibe-dashboard/vibe-kanban',
       ref: 'feature/test',
       platform: 'linux-x64',
     });

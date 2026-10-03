@@ -119,7 +119,7 @@ describe('LocalVkBuildArtifactResolver', () => {
 
     await expect(resolver.resolve({
       kind: 'github-prerelease',
-      repository: 'mickmister/vibe-kanban',
+      repository: 'vibe-dashboard/vibe-kanban',
       ref: 'main',
       platform: 'linux-x64',
     })).rejects.toThrow('Local VK build resolver cannot resolve github-prerelease sources');

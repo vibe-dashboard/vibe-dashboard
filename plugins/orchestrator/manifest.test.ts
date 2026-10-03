@@ -90,7 +90,7 @@ const firstPartyVkManifest: PluginManifest = {
         command: 'npx vibe-kanban@${VIBE_KANBAN_VERSION}',
         versionSource: {
           kind: 'github-release-asset',
-          repository: 'mickmister/vibe-kanban',
+          repository: 'vibe-dashboard/vibe-kanban',
           tag: 'vk-assets-example',
           asset: 'vibe-kanban-node.tar.gz',
         },

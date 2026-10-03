@@ -357,7 +357,7 @@ export const BUILTIN_FIRST_PARTY_SERVICE_PLUGINS: FirstPartyServicePlugin[] = [
     manifest: manifest({
       id: 'first-party.vibe-kanban', displayName: 'Vibe Kanban', version: 'github-release:vk-assets-${VK_COMMIT}',
       requestedCapabilities: { vkHttpApi: 'agentPrompt', hostShell: { commands: ['/usr/local/bin/vibe-kanban'] }, codeServer: 'workspace', filesystem: [{ scope: 'repo', path: '/home/vkuser/repos', access: 'readWrite' }], network: { mode: 'ingress-and-egress', ports: ['${BACKEND_PORT}'] }, env: ['VK_SHARED_API_BASE', 'VK_ALLOWED_ORIGINS'] },
-      components: { services: [{ id: 'vibe-kanban', runtime: 'supervisor', command: '/usr/local/bin/vibe-kanban', versionSource: { kind: 'github-release-asset', repository: 'mickmister/vibe-kanban', tag: 'vk-assets-${VK_COMMIT}', asset: 'vibe-kanban-${TARGETARCH}.tar.gz' } }] },
+      components: { services: [{ id: 'vibe-kanban', runtime: 'supervisor', command: '/usr/local/bin/vibe-kanban', versionSource: { kind: 'github-release-asset', repository: 'vibe-dashboard/vibe-kanban', tag: 'vk-assets-${VK_COMMIT}', asset: 'vibe-kanban-${TARGETARCH}.tar.gz' } }] },
     }),
     privilegeTier: 'core-control-plane', bootCritical: false, supervisorPrograms: ['vibe-kanban'], supervisorConfig: VIBE_KANBAN_SUPERVISOR, installStrategy: 'github-release-asset', desiredVersion: 'github-release:vk-assets-${VK_COMMIT}', stagingRequired: true, rollbackable: true,
   },

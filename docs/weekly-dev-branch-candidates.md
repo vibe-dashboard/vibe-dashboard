@@ -154,7 +154,7 @@ Current policy decisions from the forms:
 | `vk/55d7-vd-sessions` | 2026-05-27 | `a595a3b` Render home overview at root route | ahead 91, behind 137, files 4 | not covered in user forms; needs triage before any merge |
 | `vk/515f-vd-ci-run-failur` | 2026-05-25 | `5fe01fe` Skip CI failure prompt if agent is already running | ahead 2, behind 380, files 4 | not covered in user forms; needs triage before any merge |
 | `vk/d5f3-vd-publish-to-np` | 2026-05-21 | `d3baa3e` Update GitNexus repo metadata | ahead 1, behind 380, files 2 | not covered in user forms; needs triage before any merge |
-| `vk/02a6-vd-add-inactivit` | 2026-05-20 | `d45f8b7` Merge branch 'main' of https://github.com/mickmister/vibe-dashboard into vk/02a6-vd-add-inactivit | ahead 3, behind 136, files 15 | not covered in user forms; needs triage before any merge |
+| `vk/02a6-vd-add-inactivit` | 2026-05-20 | `d45f8b7` Merge branch 'main' of https://github.com/vibe-dashboard/vibe-dashboard into vk/02a6-vd-add-inactivit | ahead 3, behind 136, files 15 | not covered in user forms; needs triage before any merge |
 | `vk/f8c9-vd-better-repo-a` | 2026-05-19 | `8dd7835` Make VD ref cleanup non-fatal (#19) | ahead 0, behind 380, files 0 | local no-delta/stale or already merged; not selected |
 | `vk/f0cd-vk-new-releases` | 2026-05-19 | `680c187` Polish manual VK VD publish controls | ahead 4, behind 382, files 1 | not covered in user forms; needs triage before any merge |
 | `vk/b505-vd-tasks-and-sub` | 2026-05-19 | `8dd7835` Make VD ref cleanup non-fatal (#19) | ahead 0, behind 380, files 0 | local no-delta/stale or already merged; not selected |
@@ -297,7 +297,7 @@ Current policy decisions from the forms:
 | `vk/e27a-vk-queue-fix` | 2026-05-09 | `5d73041d0` fix: consume queued follow-up when agent completes with no changes | ahead 1, behind 29, files 1 | not covered in user forms; needs triage before any merge |
 | `vk/a914-vk-fix-mobile-se` | 2026-05-07 | `6e14c3fda` Fix websocket reconnect issues (#2) | ahead 0, behind 29, files 0 | local no-delta/stale or already merged; not selected |
 | `vk/94cf-vk-zen-mode` | 2026-05-07 | `d9db8d969` Remove Vibe Kanban branding from PR auto descriptions | ahead 3, behind 45, files 11 | not covered in user forms; needs triage before any merge |
-| `vk/6b87-vk-fix-websocket` | 2026-05-07 | `84a6051a0` Merge branch 'vk/6b87-vk-fix-websocket' of https://github.com/mickmister/vibe-kanban into vk/6b87-vk-fix-websocket | ahead 10, behind 31, files 22 | not covered in user forms; needs triage before any merge |
+| `vk/6b87-vk-fix-websocket` | 2026-05-07 | `84a6051a0` Merge branch 'vk/6b87-vk-fix-websocket' of https://github.com/vibe-dashboard/vibe-kanban into vk/6b87-vk-fix-websocket | ahead 10, behind 31, files 22 | not covered in user forms; needs triage before any merge |
 | `vk/02a6-vd-add-inactivit` | 2026-05-07 | `6e14c3fda` Fix websocket reconnect issues (#2) | ahead 0, behind 29, files 0 | local no-delta/stale or already merged; not selected |
 | `vk/827f-vd-gantt-chart-o` | 2026-04-29 | `8a319875d` Revert "Add workspace execution timeline API for dashboard gantt view" | ahead 2, behind 44, files 0 | local no-delta/stale or already merged; not selected |
 | `vk/49c8-vk-support-clear` | 2026-04-27 | `7886e805a` Harden llm proxy request handling | ahead 2, behind 44, files 4 | not covered in user forms; needs triage before any merge |

@@ -4,7 +4,7 @@ set -euo pipefail
 
 default_branch="${DEFAULT_BRANCH:-main}"
 github_server_url="${GITHUB_SERVER_URL:-https://github.com}"
-github_repository="${GITHUB_REPOSITORY:-mickmister/vibe-dashboard}"
+github_repository="${GITHUB_REPOSITORY:-vibe-dashboard/vibe-dashboard}"
 vd_repo_url="${VD_REPO_URL:-${github_server_url}/${github_repository}.git}"
 event_name="${GITHUB_EVENT_NAME:-}"
 
