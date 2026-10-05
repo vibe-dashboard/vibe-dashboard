@@ -33,6 +33,7 @@ services:
       SITE_ORIGIN: ${SITE_ORIGIN:-https://jamtools.dev}
       CODE_PORT: ${CODE_PORT:-3008}
       XDG_CONFIG_HOME: /home/vkuser/.config
+      GIT_CONFIG_GLOBAL: /home/vkuser/.config/git/config
 
       CODE_PASSWORD: ${CODE_PASSWORD:-__unset__}
       SUDO_PASSWORD: ${SUDO_PASSWORD}
