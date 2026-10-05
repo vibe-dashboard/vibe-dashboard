@@ -24,7 +24,9 @@ COLIMA_SYSBOX_PROFILE=my-profile ./scripts/colima/setup-sysbox.sh
 
 ```bash
 ./scripts/colima/check-sysbox.sh
-./scripts/smoke-sysbox-dind.sh
+VKVD_CONTAINER_RUNTIME=sysbox-runc DOCKER_CONTEXT=colima-vd-sysbox docker compose up -d code-vibe
+DOCKER_CONTEXT=colima-vd-sysbox docker compose exec code-vibe docker info
+DOCKER_CONTEXT=colima-vd-sysbox docker compose exec code-vibe docker run --rm alpine:3.20 true
 ```
 
 ## Use with compose

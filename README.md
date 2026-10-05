@@ -33,8 +33,7 @@ Caddy forwards `port-<port>.*` subdomains to `localhost:<port>` inside the conta
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `VKVD_IMAGE_REPOSITORY` | `ghcr.io/vibe-dashboard/vk-vd` | Image repository used by compose. Override this to pull from a fork or staging registry. |
-| `VKVD_IMAGE_VERSION` | `latest` | Fetches image from `${VKVD_IMAGE_REPOSITORY:-ghcr.io/vibe-dashboard/vk-vd}:${VKVD_IMAGE_VERSION:-latest}`. The compose file's pull policy is set to "always", so if you want to pin a specific version, use this arg. |
+| `VKVD_IMAGE_VERSION` | `latest` | Fetches image from ghcr.io/vibe-dashboard/vk-vd:${VKVD_IMAGE_VERSION:-latest}. The compose file's pull policy is set to "always", so if you want to pin a specific version, use this arg. |
 
 #### Ports
 
@@ -170,7 +169,7 @@ Platform notes:
 
 - Linux amd64/arm64: install Sysbox on the Docker host, then run `VKVD_CONTAINER_RUNTIME=sysbox-runc docker compose up -d code-vibe`.
 - Mac amd64/arm64: use the Colima Sysbox setup in `scripts/colima/README.md`, then run `VKVD_CONTAINER_RUNTIME=sysbox-runc DOCKER_CONTEXT=colima-vd-sysbox docker compose up -d code-vibe`.
-- Docker Desktop Enhanced Container Isolation is a Docker Desktop Business feature. Prefer Colima for Mac Sysbox setup; if your environment intentionally uses ECI, verify Docker-in-Docker with the smoke test below.
+- Docker Desktop Enhanced Container Isolation is a Docker Desktop Business feature. Prefer Colima for Mac Sysbox setup; if your environment intentionally uses ECI, verify Docker-in-Docker manually after startup.
 
 Preflight before starting:
 
@@ -183,11 +182,12 @@ docker info --format '{{json .Runtimes}}' | grep sysbox-runc
 ./scripts/colima/check-sysbox.sh
 ```
 
-Start and smoke test before merge/release:
+Start and verify Docker-in-Docker:
 
 ```bash
 VKVD_CONTAINER_RUNTIME=sysbox-runc docker compose up -d code-vibe
-./scripts/smoke-sysbox-dind.sh
+docker compose exec code-vibe docker info
+docker compose exec code-vibe docker run --rm alpine:3.20 true
 ```
 
 When `VKVD_CONTAINER_RUNTIME` is not `sysbox-runc`, the entrypoint logs that Docker-in-Docker is disabled and continues so non-Sysbox workspaces can still run.

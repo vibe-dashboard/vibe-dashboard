@@ -192,7 +192,6 @@ async function deploy(args) {
   if (!uuid) return;
   await updateApplicationConfig(uuid, args);
   const envs = {
-    VKVD_IMAGE_REPOSITORY: args.image ?? DEFAULT_IMAGE,
     VKVD_IMAGE_VERSION: args['image-tag'],
     CADDY_PORT: '3001',
     QA_SLOT_ID: `slot-${args.slot}`,

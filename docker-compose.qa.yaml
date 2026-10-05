@@ -1,6 +1,6 @@
 services:
   code-vibe:
-    image: ${VKVD_IMAGE_REPOSITORY:-ghcr.io/vibe-dashboard/vk-vd}:${VKVD_IMAGE_VERSION:-latest}
+    image: ghcr.io/vibe-dashboard/vk-vd:${VKVD_IMAGE_VERSION:-latest}
     pull_policy: always
 
     ports:
@@ -21,7 +21,6 @@ services:
     environment:
       QA_SLOT_ID: ${QA_SLOT_ID:?QA_SLOT_ID is required for a QA slot}
       QA_HOST_PORT: ${QA_HOST_PORT:?QA_HOST_PORT is required for a QA slot}
-      VKVD_IMAGE_REPOSITORY: ${VKVD_IMAGE_REPOSITORY:-ghcr.io/vibe-dashboard/vk-vd}
       VKVD_IMAGE_VERSION: ${VKVD_IMAGE_VERSION:-latest}
 
       CADDY_PORT: ${CADDY_PORT:-3001}

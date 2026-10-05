@@ -4,7 +4,7 @@
 # Usage:
 #   ./scripts/colima/setup-sysbox.sh
 #   docker context use colima-vd-sysbox
-#   ./scripts/smoke-sysbox-dind.sh
+#   VKVD_CONTAINER_RUNTIME=sysbox-runc docker compose up -d code-vibe
 #
 # This file is copied to ~/.colima/vd-sysbox/colima.yaml by setup-sysbox.sh.
 # Colima runs the provision script when the VM starts.
