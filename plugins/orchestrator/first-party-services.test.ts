@@ -18,6 +18,8 @@ import { validatePluginManifest } from './manifest';
 
 const goldenSupervisor = readFileSync(resolve(process.cwd(), 'supervisord.vkvd.conf'), 'utf8');
 const goldenDockerfile = readFileSync(resolve(process.cwd(), 'Dockerfile.vkvd'), 'utf8');
+const goldenDockerCompose = readFileSync(resolve(process.cwd(), 'docker-compose.yaml'), 'utf8');
+const qaDockerCompose = readFileSync(resolve(process.cwd(), 'docker-compose.qa.yaml'), 'utf8');
 const goldenCaddyfile = readFileSync(resolve(process.cwd(), 'Caddyfile'), 'utf8');
 const rootPackageJson = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8')) as {
   scripts: Record<string, string>;
@@ -57,6 +59,7 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     }
 
     expect(getSupervisorManagedProgramNames(BUILTIN_FIRST_PARTY_SERVICE_PLUGINS)).toEqual([
+      'dockerd',
       'beads-dolt-shared-server',
       'code-server',
       'vibe-kanban',
@@ -71,6 +74,7 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     ]);
 
     expect(getFirstPartyAdminCapabilitySummaries(BUILTIN_FIRST_PARTY_SERVICE_PLUGINS)).toMatchObject([
+      { id: 'first-party.dockerd', privilegeTier: 'trusted-workspace', requiresHostShell: true },
       { id: 'first-party.beads-dolt-shared-server', privilegeTier: 'core-control-plane', requiresHostShell: true },
       { id: 'first-party.code-server', privilegeTier: 'trusted-workspace', requiresHostShell: true, repoAccess: 'workspace' },
       { id: 'first-party.vibe-kanban', privilegeTier: 'core-control-plane', vkHttpApi: 'agentPrompt', repoAccess: 'repo' },
@@ -175,10 +179,66 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     expect(goldenDockerfile).toContain('(cd /tmp && beads-form --help >/dev/null)');
   });
 
+  it('uses Sysbox-backed Docker-in-Docker without mounting the host Docker socket', () => {
+    expect(goldenDockerCompose).toContain('runtime: ${VKVD_CONTAINER_RUNTIME:-runc}');
+    expect(goldenDockerCompose).toContain('VKVD_CONTAINER_RUNTIME: ${VKVD_CONTAINER_RUNTIME:-runc}');
+    expect(qaDockerCompose).toContain('runtime: ${VKVD_CONTAINER_RUNTIME:-runc}');
+    expect(qaDockerCompose).toContain('VKVD_CONTAINER_RUNTIME: ${VKVD_CONTAINER_RUNTIME:-runc}');
+    expect(goldenDockerCompose).not.toContain('VKVD_ALLOW_NON_SYSBOX_RUNTIME');
+    expect(qaDockerCompose).not.toContain('VKVD_ALLOW_NON_SYSBOX_RUNTIME');
+    for (const [name, compose] of [
+      ['default', goldenDockerCompose],
+      ['QA', qaDockerCompose],
+    ] as const) {
+      expect(compose, `${name} compose inner Docker data`).toContain('docker-data:/var/lib/docker');
+      expect(compose, `${name} compose active host socket mount`).not.toMatch(/^\s*-\s+\/var\/run\/docker\.sock:\/var\/run\/docker\.sock/m);
+    }
+    expect(goldenDockerfile).toContain('docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin');
+    expect(goldenDockerfile).toContain('usermod -aG vkadmin,sudo,docker vkuser');
+    expect(dockerEntrypoint).toContain('prepare docker access');
+    expect(dockerEntrypoint).not.toContain('DOCKER_SOCK_GID');
+    expect(goldenSupervisor).not.toContain('[program:dockerd]');
+    expect(goldenSupervisor).toContain('files = /etc/supervisor/conf.d/dockerd.conf /etc/supervisor/conf.d/vd-generated/*.conf');
+    const dockerd = BUILTIN_FIRST_PARTY_SERVICE_PLUGINS.find((plugin) => plugin.manifest.id === 'first-party.dockerd');
+    expect(dockerd?.supervisorConfig).toBeUndefined();
+    expect(dockerd?.generatedSupervisorConfig).toMatchObject({
+      path: '/etc/supervisor/conf.d/dockerd.conf',
+      generatedBy: 'docker-entrypoint.sh',
+      condition: 'VKVD_CONTAINER_RUNTIME=sysbox-runc',
+    });
+    expect(dockerd?.generatedSupervisorConfig?.config).toContain('[program:dockerd]');
+    expect(dockerEntrypoint).toContain('write_dockerd_supervisor_config()');
+    expect(dockerEntrypoint).toContain('local conf_dir="/etc/supervisor/conf.d"');
+    expect(dockerEntrypoint).toContain('local legacy_plugin_conf_file="/etc/supervisor/conf.d/vd-generated/dockerd.conf"');
+    expect(dockerEntrypoint).toContain('rm -f "$legacy_plugin_conf_file"');
+    expect(dockerEntrypoint).toContain('if [ "${VKVD_CONTAINER_RUNTIME:-runc}" != "sysbox-runc" ]; then');
+    expect(dockerEntrypoint).toContain('rm -f "$conf_file"');
+    expect(dockerEntrypoint).toContain('[program:dockerd]');
+    expect(dockerEntrypoint).toContain('command=/usr/bin/dockerd --host=unix:///var/run/docker.sock --data-root=/var/lib/docker');
+  });
+
+  it('enables inner Docker only when the workspace is launched with Sysbox', () => {
+    expect(dockerEntrypoint).toContain('verify Sysbox runtime');
+    expect(dockerEntrypoint).toContain('Docker-in-Docker is disabled');
+    expect(dockerEntrypoint).toContain('mount -t tmpfs tmpfs');
+    expect(dockerEntrypoint).not.toContain('VKVD_ALLOW_NON_SYSBOX_RUNTIME');
+    expect(dockerEntrypoint).not.toContain('DOCKER_SOCK_GID');
+  });
+
   it('treats Dockerfile.vkvd and supervisord.vkvd.conf as golden runtime config names', () => {
     const desired = createFirstPartyDesiredState(BUILTIN_FIRST_PARTY_SERVICE_PLUGINS);
 
     expect(desired.goldenConfigs).toEqual({ dockerfile: 'Dockerfile.vkvd', supervisor: 'supervisord.vkvd.conf' });
+    expect(desired.services['first-party.dockerd']).toMatchObject({
+      installStrategy: 'apt-or-script',
+      supervisorPrograms: ['dockerd'],
+      generatedSupervisorConfig: {
+        path: '/etc/supervisor/conf.d/dockerd.conf',
+        generatedBy: 'docker-entrypoint.sh',
+        condition: 'VKVD_CONTAINER_RUNTIME=sysbox-runc',
+      },
+    });
+    expect(desired.services['first-party.dockerd']?.generatedSupervisorConfig?.config).toContain('[program:dockerd]');
     expect(desired.services['first-party.vibe-kanban']).toMatchObject({
       desiredVersion: 'github-release:vk-assets-${VK_COMMIT}',
       installStrategy: 'github-release-asset',
@@ -194,6 +254,13 @@ describe('first-party service plugin inventory and golden supervisor config', ()
   it('makes boot-critical first-party services non-removable while keeping restart-only services swappable', () => {
     const policy = createFirstPartyAdminPolicy(BUILTIN_FIRST_PARTY_SERVICE_PLUGINS);
 
+    expect(policy['first-party.dockerd']).toMatchObject({
+      adminRemovable: false,
+      removalBlockedReason: 'inner Docker daemon is required for workspace Docker commands',
+      versionSwapAllowed: true,
+      requiresStagingBeforeProduction: true,
+    });
+    expect(policy['first-party.dockerd']?.removalBlockedReason).not.toContain('boot-critical');
     expect(policy['first-party.vibe-dashboard']).toMatchObject({
       adminRemovable: false,
       removalBlockedReason: 'boot-critical service required for the control plane to start',
