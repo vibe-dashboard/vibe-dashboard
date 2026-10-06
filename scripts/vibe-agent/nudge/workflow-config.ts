@@ -81,6 +81,12 @@ function requireString(value: string | undefined, name: string): string {
   return value.trim();
 }
 
+function parseBoolean(value: string, name: string): boolean {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  throw new Error(`${name} must be true or false`);
+}
+
 export function ensureWorkflowConfig(filePath = DEFAULT_WORKFLOW_CONFIG_PATH): void {
   if (fs.existsSync(filePath)) return;
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -168,7 +174,7 @@ export function parseWorkflowConfig(raw: string, source = '<memory>'): WorkflowC
         if (key === 'from_role') { item.fromRole = value; continue; }
         if (key === 'to_role') { item.toRole = value; continue; }
         if (key === 'prompt_id') { item.promptId = value; continue; }
-        if (key === 'fresh') { item.fresh = value === 'true'; continue; }
+        if (key === 'fresh') { item.fresh = parseBoolean(value, `message_types.${currentId}.fresh`); continue; }
         if (key === 'allowed_actions') {
           const parsed = parseList(value);
           if (parsed) item.allowedActions = parsed.map(action);
@@ -178,7 +184,7 @@ export function parseWorkflowConfig(raw: string, source = '<memory>'): WorkflowC
       }
       if (section === 'handlers') {
         const item = config.handlers[currentId]!;
-        if (key === 'enabled') { item.enabled = value === 'true'; continue; }
+        if (key === 'enabled') { item.enabled = parseBoolean(value, `handlers.${currentId}.enabled`); continue; }
         if (key === 'timeout_ms') { item.timeoutMs = Number.parseInt(value, 10); continue; }
         if (key === 'command') {
           const parsed = parseList(value);
@@ -206,6 +212,7 @@ export function parseWorkflowConfig(raw: string, source = '<memory>'): WorkflowC
     requireString(message.toRole, `message_types.${id}.to_role`);
     requireString(message.promptId, `message_types.${id}.prompt_id`);
     if (!config.prompts[message.promptId]) throw new Error(`message_types.${id}.prompt_id references missing prompt ${message.promptId}`);
+    if (message.fresh) throw new Error(`message_types.${id}.fresh is not supported in this slice`);
   }
   for (const [id, handler] of Object.entries(config.handlers)) {
     if (handler.enabled && handler.command.length === 0) throw new Error(`handlers.${id}.command is required when enabled`);

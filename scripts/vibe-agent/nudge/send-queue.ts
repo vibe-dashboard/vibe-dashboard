@@ -6,7 +6,7 @@ import type { SendMessageBody } from '../types.js';
 
 export const DEFAULT_SEND_QUEUE_PATH = '/home/vkuser/.local/share/vibe-dashboard-runtime/data/auto-nudge/send-queue.json';
 
-export type QueuedSendStatus = 'queued' | 'sending' | 'accepted' | 'cancelled' | 'failed';
+export type QueuedSendStatus = 'queued' | 'sending' | 'accepted' | 'cancelled' | 'failed' | 'indeterminate';
 
 export interface QueuedSend {
   id: string;
@@ -83,7 +83,7 @@ function validSend(value: unknown): value is QueuedSend {
   const send = value as QueuedSend;
   return Boolean(send && typeof send === 'object'
     && typeof send.id === 'string'
-    && ['queued', 'sending', 'accepted', 'cancelled', 'failed'].includes(send.status)
+    && ['queued', 'sending', 'accepted', 'cancelled', 'failed', 'indeterminate'].includes(send.status)
     && typeof send.targetRole === 'string'
     && typeof send.targetSessionId === 'string'
     && typeof send.executor === 'string'
@@ -195,6 +195,32 @@ export function markQueuedSendAccepted(filePath: string, id: string, processId: 
 
 export function markQueuedSendFailed(filePath: string, id: string, error: string, now = new Date()): QueuedSend {
   return updateClaimedSend(filePath, id, send => ({ ...send, status: 'failed', error, updatedAt: now.toISOString() }));
+}
+
+export function markStaleSendingIndeterminate(
+  filePath: string,
+  olderThan: Date,
+  now = new Date(),
+): QueuedSend[] {
+  return withSendQueueLock(filePath, () => {
+    const state = readSendQueue(filePath);
+    const changed: QueuedSend[] = [];
+    for (const send of Object.values(state.sends)) {
+      if (send.status !== 'sending') continue;
+      if (send.processId) continue;
+      if (new Date(send.updatedAt).getTime() > olderThan.getTime()) continue;
+      const updated: QueuedSend = {
+        ...send,
+        status: 'indeterminate',
+        error: 'queued send was interrupted while sending; automatic resend is disabled to avoid duplicates',
+        updatedAt: now.toISOString(),
+      };
+      state.sends[send.id] = updated;
+      changed.push(updated);
+    }
+    if (changed.length) writeSendQueue(filePath, state);
+    return changed;
+  });
 }
 
 function updateClaimedSend(filePath: string, id: string, update: (send: QueuedSend) => QueuedSend): QueuedSend {

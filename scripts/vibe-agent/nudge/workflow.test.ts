@@ -67,6 +67,37 @@ handlers:
     enabled: true
     command: []
 `)).toThrow(/command is required/);
+    expect(() => parseWorkflowConfig(`version: 1
+roles:
+  overseer:
+    can_emit_actions: []
+prompts:
+  p:
+    text: |
+      text
+message_types:
+handlers:
+  post:
+    enabled: yes
+    command: []
+`)).toThrow(/handlers.post.enabled must be true or false/);
+    expect(() => parseWorkflowConfig(`version: 1
+roles:
+  overseer:
+    can_emit_actions: []
+prompts:
+  p:
+    text: |
+      text
+message_types:
+  m:
+    from_role: overseer
+    to_role: decision_maker
+    prompt_id: p
+    fresh: true
+    allowed_actions: []
+handlers: {}
+`)).toThrow(/fresh is not supported/);
   });
 });
 
@@ -99,6 +130,9 @@ describe('workflow XML parser', () => {
     expect(() => parseWorkflowResultXml(`${xml}\nextra`)).toThrow(/final response block/);
     expect(() => parseWorkflowResultXml(`${xml}\n${xml}`)).toThrow(/one auto-nudge-result/);
     expect(() => parseWorkflowResultXml('<auto-nudge-result><actions><action type="unknown" /></actions></auto-nudge-result>')).toThrow(/Unknown XML action/);
+    expect(() => parseWorkflowResultXml('<auto-nudge-result><actions><action type="wait" /><extra /></actions></auto-nudge-result>')).toThrow(/unsupported content/);
+    expect(() => parseWorkflowResultXml('<auto-nudge-result><actions><action type="wait" bad="x" /></actions></auto-nudge-result>')).toThrow(/Unknown action attribute/);
+    expect(() => parseWorkflowResultXml('<auto-nudge-result><actions><action type="wait">text</action></actions></auto-nudge-result>')).toThrow(/unsupported content/);
   });
 
   it('validates configured role permissions and message types', () => {
@@ -107,16 +141,52 @@ describe('workflow XML parser', () => {
     expect(() => validateWorkflowActions(result, config, 'overseer')).not.toThrow();
     expect(() => validateWorkflowActions(result, config, 'decision_maker')).toThrow(/may not emit/);
   });
+
+  it('enforces message type allowed actions for handlers', () => {
+    const config = parseWorkflowConfig(`version: 1
+roles:
+  overseer:
+    can_emit_actions:
+      - send_message
+      - run_handler
+prompts:
+  p:
+    text: |
+      text
+message_types:
+  m:
+    from_role: overseer
+    to_role: decision_maker
+    prompt_id: p
+    fresh: false
+    allowed_actions: []
+handlers:
+  post:
+    enabled: true
+    command:
+      - echo
+`);
+    const result = parseWorkflowResultXml(`<auto-nudge-result>
+  <actions>
+    <action type="send_message" role="decision_maker" message_type="m" />
+    <action type="run_handler" handler_id="post" />
+  </actions>
+</auto-nudge-result>`)!;
+    expect(() => validateWorkflowActions(result, config, 'overseer')).toThrow(/does not allow run_handler/);
+    const standalone = parseWorkflowResultXml('<auto-nudge-result><actions><action type="run_handler" handler_id="post" /></actions></auto-nudge-result>')!;
+    expect(() => validateWorkflowActions(standalone, config, 'overseer')).toThrow(/requires a send_message/);
+  });
 });
 
 describe('workflow handlers', () => {
-  it('keeps custom handlers explicit and idempotent', async () => {
+  it('keeps custom handlers explicit and idempotent while dry-run stays read-only', async () => {
     const logPath = tempPath('handler-runs.jsonl');
     const action = { type: 'run_handler' as const, handlerId: 'post', beadIds: [], formIds: [] };
     const payload = { idempotencyKey: 'once', action, workspaceId: 'w1', triggerProcessId: 'p1', dryRun: true };
     const result = await runWorkflowHandler({ enabled: true, command: ['echo', 'ok'], timeoutMs: 1_000 }, payload, { logPath });
     expect(result.status).toBe('dry-run');
-    const second = await runWorkflowHandler({ enabled: true, command: ['false'], timeoutMs: 1_000 }, { ...payload, dryRun: false }, { logPath });
+    expect(() => readFileSync(logPath, 'utf8')).toThrow();
+    const second = await runWorkflowHandler({ enabled: true, command: ['echo', 'ok'], timeoutMs: 1_000 }, { ...payload, dryRun: false }, { logPath });
     expect(second.status).toBe('completed');
   });
 

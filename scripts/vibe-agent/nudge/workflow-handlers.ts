@@ -29,7 +29,6 @@ export async function runWorkflowHandler(
   fs.mkdirSync(path.dirname(logPath), { recursive: true });
   if (hasHandlerRun(logPath, payload.idempotencyKey)) return { status: 'completed', exitCode: 0, error: null };
   if (payload.dryRun) {
-    appendHandlerRun(logPath, payload, { status: 'dry-run', exitCode: null, error: null });
     return { status: 'dry-run', exitCode: null, error: null };
   }
   if (!handler.enabled) throw new Error('handler is not enabled');
@@ -98,6 +97,13 @@ function spawnHandler(command: string[], stdin: string, options: { cwd: string; 
       resolve(code === 0
         ? { status: 'completed', exitCode: 0, error: null }
         : { status: 'failed', exitCode: code, error: stderr.trim() || `handler exited ${code}` });
+    });
+    child.stdin.on('error', error => {
+      if ((error as NodeJS.ErrnoException).code !== 'EPIPE' && !settled) {
+        settled = true;
+        clearTimeout(timer);
+        resolve({ status: 'failed', exitCode: null, error: error.message });
+      }
     });
     child.stdin.end(stdin);
   });

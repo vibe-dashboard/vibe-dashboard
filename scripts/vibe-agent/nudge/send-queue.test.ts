@@ -9,6 +9,7 @@ import {
   enqueueSend,
   markQueuedSendAccepted,
   markQueuedSendFailed,
+  markStaleSendingIndeterminate,
   queuedSendBody,
   readSendQueue,
 } from './send-queue.js';
@@ -70,6 +71,23 @@ describe('send queue', () => {
     expect(() => markQueuedSendFailed(file, 'send-1', 'offline')).toThrow(/only sending sends/);
     claimNextQueuedSend(file);
     expect(markQueuedSendFailed(file, 'send-1', 'offline')).toMatchObject({ status: 'failed', error: 'offline' });
+  });
+
+  it('fails closed stale sending entries instead of retrying duplicate-prone sends', () => {
+    const file = queuePath();
+    enqueueSend(file, input());
+    claimNextQueuedSend(file, new Date('2026-10-06T00:00:01.000Z'));
+    const changed = markStaleSendingIndeterminate(
+      file,
+      new Date('2026-10-06T00:01:00.000Z'),
+      new Date('2026-10-06T00:02:00.000Z'),
+    );
+    expect(changed).toEqual([expect.objectContaining({
+      id: 'send-1',
+      status: 'indeterminate',
+      error: expect.stringMatching(/automatic resend is disabled/),
+    })]);
+    expect(claimNextQueuedSend(file)).toBeNull();
   });
 
   it('fails closed on malformed queue state', () => {

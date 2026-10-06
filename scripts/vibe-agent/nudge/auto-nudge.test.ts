@@ -8,7 +8,7 @@ import {
   type AutoNudgeClient, type AutoNudgeOptions,
 } from './auto-nudge.js';
 import { appendResponseRoute, bindResponseRouteProcess, readResponseRouteState, updateResponseRoute } from './response-routes.js';
-import { enqueueSend, readSendQueue } from './send-queue.js';
+import { enqueueSend, readSendQueue, writeSendQueue } from './send-queue.js';
 
 const dirs: string[] = [];
 afterEach(() => dirs.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })));
@@ -817,6 +817,55 @@ describe('auto nudge', () => {
     expect(sent[0]).toMatchObject({ sessionId: 'impl', body: { prompt: 'queued `literal`' } });
     expect(readSendQueue(options.sendQueuePath!).sends['queued-1']).toMatchObject({ status: 'accepted', processId: 'sent-1' });
     expect(Object.values(readResponseRouteState(options.responseRoutesPath!).routes)[0]).toMatchObject({ processId: 'sent-1', replySessionId: 'overseer' });
+  });
+
+  it('does not mark a queued send accepted when response routing fails', async () => {
+    const { dir, options } = setup();
+    const { client } = fake({ processes: { impl: [], overseer: [] } });
+    const originalSend = client.sendMessage;
+    client.sendMessage = async (id, body) => {
+      const sent = await originalSend(id, body);
+      options.responseRoutesPath = dir;
+      return sent;
+    };
+    enqueueSend(options.sendQueuePath!, {
+      id: 'queued-1',
+      targetRole: 'reviewer',
+      targetSessionId: 'impl',
+      executor: 'CODEX',
+      prompt: 'queued',
+      replySessionId: 'overseer',
+      now: new Date(iso(1)),
+    });
+    await expect(runAutoNudgeCycle(client, options)).rejects.toThrow(/EISDIR/);
+    expect(readSendQueue(options.sendQueuePath!).sends['queued-1']).toMatchObject({ status: 'failed', processId: null });
+  });
+
+  it('fails closed stale sending queue entries instead of retrying', async () => {
+    const { options } = setup();
+    const { client, sent } = fake({ processes: { impl: [], overseer: [] } });
+    writeSendQueue(options.sendQueuePath!, {
+      version: 1,
+      sends: {
+        stuck: {
+          id: 'stuck',
+          status: 'sending',
+          targetRole: 'reviewer',
+          targetSessionId: 'impl',
+          executor: 'CODEX',
+          prompt: 'do not duplicate',
+          replySessionId: 'overseer',
+          createdAt: iso(1),
+          updatedAt: iso(1),
+          processId: null,
+          error: null,
+        },
+      },
+    });
+    const result = await runAutoNudgeCycle(client, options);
+    expect(sent).toEqual([]);
+    expect(result.errors[0]).toMatch(/automatic resend is disabled/);
+    expect(readSendQueue(options.sendQueuePath!).sends.stuck).toMatchObject({ status: 'indeterminate' });
   });
 
   it('fails closed when a persisted checkpoint is missing', async () => {

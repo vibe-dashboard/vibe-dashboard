@@ -19,6 +19,7 @@ import {
   enqueueSend,
   markQueuedSendAccepted,
   markQueuedSendFailed,
+  markStaleSendingIndeterminate,
   queuedSendBody,
 } from './send-queue.js';
 import { DEFAULT_HANDLER_LOG_PATH, runWorkflowHandler } from './workflow-handlers.js';
@@ -405,12 +406,15 @@ async function processResponseRoutes(client: AutoNudgeClient, options: AutoNudge
 async function processSendQueue(client: AutoNudgeClient, options: AutoNudgeOptions, result: AutoNudgeCycleResult): Promise<void> {
   if (options.dryRun) return;
   const queuePath = options.sendQueuePath ?? DEFAULT_SEND_QUEUE_PATH;
+  const staleBefore = new Date(options.now().getTime() - Math.max(options.operationTimeoutMs * 2, 60_000));
+  for (const send of markStaleSendingIndeterminate(queuePath, staleBefore, options.now())) {
+    result.errors.push(`queued send ${send.id}: ${send.error}`);
+  }
   while (!options.signal?.aborted) {
     const queued = claimNextQueuedSend(queuePath, options.now());
     if (!queued) return;
     try {
       const sent = await deadline(client.sendMessage(queued.targetSessionId, queuedSendBody(queued)), options.operationTimeoutMs, 'send queued message', options.signal);
-      markQueuedSendAccepted(queuePath, queued.id, sent.id, options.now());
       if (queued.replySessionId) {
         appendResponseRoute(options.responseRoutesPath ?? DEFAULT_RESPONSE_ROUTES_PATH, {
           processId: sent.id,
@@ -423,6 +427,7 @@ async function processSendQueue(client: AutoNudgeClient, options: AutoNudgeOptio
           sendFinishedAt: options.now().toISOString(),
         });
       }
+      markQueuedSendAccepted(queuePath, queued.id, sent.id, options.now());
     } catch (error) {
       markQueuedSendFailed(queuePath, queued.id, (error as Error).message, options.now());
       result.errors.push(`queued send ${queued.id}: ${(error as Error).message}`);
