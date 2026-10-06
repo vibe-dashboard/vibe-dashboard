@@ -119,6 +119,8 @@ export function buildRequestReviewArgs(args: string[] = []): string[] {
 export interface ParsedSendArgs {
   targetRoleArg: string;
   message: string;
+  messageSource: 'literal' | 'stdin' | 'file';
+  messageFile?: string;
   jsonOutput: boolean;
   respond: boolean;
   fireAndForget: boolean;
@@ -130,6 +132,8 @@ export function parseSendArgs(args: string[]): ParsedSendArgs {
   let respond = false;
   let fireAndForget = false;
   let timeoutMs: number | undefined;
+  let stdinMessage = false;
+  let messageFile: string | undefined;
   const positionalArgs: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
@@ -144,6 +148,19 @@ export function parseSendArgs(args: string[]): ParsedSendArgs {
     }
     if (arg === '--fire-and-forget') {
       fireAndForget = true;
+      continue;
+    }
+    if (arg === '--stdin') {
+      stdinMessage = true;
+      continue;
+    }
+    if (arg === '--message-file') {
+      messageFile = requireFlagValue(args, i, arg);
+      i++;
+      continue;
+    }
+    if (arg.startsWith('--message-file=')) {
+      messageFile = arg.slice('--message-file='.length);
       continue;
     }
     if (arg === '--timeout' || arg === '--timeout-ms') {
@@ -168,16 +185,46 @@ export function parseSendArgs(args: string[]): ParsedSendArgs {
   if (unexpectedArgs.length > 0) {
     throw new Error('Too many positional arguments for send. Quote the message as a single argument.');
   }
+  if (stdinMessage && messageFile) throw new Error('Use only one of --stdin or --message-file');
+  if ((stdinMessage || messageFile) && message && message !== '-') {
+    throw new Error('Do not pass a positional message with --stdin or --message-file');
+  }
+  const messageSource = messageFile ? 'file' : stdinMessage || message === '-' ? 'stdin' : 'literal';
 
   const parsed: ParsedSendArgs = {
     targetRoleArg: targetRoleArg ?? '',
-    message: message ?? '',
+    message: messageSource === 'literal' ? message ?? '' : '',
+    messageSource,
     jsonOutput,
     respond,
     fireAndForget,
   };
+  if (messageFile !== undefined) parsed.messageFile = messageFile;
   if (timeoutMs !== undefined) parsed.timeoutMs = timeoutMs;
   return parsed;
+}
+
+export function readStdinSync(input: NodeJS.ReadStream = process.stdin): string {
+  const chunks: Buffer[] = [];
+  let chunk: Buffer | string | null;
+  while ((chunk = input.read()) !== null) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  if (!chunks.length && !input.isTTY) {
+    try {
+      return fs.readFileSync(0, 'utf8');
+    } catch {
+      return '';
+    }
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+function readSendMessage(parsed: ParsedSendArgs): string {
+  if (parsed.messageSource === 'file') {
+    if (!parsed.messageFile) throw new Error('--message-file requires a path');
+    return fs.readFileSync(parsed.messageFile, 'utf8');
+  }
+  if (parsed.messageSource === 'stdin') return readStdinSync();
+  return parsed.message;
 }
 
 export function isDeterministicPreAcceptFollowUpError(error: Error): boolean {
@@ -1199,6 +1246,7 @@ async function callback(args: string[]): Promise<void> {
       if (runner.pid) {
         console.log(`Runner PID:  ${runner.pid}`);
       }
+      console.log('Next: end this turn now. A callback response will be delivered to this session when the command finishes.');
     }
   } catch (err) {
     if (registeredCallback) {
@@ -1444,15 +1492,22 @@ async function send(args: string[]): Promise<void> {
     parsed = parseSendArgs(args);
   } catch (err) {
     console.error(`Error: ${(err as Error).message}`);
-    console.error('Usage: vibe-agent send [--respond] [--fire-and-forget] <role> "<message>" [--json]');
+    console.error('Usage: vibe-agent send [--respond] [--fire-and-forget] <role> (--stdin | --message-file <path> | - | "<message>") [--json]');
     process.exit(1);
   }
 
-  const { targetRoleArg, message, jsonOutput, fireAndForget } = parsed;
+  const { targetRoleArg, jsonOutput, fireAndForget } = parsed;
   const routeResponse = !fireAndForget;
+  let message: string;
+  try {
+    message = readSendMessage(parsed);
+  } catch (error) {
+    console.error(`Error: ${(error as Error).message}`);
+    process.exit(1);
+  }
 
   if (!targetRoleArg || !message) {
-    console.error('Usage: vibe-agent send [--respond] [--fire-and-forget] <role> "<message>" [--json]');
+    console.error('Usage: vibe-agent send [--respond] [--fire-and-forget] <role> (--stdin | --message-file <path> | - | "<message>") [--json]');
     console.error(`Standard roles: ${BASE_ROLES.join(', ')} (or with suffix: reviewer-2, etc.), human`);
     console.error('Custom roles are also allowed (use CODEX by default)');
     process.exit(1);
@@ -1591,11 +1646,17 @@ async function send(args: string[]): Promise<void> {
       console.log(`Process:      ${result.id}`);
       console.log(`Status:       ${result.status}`);
       console.log(`Reply Session:${replySessionId ? ` ${replySessionId}` : ' (unknown)'}`);
+      if (parsed.messageSource === 'literal') {
+        console.log('Tip: positional message arguments are compatibility mode. Prefer --stdin, --message-file, or "-" so markdown/backticks stay literal.');
+      }
     } else {
       console.log(`Message sent to ${targetRole}`);
       console.log(`Session:  ${session.id}`);
       console.log(`Process:  ${result.id}`);
       console.log(`Status:   ${result.status}`);
+      if (parsed.messageSource === 'literal') {
+        console.log('Tip: positional message arguments are compatibility mode. Prefer --stdin, --message-file, or "-" so markdown/backticks stay literal.');
+      }
     }
   } catch (err) {
     console.error(`Error: ${(err as Error).message}`);

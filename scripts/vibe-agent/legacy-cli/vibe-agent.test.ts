@@ -165,6 +165,17 @@ describe('parseSendArgs', () => {
   it('supports explicit fire-and-forget sends', () => {
     expect(parseSendArgs(['--fire-and-forget', 'review', 'FYI'])).toMatchObject({ fireAndForget: true });
   });
+
+  it('supports stdin and message-file send input', () => {
+    expect(parseSendArgs(['review', '-'])).toMatchObject({ targetRoleArg: 'review', messageSource: 'stdin', message: '' });
+    expect(parseSendArgs(['--stdin', 'review'])).toMatchObject({ targetRoleArg: 'review', messageSource: 'stdin', message: '' });
+    expect(parseSendArgs(['--message-file', 'msg.md', 'review'])).toMatchObject({ targetRoleArg: 'review', messageSource: 'file', messageFile: 'msg.md' });
+  });
+
+  it('rejects ambiguous send input sources', () => {
+    expect(() => parseSendArgs(['--stdin', '--message-file', 'msg.md', 'review'])).toThrow(/only one/);
+    expect(() => parseSendArgs(['--stdin', 'review', 'literal'])).toThrow(/positional message/);
+  });
 });
 
 describe('assertAutoNudgeRoutingAvailable', () => {
