@@ -218,7 +218,7 @@ export function readStdinSync(input: NodeJS.ReadStream = process.stdin): string 
   return Buffer.concat(chunks).toString('utf8');
 }
 
-function readSendMessage(parsed: ParsedSendArgs): string {
+export function readSendMessage(parsed: ParsedSendArgs): string {
   if (parsed.messageSource === 'file') {
     if (!parsed.messageFile) throw new Error('--message-file requires a path');
     return fs.readFileSync(parsed.messageFile, 'utf8');

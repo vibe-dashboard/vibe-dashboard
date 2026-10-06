@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import {
   activeCodingAgentProcesses,
   assertTargetSessionIdleForSend,
@@ -11,6 +14,7 @@ import {
   parseAutoNudgeEnableArgs,
   parseFullSummaryArgs,
   parseSendArgs,
+  readSendMessage,
   resolveCallbackSourceProcessId,
   startRegisteredCallbackRunner,
   uniqueActiveProcessId,
@@ -20,7 +24,11 @@ const callbackPayload = {
   callbackId: 'callback', registryPath: '/tmp/callbacks.json', command: 'ci', outputFile: '/tmp/output',
   sessionId: 'session', cwd: '/tmp',
 };
-afterEach(() => vi.useRealTimers());
+const dirs: string[] = [];
+afterEach(() => {
+  vi.useRealTimers();
+  while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true });
+});
 
 describe('uniqueActiveProcessId', () => {
   it('correlates only a uniquely active invoking process', () => {
@@ -175,6 +183,15 @@ describe('parseSendArgs', () => {
   it('rejects ambiguous send input sources', () => {
     expect(() => parseSendArgs(['--stdin', '--message-file', 'msg.md', 'review'])).toThrow(/only one/);
     expect(() => parseSendArgs(['--stdin', 'review', 'literal'])).toThrow(/positional message/);
+  });
+
+  it('reads message-file content literally for shell-sensitive text', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'send-message-'));
+    dirs.push(dir);
+    const file = join(dir, 'message.md');
+    const content = 'Please inspect `code` and $(do not run) and $VARS\n```ts\nconsole.log("literal")\n```';
+    writeFileSync(file, content);
+    expect(readSendMessage(parseSendArgs(['--message-file', file, 'review']))).toBe(content);
   });
 });
 
