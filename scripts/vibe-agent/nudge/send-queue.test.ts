@@ -6,6 +6,7 @@ import {
   amendQueuedSend,
   cancelQueuedSend,
   claimNextQueuedSend,
+  claimNextQueuedSendWhere,
   enqueueSend,
   markQueuedSendAccepted,
   markQueuedSendFailed,
@@ -63,6 +64,14 @@ describe('send queue', () => {
     });
     expect(() => cancelQueuedSend(file, 'older')).toThrow(/only queued sends can be cancelled/);
     expect(claimNextQueuedSend(file)).toMatchObject({ id: 'newer' });
+  });
+
+  it('claims the oldest queued send matching a predicate', () => {
+    const file = queuePath();
+    enqueueSend(file, input({ id: 'blocked', targetSessionId: 'busy', now: new Date('2026-10-06T00:00:01.000Z') }));
+    enqueueSend(file, input({ id: 'ready', targetSessionId: 'idle', now: new Date('2026-10-06T00:00:02.000Z') }));
+    expect(claimNextQueuedSendWhere(file, send => send.targetSessionId !== 'busy')).toMatchObject({ id: 'ready', status: 'sending' });
+    expect(readSendQueue(file).sends.blocked).toMatchObject({ status: 'queued' });
   });
 
   it('records failed sends only from the sending state', () => {

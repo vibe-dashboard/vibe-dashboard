@@ -26,11 +26,11 @@ export async function runWorkflowHandler(
   options: { logPath?: string; cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number } = {},
 ): Promise<HandlerRunResult> {
   const logPath = options.logPath ?? DEFAULT_HANDLER_LOG_PATH;
-  fs.mkdirSync(path.dirname(logPath), { recursive: true });
-  if (hasHandlerRun(logPath, payload.idempotencyKey)) return { status: 'completed', exitCode: 0, error: null };
   if (payload.dryRun) {
     return { status: 'dry-run', exitCode: null, error: null };
   }
+  fs.mkdirSync(path.dirname(logPath), { recursive: true });
+  if (hasHandlerRun(logPath, payload.idempotencyKey)) return { status: 'completed', exitCode: 0, error: null };
   if (!handler.enabled) throw new Error('handler is not enabled');
   if (!handler.command.length) throw new Error('handler command is empty');
 
@@ -49,7 +49,10 @@ function hasHandlerRun(filePath: string, idempotencyKey: string): boolean {
       .split('\n')
       .filter(Boolean)
       .some(line => {
-        try { return JSON.parse(line).idempotencyKey === idempotencyKey; }
+        try {
+          const record = JSON.parse(line);
+          return record.idempotencyKey === idempotencyKey && record.result?.status === 'completed';
+        }
         catch { return false; }
       });
   } catch (error) {

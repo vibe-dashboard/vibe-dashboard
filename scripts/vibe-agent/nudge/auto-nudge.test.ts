@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AutoNudgeStatusRequest, AutoNudgeStatusResponse, ConversationEntry, ExecutionProcess, SendMessageBody, Session } from '../types.js';
 import {
@@ -767,7 +767,7 @@ describe('auto nudge', () => {
     expect(readAutoNudgeState(options.statePath).triggers.complete?.status).toBe('done');
   });
 
-  it('treats configured XML created-form handoff as actioned and enqueues the role message', async () => {
+  it('treats configured XML created-form handoff as actioned and sends the role message', async () => {
     const { options } = setup();
     const complete = proc('complete', 'impl', 'completed', 5);
     const state = readAutoNudgeState(options.statePath);
@@ -793,7 +793,7 @@ describe('auto nudge', () => {
     const sends = Object.values(readSendQueue(options.sendQueuePath!).sends);
     expect(sends).toEqual([expect.objectContaining({
       id: 'complete:send_message:decision_maker:created_form_handoff',
-      status: 'queued',
+      status: 'accepted',
       targetSessionId: 'decision',
       replySessionId: 'overseer',
     })]);
@@ -819,6 +819,148 @@ describe('auto nudge', () => {
     expect(Object.values(readResponseRouteState(options.responseRoutesPath!).routes)[0]).toMatchObject({ processId: 'sent-1', replySessionId: 'overseer' });
   });
 
+  it('does not send queued messages into active target sessions', async () => {
+    const { options } = setup();
+    const active = proc('active', 'impl', 'running', 9);
+    const { client, sent } = fake({ processes: { impl: [active], overseer: [] } });
+    enqueueSend(options.sendQueuePath!, {
+      id: 'queued-1',
+      targetRole: 'reviewer',
+      targetSessionId: 'impl',
+      executor: 'CODEX',
+      prompt: 'wait for idle',
+      replySessionId: 'overseer',
+      now: new Date(iso(1)),
+    });
+    await runAutoNudgeCycle(client, options);
+    expect(sent).toEqual([]);
+    expect(readSendQueue(options.sendQueuePath!).sends['queued-1']).toMatchObject({ status: 'queued' });
+  });
+
+  it('sends at most one queued message per target session per cycle', async () => {
+    const { options } = setup();
+    const { client, sent } = fake({ processes: { impl: [], overseer: [] } });
+    enqueueSend(options.sendQueuePath!, {
+      id: 'first',
+      targetRole: 'reviewer',
+      targetSessionId: 'impl',
+      executor: 'CODEX',
+      prompt: 'first',
+      replySessionId: 'overseer',
+      now: new Date(iso(1)),
+    });
+    enqueueSend(options.sendQueuePath!, {
+      id: 'second',
+      targetRole: 'reviewer',
+      targetSessionId: 'impl',
+      executor: 'CODEX',
+      prompt: 'second',
+      replySessionId: 'overseer',
+      now: new Date(iso(2)),
+    });
+    await runAutoNudgeCycle(client, options);
+    expect(sent).toEqual([expect.objectContaining({ sessionId: 'impl', body: expect.objectContaining({ prompt: 'first' }) })]);
+    expect(readSendQueue(options.sendQueuePath!).sends.first).toMatchObject({ status: 'accepted' });
+    expect(readSendQueue(options.sendQueuePath!).sends.second).toMatchObject({ status: 'queued' });
+  });
+
+  it('surfaces failed workflow handlers and does not mark the trigger delegated', async () => {
+    const { options } = setup();
+    const complete = proc('complete', 'impl', 'completed', 5);
+    const state = readAutoNudgeState(options.statePath);
+    state.triggers.complete = { processId: 'complete', workspaceId: 'w1', sessionId: 'impl', observedAt: iso(6), status: 'checkpoint-sent', checkpointProcessId: 'persisted', baselineProcessIds: ['complete'], updatedAt: iso(6), error: null };
+    writeAutoNudgeState(options.statePath, state);
+    writeFileSync(options.workflowConfigPath!, `version: 1
+roles:
+  overseer:
+    can_emit_actions:
+      - send_message
+      - run_handler
+prompts:
+  p:
+    text: |
+      text
+message_types:
+  m:
+    from_role: overseer
+    to_role: decision_maker
+    prompt_id: p
+    fresh: false
+    allowed_actions:
+      - run_handler
+handlers:
+  post:
+    enabled: true
+    command:
+      - node
+      - -e
+      - process.stderr.write("bad"); process.exit(2)
+`);
+    const response = `<auto-nudge-result version="1">
+  <actions>
+    <action type="send_message" role="decision_maker" message_type="m" />
+    <action type="run_handler" handler_id="post" />
+  </actions>
+</auto-nudge-result>`;
+    const { client } = fake({
+      processes: { impl: [complete], overseer: [], decision: [] },
+      sessions: [session('overseer', 'overseer'), session('impl', 'impl'), session('decision', 'decision_maker')],
+      entries: { persisted: [msg(response)] },
+    });
+    client.getExecutionProcess = async () => proc('persisted', 'overseer', 'completed', 8);
+    await runAutoNudgeCycle(client, options);
+    expect(readAutoNudgeState(options.statePath).triggers.complete).toMatchObject({ status: 'checkpoint-sent', error: expect.stringMatching(/handler post failed/) });
+  });
+
+  it('keeps handler dry-run read-only including log directories', async () => {
+    const { dir, options } = setup();
+    options.dryRun = true;
+    options.handlerLogPath = join(dir, 'handler-log', 'handler-runs.jsonl');
+    const complete = proc('complete', 'impl', 'completed', 5);
+    const state = readAutoNudgeState(options.statePath);
+    state.triggers.complete = { processId: 'complete', workspaceId: 'w1', sessionId: 'impl', observedAt: iso(6), status: 'checkpoint-sent', checkpointProcessId: 'persisted', baselineProcessIds: ['complete'], updatedAt: iso(6), error: null };
+    writeAutoNudgeState(options.statePath, state);
+    writeFileSync(options.workflowConfigPath!, `version: 1
+roles:
+  overseer:
+    can_emit_actions:
+      - run_handler
+      - send_message
+prompts:
+  p:
+    text: |
+      text
+message_types:
+  m:
+    from_role: overseer
+    to_role: decision_maker
+    prompt_id: p
+    fresh: false
+    allowed_actions:
+      - run_handler
+handlers:
+  post:
+    enabled: true
+    command:
+      - echo
+      - ok
+`);
+    const response = `<auto-nudge-result version="1">
+  <actions>
+    <action type="send_message" role="decision_maker" message_type="m" />
+    <action type="run_handler" handler_id="post" />
+  </actions>
+</auto-nudge-result>`;
+    const { client } = fake({
+      processes: { impl: [complete], overseer: [], decision: [] },
+      sessions: [session('overseer', 'overseer'), session('impl', 'impl'), session('decision', 'decision_maker')],
+      entries: { persisted: [msg(response)] },
+    });
+    client.getExecutionProcess = async () => proc('persisted', 'overseer', 'completed', 8);
+    await runAutoNudgeCycle(client, options);
+    expect(existsSync(dirname(options.handlerLogPath!))).toBe(false);
+  });
+
   it('does not mark a queued send accepted when response routing fails', async () => {
     const { dir, options } = setup();
     const { client } = fake({ processes: { impl: [], overseer: [] } });
@@ -837,7 +979,8 @@ describe('auto nudge', () => {
       replySessionId: 'overseer',
       now: new Date(iso(1)),
     });
-    await expect(runAutoNudgeCycle(client, options)).rejects.toThrow(/EISDIR/);
+    const result = await runAutoNudgeCycle(client, options);
+    expect(result.errors[0]).toMatch(/EISDIR/);
     expect(readSendQueue(options.sendQueuePath!).sends['queued-1']).toMatchObject({ status: 'failed', processId: null });
   });
 

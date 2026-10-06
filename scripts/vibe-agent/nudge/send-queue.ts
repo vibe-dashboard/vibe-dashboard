@@ -176,10 +176,19 @@ export function cancelQueuedSend(filePath: string, id: string, now = new Date())
 }
 
 export function claimNextQueuedSend(filePath: string, now = new Date()): QueuedSend | null {
+  return claimNextQueuedSendWhere(filePath, () => true, now);
+}
+
+export function claimNextQueuedSendWhere(
+  filePath: string,
+  predicate: (send: QueuedSend) => boolean,
+  now = new Date(),
+): QueuedSend | null {
   return withSendQueueLock(filePath, () => {
     const state = readSendQueue(filePath);
     const next = Object.values(state.sends)
       .filter(send => send.status === 'queued')
+      .filter(predicate)
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))[0];
     if (!next) return null;
     const updated = { ...next, status: 'sending' as const, updatedAt: now.toISOString() };

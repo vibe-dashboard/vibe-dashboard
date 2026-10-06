@@ -14,7 +14,7 @@ import {
   updateResponseRoute,
 } from './response-routes.js';
 import {
-  claimNextQueuedSend,
+  claimNextQueuedSendWhere,
   DEFAULT_SEND_QUEUE_PATH,
   enqueueSend,
   markQueuedSendAccepted,
@@ -312,7 +312,7 @@ async function processOutbox(options: AutoNudgeOptions, state: AutoNudgeState, r
   }
 }
 
-async function processResponseRoutes(client: AutoNudgeClient, options: AutoNudgeOptions, result: AutoNudgeCycleResult): Promise<void> {
+async function processResponseRoutes(client: AutoNudgeClient, options: AutoNudgeOptions, result: AutoNudgeCycleResult, sentSessionIds: Set<string>): Promise<void> {
   if (options.dryRun) return;
   const responseRoutesPath = options.responseRoutesPath ?? DEFAULT_RESPONSE_ROUTES_PATH;
   const pendingRoutes = snapshotPendingResponseRoutes(responseRoutesPath);
@@ -393,7 +393,10 @@ async function processResponseRoutes(client: AutoNudgeClient, options: AutoNudge
       const updated = updateResponseRoute(responseRoutesPath, route.id, current => current.status === 'pending' && current.processId === processId
         ? { ...current, status: 'delivered', deliveredProcessId: delivered.id, updatedAt: options.now().toISOString(), error: null }
         : current);
-      if (updated?.status === 'delivered') result.responseRoutes++;
+      if (updated?.status === 'delivered') {
+        sentSessionIds.add(route.replySessionId);
+        result.responseRoutes++;
+      }
     } catch (error) {
       updateResponseRoute(responseRoutesPath, route.id, current => current.status === 'pending'
         ? { ...current, error: (error as Error).message, updatedAt: options.now().toISOString() }
@@ -403,18 +406,23 @@ async function processResponseRoutes(client: AutoNudgeClient, options: AutoNudge
   }
 }
 
-async function processSendQueue(client: AutoNudgeClient, options: AutoNudgeOptions, result: AutoNudgeCycleResult): Promise<void> {
+async function processSendQueue(client: AutoNudgeClient, options: AutoNudgeOptions, result: AutoNudgeCycleResult, status: AutoNudgeStatusResponse, sentSessionIds: Set<string>): Promise<void> {
   if (options.dryRun) return;
   const queuePath = options.sendQueuePath ?? DEFAULT_SEND_QUEUE_PATH;
   const staleBefore = new Date(options.now().getTime() - Math.max(options.operationTimeoutMs * 2, 60_000));
   for (const send of markStaleSendingIndeterminate(queuePath, staleBefore, options.now())) {
     result.errors.push(`queued send ${send.id}: ${send.error}`);
   }
+  const activeSessions = new Set(status?.workspaces.flatMap(workspace => workspace.sessions)
+    .filter(session => session.has_active_codingagent)
+    .map(session => session.id) ?? []);
   while (!options.signal?.aborted) {
-    const queued = claimNextQueuedSend(queuePath, options.now());
+    const queued = claimNextQueuedSendWhere(queuePath, send => !activeSessions.has(send.targetSessionId) && !sentSessionIds.has(send.targetSessionId), options.now());
     if (!queued) return;
     try {
       const sent = await deadline(client.sendMessage(queued.targetSessionId, queuedSendBody(queued)), options.operationTimeoutMs, 'send queued message', options.signal);
+      sentSessionIds.add(queued.targetSessionId);
+      activeSessions.add(queued.targetSessionId);
       if (queued.replySessionId) {
         appendResponseRoute(options.responseRoutesPath ?? DEFAULT_RESPONSE_ROUTES_PATH, {
           processId: sent.id,
@@ -505,13 +513,14 @@ async function executeWorkflowActions(
     if (action.type === 'run_handler') {
       const handler = action.handlerId ? config.handlers[action.handlerId] : null;
       if (!handler) throw new Error(`Unknown handler ${action.handlerId ?? '(missing)'}`);
-      await runWorkflowHandler(handler, {
+      const handlerResult = await runWorkflowHandler(handler, {
         idempotencyKey: `${context.triggerProcessId}:handler:${action.handlerId}`,
         action,
         workspaceId: context.workspaceId,
         triggerProcessId: context.triggerProcessId,
         dryRun: options.dryRun,
       }, { logPath: options.handlerLogPath ?? DEFAULT_HANDLER_LOG_PATH, timeoutMs: handler.timeoutMs });
+      if (handlerResult.status === 'failed') throw new Error(`handler ${action.handlerId} failed: ${handlerResult.error ?? `exit ${handlerResult.exitCode}`}`);
     }
   }
 }
@@ -625,11 +634,11 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
   const nudgeConfig = loadNudgeRuntimeConfig(options.nudgeConfigPath ?? DEFAULT_NUDGE_CONFIG_PATH);
   const workflowConfig = loadWorkflowConfig(options.workflowConfigPath ?? DEFAULT_WORKFLOW_CONFIG_PATH);
   if (nudgeConfig.error) result.errors.push(nudgeConfig.error);
-  await processSendQueue(client, options, result);
-  await processResponseRoutes(client, options, result);
   const registered = registeredWorkspacesForCycle(options);
   const registeredByWorkspace = new Map(registered.map(item => [item.workspaceId, item]));
   const status = await fetchAutoNudgeStatus(client, options, registered.map(item => item.workspaceId));
+  const sentSessionIds = new Set<string>();
+  await processResponseRoutes(client, options, result, sentSessionIds);
   result.registeredWorkspaces = status.counts.registered_workspaces;
   result.globalWorkspacesScanned = status.counts.global_workspaces;
   result.sessionsScanned += status.counts.sessions;
@@ -673,7 +682,10 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
             ? { shouldNudge: true }
             : decideNudgeForProcess(latest, final.final_response ? [{ content: { entry_type: { type: 'assistant_message' }, content: final.final_response } }] : [], { enableActiveStaleNudge: false, now: options.now() });
           if (decision.shouldNudge && !state.nudgedProcessIds.includes(latest.id)) {
-            if (!options.dryRun) await deadline(client.sendMessage(teammate.id, body('Please continue', teammate)), options.operationTimeoutMs, 'send teammate nudge', options.signal);
+            if (!options.dryRun) {
+              await deadline(client.sendMessage(teammate.id, body('Please continue', teammate)), options.operationTimeoutMs, 'send teammate nudge', options.signal);
+              sentSessionIds.add(teammate.id);
+            }
             if (!options.dryRun) { state.nudgedProcessIds.push(latest.id); writeAutoNudgeState(options.statePath, state); }
             result.teammateNudges++; return;
           }
@@ -763,7 +775,10 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
           ? { shouldNudge: true }
           : decideNudgeForProcess(latest, final.final_response ? [{ content: { entry_type: { type: 'assistant_message' }, content: final.final_response } }] : [], { enableActiveStaleNudge: false, now: options.now() });
         if (decision.shouldNudge && !state.nudgedProcessIds.includes(latest.id)) {
-          if (!options.dryRun) await deadline(client.sendMessage(teammate.id, body('Please continue', teammate)), options.operationTimeoutMs, 'send teammate nudge', options.signal);
+          if (!options.dryRun) {
+            await deadline(client.sendMessage(teammate.id, body('Please continue', teammate)), options.operationTimeoutMs, 'send teammate nudge', options.signal);
+            sentSessionIds.add(teammate.id);
+          }
           if (!options.dryRun) { state.nudgedProcessIds.push(latest.id); writeAutoNudgeState(options.statePath, state); }
           result.teammateNudges++; return;
         }
@@ -792,6 +807,7 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
             trigger.status = 'checkpoint-sent'; trigger.baselineProcessIds = [...baselineIds]; trigger.updatedAt = now;
             writeAutoNudgeState(options.statePath, state);
             const sent = await deadline(client.sendMessage(overseer.id, body(overseerPromptWithCriteria(nudgeConfig.config.overseerPrompt, configured.criteria), overseer)), options.operationTimeoutMs, 'send checkpoint', options.signal);
+            sentSessionIds.add(overseer.id);
             trigger.checkpointProcessId = sent.id; trigger.updatedAt = options.now().toISOString();
             writeAutoNudgeState(options.statePath, state);
           }
@@ -805,6 +821,7 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
       }
     } catch (error) { result.errors.push(`workspace ${configured.workspaceId}: ${(error as Error).message}`); }
   }, options.signal);
+  await processSendQueue(client, options, result, status, sentSessionIds);
   await processOutbox(options, state, result);
   return result;
 }

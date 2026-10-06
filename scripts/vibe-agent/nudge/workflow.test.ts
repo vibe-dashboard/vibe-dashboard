@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
   DEFAULT_WORKFLOW_CONFIG_YAML,
@@ -180,11 +180,14 @@ handlers:
 
 describe('workflow handlers', () => {
   it('keeps custom handlers explicit and idempotent while dry-run stays read-only', async () => {
-    const logPath = tempPath('handler-runs.jsonl');
+    const root = mkdtempSync(join(tmpdir(), 'workflow-'));
+    dirs.push(root);
+    const logPath = join(root, 'handler-log', 'handler-runs.jsonl');
     const action = { type: 'run_handler' as const, handlerId: 'post', beadIds: [], formIds: [] };
     const payload = { idempotencyKey: 'once', action, workspaceId: 'w1', triggerProcessId: 'p1', dryRun: true };
     const result = await runWorkflowHandler({ enabled: true, command: ['echo', 'ok'], timeoutMs: 1_000 }, payload, { logPath });
     expect(result.status).toBe('dry-run');
+    expect(existsSync(dirname(logPath))).toBe(false);
     expect(() => readFileSync(logPath, 'utf8')).toThrow();
     const second = await runWorkflowHandler({ enabled: true, command: ['echo', 'ok'], timeoutMs: 1_000 }, { ...payload, dryRun: false }, { logPath });
     expect(second.status).toBe('completed');
@@ -198,5 +201,22 @@ describe('workflow handlers', () => {
       { logPath },
     );
     expect(result).toMatchObject({ status: 'failed', exitCode: 2, error: 'bad' });
+  });
+
+  it('does not treat failed handler records as completed idempotency', async () => {
+    const logPath = tempPath('handler-runs.jsonl');
+    const payload = { idempotencyKey: 'retry', action: { type: 'run_handler' as const, handlerId: 'post', beadIds: [], formIds: [] }, workspaceId: 'w1', triggerProcessId: 'p1', dryRun: false };
+    const failed = await runWorkflowHandler(
+      { enabled: true, command: ['node', '-e', 'process.exit(2)'], timeoutMs: 1_000 },
+      payload,
+      { logPath },
+    );
+    expect(failed.status).toBe('failed');
+    const retried = await runWorkflowHandler(
+      { enabled: true, command: ['node', '-e', 'process.exit(0)'], timeoutMs: 1_000 },
+      payload,
+      { logPath },
+    );
+    expect(retried.status).toBe('completed');
   });
 });
