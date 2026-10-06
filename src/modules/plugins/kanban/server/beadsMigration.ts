@@ -18,6 +18,7 @@ export interface CreationEvidence {
   beadId: string;
   cwd?: string | null;
   workspaceId?: string | null;
+  sessionId?: string | null;
   source?: string;
 }
 
@@ -196,9 +197,32 @@ export async function loadCreationEvidence(legacyDir: string, workspaceRoots: Wo
         beadId: parsed.beadId,
         cwd: typeof parsed.cwd === 'string' ? parsed.cwd : null,
         workspaceId: typeof parsed.workspaceId === 'string' ? parsed.workspaceId : null,
+        sessionId: typeof parsed.sessionId === 'string' ? parsed.sessionId : null,
         source: typeof parsed.source === 'string' ? parsed.source : 'cache',
       });
     }
+  }
+  return out;
+}
+
+export function buildSessionCreationEvidence(
+  records: LegacyBeadRecord[],
+  sessions: Array<{ sessionId: string; workspaceId: string; workspaceRoot?: string | null; agentWorkingDir?: string | null }>,
+): CreationEvidence[] {
+  const sessionsById = new Map(sessions.map((session) => [session.sessionId, session]));
+  const out: CreationEvidence[] = [];
+  for (const record of records) {
+    const sessionId = typeof record.metadata.VK_SESSION_ID === 'string' ? record.metadata.VK_SESSION_ID : null;
+    if (!sessionId) continue;
+    const session = sessionsById.get(sessionId);
+    if (!session) continue;
+    out.push({
+      beadId: record.beadId,
+      sessionId,
+      workspaceId: session.workspaceId,
+      cwd: joinWorkspaceCwd(session.workspaceRoot, session.agentWorkingDir),
+      source: 'vk-sqlite-session',
+    });
   }
   return out;
 }
@@ -265,7 +289,12 @@ function dedupeEvidence(
 ): Map<string, string> {
   const out = new Map<string, string>();
   for (const entry of evidence) {
-    const resolved = entry.workspaceId ?? parseWorktreeCwd(entry.cwd, slugToWorkspaceId, worktreeBase);
+    const hasCwd = !!entry.cwd;
+    const cwdWorkspaceId = parseWorktreeCwd(entry.cwd, slugToWorkspaceId, worktreeBase);
+    if (hasCwd && cwdWorkspaceId && entry.workspaceId && cwdWorkspaceId !== entry.workspaceId) {
+      conflicts.push(`${entry.beadId}:cwd:${cwdWorkspaceId}!=fallback:${entry.workspaceId}`);
+    }
+    const resolved = hasCwd ? cwdWorkspaceId : entry.workspaceId ?? null;
     if (!resolved) continue;
     const existing = out.get(entry.beadId);
     if (existing && existing !== resolved) {
@@ -275,6 +304,12 @@ function dedupeEvidence(
     out.set(entry.beadId, resolved);
   }
   return out;
+}
+
+function joinWorkspaceCwd(workspaceRoot: string | null | undefined, agentWorkingDir: string | null | undefined): string | null {
+  if (!workspaceRoot) return null;
+  if (!agentWorkingDir) return workspaceRoot;
+  return path.join(workspaceRoot, agentWorkingDir);
 }
 
 function inferParentChildAssignments(

@@ -188,11 +188,14 @@ impl Session {
         }
 
         let repo = &repos[0];
-        let path = match repo.default_working_dir.as_deref() {
-            Some(subdir) if !subdir.is_empty() => std::path::PathBuf::from(&repo.name).join(subdir),
-            _ => std::path::PathBuf::from(&repo.name),
+        let Some(subdir) = repo
+            .default_working_dir
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        else {
+            return Ok(None);
         };
-
+        let path = std::path::PathBuf::from(&repo.name).join(subdir);
         Ok(Some(path.to_string_lossy().to_string()))
     }
 

@@ -32,6 +32,8 @@ describe('vd-beads migrations', () => {
       const bin = await fakeBd(root, false);
       const shared = path.join(root, 'shared-server');
       await mkdir(path.join(shared, 'dolt', 'beads_global'), { recursive: true });
+      await mkdir(path.join(root, 'beads', 'legacy-all-beads'), { recursive: true });
+      await writeFile(path.join(root, 'beads', 'legacy-all-beads', 'bead-creation-evidence.jsonl'), '{"beadId":"preserved","cwd":"/old"}\n');
       const configPath = path.join(root, 'config.yaml');
       await writeFile(configPath, 'dolt:\n  shared-server: true\n');
 
@@ -47,6 +49,7 @@ describe('vd-beads migrations', () => {
       const report = JSON.parse(stdout);
       expect(report.legacySources).toMatchObject([{ sourceDb: 'beads_global', records: 1 }]);
       expect(await readFile(path.join(root, 'beads', 'legacy-all-beads', 'sources', 'beads_global', 'export.jsonl'), 'utf8')).toContain('"id":"legacy-1"');
+      expect(await readFile(path.join(root, 'beads', 'legacy-all-beads', 'bead-creation-evidence.jsonl'), 'utf8')).toContain('"beadId":"preserved"');
       expect(await readFile(configPath, 'utf8')).toContain('shared-server: false');
     } finally {
       await rm(root, { recursive: true, force: true });

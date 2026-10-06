@@ -11,6 +11,7 @@ on:
       - "docker-entrypoint.sh"
       - "supervisord.vkvd.conf"
       - ".docker/vk-runtime/vibe-kanban"
+      - "vibe-kanban/**"
       - "scripts/smoke-vkvd-plugin-runtime.sh"
       - "scripts/smoke-vkvd-workspace-beads.sh"
       - "scripts/build-custom-caddy.sh"
@@ -18,7 +19,7 @@ on:
       - "scripts/bd-wrapper/**"
       - "plugins/scripts/vd-plugin-runtime-apply.sh"
       - "src/modules/plugins/vibe-dashboard/**"
-      - "src/modules/plugins/kanban/server/workspaceBeads.ts"
+      - "src/modules/plugins/kanban/server/**"
       - "plugins/**"
   push:
     paths:
@@ -29,6 +30,7 @@ on:
       - "docker-entrypoint.sh"
       - "supervisord.vkvd.conf"
       - ".docker/vk-runtime/vibe-kanban"
+      - "vibe-kanban/**"
       - "scripts/smoke-vkvd-plugin-runtime.sh"
       - "scripts/smoke-vkvd-workspace-beads.sh"
       - "scripts/build-custom-caddy.sh"
@@ -36,7 +38,7 @@ on:
       - "scripts/bd-wrapper/**"
       - "plugins/scripts/vd-plugin-runtime-apply.sh"
       - "src/modules/plugins/vibe-dashboard/**"
-      - "src/modules/plugins/kanban/server/workspaceBeads.ts"
+      - "src/modules/plugins/kanban/server/**"
       - "plugins/**"
 
 permissions:
@@ -53,7 +55,6 @@ env:
   NODE_VERSION: 22
   PNPM_VERSION: 10.13.1
   RUST_TOOLCHAIN: nightly-2025-12-04
-  VK_REPOSITORY: mickmister/vibe-kanban
   IMAGE_TAG: vk-vd-docker-e2e:${{ github.sha }}
   IMAGE_ARTIFACT_NAME: vk-vd-docker-e2e-image
 
@@ -64,44 +65,18 @@ jobs:
     timeout-minutes: 90
 
     steps:
-      - name: Resolve matching VK branch
-        id: resolve-vk-ref
-        shell: bash
-        run: |
-          set -euo pipefail
-          candidate="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
-          vk_repo_url="https://github.com/${VK_REPOSITORY}.git"
-
-          if git ls-remote --exit-code --heads "$vk_repo_url" "$candidate" >/dev/null; then
-            vk_ref="$candidate"
-            reason="matched branch"
-          else
-            vk_ref="main"
-            reason="fallback"
-          fi
-
-          echo "ref=$vk_ref" >> "$GITHUB_OUTPUT"
-          echo "Resolved VK ref: $vk_ref ($reason for candidate: $candidate)"
-
       - name: Checkout VD
         uses: actions/checkout@v4
         with:
           path: vibe-kanban-vscode-web
 
-      - name: Checkout VK
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.VK_REPOSITORY }}
-          ref: ${{ steps.resolve-vk-ref.outputs.ref }}
-          path: Vktest
-
-      - name: Record VK commit
+      - name: Record embedded VK commit
         id: vk-meta
         shell: bash
         run: |
           set -euo pipefail
-          echo "sha=$(git -C Vktest rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          git -C Vktest log --oneline -1
+          echo "sha=$(git -C vibe-kanban-vscode-web/vibe-kanban rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git -C vibe-kanban-vscode-web/vibe-kanban log --oneline -1
 
       - name: Free up disk space
         shell: bash
@@ -124,7 +99,7 @@ jobs:
             -e "VK_BUILD_COMMIT_HASH=${{ steps.vk-meta.outputs.sha }}" \
             -e "CARGO_TARGET_DIR=/work/target-bookworm" \
             -e "RUST_TOOLCHAIN=${RUST_TOOLCHAIN}" \
-            -v "${PWD}/Vktest:/work" \
+            -v "${PWD}/vibe-kanban-vscode-web/vibe-kanban:/work" \
             -w /work \
             rust:bookworm \
             bash -lc 'apt-get update && apt-get install -y --no-install-recommends clang libclang-dev pkg-config && curl --proto "=https" --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain "${RUST_TOOLCHAIN}" && . /usr/local/cargo/env && git config --global --add safe.directory /work && cargo +"${RUST_TOOLCHAIN}" build --locked -p server --bin server'
@@ -135,7 +110,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cp Vktest/target-bookworm/debug/server vibe-kanban-vscode-web/.docker/vk-runtime/vibe-kanban
+          cp vibe-kanban-vscode-web/vibe-kanban/target-bookworm/debug/server vibe-kanban-vscode-web/.docker/vk-runtime/vibe-kanban
           chmod 0755 vibe-kanban-vscode-web/.docker/vk-runtime/vibe-kanban
 
       - name: Setup Docker Buildx

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   buildWorkspaceMigrationPlan,
+  buildSessionCreationEvidence,
   loadLegacySnapshots,
   parseWorktreeCwd,
   planHasHardHazards,
@@ -52,6 +53,57 @@ describe('beadsMigration planner', () => {
 
     expect(plan.assignments['vkw-1234567890abcdefghijklmnopqrstuv']).toBe(ws1);
     expect(plan.unresolved.map((item) => item.beadId)).toEqual(['vkvw-677.9.1']);
+  });
+
+  it('uses cwd-derived workspace before fallback workspaceId and reports disagreement', () => {
+    const plan = buildWorkspaceMigrationPlan({
+      records: [record('bead-1')],
+      evidence: [{
+        beadId: 'bead-1',
+        cwd: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor/repo',
+        workspaceId: ws2,
+        source: 'vk-sqlite-session',
+      }],
+      workspaceRoots: [
+        { workspaceId: ws1, root: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor' },
+        { workspaceId: ws2, root: '/var/tmp/vibe-kanban/worktrees/other' },
+      ],
+    });
+
+    expect(plan.assignments['bead-1']).toBe(ws1);
+    expect(plan.hazards.evidenceConflicts).toEqual([`bead-1:cwd:${ws1}!=fallback:${ws2}`]);
+  });
+
+  it('uses fallback workspaceId only when cwd evidence is absent', () => {
+    const plan = buildWorkspaceMigrationPlan({
+      records: [record('bead-1')],
+      evidence: [{ beadId: 'bead-1', cwd: null, workspaceId: ws2, source: 'vk-sqlite-session' }],
+      workspaceRoots: [{ workspaceId: ws1, root: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor' }],
+    });
+
+    expect(plan.assignments['bead-1']).toBe(ws2);
+  });
+
+  it('builds creation evidence from VK sessions and leaves only known unassigned examples unresolved', () => {
+    const records = [
+      record('vkw-1234567890abcdefghijklmnopqrstuv', { metadata: { VK_SESSION_ID: 'session-1' } }),
+      record('vkvw-677.9.1', { title: 'Review Gate: approve V1 non-PR branch reuse design' }),
+      record('vkvw-8xaj.18.4.11', { title: 'Add typed UIC recent session delete action' }),
+    ];
+    const evidence = buildSessionCreationEvidence(records, [{
+      sessionId: 'session-1',
+      workspaceId: ws1,
+      workspaceRoot: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor',
+      agentWorkingDir: 'vibe-kanban-vscode-web',
+    }]);
+    const plan = buildWorkspaceMigrationPlan({
+      records,
+      evidence,
+      workspaceRoots: [{ workspaceId: ws1, root: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor' }],
+    });
+
+    expect(plan.assignments['vkw-1234567890abcdefghijklmnopqrstuv']).toBe(ws1);
+    expect(plan.unresolved.map((item) => item.beadId)).toEqual(['vkvw-677.9.1', 'vkvw-8xaj.18.4.11']);
   });
 
   it('infers one-sided parent-child assignments only', () => {
