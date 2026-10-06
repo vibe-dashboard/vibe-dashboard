@@ -18,7 +18,18 @@ async function launch(value: FakeVkScenario, extraArgs: string[] = [], initialSt
   writeFileSync(registry, JSON.stringify(options.emptyRegistry ? { version: 1, workspaces: {} } : { version: 1, workspaces: { workspace: { workspaceId: 'workspace', overseerSessionId: 'overseer', registeredAt: now, registeredBySessionId: 'overseer' } } }));
   if (initialState) writeFileSync(state, JSON.stringify(initialState));
   if (options.responseRoutesState) writeFileSync(responseRoutes, JSON.stringify(options.responseRoutesState));
-  const env: NodeJS.ProcessEnv = { ...process.env, VIBE_API_URL: server.baseUrl, VD_AUTO_NUDGE_ENABLED: options.autoNudgeEnabled === false ? 'false' : 'true', VD_AUTO_NUDGE_REGISTRY_PATH: registry, VD_AUTO_NUDGE_LOCK_PATH: lock, VD_CALLBACK_REGISTRY_PATH: join(dir, 'callbacks.json'), VD_RESPONSE_ROUTES_PATH: responseRoutes };
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    VIBE_API_URL: server.baseUrl,
+    VD_AUTO_NUDGE_ENABLED: options.autoNudgeEnabled === false ? 'false' : 'true',
+    VD_AUTO_NUDGE_REGISTRY_PATH: registry,
+    VD_AUTO_NUDGE_LOCK_PATH: lock,
+    VD_CALLBACK_REGISTRY_PATH: join(dir, 'callbacks.json'),
+    VD_RESPONSE_ROUTES_PATH: responseRoutes,
+    VD_AUTO_NUDGE_WORKFLOW_CONFIG_PATH: join(dir, 'workflow.yaml'),
+    VD_SEND_QUEUE_PATH: join(dir, 'send-queue.json'),
+    VD_HANDLER_LOG_PATH: join(dir, 'handler-runs.jsonl'),
+  };
   if (!options.omitVkOrigin) env.VK_ORIGIN = 'http://vd.test';
   else delete env.VK_ORIGIN;
   const child = spawn(process.execPath, [builtCli, '--state', state, ...extraArgs], { env, stdio: ['ignore', 'pipe', 'pipe'] }); children.push(child);
