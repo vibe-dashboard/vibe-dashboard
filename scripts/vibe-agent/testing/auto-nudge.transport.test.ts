@@ -34,7 +34,21 @@ afterEach(async () => { dirs.splice(0).forEach(dir => rmSync(dir, { recursive: t
 async function setup(scenario: FakeVkScenario) {
   const server = await new FakeVkServer(scenario).start(); vkServers.push(server);
   const dir = mkdtempSync(join(tmpdir(), 'auto-nudge-transport-')); dirs.push(dir);
-  const options: AutoNudgeOptions = { config: { version: 1, discord: { enabled: false }, workspaces: [{ workspaceId: 'workspace', overseerSessionId: 'overseer' }] }, statePath: join(dir, 'state.json'), callbackRegistryPath: join(dir, 'callbacks.json'), now: () => new Date(now), unacknowledgedAfterMs: 60_000, operationTimeoutMs: 500, responseTimeoutMs: 1_000, checkpointPollMs: 5, concurrency: 2, dryRun: false };
+  const options: AutoNudgeOptions = {
+    config: { version: 1, discord: { enabled: false }, workspaces: [{ workspaceId: 'workspace', overseerSessionId: 'overseer' }] },
+    statePath: join(dir, 'state.json'),
+    callbackRegistryPath: join(dir, 'callbacks.json'),
+    workflowConfigPath: join(dir, 'workflow.yaml'),
+    sendQueuePath: join(dir, 'send-queue.json'),
+    handlerLogPath: join(dir, 'handler-runs.jsonl'),
+    now: () => new Date(now),
+    unacknowledgedAfterMs: 60_000,
+    operationTimeoutMs: 500,
+    responseTimeoutMs: 1_000,
+    checkpointPollMs: 5,
+    concurrency: 2,
+    dryRun: false,
+  };
   options.responseRoutesPath = join(dir, 'response-routes.json');
   return { server, options, client: createAutoNudgeClient(new VibeClient(server.baseUrl)) };
 }
@@ -122,6 +136,7 @@ describe('auto-nudge across real VK transport', () => {
     const options: AutoNudgeOptions = {
       config: { version: 1, discord: { enabled: false }, workspaces: [{ workspaceId: 'workspace', overseerSessionId: 'overseer' }] },
       statePath: join(dir, 'state.json'), callbackRegistryPath: join(dir, 'callbacks.json'), responseRoutesPath: join(dir, 'response-routes.json'),
+      workflowConfigPath: join(dir, 'workflow.yaml'), sendQueuePath: join(dir, 'send-queue.json'), handlerLogPath: join(dir, 'handler-runs.jsonl'),
       now: () => new Date(now), unacknowledgedAfterMs: 60_000, operationTimeoutMs: 1_000, responseTimeoutMs: 1_000, checkpointPollMs: 5, concurrency: 2, dryRun: false,
     };
     const rawClient = new VibeClient(server.baseUrl);
