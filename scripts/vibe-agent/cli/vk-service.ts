@@ -111,6 +111,14 @@ export interface ExecutionProcess {
   };
 }
 
+export interface ExecutionProcessFinalResponse {
+  process_id: string;
+  status: string;
+  finished: boolean;
+  final_response: string | null;
+  terminal_no_response: boolean;
+}
+
 export interface WorkspaceSummary {
   workspace_id: string;
   latest_session_id: string | null;
@@ -552,6 +560,11 @@ export class VKService {
   async getExecutionProcess(processId: string): Promise<ExecutionProcess> {
     const response = await fetch(config.endpoints.executionProcess(processId));
     return this.parseApiResponse<ExecutionProcess>(response, 'fetch execution process');
+  }
+
+  async getExecutionProcessFinalResponse(processId: string): Promise<ExecutionProcessFinalResponse> {
+    const response = await fetch(config.endpoints.executionProcessFinalResponse(processId));
+    return this.parseApiResponse<ExecutionProcessFinalResponse>(response, 'fetch execution process final response');
   }
 
   async stopExecutionProcess(processId: string): Promise<void> {

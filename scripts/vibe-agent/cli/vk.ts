@@ -135,7 +135,7 @@ async function main() {
         break;
 
       case 'send':
-        await commandSend(positional[0], positional[1]);
+        await commandSend(positional[0], positional[1], flags);
         break;
 
       case 'summary':
@@ -1050,13 +1050,35 @@ async function commandCreateSession(workspaceId: string, executor: string) {
   console.log(`  vk send ${session.id} "Your prompt here"`);
 }
 
-async function commandSend(sessionId: string, prompt: string) {
+async function commandSend(sessionId: string, prompt: string, flags: FlagMap = {}) {
   if (!sessionId || !prompt) {
-    console.error('Usage: vk send <session-id> "<prompt>"');
+    console.error('Usage: vk send <session-id> "<prompt>" [--sync] [--timeout <duration>] [--json]');
+    console.error('Note: --sync is for scripts. Agents should prefer vibe-agent send so response routing and auto-nudge can coordinate turns.');
     process.exit(1);
   }
 
   const executionProcess = await service.sendMessage(sessionId, prompt);
+  const sync = flags.sync === true;
+  const timeoutMs = parseDurationMs(getFlagString(flags, 'timeout') ?? getFlagString(flags, 'timeout-ms') ?? '30m', getFlagString(flags, 'timeout-ms') ? 'ms' : null);
+
+  if (sync) {
+    const final = await waitForFinalResponse(executionProcess.id, timeoutMs);
+    if (flags.json === true) {
+      console.log(JSON.stringify({ process: executionProcess, final_response: final }, null, 2));
+      return;
+    }
+    console.log('Message completed:');
+    console.log(`  Execution Process: ${executionProcess.id}`);
+    console.log(`  Status:            ${final.status}`);
+    if (final.final_response) {
+      console.log('');
+      console.log(final.final_response);
+    } else {
+      console.log('');
+      console.log('(no final assistant response)');
+    }
+    return;
+  }
 
   console.log('Message sent:');
   console.log(`  Execution Process: ${executionProcess.id}`);
@@ -1065,6 +1087,28 @@ async function commandSend(sessionId: string, prompt: string) {
   console.log('');
   console.log('To fetch the conversation:');
   console.log(`  vk fetch ${executionProcess.id}`);
+}
+
+function parseDurationMs(value: string, defaultUnit: 'ms' | null = null): number {
+  const match = value.trim().match(/^(\d+(?:\.\d+)?)(ms|s|m|h)?$/i);
+  if (!match) throw new Error(`Invalid timeout: ${value}`);
+  const amount = Number(match[1]);
+  const unit = (match[2] ?? defaultUnit ?? 'ms').toLowerCase();
+  const multiplier = unit === 'h' ? 3_600_000 : unit === 'm' ? 60_000 : unit === 's' ? 1_000 : 1;
+  const timeoutMs = Math.round(amount * multiplier);
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new Error(`Invalid timeout: ${value}`);
+  return timeoutMs;
+}
+
+async function waitForFinalResponse(processId: string, timeoutMs: number) {
+  const expiresAt = Date.now() + timeoutMs;
+  while (true) {
+    const final = await service.getExecutionProcessFinalResponse(processId);
+    if (final.finished) return final;
+    const remaining = expiresAt - Date.now();
+    if (remaining <= 0) throw new Error(`Timed out waiting for ${processId} after ${timeoutMs}ms`);
+    await new Promise(resolve => setTimeout(resolve, Math.min(1_000, remaining)));
+  }
 }
 
 async function commandSummary(flags: FlagMap) {

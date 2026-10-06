@@ -35,6 +35,8 @@ export interface WorkflowConfig {
   handlers: Record<string, WorkflowHandlerConfig>;
 }
 
+type WorkflowConfigSection = 'roles' | 'prompts' | 'message_types' | 'handlers';
+
 export const DEFAULT_WORKFLOW_CONFIG_YAML = `version: 1
 roles:
   overseer:
@@ -93,15 +95,14 @@ export function loadWorkflowConfig(filePath = DEFAULT_WORKFLOW_CONFIG_PATH): Wor
 export function parseWorkflowConfig(raw: string, source = '<memory>'): WorkflowConfig {
   const lines = raw.replace(/\r\n/g, '\n').split('\n');
   const config: WorkflowConfig = { version: 1, roles: {}, prompts: {}, messageTypes: {}, handlers: {} };
-  let section: 'roles' | 'prompts' | 'message_types' | 'handlers' | null = null;
+  let section: WorkflowConfigSection | null = null;
   let currentId: string | null = null;
   let currentList: { kind: 'role-actions' | 'message-actions' | 'handler-command'; id: string } | null = null;
   let blockText: { id: string; lines: string[] } | null = null;
 
   const finishBlock = () => {
     if (!blockText) return;
-    config.prompts[blockText.id] ??= { text: '' };
-    config.prompts[blockText.id].text = blockText.lines.join('\n').replace(/\n$/, '');
+    config.prompts[blockText.id] = { text: blockText.lines.join('\n').replace(/\n$/, '') };
     blockText = null;
   };
 
@@ -120,9 +121,10 @@ export function parseWorkflowConfig(raw: string, source = '<memory>'): WorkflowC
     if (indent === 0) {
       currentId = null;
       currentList = null;
+      const topLevelSection = parseTopLevelSection(trimmed);
       if (trimmed === 'version: 1') continue;
-      if (['roles:', 'prompts:', 'message_types:', 'handlers:'].includes(trimmed)) {
-        section = trimmed.slice(0, -1) as typeof section;
+      if (topLevelSection) {
+        section = topLevelSection;
         continue;
       }
       if (trimmed === 'handlers: {}') {
@@ -137,10 +139,12 @@ export function parseWorkflowConfig(raw: string, source = '<memory>'): WorkflowC
     if (indent === 2 && trimmed.endsWith(':')) {
       currentId = trimmed.slice(0, -1);
       currentList = null;
-      if (section === 'roles') config.roles[currentId] = { canEmitActions: [] };
-      if (section === 'prompts') config.prompts[currentId] = { text: '' };
-      if (section === 'message_types') config.messageTypes[currentId] = { fromRole: '', toRole: '', promptId: '', fresh: false, allowedActions: [] };
-      if (section === 'handlers') config.handlers[currentId] = { enabled: false, command: [], timeoutMs: 30_000 };
+      switch (section) {
+        case 'roles': config.roles[currentId] = { canEmitActions: [] }; break;
+        case 'prompts': config.prompts[currentId] = { text: '' }; break;
+        case 'message_types': config.messageTypes[currentId] = { fromRole: '', toRole: '', promptId: '', fresh: false, allowedActions: [] }; break;
+        case 'handlers': config.handlers[currentId] = { enabled: false, command: [], timeoutMs: 30_000 }; break;
+      }
       continue;
     }
     if (!currentId) throw new Error(`Invalid workflow config at ${source}: key without item`);
@@ -208,4 +212,12 @@ export function parseWorkflowConfig(raw: string, source = '<memory>'): WorkflowC
     if (!Number.isSafeInteger(handler.timeoutMs) || handler.timeoutMs <= 0) throw new Error(`handlers.${id}.timeout_ms must be positive`);
   }
   return config;
+}
+
+function parseTopLevelSection(line: string): WorkflowConfigSection | null {
+  if (line === 'roles:') return 'roles';
+  if (line === 'prompts:') return 'prompts';
+  if (line === 'message_types:') return 'message_types';
+  if (line === 'handlers:') return 'handlers';
+  return null;
 }
