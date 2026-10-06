@@ -2,10 +2,20 @@
 import { existsSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { execFile as execFileCallback } from 'node:child_process';
-import { cp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import { promisify } from 'node:util';
+import {
+  buildWorkspaceMigrationPlan,
+  loadCreationEvidence,
+  loadLegacySnapshots,
+  planHasHardHazards,
+  reconcileWorkspaceRoot,
+  writeWorkspaceMigrationReport,
+  type LegacyBeadRecord,
+  type WorkspaceRoot,
+} from '../src/modules/plugins/kanban/server/beadsMigration.ts';
 import {
   applyWorkspaceBeadsSetup,
   deterministicWorkspaceBeadId,
@@ -24,23 +34,14 @@ if (command === 'workspace-setup') {
   await runPunt(args.slice(1));
 } else if (command === 'migrate-shared-server') {
   await runSharedServerMigration(args.slice(1));
-} else if (command === 'migrate-repo-scoped') {
-  const apply = args.includes('--apply');
-  console.log(JSON.stringify({
-    command,
-    mode: apply ? 'apply' : 'dry-run',
-    repoScanRoots: ['/home/vkuser/repos'],
-    note: 'Repo-scoped beads with metadata.VK_WORKSPACE_ID are migration inputs only.',
-  }, null, 2));
-  if (apply && !existsSync(resolveVdBeadsDirectory())) {
-    throw new Error('VD_BEADS_DIRECTORY does not exist; run migrate-shared-server first');
-  }
+} else if (command === 'migrate-workspaces') {
+  await runWorkspaceMigration(args.slice(1));
 } else {
   console.error('Usage: vd-beads workspace-setup');
   console.error('       vd-beads punt --bead <id> --from-workspace <id> --to-workspace <id> [--yes]');
   console.error('       vd-beads punt --bead <id> --from-workspace <id> --new-workspace --repo <repo_id>:<branch> [--append-to-prompt <text>] [--executor CODEX] [--no-start] [--yes]');
   console.error('       vd-beads migrate-shared-server --dry-run|--apply');
-  console.error('       vd-beads migrate-repo-scoped --dry-run|--apply');
+  console.error('       vd-beads migrate-workspaces --dry-run|--apply [--workspace-id <id>]');
   process.exit(2);
 }
 
@@ -65,6 +66,7 @@ async function runSharedServerMigration(migrationArgs: string[]): Promise<void> 
   const settingsDir = resolveVkSettingsDirectory();
   const sharedDir = process.env.VD_SHARED_BEADS_SOURCE ?? '/home/vkuser/.beads/shared-server';
   const bdConfigPath = process.env.VD_BD_CONFIG_PATH ?? path.join(process.env.HOME ?? '/home/vkuser', '.config', 'bd', 'config.yaml');
+  const legacyDir = path.join(beadsDir, 'legacy-all-beads');
   const sharedSourceExists = existsSync(sharedDir);
   const bdConfigExisted = existsSync(bdConfigPath);
   const report: Record<string, unknown> = {
@@ -73,6 +75,7 @@ async function runSharedServerMigration(migrationArgs: string[]): Promise<void> 
     beadsDir,
     settingsDir,
     sharedDir,
+    legacyDir,
     bdConfigPath,
     offlineRequired: true,
     sharedSourceExists,
@@ -82,10 +85,10 @@ async function runSharedServerMigration(migrationArgs: string[]): Promise<void> 
     console.log(JSON.stringify({ ...report, actions: [
       'require VD_BEADS_MIGRATION_OFFLINE_APPROVED=true for apply',
       'copy shared-server directory into timestamped backup',
-      'export bd JSONL from shared source when bd can read it',
-      'initialize embedded aggregate targets',
+      'enumerate shared/global source DBs and export raw JSONL snapshots into legacy-all-beads',
+      'initialize embedded aggregate-workspaces target',
       'write non-shared steady-state bd config',
-      'verify initialized targets with bd export',
+      'verify raw snapshots before rewriting bd config',
     ] }, null, 2));
     return;
   }
@@ -107,30 +110,39 @@ async function runSharedServerMigration(migrationArgs: string[]): Promise<void> 
     await cp(bdConfigPath, path.join(backupDir, 'bd-config.yaml'), { force: false, errorOnExist: true });
   }
 
-  const exportPath = path.join(backupDir, 'shared-export.jsonl');
-  const exportResult = sharedSourceExists
-    ? await bdLegacyShared(['--global', 'export', '--all'], process.cwd()).catch((error) => ({ error: String(error) }))
-    : { skipped: 'no shared source exists' };
-  if ('error' in exportResult) {
-    await restoreOriginalBdConfig(bdConfigPath, backupDir, bdConfigExisted);
-    throw new Error(`Legacy shared-server export failed; refusing to rewrite bd config. Backup directory: ${backupDir}. Export error: ${exportResult.error}`);
-  }
-  if ('stdout' in exportResult) {
-    if (!exportResult.stdout.trim()) {
+  const snapshotDir = path.join(backupDir, 'legacy-all-beads');
+  await mkdir(path.join(snapshotDir, 'sources'), { recursive: true });
+  const exportedSources: Array<{ sourceDb: string; exportPath: string; records: number }> = [];
+  const legacySources = sharedSourceExists ? await enumerateLegacySharedSources(sharedDir) : [];
+  for (const sourceDb of legacySources) {
+    const sourceDir = path.join(snapshotDir, 'sources', sourceDb);
+    await mkdir(sourceDir, { recursive: true });
+    const exportPath = path.join(sourceDir, 'export.jsonl');
+    const exportResult = await bdLegacyShared(['--global', 'export', '--all'], process.cwd(), sourceDb).catch((error) => ({ error: String(error) }));
+    if ('error' in exportResult) {
       await restoreOriginalBdConfig(bdConfigPath, backupDir, bdConfigExisted);
-      throw new Error(`Legacy shared-server export was empty despite shared source existing; refusing to rewrite bd config. Backup directory: ${backupDir}`);
+      throw new Error(`Legacy shared-server export failed for ${sourceDb}; refusing to rewrite bd config. Backup directory: ${backupDir}. Export error: ${exportResult.error}`);
+    }
+    const lines = exportResult.stdout.trim().split('\n').filter(Boolean);
+    if (lines.length === 0) {
+      await restoreOriginalBdConfig(bdConfigPath, backupDir, bdConfigExisted);
+      throw new Error(`Legacy shared-server export for ${sourceDb} was empty despite shared source existing; refusing to rewrite bd config. Backup directory: ${backupDir}`);
     }
     await writeFile(exportPath, exportResult.stdout);
+    exportedSources.push({ sourceDb, exportPath, records: lines.length });
   }
-
+  if (sharedSourceExists && exportedSources.length === 0) {
+    await restoreOriginalBdConfig(bdConfigPath, backupDir, bdConfigExisted);
+    throw new Error(`Shared source exists but no source DBs were enumerated; refusing to rewrite bd config. Backup directory: ${backupDir}`);
+  }
+  await writeFile(path.join(snapshotDir, 'manifest.json'), `${JSON.stringify({ sharedDir, backupDir, exportedSources }, null, 2)}\n`);
+  await loadLegacySnapshots(snapshotDir);
   await ensureEmbeddedDb(path.join(beadsDir, 'aggregate-workspaces'), 'vdw');
-  await ensureEmbeddedDb(path.join(beadsDir, 'aggregate-all-beads'), 'vda');
-  let importResult: { stdout: string } | { skipped: string } = { skipped: 'no export available' };
-  if ('stdout' in exportResult) {
-    importResult = await bd(['import', exportPath, '--json'], path.join(beadsDir, 'aggregate-all-beads'));
-  }
   const aggregateCheck = await bd(['export', '--json'], path.join(beadsDir, 'aggregate-workspaces'));
-  const allBeadsCheck = await bd(['export'], path.join(beadsDir, 'aggregate-all-beads'));
+  await rm(legacyDir, { recursive: true, force: true });
+  await cp(snapshotDir, legacyDir, { recursive: true, force: false, errorOnExist: true });
+  const finalSources = exportedSources.map((source) => ({ ...source, exportPath: source.exportPath.replace(snapshotDir, legacyDir) }));
+  await writeFile(path.join(legacyDir, 'manifest.json'), `${JSON.stringify({ sharedDir, backupDir, exportedSources: finalSources }, null, 2)}\n`);
   const nonSharedConfig = 'no-git-ops: true\nno-push: true\n\ndolt:\n  shared-server: false\n  auto-commit: on\n  auto-push: false\n';
   await mkdir(path.dirname(bdConfigPath), { recursive: true });
   await writeFile(bdConfigPath, nonSharedConfig);
@@ -140,13 +152,60 @@ async function runSharedServerMigration(migrationArgs: string[]): Promise<void> 
     ...report,
     backupDir,
     backedUpBdConfig: existsSync(path.join(backupDir, 'bd-config.yaml')),
-    exportPath: 'stdout' in exportResult ? exportPath : null,
-    exportError: 'error' in exportResult ? exportResult.error : null,
-    initialized: ['aggregate-workspaces', 'aggregate-all-beads'],
-    importResult: 'stdout' in importResult ? JSON.parse(importResult.stdout || '{}') : importResult,
+    legacySources: finalSources,
+    initialized: ['aggregate-workspaces'],
     verifiedAggregateExportBytes: aggregateCheck.stdout.length,
-    verifiedAllBeadsExportLines: allBeadsCheck.stdout.trim() ? allBeadsCheck.stdout.trim().split('\n').length : 0,
   }, null, 2));
+}
+
+async function runWorkspaceMigration(migrationArgs: string[]): Promise<void> {
+  const apply = migrationArgs.includes('--apply');
+  if (!apply && !migrationArgs.includes('--dry-run')) throw new Error('migrate-workspaces requires --dry-run or --apply');
+  const workspaceIdFilter = readFlag(migrationArgs, '--workspace-id', false);
+  const beadsDir = resolveVdBeadsDirectory();
+  const legacyDir = path.join(beadsDir, 'legacy-all-beads');
+  const records = await loadLegacySnapshots(legacyDir);
+  const workspaceRoots = await loadVkWorkspaceRoots();
+  const evidence = await loadCreationEvidence(legacyDir, workspaceRoots);
+  const plan = buildWorkspaceMigrationPlan({ records, evidence, workspaceRoots, workspaceIdFilter });
+  const report = {
+    command: 'migrate-workspaces',
+    mode: apply ? 'apply' : 'dry-run',
+    workspaceIdFilter,
+    legacyDir,
+    recordCount: records.length,
+    workspaceCount: workspaceRoots.length,
+    plan,
+  };
+
+  if (!apply) {
+    console.log(JSON.stringify(report, null, 2));
+    return;
+  }
+  if (planHasHardHazards(plan)) {
+    await writeWorkspaceMigrationReport(path.join(legacyDir, 'migrate-workspaces-report.json'), report);
+    throw new Error('migrate-workspaces hard hazards present; refusing to mutate');
+  }
+
+  const rootsByWorkspace = new Map(workspaceRoots.map((root) => [root.workspaceId, root]));
+  const recordsByKey = new Map(records.map((record) => [`${record.sourceDb}\0${record.beadId}`, record]));
+  const applied: Array<{ workspaceId: string; imported: number; rootReconciled: boolean }> = [];
+  for (const [workspaceId, imports] of Object.entries(plan.importsByWorkspace)) {
+    const workspaceDir = workspaceCwd(workspaceId);
+    await ensureEmbeddedWorkspaceDb(workspaceId);
+    const importPath = path.join(workspaceDir, 'migration-import.jsonl');
+    const selectedRecords = imports.map((item) => recordsByKey.get(`${item.sourceDb}\0${item.beadId}`)).filter((record): record is LegacyBeadRecord => !!record);
+    const lines = selectedRecords.map((record) => JSON.stringify(record.raw)).join('\n');
+    if (lines.trim()) {
+      await writeFile(importPath, `${lines}\n`);
+      await bd(['import', importPath, '--json'], workspaceDir);
+    }
+    const root = rootsByWorkspace.get(workspaceId);
+    if (root?.root) await reconcileWorkspaceRoot(root);
+    applied.push({ workspaceId, imported: imports.length, rootReconciled: !!root?.root });
+  }
+  await writeWorkspaceMigrationReport(path.join(legacyDir, 'migrate-workspaces-report.json'), { ...report, applied });
+  console.log(JSON.stringify({ ...report, applied }, null, 2));
 }
 
 async function runPunt(puntArgs: string[]): Promise<void> {
@@ -236,7 +295,7 @@ async function ensureEmbeddedDb(cwd: string, prefix: string): Promise<void> {
 async function runUserSetupCommands(workspaceDir: string): Promise<void> {
   const config = path.join(resolveVkSettingsDirectory(), 'workspace-beads.toml');
   if (!existsSync(config)) return;
-  const content = await import('node:fs/promises').then((fs) => fs.readFile(config, 'utf8'));
+  const content = await readFile(config, 'utf8');
   for (const command of parseStringArray(content, 'extra_setup_commands')) {
     await execFile('/bin/sh', ['-lc', command], { cwd: workspaceDir, env: process.env, timeout: 120_000, maxBuffer: 10 * 1024 * 1024 });
   }
@@ -251,6 +310,22 @@ async function vkPost(route: string, body: unknown): Promise<void> {
     body: JSON.stringify(body),
   });
   if (!response.ok) throw new Error(`VK API ${route} failed: ${response.status} ${response.statusText}`);
+}
+
+async function loadVkWorkspaceRoots(): Promise<WorkspaceRoot[]> {
+  const raw = (process.env.VIBE_API_URL || process.env.VK_API_URL || 'http://localhost:3007').replace(/\/+$/, '');
+  const baseUrl = raw.endsWith('/api') ? raw.slice(0, -4) : raw;
+  const response = await fetch(`${baseUrl}/api/workspaces`);
+  if (!response.ok) throw new Error(`VK API /api/workspaces failed: ${response.status} ${response.statusText}`);
+  const body = await response.json() as { data?: unknown; workspaces?: unknown };
+  const rows = Array.isArray(body.data) ? body.data : Array.isArray(body.workspaces) ? body.workspaces : [];
+  return rows
+    .filter((row): row is Record<string, unknown> => !!row && typeof row === 'object' && typeof (row as Record<string, unknown>).id === 'string')
+    .map((row) => ({
+      workspaceId: row.id as string,
+      root: typeof row.container_ref === 'string' ? row.container_ref : null,
+      repos: [],
+    }));
 }
 
 async function bdJson(commandArgs: string[], cwd: string): Promise<any> {
@@ -269,13 +344,25 @@ async function bd(commandArgs: string[], cwd: string, embedded = true): Promise<
   return execFile('bd', commandArgs, { cwd, env, timeout: 30_000, maxBuffer: 10 * 1024 * 1024 });
 }
 
-async function bdLegacyShared(commandArgs: string[], cwd: string): Promise<{ stdout: string }> {
+async function bdLegacyShared(commandArgs: string[], cwd: string, sourceDb = 'beads_global'): Promise<{ stdout: string }> {
   const env = { ...process.env };
   delete env.BEADS_DIR;
   env.BEADS_DOLT_SHARED_SERVER = 'true';
   env.BEADS_DOLT_SERVER_HOST = env.BEADS_DOLT_SERVER_HOST ?? '127.0.0.1';
   env.BEADS_DOLT_SERVER_PORT = env.BEADS_DOLT_SERVER_PORT ?? '3308';
+  env.BEADS_DOLT_SERVER_DATABASE = sourceDb;
   return execFile('bd', commandArgs, { cwd, env, timeout: 30_000, maxBuffer: 10 * 1024 * 1024 });
+}
+
+async function enumerateLegacySharedSources(sharedDir: string): Promise<string[]> {
+  const doltDir = path.join(sharedDir, 'dolt');
+  const entries = await readdir(doltDir, { withFileTypes: true }).catch(() => []);
+  const names = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .filter((name) => !name.startsWith('.'))
+    .sort();
+  return names.length > 0 ? names : ['beads_global'];
 }
 
 async function restoreOriginalBdConfig(bdConfigPath: string, backupDir: string, bdConfigExisted: boolean): Promise<void> {

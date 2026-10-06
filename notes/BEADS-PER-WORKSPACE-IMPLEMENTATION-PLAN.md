@@ -366,29 +366,32 @@ Tests:
 - pending rerun repairs to complete;
 - new workspace path confirms inputs and builds canned prompt.
 
-### 8. Offline shared-server and repo-scoped migration commands
+### 8. Offline shared/global and workspace partition migration commands
 
 Add explicit migration commands, not runtime scans:
 
 ```bash
 vd beads migrate-shared-server --dry-run
 vd beads migrate-shared-server --apply
-vd beads migrate-repo-scoped --dry-run
-vd beads migrate-repo-scoped --apply
+vd beads migrate-workspaces --dry-run [--workspace-id <id>]
+vd beads migrate-workspaces --apply [--workspace-id <id>]
 ```
 
 Shared-server migration:
 
 - requires app/agent downtime;
-- backs up/exports current shared-server data;
-- initializes embedded per-workspace/aggregate DBs under `VD_BEADS_DIRECTORY`;
-- verifies counts and required metadata;
-- then removes shared-server env/config from steady-state compose/image.
+- backs up current shared-server data;
+- enumerates shared/global source DBs and exports each to raw JSONL under `VD_BEADS_DIRECTORY/legacy-all-beads`;
+- preserves `(sourceDb, beadId)` identity in sidecar/report data and never flat-imports duplicate IDs into one database;
+- initializes live `aggregate-workspaces`;
+- rewrites global `bd` config only after snapshot verification passes.
 
 Inputs:
 
-- repo beads with `metadata.VK_WORKSPACE_ID`;
-- repo beads with `metadata.external_issues`.
+- raw `legacy-all-beads` snapshots;
+- VK workspace/root mapping;
+- bead creation evidence from rollout/session cwd scan/cache.
+- legacy external issue beads with assignment metadata.
 
 Outputs:
 
