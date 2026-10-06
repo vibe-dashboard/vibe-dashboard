@@ -7,11 +7,23 @@ import type { AutoNudgeProcessWindowQuery, AutoNudgeStatusRequest, AutoNudgeStat
 import { conversationEntryText, conversationEntryType, decideNudgeForProcess, isActiveProcess } from './criteria.js';
 import { callbacksForTrigger, DEFAULT_CALLBACK_REGISTRY_PATH, type CallbackRecord } from './callback-registry.js';
 import {
+  appendResponseRoute,
   bindResponseRouteProcess,
   DEFAULT_RESPONSE_ROUTES_PATH,
   snapshotPendingResponseRoutes,
   updateResponseRoute,
 } from './response-routes.js';
+import {
+  claimNextQueuedSend,
+  DEFAULT_SEND_QUEUE_PATH,
+  enqueueSend,
+  markQueuedSendAccepted,
+  markQueuedSendFailed,
+  queuedSendBody,
+} from './send-queue.js';
+import { DEFAULT_HANDLER_LOG_PATH, runWorkflowHandler } from './workflow-handlers.js';
+import { DEFAULT_WORKFLOW_CONFIG_PATH, loadWorkflowConfig, type WorkflowConfig } from './workflow-config.js';
+import { parseWorkflowResultXml, validateWorkflowActions, type WorkflowAction } from './workflow-xml.js';
 
 const DEFAULT_STATE_PATH = '/var/lib/vd/auto-nudge/state.json';
 const DEFAULT_LOCK_PATH = '/var/lib/vd/auto-nudge/owner.lock';
@@ -62,6 +74,9 @@ export interface AutoNudgeClient {
 export interface AutoNudgeOptions {
   config: AutoNudgeConfig; statePath: string; callbackRegistryPath: string; responseRoutesPath?: string; workspaceRegistryPath?: string;
   nudgeConfigPath?: string;
+  workflowConfigPath?: string;
+  sendQueuePath?: string;
+  handlerLogPath?: string;
   now: () => Date; unacknowledgedAfterMs: number; operationTimeoutMs: number; responseTimeoutMs: number;
   concurrency: number; dryRun: boolean; discordWebhookUrl?: string;
   deliverDiscord?: (url: string, content: string) => Promise<void>;
@@ -387,6 +402,34 @@ async function processResponseRoutes(client: AutoNudgeClient, options: AutoNudge
   }
 }
 
+async function processSendQueue(client: AutoNudgeClient, options: AutoNudgeOptions, result: AutoNudgeCycleResult): Promise<void> {
+  if (options.dryRun) return;
+  const queuePath = options.sendQueuePath ?? DEFAULT_SEND_QUEUE_PATH;
+  while (!options.signal?.aborted) {
+    const queued = claimNextQueuedSend(queuePath, options.now());
+    if (!queued) return;
+    try {
+      const sent = await deadline(client.sendMessage(queued.targetSessionId, queuedSendBody(queued)), options.operationTimeoutMs, 'send queued message', options.signal);
+      markQueuedSendAccepted(queuePath, queued.id, sent.id, options.now());
+      if (queued.replySessionId) {
+        appendResponseRoute(options.responseRoutesPath ?? DEFAULT_RESPONSE_ROUTES_PATH, {
+          processId: sent.id,
+          replySessionId: queued.replySessionId,
+          targetRole: queued.targetRole,
+          targetSessionId: queued.targetSessionId,
+          createdAt: queued.createdAt,
+          updatedAt: options.now().toISOString(),
+          sendStartedAt: queued.updatedAt,
+          sendFinishedAt: options.now().toISOString(),
+        });
+      }
+    } catch (error) {
+      markQueuedSendFailed(queuePath, queued.id, (error as Error).message, options.now());
+      result.errors.push(`queued send ${queued.id}: ${(error as Error).message}`);
+    }
+  }
+}
+
 async function currentResponseRouteProcess(
   responseRoutesPath: string,
   routeId: string,
@@ -422,6 +465,57 @@ function latestFinishedCallbackWithProcess(callbacks: CallbackRecord[]): Callbac
   return callbacks
     .filter(item => item.status !== 'running' && item.completionProcessId)
     .sort((left, right) => (right.finishedAt ?? '').localeCompare(left.finishedAt ?? '') || right.id.localeCompare(left.id))[0] ?? null;
+}
+
+async function executeWorkflowActions(
+  actions: WorkflowAction[],
+  config: WorkflowConfig,
+  client: AutoNudgeClient,
+  options: AutoNudgeOptions,
+  context: { workspaceId: string; triggerProcessId: string; sessions: Session[]; replySessionId: string },
+): Promise<void> {
+  const queuePath = options.sendQueuePath ?? DEFAULT_SEND_QUEUE_PATH;
+  for (const action of actions) {
+    if (action.type === 'wait') continue;
+    if (action.type === 'send_message') {
+      const messageType = action.messageType ? config.messageTypes[action.messageType] : null;
+      if (!messageType) throw new Error(`Unknown message_type ${action.messageType ?? '(missing)'}`);
+      const prompt = config.prompts[messageType.promptId]?.text;
+      if (!prompt) throw new Error(`Prompt ${messageType.promptId} was not found`);
+      const target = context.sessions.find(session => session.name === action.role);
+      if (!target) throw new Error(`No current session found for role ${action.role}`);
+      if (!options.dryRun) {
+        enqueueSend(queuePath, {
+          targetRole: action.role ?? messageType.toRole,
+          targetSessionId: target.id,
+          executor: target.executor,
+          prompt: workflowPromptWithContext(prompt, action),
+          replySessionId: context.replySessionId,
+          now: options.now(),
+          id: `${context.triggerProcessId}:${action.type}:${action.role ?? ''}:${action.messageType ?? ''}`,
+        });
+      }
+      continue;
+    }
+    if (action.type === 'run_handler') {
+      const handler = action.handlerId ? config.handlers[action.handlerId] : null;
+      if (!handler) throw new Error(`Unknown handler ${action.handlerId ?? '(missing)'}`);
+      await runWorkflowHandler(handler, {
+        idempotencyKey: `${context.triggerProcessId}:handler:${action.handlerId}`,
+        action,
+        workspaceId: context.workspaceId,
+        triggerProcessId: context.triggerProcessId,
+        dryRun: options.dryRun,
+      }, { logPath: options.handlerLogPath ?? DEFAULT_HANDLER_LOG_PATH, timeoutMs: handler.timeoutMs });
+    }
+  }
+}
+
+function workflowPromptWithContext(prompt: string, action: WorkflowAction): string {
+  const lines = [prompt.trimEnd()];
+  if (action.beadIds.length) lines.push('', `Beads: ${action.beadIds.join(', ')}`);
+  if (action.formIds.length) lines.push(`Forms: ${action.formIds.join(', ')}`);
+  return lines.join('\n');
 }
 async function mapLimit<T>(values: T[], limit: number, task: (value: T) => Promise<void>, signal?: AbortSignal): Promise<void> {
   let index = 0;
@@ -524,7 +618,9 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
     registeredWorkspaces: 0, globalWorkspacesScanned: 0, sessionsScanned: 0, processesConsidered: 0, pagesFetched: 0, truncated: false, nextCursor: null,
   };
   const nudgeConfig = loadNudgeRuntimeConfig(options.nudgeConfigPath ?? DEFAULT_NUDGE_CONFIG_PATH);
+  const workflowConfig = loadWorkflowConfig(options.workflowConfigPath ?? DEFAULT_WORKFLOW_CONFIG_PATH);
   if (nudgeConfig.error) result.errors.push(nudgeConfig.error);
+  await processSendQueue(client, options, result);
   await processResponseRoutes(client, options, result);
   const registered = registeredWorkspacesForCycle(options);
   const registeredByWorkspace = new Map(registered.map(item => [item.workspaceId, item]));
@@ -606,7 +702,17 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
           const final = await deadline(client.getExecutionProcessFinalResponse(checkpoint.id), options.operationTimeoutMs, 'fetch checkpoint final response', options.signal);
           const response = final.final_response;
           trigger.error = null;
-          if (responseMatchesEndCondition(response, nudgeConfig.config.endConditions)) {
+          const workflowResult = response ? parseWorkflowResultXml(response) : null;
+          if (workflowResult) {
+            validateWorkflowActions(workflowResult, workflowConfig, 'overseer');
+            await executeWorkflowActions(workflowResult.actions, workflowConfig, client, options, {
+              workspaceId: configured.workspaceId,
+              triggerProcessId: trigger.processId,
+              sessions,
+              replySessionId: overseer?.id ?? configured.overseerSessionId,
+            });
+            trigger.status = 'delegated';
+          } else if (responseMatchesEndCondition(response, nudgeConfig.config.endConditions)) {
             trigger.status = 'done';
           } else {
             const refreshedStatus = await fetchAutoNudgeStatus(client, options, [configured.workspaceId], { includeGlobalRecent: false });
@@ -755,7 +861,7 @@ async function main(): Promise<void> {
   await runWithOwnerLock(process.env.VD_AUTO_NUDGE_LOCK_PATH ?? DEFAULT_LOCK_PATH, async () => {
     const abortController = new AbortController();
     const stop = () => { stopping = true; abortController.abort(); }; process.once('SIGINT', stop); process.once('SIGTERM', stop);
-    const options: AutoNudgeOptions = { config, statePath: args.statePath, callbackRegistryPath: process.env.VD_CALLBACK_REGISTRY_PATH ?? DEFAULT_CALLBACK_REGISTRY_PATH, responseRoutesPath: process.env.VD_RESPONSE_ROUTES_PATH ?? DEFAULT_RESPONSE_ROUTES_PATH, workspaceRegistryPath: args.registryPath, nudgeConfigPath: process.env.VD_AUTO_NUDGE_CONFIG_PATH ?? DEFAULT_NUDGE_CONFIG_PATH, now: () => new Date(), unacknowledgedAfterMs: 60_000, operationTimeoutMs: 15_000, responseTimeoutMs: 30 * 60_000, concurrency: 4, dryRun: args.dryRun, discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL, signal: abortController.signal };
+    const options: AutoNudgeOptions = { config, statePath: args.statePath, callbackRegistryPath: process.env.VD_CALLBACK_REGISTRY_PATH ?? DEFAULT_CALLBACK_REGISTRY_PATH, responseRoutesPath: process.env.VD_RESPONSE_ROUTES_PATH ?? DEFAULT_RESPONSE_ROUTES_PATH, workspaceRegistryPath: args.registryPath, nudgeConfigPath: process.env.VD_AUTO_NUDGE_CONFIG_PATH ?? DEFAULT_NUDGE_CONFIG_PATH, workflowConfigPath: process.env.VD_AUTO_NUDGE_WORKFLOW_CONFIG_PATH ?? DEFAULT_WORKFLOW_CONFIG_PATH, sendQueuePath: process.env.VD_SEND_QUEUE_PATH ?? DEFAULT_SEND_QUEUE_PATH, handlerLogPath: process.env.VD_HANDLER_LOG_PATH ?? DEFAULT_HANDLER_LOG_PATH, now: () => new Date(), unacknowledgedAfterMs: 60_000, operationTimeoutMs: 15_000, responseTimeoutMs: 30 * 60_000, concurrency: 4, dryRun: args.dryRun, discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL, signal: abortController.signal };
     do { const result = await runAutoNudgeCycle(makeClient(), options); console.log(JSON.stringify({ type: 'auto-nudge-cycle', at: new Date().toISOString(), ...result })); if (!args.once && !stopping) { try { await abortableDelay(DEFAULT_POLL_MS, abortController.signal); } catch { /* Shutdown aborts the poll delay. */ } } } while (!args.once && !stopping);
   });
   if (stopping || args.once) process.exit(0);
