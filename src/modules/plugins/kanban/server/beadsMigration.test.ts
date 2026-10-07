@@ -15,6 +15,10 @@ import { applyWorkspaceBeadsSetup } from './workspaceBeads';
 const ws1 = '44d6b46d-459f-4b19-8034-d85e6c1fd80a';
 const ws2 = '22222222-2222-4222-8222-222222222222';
 
+function key(sourceDb: string, beadId: string): string {
+  return `${sourceDb}\0${beadId}`;
+}
+
 function record(id: string, extra: Partial<LegacyBeadRecord> = {}): LegacyBeadRecord {
   return {
     sourceDb: extra.sourceDb ?? 'vkvw',
@@ -36,7 +40,7 @@ describe('beadsMigration planner', () => {
     });
 
     expect(parseWorktreeCwd('/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor/repo', new Map([['44d6-vd-beads-per-wor', ws1]]))).toBe(ws1);
-    expect(plan.assignments['vkw-1234567890abcdefghijklmnopqrstuv']).toBe(ws1);
+    expect(plan.assignments[key('vkvw', 'vkw-1234567890abcdefghijklmnopqrstuv')]).toBe(ws1);
     expect(plan.unresolved).toHaveLength(0);
   });
 
@@ -51,7 +55,7 @@ describe('beadsMigration planner', () => {
       workspaceRoots: [{ workspaceId: ws1, root: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor' }],
     });
 
-    expect(plan.assignments['vkw-1234567890abcdefghijklmnopqrstuv']).toBe(ws1);
+    expect(plan.assignments[key('vkvw', 'vkw-1234567890abcdefghijklmnopqrstuv')]).toBe(ws1);
     expect(plan.unresolved.map((item) => item.beadId)).toEqual(['vkvw-677.9.1']);
   });
 
@@ -70,8 +74,9 @@ describe('beadsMigration planner', () => {
       ],
     });
 
-    expect(plan.assignments['bead-1']).toBe(ws1);
+    expect(plan.assignments[key('vkvw', 'bead-1')]).toBe(ws1);
     expect(plan.hazards.evidenceConflicts).toEqual([`bead-1:cwd:${ws1}!=fallback:${ws2}`]);
+    expect(planHasHardHazards(plan)).toBe(true);
   });
 
   it('uses fallback workspaceId only when cwd evidence is absent', () => {
@@ -81,7 +86,7 @@ describe('beadsMigration planner', () => {
       workspaceRoots: [{ workspaceId: ws1, root: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor' }],
     });
 
-    expect(plan.assignments['bead-1']).toBe(ws2);
+    expect(plan.assignments[key('vkvw', 'bead-1')]).toBe(ws2);
   });
 
   it('builds creation evidence from VK sessions and leaves only known unassigned examples unresolved', () => {
@@ -102,7 +107,7 @@ describe('beadsMigration planner', () => {
       workspaceRoots: [{ workspaceId: ws1, root: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor' }],
     });
 
-    expect(plan.assignments['vkw-1234567890abcdefghijklmnopqrstuv']).toBe(ws1);
+    expect(plan.assignments[key('vkvw', 'vkw-1234567890abcdefghijklmnopqrstuv')]).toBe(ws1);
     expect(plan.unresolved.map((item) => item.beadId)).toEqual(['vkvw-677.9.1', 'vkvw-8xaj.18.4.11']);
   });
 
@@ -118,10 +123,42 @@ describe('beadsMigration planner', () => {
       workspaceRoots: [{ workspaceId: ws1, root: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor' }],
     });
 
-    expect(plan.assignments.parent).toBe(ws1);
-    expect(plan.reports.parentChildInferred).toContain(`parent<=child:${ws1}`);
-    expect(plan.assignments.other).toBeUndefined();
-    expect(plan.reports.nonParentEdges).toContain('related->other:related');
+    expect(plan.assignments[key('vkvw', 'parent')]).toBe(ws1);
+    expect(plan.reports.parentChildInferred).toContain(`${key('vkvw', 'parent')}<=${key('vkvw', 'child')}:${ws1}`);
+    expect(plan.assignments[key('vkvw', 'other')]).toBeUndefined();
+    expect(plan.reports.nonParentEdges).toContain('vkvw:related->other:related');
+  });
+
+  it('keeps duplicate bead assignments source-qualified', () => {
+    const plan = buildWorkspaceMigrationPlan({
+      records: [
+        record('same-id', { sourceDb: 'selected', metadata: { VK_WORKSPACE_ID: ws1 } }),
+        record('same-id', { sourceDb: 'legacy' }),
+      ],
+      evidence: [],
+      workspaceRoots: [{ workspaceId: ws1, root: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor' }],
+    });
+
+    expect(plan.assignments[key('selected', 'same-id')]).toBe(ws1);
+    expect(plan.assignments[key('legacy', 'same-id')]).toBeUndefined();
+    expect(plan.importsByWorkspace[ws1]).toEqual([{ sourceDb: 'selected', beadId: 'same-id' }]);
+    expect(plan.hazards.duplicateSelected).toEqual([]);
+  });
+
+  it('runs parent-child inference to a fixed point', () => {
+    const plan = buildWorkspaceMigrationPlan({
+      records: [
+        record('grandparent'),
+        record('parent', { dependencies: [{ issueId: 'parent', dependsOnId: 'grandparent', type: 'parent-child' }] }),
+        record('child', { metadata: { VK_WORKSPACE_ID: ws1 }, dependencies: [{ issueId: 'child', dependsOnId: 'parent', type: 'parent-child' }] }),
+      ],
+      evidence: [],
+      workspaceRoots: [{ workspaceId: ws1, root: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor' }],
+    });
+
+    expect(plan.assignments[key('vkvw', 'parent')]).toBe(ws1);
+    expect(plan.assignments[key('vkvw', 'grandparent')]).toBe(ws1);
+    expect(plan.reports.parentChildInferred).toEqual([...new Set(plan.reports.parentChildInferred)]);
   });
 
   it('hard-fails explicit different-workspace parent-child and duplicate selected ids', () => {
@@ -139,6 +176,28 @@ describe('beadsMigration planner', () => {
     expect(plan.hazards.duplicateSelected[0]).toContain('dup:a,b');
     expect(plan.hazards.parentChildConflicts[0]).toContain(`${ws1}!=${ws2}`);
     expect(planHasHardHazards(plan)).toBe(true);
+  });
+
+  it('scopes pilot hard hazards to selected workspace records', () => {
+    const plan = buildWorkspaceMigrationPlan({
+      records: [
+        record('target', { metadata: { VK_WORKSPACE_ID: ws1 } }),
+        record('other-child', { metadata: { VK_WORKSPACE_ID: ws2 }, dependencies: [{ issueId: 'other-child', dependsOnId: 'other-parent', type: 'parent-child' }] }),
+        record('other-parent', { metadata: { VK_WORKSPACE_ID: '33333333-3333-4333-8333-333333333333' } }),
+        record('external-missing', { metadata: { external_issues: [{ provider: 'jira', key: 'VD-1' }] } }),
+      ],
+      evidence: [],
+      workspaceRoots: [
+        { workspaceId: ws1, root: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor' },
+        { workspaceId: ws2, root: '/var/tmp/vibe-kanban/worktrees/other' },
+      ],
+      workspaceIdFilter: ws1,
+    });
+
+    expect(plan.importsByWorkspace[ws1]).toEqual([{ sourceDb: 'vkvw', beadId: 'target' }]);
+    expect(plan.hazards.parentChildConflicts).toEqual([]);
+    expect(plan.hazards.externalIssueMissingWorkspace).toEqual([]);
+    expect(planHasHardHazards(plan)).toBe(false);
   });
 
   it('reports known unresolved beads as legacy and external records without workspace as hard hazards', () => {

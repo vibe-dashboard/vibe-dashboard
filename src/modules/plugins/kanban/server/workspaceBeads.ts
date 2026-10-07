@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { execFile as execFileCallback } from 'node:child_process';
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -124,7 +124,7 @@ export async function applyWorkspaceBeadsSetup(input: WorkspaceSetupInput, optio
 
 export async function upsertWorkspaceIndexBead(input: WorkspaceSetupInput, options: WorkspaceBeadsOptions = {}): Promise<WorkspaceBeadPointer> {
   const aggregateDir = path.join(resolveVdBeadsDirectory(options), 'aggregate-workspaces');
-  await ensureEmbeddedBeadsDatabase(aggregateDir, 'vdw', options);
+  await ensureEmbeddedBeadsDatabase(aggregateDir, 'task', options);
   const beadId = deterministicWorkspaceBeadId(input.workspaceId);
   const runBd = options.runBd ?? defaultRunBd;
   const repos = input.repos.map((repo) => ({
@@ -159,7 +159,7 @@ export async function upsertWorkspaceIndexBead(input: WorkspaceSetupInput, optio
 }
 
 export async function ensureWorkspaceBeadsDatabase(workspaceId: string, options: WorkspaceBeadsOptions = {}): Promise<void> {
-  await ensureEmbeddedBeadsDatabase(path.dirname(workspaceBeadsDir(workspaceId, options)), 'vdw', options);
+  await ensureEmbeddedBeadsDatabase(path.dirname(workspaceBeadsDir(workspaceId, options)), 'task', options);
 }
 
 export async function ensureExternalIssueWorkspaceBead(
@@ -316,8 +316,4 @@ function externalIssueTitle(issue: ExternalIssueRef): string {
 function externalIssueBody(issue: ExternalIssueRef): string {
   const body = issue.metadata?.body ?? issue.metadata?.description;
   return typeof body === 'string' ? body : '';
-}
-
-export function newWorkspaceId(): string {
-  return randomUUID();
 }

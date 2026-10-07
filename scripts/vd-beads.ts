@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { existsSync } from 'node:fs';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { execFile as execFileCallback } from 'node:child_process';
 import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -165,7 +165,7 @@ async function runSharedServerMigration(migrationArgs: string[]): Promise<void> 
       collectedRecords: sessionEvidence.length,
     },
   }, null, 2)}\n`);
-  await ensureEmbeddedDb(path.join(beadsDir, 'aggregate-workspaces'), 'vdw');
+  await ensureEmbeddedDb(path.join(beadsDir, 'aggregate-workspaces'), 'task');
   const aggregateCheck = await bd(['export', '--json'], path.join(beadsDir, 'aggregate-workspaces'));
   await rm(legacyDir, { recursive: true, force: true });
   await cp(snapshotDir, legacyDir, { recursive: true, force: false, errorOnExist: true });
@@ -229,7 +229,7 @@ async function runWorkspaceMigration(migrationArgs: string[]): Promise<void> {
   const applied: Array<{ workspaceId: string; imported: number; rootReconciled: boolean; importStdout?: string; importJson?: unknown }> = [];
   for (const [workspaceId, imports] of Object.entries(plan.importsByWorkspace)) {
     const workspaceDir = workspaceCwd(workspaceId);
-    await ensureEmbeddedWorkspaceDb(workspaceId);
+    await ensureEmbeddedDb(workspaceDir, 'task');
     const importPath = path.join(workspaceDir, 'migration-import.jsonl');
     const selectedRecords = imports.map((item) => recordsByKey.get(`${item.sourceDb}\0${item.beadId}`)).filter((record): record is LegacyBeadRecord => !!record);
     const lines = selectedRecords.map((record) => JSON.stringify(record.raw)).join('\n');
@@ -271,35 +271,41 @@ async function runPunt(puntArgs: string[]): Promise<void> {
   if (toWorkspaceId && newWorkspace) throw new Error('choose either --to-workspace or --new-workspace');
   if (newWorkspace && repos.length === 0) throw new Error('--new-workspace requires at least one --repo <repo_id>:<branch>');
 
-  const destinationWorkspaceId = toWorkspaceId ?? randomUUID();
-  const destinationBeadId = puntDestinationBeadId(beadId, fromWorkspaceId, destinationWorkspaceId);
-  const prompt = buildPuntPrompt(destinationBeadId, appendToPrompt);
   const executor = readFlag(puntArgs, '--executor', false) ?? 'CODEX';
-  const name = readFlag(puntArgs, '--name', false) ?? `Punted ${destinationBeadId}`;
-  const plan = { beadId, fromWorkspaceId, destinationWorkspaceId, destinationBeadId, ...(newWorkspace ? { newWorkspace: { repos, start, prompt } } : {}) };
+  const requestedName = readFlag(puntArgs, '--name', false);
+  const initialDestinationWorkspaceId = toWorkspaceId ?? '(created by VK)';
+  const plan = { beadId, fromWorkspaceId, destinationWorkspaceId: initialDestinationWorkspaceId, ...(newWorkspace ? { newWorkspace: { repos, start } } : {}) };
   console.log(JSON.stringify(plan, null, 2));
   if (!yes) await confirmOrThrow('Execute this punt? Type "yes" to continue: ');
 
-  await ensureEmbeddedWorkspaceDb(destinationWorkspaceId);
+  let destinationWorkspaceId = toWorkspaceId;
+  if (newWorkspace) {
+    const created = await vkPost<{ workspace: { id: string; name?: string | null } }>('/api/workspaces/create-only', {
+      name: requestedName ?? `Punted ${beadId}`,
+      repos: repos.map((repo) => ({ repo_id: repo.repo, target_branch: repo.branch })),
+      linked_issue: null,
+      attachment_ids: null,
+    });
+    destinationWorkspaceId = created.workspace.id;
+  }
+
+  if (!destinationWorkspaceId) throw new Error('destination workspace was not created');
+  const destinationBeadId = puntDestinationBeadId(beadId, fromWorkspaceId, destinationWorkspaceId);
+  const prompt = buildPuntPrompt(destinationBeadId, appendToPrompt);
   await createDestinationPending(beadId, fromWorkspaceId, destinationWorkspaceId, destinationBeadId);
 
   if (newWorkspace && start) {
-    await vkPost('/api/workspaces/start', {
+    const session = await vkPost<{ id: string }>('/api/sessions', {
       workspace_id: destinationWorkspaceId,
-      name,
-      repos: repos.map((repo) => ({ repo_id: repo.repo, target_branch: repo.branch })),
-      linked_issue: null,
-      executor_config: { executor },
-      prompt,
-      attachment_ids: null,
+      executor,
+      name: requestedName ?? `Punted ${destinationBeadId}`,
     });
-  } else if (newWorkspace) {
-    await vkPost('/api/workspaces/create-only', {
-      workspace_id: destinationWorkspaceId,
-      name,
-      repos: repos.map((repo) => ({ repo_id: repo.repo, target_branch: repo.branch })),
-      linked_issue: null,
-      attachment_ids: null,
+    await vkPost(`/api/sessions/${encodeURIComponent(session.id)}/follow-up`, {
+      prompt,
+      executor_config: { executor },
+      retry_process_id: null,
+      force_when_dirty: null,
+      perform_git_reset: null,
     });
   }
 
@@ -330,10 +336,6 @@ async function closeSourceAndCompleteDestination(beadId: string, fromWorkspaceId
   await bd(['update', destinationBeadId, '--metadata', JSON.stringify({ ...sourceMetadata, move: { state: 'complete', sourceWorkspaceId: fromWorkspaceId, sourceBeadId: beadId, destinationWorkspaceId: toWorkspaceId } })], destinationCwd);
 }
 
-async function ensureEmbeddedWorkspaceDb(workspaceId: string): Promise<void> {
-  await ensureEmbeddedDb(workspaceCwd(workspaceId), 'vdw');
-}
-
 async function ensureEmbeddedDb(cwd: string, prefix: string): Promise<void> {
   await mkdir(path.join(cwd, '.beads'), { recursive: true });
   await writeFile(path.join(cwd, '.beads', 'config.yaml'), 'no-git-ops: true\nno-push: true\n\ndolt:\n  shared-server: false\n', { flag: 'wx' }).catch(() => undefined);
@@ -349,7 +351,7 @@ async function runUserSetupCommands(workspaceDir: string): Promise<void> {
   }
 }
 
-async function vkPost(route: string, body: unknown): Promise<void> {
+async function vkPost<T = unknown>(route: string, body: unknown): Promise<T> {
   const raw = (process.env.VIBE_API_URL || process.env.VK_API_URL || 'http://localhost:3007').replace(/\/+$/, '');
   const baseUrl = raw.endsWith('/api') ? raw.slice(0, -4) : raw;
   const response = await fetch(`${baseUrl}${route}`, {
@@ -358,6 +360,9 @@ async function vkPost(route: string, body: unknown): Promise<void> {
     body: JSON.stringify(body),
   });
   if (!response.ok) throw new Error(`VK API ${route} failed: ${response.status} ${response.statusText}`);
+  const parsed = await response.json() as { success?: boolean; data?: T; message?: string };
+  if (parsed.success === false) throw new Error(parsed.message ?? `VK API ${route} returned unsuccessful response`);
+  return (parsed.data ?? parsed) as T;
 }
 
 async function loadVkWorkspaceRoots(): Promise<WorkspaceRoot[]> {

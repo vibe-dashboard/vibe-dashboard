@@ -84,7 +84,6 @@ export interface UserSystemInfo {
 }
 
 export interface CreateAndStartWorkspaceRequest {
-  workspace_id?: string | null;
   name: string | null;
   repos: Array<{ repo_id: string; target_branch: string }>;
   linked_issue: { remote_project_id: string; issue_id: string } | null;
@@ -99,7 +98,6 @@ export interface CreateAndStartWorkspaceResponse {
 }
 
 export interface CreateOnlyWorkspaceRequest {
-  workspace_id?: string | null;
   name: string | null;
   repos: Array<{ repo_id: string; target_branch: string }>;
   linked_issue: { remote_project_id: string; issue_id: string } | null;

@@ -25,10 +25,9 @@ use crate::{
 
 pub(crate) async fn create_workspace_record(
     deployment: &DeploymentImpl,
-    workspace_id: Option<Uuid>,
     name: Option<String>,
 ) -> Result<Workspace, ApiError> {
-    let workspace_id = workspace_id.unwrap_or_else(Uuid::new_v4);
+    let workspace_id = Uuid::new_v4();
     let branch_label = name
         .as_deref()
         .filter(|branch_label| !branch_label.is_empty())
@@ -55,7 +54,7 @@ pub async fn create_workspace(
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<CreateWorkspaceApiRequest>,
 ) -> Result<ResponseJson<ApiResponse<Workspace>>, ApiError> {
-    let workspace = create_workspace_record(&deployment, None, payload.name).await?;
+    let workspace = create_workspace_record(&deployment, payload.name).await?;
 
     deployment
         .track_if_analytics_allowed(
@@ -74,7 +73,6 @@ pub async fn create_only_workspace(
     Json(payload): Json<CreateOnlyWorkspaceRequest>,
 ) -> Result<ResponseJson<ApiResponse<CreateOnlyWorkspaceResponse>>, ApiError> {
     let CreateOnlyWorkspaceRequest {
-        workspace_id,
         name,
         repos,
         linked_issue,
@@ -85,7 +83,7 @@ pub async fn create_only_workspace(
 
     let mut managed_workspace = deployment
         .workspace_manager()
-        .load_managed_workspace(create_workspace_record(&deployment, workspace_id, name).await?)
+        .load_managed_workspace(create_workspace_record(&deployment, name).await?)
         .await?;
 
     for repo in &repos {
@@ -380,7 +378,6 @@ pub async fn create_and_start_workspace(
 ) -> Result<ResponseJson<ApiResponse<CreateAndStartWorkspaceResponse>>, ApiError> {
     let CreateAndStartWorkspaceRequest {
         name,
-        workspace_id,
         repos,
         linked_issue,
         executor_config,
@@ -398,7 +395,7 @@ pub async fn create_and_start_workspace(
 
     let mut managed_workspace = deployment
         .workspace_manager()
-        .load_managed_workspace(create_workspace_record(&deployment, workspace_id, name).await?)
+        .load_managed_workspace(create_workspace_record(&deployment, name).await?)
         .await?;
 
     for repo in &repos {

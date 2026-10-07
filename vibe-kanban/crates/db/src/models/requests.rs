@@ -24,7 +24,6 @@ pub struct CreateWorkspaceApiRequest {
 
 #[derive(Debug, Serialize, Deserialize, TS)]
 pub struct CreateOnlyWorkspaceRequest {
-    pub workspace_id: Option<Uuid>,
     pub name: Option<String>,
     pub repos: Vec<WorkspaceRepoInput>,
     pub linked_issue: Option<LinkedIssueInfo>,
@@ -44,7 +43,6 @@ pub struct LinkedIssueInfo {
 
 #[derive(Debug, Serialize, Deserialize, TS)]
 pub struct CreateAndStartWorkspaceRequest {
-    pub workspace_id: Option<Uuid>,
     pub name: Option<String>,
     pub repos: Vec<WorkspaceRepoInput>,
     pub linked_issue: Option<LinkedIssueInfo>,

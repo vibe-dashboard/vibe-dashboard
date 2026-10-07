@@ -96,43 +96,38 @@ export function buildWorkspaceMigrationPlan(input: BuildWorkspaceMigrationPlanIn
   };
 
   const recordsById = new Map<string, LegacyBeadRecord[]>();
+  const recordsByKey = new Map<string, LegacyBeadRecord>();
   for (const record of input.records) {
     const list = recordsById.get(record.beadId) ?? [];
     list.push(record);
     recordsById.set(record.beadId, list);
+    recordsByKey.set(recordKey(record), record);
   }
 
-  const explicitById = new Map<string, { workspaceId: string | null; conflict?: string }>();
+  const explicitByKey = new Map<string, { workspaceId: string | null; conflict?: string }>();
   for (const record of input.records) {
     const explicit = explicitWorkspaceId(record.metadata);
-    if (explicit.conflict) {
+    if (explicit.conflict && affectsWorkspaceFilter(explicit.workspaceId, input.workspaceIdFilter, explicit.conflict)) {
       plan.hazards.explicitConflicts.push(`${record.sourceDb}:${record.beadId}:${explicit.conflict}`);
     }
-    const existing = explicitById.get(record.beadId);
-    if (existing?.workspaceId && explicit.workspaceId && existing.workspaceId !== explicit.workspaceId) {
-      plan.hazards.explicitConflicts.push(`${record.beadId}:${existing.workspaceId}!=${explicit.workspaceId}`);
-      continue;
-    }
-    explicitById.set(record.beadId, {
-      workspaceId: existing?.workspaceId ?? explicit.workspaceId,
-      conflict: existing?.conflict ?? explicit.conflict,
-    });
+    explicitByKey.set(recordKey(record), explicit);
   }
 
-  const evidenceById = dedupeEvidence(input.evidence, slugToWorkspaceId, plan.hazards.evidenceConflicts, input.worktreeBase);
+  const evidenceById = dedupeEvidence(input.evidence, slugToWorkspaceId, plan.hazards.evidenceConflicts, input.worktreeBase, input.workspaceIdFilter);
   for (const record of input.records) {
-    const explicit = explicitById.get(record.beadId)?.workspaceId;
+    const key = recordKey(record);
+    const explicit = explicitByKey.get(key)?.workspaceId;
     const workspaceId = explicit ?? evidenceById.get(record.beadId) ?? null;
-    if (workspaceId) plan.assignments[record.beadId] = workspaceId;
-    if (!workspaceId && isExternalIssueRecord(record.metadata)) {
+    if (workspaceId) plan.assignments[key] = workspaceId;
+    if (!workspaceId && !input.workspaceIdFilter && isExternalIssueRecord(record.metadata)) {
       plan.hazards.externalIssueMissingWorkspace.push(`${record.sourceDb}:${record.beadId}`);
     }
   }
 
-  inferParentChildAssignments(input.records, plan, explicitById);
+  inferParentChildAssignments(input.records, plan, explicitByKey, recordsByKey, input.workspaceIdFilter);
 
   for (const record of input.records) {
-    const workspaceId = plan.assignments[record.beadId];
+    const workspaceId = plan.assignments[recordKey(record)];
     if (!workspaceId) {
       plan.unresolved.push({ sourceDb: record.sourceDb, beadId: record.beadId, title: record.title });
       continue;
@@ -148,7 +143,7 @@ export function buildWorkspaceMigrationPlan(input: BuildWorkspaceMigrationPlanIn
 
   for (const [beadId, records] of recordsById) {
     const selected = records.filter((record) => {
-      const workspaceId = plan.assignments[record.beadId];
+      const workspaceId = plan.assignments[recordKey(record)];
       return workspaceId && (!input.workspaceIdFilter || workspaceId === input.workspaceIdFilter);
     });
     if (selected.length > 1) {
@@ -164,7 +159,8 @@ export function planHasHardHazards(plan: WorkspaceMigrationPlan): boolean {
   return plan.hazards.explicitConflicts.length > 0
     || plan.hazards.duplicateSelected.length > 0
     || plan.hazards.parentChildConflicts.length > 0
-    || plan.hazards.externalIssueMissingWorkspace.length > 0;
+    || plan.hazards.externalIssueMissingWorkspace.length > 0
+    || plan.hazards.evidenceConflicts.length > 0;
 }
 
 export async function loadLegacySnapshots(legacyDir: string): Promise<LegacyBeadRecord[]> {
@@ -288,19 +284,24 @@ function dedupeEvidence(
   slugToWorkspaceId: Map<string, string>,
   conflicts: string[],
   worktreeBase?: string,
+  workspaceIdFilter?: string,
 ): Map<string, string> {
   const out = new Map<string, string>();
   for (const entry of evidence) {
     const hasCwd = !!entry.cwd;
     const cwdWorkspaceId = parseWorktreeCwd(entry.cwd, slugToWorkspaceId, worktreeBase);
     if (hasCwd && cwdWorkspaceId && entry.workspaceId && cwdWorkspaceId !== entry.workspaceId) {
-      conflicts.push(`${entry.beadId}:cwd:${cwdWorkspaceId}!=fallback:${entry.workspaceId}`);
+      if (!workspaceIdFilter || cwdWorkspaceId === workspaceIdFilter || entry.workspaceId === workspaceIdFilter) {
+        conflicts.push(`${entry.beadId}:cwd:${cwdWorkspaceId}!=fallback:${entry.workspaceId}`);
+      }
     }
     const resolved = hasCwd ? cwdWorkspaceId : entry.workspaceId ?? null;
     if (!resolved) continue;
     const existing = out.get(entry.beadId);
     if (existing && existing !== resolved) {
-      conflicts.push(`${entry.beadId}:${existing}!=${resolved}`);
+      if (!workspaceIdFilter || existing === workspaceIdFilter || resolved === workspaceIdFilter) {
+        conflicts.push(`${entry.beadId}:${existing}!=${resolved}`);
+      }
       continue;
     }
     out.set(entry.beadId, resolved);
@@ -317,34 +318,63 @@ function joinWorkspaceCwd(workspaceRoot: string | null | undefined, agentWorking
 function inferParentChildAssignments(
   records: LegacyBeadRecord[],
   plan: WorkspaceMigrationPlan,
-  explicitById: Map<string, { workspaceId: string | null; conflict?: string }>,
+  explicitByKey: Map<string, { workspaceId: string | null; conflict?: string }>,
+  recordsByKey: Map<string, LegacyBeadRecord>,
+  workspaceIdFilter?: string,
 ): void {
+  const inferred = new Set<string>();
+  const conflicts = new Set<string>();
+  const nonParentEdges = new Set(plan.reports.nonParentEdges);
+  let changed = true;
+  while (changed) {
+    changed = false;
   for (const record of records) {
     for (const edge of record.dependencies) {
       const type = edge.type ?? '';
       if (type !== 'parent-child') {
-        plan.reports.nonParentEdges.push(`${record.beadId}->${edge.dependsOnId}:${type || 'unknown'}`);
+        nonParentEdges.add(`${record.sourceDb}:${record.beadId}->${edge.dependsOnId}:${type || 'unknown'}`);
         continue;
       }
-      const child = edge.issueId;
-      const parent = edge.dependsOnId;
+      const child = recordKeyFromParts(record.sourceDb, edge.issueId);
+      const parent = recordKeyFromParts(record.sourceDb, edge.dependsOnId);
+      if (!recordsByKey.has(child) || !recordsByKey.has(parent)) continue;
       const childWorkspace = plan.assignments[child];
       const parentWorkspace = plan.assignments[parent];
-      const childExplicit = explicitById.get(child)?.workspaceId;
-      const parentExplicit = explicitById.get(parent)?.workspaceId;
+      const childExplicit = explicitByKey.get(child)?.workspaceId;
+      const parentExplicit = explicitByKey.get(parent)?.workspaceId;
       if (childExplicit && parentExplicit && childExplicit !== parentExplicit) {
-        plan.hazards.parentChildConflicts.push(`${child}->${parent}:${childExplicit}!=${parentExplicit}`);
+        if (!workspaceIdFilter || childExplicit === workspaceIdFilter || parentExplicit === workspaceIdFilter) {
+          conflicts.add(`${child}->${parent}:${childExplicit}!=${parentExplicit}`);
+        }
         continue;
       }
       if (childWorkspace && !parentWorkspace && !parentExplicit) {
         plan.assignments[parent] = childWorkspace;
-        plan.reports.parentChildInferred.push(`${parent}<=${child}:${childWorkspace}`);
+        inferred.add(`${parent}<=${child}:${childWorkspace}`);
+        changed = true;
       } else if (parentWorkspace && !childWorkspace && !childExplicit) {
         plan.assignments[child] = parentWorkspace;
-        plan.reports.parentChildInferred.push(`${child}=>${parent}:${parentWorkspace}`);
+        inferred.add(`${child}=>${parent}:${parentWorkspace}`);
+        changed = true;
       }
     }
   }
+  }
+  plan.reports.parentChildInferred = [...inferred].sort();
+  plan.reports.nonParentEdges = [...nonParentEdges].sort();
+  plan.hazards.parentChildConflicts.push(...[...conflicts].sort());
+}
+
+function recordKey(record: Pick<LegacyBeadRecord, 'sourceDb' | 'beadId'>): string {
+  return recordKeyFromParts(record.sourceDb, record.beadId);
+}
+
+function recordKeyFromParts(sourceDb: string, beadId: string): string {
+  return `${sourceDb}\0${beadId}`;
+}
+
+function affectsWorkspaceFilter(workspaceId: string | null, workspaceIdFilter?: string, detail?: string): boolean {
+  return !workspaceIdFilter || workspaceId === workspaceIdFilter || detail?.includes(workspaceIdFilter) === true;
 }
 
 function isExternalIssueRecord(metadata: Record<string, unknown>): boolean {
