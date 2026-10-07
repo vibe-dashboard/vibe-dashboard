@@ -95,6 +95,8 @@ jobs:
           set -euo pipefail
           cp vibe-kanban-vscode-web/vibe-kanban/target-bookworm/debug/server vibe-kanban-vscode-web/.docker/vk-runtime/vibe-kanban
           chmod 0755 vibe-kanban-vscode-web/.docker/vk-runtime/vibe-kanban
+          rm -rf vibe-kanban-vscode-web/vibe-kanban/target-bookworm
+          docker image rm rust:bookworm || true
 
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -116,8 +118,6 @@ jobs:
         run: |
           set -euo pipefail
           df -h
-          rm -rf vibe-kanban-vscode-web/vibe-kanban/target-bookworm
-          docker image rm rust:bookworm || true
           docker buildx prune --all --force || true
           df -h
 

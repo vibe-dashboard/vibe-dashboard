@@ -96,6 +96,7 @@ startup_step_end
 startup_step_begin "prepare persistent user configuration"
 install -d -m 0755 -o vkuser -g vkuser /home/vkuser/.config
 install -d -m 0755 -o vkuser -g vkuser /home/vkuser/.config/bd
+install -d -m 0755 -o vkuser -g vkuser /home/vkuser/.config/git
 install -d -m 0700 -o vkuser -g vkadmin /home/vkuser/.beads
 install -d -m 0750 -o vkuser -g vkadmin "${VK_SETTINGS_DIRECTORY:-/var/lib/vd/vk-config}"
 install -d -m 0750 -o vkuser -g vkadmin "${VD_BEADS_DIRECTORY:-/var/lib/vd/beads}"
@@ -119,6 +120,7 @@ fi
 
 runuser -u vkuser -- test -w /home/vkuser/.config
 runuser -u vkuser -- test -w /home/vkuser/.config/bd
+runuser -u vkuser -- test -w /home/vkuser/.config/git
 runuser -u vkuser -- test -w "${VK_SETTINGS_DIRECTORY:-/var/lib/vd/vk-config}"
 runuser -u vkuser -- test -w "${VD_BEADS_DIRECTORY:-/var/lib/vd/beads}"
 
