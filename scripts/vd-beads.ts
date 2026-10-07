@@ -29,21 +29,28 @@ const execFile = promisify(execFileCallback);
 const args = process.argv.slice(2);
 const command = args[0];
 
-if (command === 'workspace-setup') {
-  await runWorkspaceSetup();
-} else if (command === 'punt') {
-  await runPunt(args.slice(1));
-} else if (command === 'migrate-shared-server') {
-  await runSharedServerMigration(args.slice(1));
-} else if (command === 'migrate-workspaces') {
-  await runWorkspaceMigration(args.slice(1));
-} else {
-  console.error('Usage: vd-beads workspace-setup');
-  console.error('       vd-beads punt --bead <id> --from-workspace <id> --to-workspace <id> [--yes]');
-  console.error('       vd-beads punt --bead <id> --from-workspace <id> --new-workspace --repo <repo_id>:<branch> [--append-to-prompt <text>] [--executor CODEX] [--no-start] [--yes]');
-  console.error('       vd-beads migrate-shared-server --dry-run|--apply');
-  console.error('       vd-beads migrate-workspaces --dry-run|--apply [--workspace-id <id>]');
-  process.exit(2);
+main().catch((error) => {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+});
+
+async function main(): Promise<void> {
+  if (command === 'workspace-setup') {
+    await runWorkspaceSetup();
+  } else if (command === 'punt') {
+    await runPunt(args.slice(1));
+  } else if (command === 'migrate-shared-server') {
+    await runSharedServerMigration(args.slice(1));
+  } else if (command === 'migrate-workspaces') {
+    await runWorkspaceMigration(args.slice(1));
+  } else {
+    console.error('Usage: vd-beads workspace-setup');
+    console.error('       vd-beads punt --bead <id> --from-workspace <id> --to-workspace <id> [--yes]');
+    console.error('       vd-beads punt --bead <id> --from-workspace <id> --new-workspace --repo <repo_id>:<branch> [--append-to-prompt <text>] [--executor CODEX] [--no-start] [--yes]');
+    console.error('       vd-beads migrate-shared-server --dry-run|--apply');
+    console.error('       vd-beads migrate-workspaces --dry-run|--apply [--workspace-id <id>]');
+    process.exit(2);
+  }
 }
 
 async function runWorkspaceSetup(): Promise<void> {
@@ -489,8 +496,11 @@ function readRepeatedFlag(values: string[], flag: string): string[] {
 
 function parseStringArray(toml: string, key: string): string[] {
   const match = toml.match(new RegExp(`^${key}\\s*=\\s*\\[(.*)\\]\\s*$`, 'm'));
-  if (!match) return [];
-  return [...match[1].matchAll(/"([^"]+)"/g)].map((entry) => entry[1]);
+  const rawItems = match?.[1];
+  if (!rawItems) return [];
+  return [...rawItems.matchAll(/"([^"]+)"/g)]
+    .map((entry) => entry[1])
+    .filter((value): value is string => typeof value === 'string');
 }
 
 async function confirmOrThrow(question: string): Promise<void> {

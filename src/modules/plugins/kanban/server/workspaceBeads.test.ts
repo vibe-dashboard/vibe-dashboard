@@ -23,7 +23,6 @@ describe('workspaceBeads', () => {
       site: 'team.atlassian.net',
       key: 'vd-123',
       id: '10001',
-      url: 'ignored-for-identity',
     }));
     expect(id).toMatch(/^[A-Za-z0-9][A-Za-z0-9._-]*$/);
   });

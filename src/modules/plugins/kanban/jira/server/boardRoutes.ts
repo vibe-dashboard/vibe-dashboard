@@ -123,7 +123,8 @@ export function registerExternalTrackerBoardRoutes(
     }
 
     try {
-      await upsertExternalIssueWorkspaceMapping(options.db, {
+      const db = await getDb();
+      await upsertExternalIssueWorkspaceMapping(db, {
         externalIssue: body.externalIssue,
         workspace: {
           workspaceId: result.workspace.id,

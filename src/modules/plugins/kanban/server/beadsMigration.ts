@@ -63,6 +63,7 @@ export function parseWorktreeCwd(
   const relative = path.posix.relative(worktreeBase, cwd.replaceAll(path.sep, '/'));
   if (!relative || relative.startsWith('..') || path.posix.isAbsolute(relative)) return null;
   const slug = relative.split('/')[0];
+  if (!slug) return null;
   return slugToWorkspaceId.get(slug) ?? null;
 }
 
