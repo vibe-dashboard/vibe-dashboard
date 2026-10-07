@@ -448,6 +448,23 @@ describe('auto nudge', () => {
     expect(readResponseRouteState(options.responseRoutesPath).routes['target-process:overseer']).toMatchObject({ status: 'delivered' });
   });
 
+  it('does not deliver a response route into an active reply session', async () => {
+    const { options } = setup();
+    options.responseRoutesPath = join(options.statePath, '..', 'routes.json');
+    appendResponseRoute(options.responseRoutesPath, {
+      processId: 'target-process', targetRole: 'review', targetSessionId: 'review', replySessionId: 'overseer',
+      createdAt: iso(1), updatedAt: iso(1),
+    });
+    const activeOverseer = proc('active-overseer', 'overseer', 'running', 9);
+    const { client, sent } = fake({ processes: { review: [], overseer: [activeOverseer] } });
+    client.getExecutionProcessFinalResponse = async id => ({
+      process_id: id, status: 'completed', finished: true, final_response: 'Wait until overseer is idle.', terminal_no_response: false,
+    });
+    await runAutoNudgeCycle(client, options);
+    expect(sent).toEqual([]);
+    expect(readResponseRouteState(options.responseRoutesPath).routes['target-process:overseer']).toMatchObject({ status: 'pending' });
+  });
+
   it('reconciles a pre-send response-route intent after an accepted dropped follow-up', async () => {
     const { options } = setup();
     options.responseRoutesPath = join(options.statePath, '..', 'routes.json');
@@ -902,7 +919,7 @@ handlers:
     <action type="run_handler" handler_id="post" />
   </actions>
 </auto-nudge-result>`;
-    const { client } = fake({
+    const { client, sent } = fake({
       processes: { impl: [complete], overseer: [], decision: [] },
       sessions: [session('overseer', 'overseer'), session('impl', 'impl'), session('decision', 'decision_maker')],
       entries: { persisted: [msg(response)] },
@@ -910,6 +927,8 @@ handlers:
     client.getExecutionProcess = async () => proc('persisted', 'overseer', 'completed', 8);
     await runAutoNudgeCycle(client, options);
     expect(readAutoNudgeState(options.statePath).triggers.complete).toMatchObject({ status: 'checkpoint-sent', error: expect.stringMatching(/handler post failed/) });
+    expect(sent).toEqual([]);
+    expect(Object.values(readSendQueue(options.sendQueuePath!).sends)).toEqual([]);
   });
 
   it('keeps handler dry-run read-only including log directories', async () => {

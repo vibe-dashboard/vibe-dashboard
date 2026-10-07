@@ -23,7 +23,7 @@ import {
   queuedSendBody,
 } from './send-queue.js';
 import { DEFAULT_HANDLER_LOG_PATH, runWorkflowHandler } from './workflow-handlers.js';
-import { DEFAULT_WORKFLOW_CONFIG_PATH, loadWorkflowConfig, type WorkflowConfig } from './workflow-config.js';
+import { DEFAULT_WORKFLOW_CONFIG_PATH, loadWorkflowConfig, type WorkflowConfig, type WorkflowMessageTypeConfig } from './workflow-config.js';
 import { parseWorkflowResultXml, validateWorkflowActions, type WorkflowAction } from './workflow-xml.js';
 
 const DEFAULT_STATE_PATH = '/var/lib/vd/auto-nudge/state.json';
@@ -312,7 +312,20 @@ async function processOutbox(options: AutoNudgeOptions, state: AutoNudgeState, r
   }
 }
 
-async function processResponseRoutes(client: AutoNudgeClient, options: AutoNudgeOptions, result: AutoNudgeCycleResult, sentSessionIds: Set<string>): Promise<void> {
+function activeSessionIdsFromStatus(status: AutoNudgeStatusResponse): Set<string> {
+  return new Set(status.workspaces
+    .flatMap(workspace => workspace.sessions)
+    .filter(session => session.has_active_codingagent)
+    .map(session => session.id));
+}
+
+async function processResponseRoutes(
+  client: AutoNudgeClient,
+  options: AutoNudgeOptions,
+  result: AutoNudgeCycleResult,
+  sentSessionIds: Set<string>,
+  activeSessionIds: Set<string>,
+): Promise<void> {
   if (options.dryRun) return;
   const responseRoutesPath = options.responseRoutesPath ?? DEFAULT_RESPONSE_ROUTES_PATH;
   const pendingRoutes = snapshotPendingResponseRoutes(responseRoutesPath);
@@ -377,6 +390,7 @@ async function processResponseRoutes(client: AutoNudgeClient, options: AutoNudge
           : current);
         continue;
       }
+      if (activeSessionIds.has(route.replySessionId) || sentSessionIds.has(route.replySessionId)) continue;
       const replySession = await deadline(client.getSession(route.replySessionId), options.operationTimeoutMs, 'get reply session', options.signal);
       const delivered = await deadline(
         client.sendMessage(route.replySessionId, {
@@ -395,6 +409,7 @@ async function processResponseRoutes(client: AutoNudgeClient, options: AutoNudge
         : current);
       if (updated?.status === 'delivered') {
         sentSessionIds.add(route.replySessionId);
+        activeSessionIds.add(route.replySessionId);
         result.responseRoutes++;
       }
     } catch (error) {
@@ -413,9 +428,7 @@ async function processSendQueue(client: AutoNudgeClient, options: AutoNudgeOptio
   for (const send of markStaleSendingIndeterminate(queuePath, staleBefore, options.now())) {
     result.errors.push(`queued send ${send.id}: ${send.error}`);
   }
-  const activeSessions = new Set(status?.workspaces.flatMap(workspace => workspace.sessions)
-    .filter(session => session.has_active_codingagent)
-    .map(session => session.id) ?? []);
+  const activeSessions = activeSessionIdsFromStatus(status);
   while (!options.signal?.aborted) {
     const queued = claimNextQueuedSendWhere(queuePath, send => !activeSessions.has(send.targetSessionId) && !sentSessionIds.has(send.targetSessionId), options.now());
     if (!queued) return;
@@ -488,6 +501,7 @@ async function executeWorkflowActions(
   context: { workspaceId: string; triggerProcessId: string; sessions: Session[]; replySessionId: string },
 ): Promise<void> {
   const queuePath = options.sendQueuePath ?? DEFAULT_SEND_QUEUE_PATH;
+  const sendActions: Array<{ action: WorkflowAction; messageType: WorkflowMessageTypeConfig; prompt: string; target: Session }> = [];
   for (const action of actions) {
     if (action.type === 'wait') continue;
     if (action.type === 'send_message') {
@@ -497,17 +511,7 @@ async function executeWorkflowActions(
       if (!prompt) throw new Error(`Prompt ${messageType.promptId} was not found`);
       const target = context.sessions.find(session => session.name === action.role);
       if (!target) throw new Error(`No current session found for role ${action.role}`);
-      if (!options.dryRun) {
-        enqueueSend(queuePath, {
-          targetRole: action.role ?? messageType.toRole,
-          targetSessionId: target.id,
-          executor: target.executor,
-          prompt: workflowPromptWithContext(prompt, action),
-          replySessionId: context.replySessionId,
-          now: options.now(),
-          id: `${context.triggerProcessId}:${action.type}:${action.role ?? ''}:${action.messageType ?? ''}`,
-        });
-      }
+      sendActions.push({ action, messageType, prompt, target });
       continue;
     }
     if (action.type === 'run_handler') {
@@ -521,6 +525,19 @@ async function executeWorkflowActions(
         dryRun: options.dryRun,
       }, { logPath: options.handlerLogPath ?? DEFAULT_HANDLER_LOG_PATH, timeoutMs: handler.timeoutMs });
       if (handlerResult.status === 'failed') throw new Error(`handler ${action.handlerId} failed: ${handlerResult.error ?? `exit ${handlerResult.exitCode}`}`);
+    }
+  }
+  for (const { action, messageType, prompt, target } of sendActions) {
+    if (!options.dryRun) {
+      enqueueSend(queuePath, {
+        targetRole: action.role ?? messageType.toRole,
+        targetSessionId: target.id,
+        executor: target.executor,
+        prompt: workflowPromptWithContext(prompt, action),
+        replySessionId: context.replySessionId,
+        now: options.now(),
+        id: `${context.triggerProcessId}:${action.type}:${action.role ?? ''}:${action.messageType ?? ''}`,
+      });
     }
   }
 }
@@ -638,7 +655,8 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
   const registeredByWorkspace = new Map(registered.map(item => [item.workspaceId, item]));
   const status = await fetchAutoNudgeStatus(client, options, registered.map(item => item.workspaceId));
   const sentSessionIds = new Set<string>();
-  await processResponseRoutes(client, options, result, sentSessionIds);
+  const activeSessionIds = activeSessionIdsFromStatus(status);
+  await processResponseRoutes(client, options, result, sentSessionIds, activeSessionIds);
   result.registeredWorkspaces = status.counts.registered_workspaces;
   result.globalWorkspacesScanned = status.counts.global_workspaces;
   result.sessionsScanned += status.counts.sessions;
