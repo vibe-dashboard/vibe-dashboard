@@ -111,6 +111,16 @@ jobs:
           load: true
           tags: ${{ env.IMAGE_TAG }}
 
+      - name: Free build-only Docker e2e state
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h
+          rm -rf vibe-kanban-vscode-web/vibe-kanban/target-bookworm
+          docker image rm rust:bookworm || true
+          docker buildx prune --all --force || true
+          df -h
+
       - name: Save Docker image
         shell: bash
         run: |
