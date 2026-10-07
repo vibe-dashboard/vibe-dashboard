@@ -2,25 +2,6 @@ name: Docker e2e tests
 
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - ".github/workflows/docker-e2e-tests.yml"
-      - "Caddyfile"
-      - "Caddyfile.plugins"
-      - "Dockerfile.vkvd"
-      - "docker-entrypoint.sh"
-      - "supervisord.vkvd.conf"
-      - ".docker/vk-runtime/vibe-kanban"
-      - "vibe-kanban/**"
-      - "scripts/smoke-vkvd-plugin-runtime.sh"
-      - "scripts/smoke-vkvd-workspace-beads.sh"
-      - "scripts/build-custom-caddy.sh"
-      - "scripts/vd-beads.ts"
-      - "scripts/bd-wrapper/**"
-      - "plugins/scripts/vd-plugin-runtime-apply.sh"
-      - "src/modules/plugins/vibe-dashboard/**"
-      - "src/modules/plugins/kanban/server/**"
-      - "plugins/**"
   push:
     paths:
       - ".github/workflows/docker-e2e-tests.yml"
