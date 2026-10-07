@@ -177,6 +177,7 @@ impl McpServer {
         };
 
         let create_and_start_payload = CreateAndStartWorkspaceRequest {
+            workspace_id: None,
             name: Some(name.clone()),
             repos: workspace_repos,
             linked_issue,
