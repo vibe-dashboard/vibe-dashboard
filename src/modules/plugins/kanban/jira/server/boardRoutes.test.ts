@@ -1437,7 +1437,14 @@ describe('external Jira board routes', () => {
         execution_process: { id: 'proc-1', session_id: 'session-1', status: 'running' as const },
       })),
     });
-    registerExternalTrackerBoardRoutes(app, { enabled: true, auth: createAuthService(null), db, vkClient, reposRoot: '/tmp/repos' });
+    registerExternalTrackerBoardRoutes(app, {
+      enabled: true,
+      auth: createAuthService(null),
+      db,
+      vkClient,
+      reposRoot: '/tmp/repos',
+      workspaceBeads: fakeWorkspaceBeads(),
+    });
 
     const response = await app.request('/dashboard/api/external-trackers/vk/workspaces/start', {
       method: 'POST',
