@@ -110,6 +110,13 @@ else
     startup_log "Preserving existing Beads config at ${BD_CONFIG}"
 fi
 
+if ! runuser -u vkuser -- git config --global --get beads.role >/dev/null 2>&1; then
+    runuser -u vkuser -- git config --global beads.role maintainer
+    startup_log "Initialized global beads.role=maintainer for vkuser"
+else
+    startup_log "Preserving existing global beads.role for vkuser"
+fi
+
 runuser -u vkuser -- test -w /home/vkuser/.config
 runuser -u vkuser -- test -w /home/vkuser/.config/bd
 runuser -u vkuser -- test -w "${VK_SETTINGS_DIRECTORY:-/var/lib/vd/vk-config}"
