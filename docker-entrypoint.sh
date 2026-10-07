@@ -134,7 +134,7 @@ if [ ! -e "$WORKSPACE_SETUP_SH" ] && [ ! -L "$WORKSPACE_SETUP_SH" ]; then
     WORKSPACE_SETUP_SH_TMP=$(mktemp "${WORKSPACE_SETUP_SH}.tmp.XXXXXX")
     {
         echo '#!/usr/bin/env sh'
-        echo 'exec /opt/vibe-kanban-vscode-web-seed/bin/vd-beads workspace-setup "$@"'
+        echo 'exec node --experimental-strip-types /opt/vibe-kanban-vscode-web-seed/scripts/vd-beads.ts workspace-setup "$@"'
     } > "$WORKSPACE_SETUP_SH_TMP"
     chown vkuser:vkadmin "$WORKSPACE_SETUP_SH_TMP"
     chmod 0750 "$WORKSPACE_SETUP_SH_TMP"

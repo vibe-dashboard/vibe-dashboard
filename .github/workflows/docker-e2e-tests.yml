@@ -88,6 +88,8 @@ jobs:
           df -h
 
       - name: Build real VK runtime on Debian bookworm
+        # CI compiles embedded VK before Docker build; Dockerfile.vkvd then
+        # copies this local runtime instead of downloading an external release.
         shell: bash
         run: |
           set -euo pipefail

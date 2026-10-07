@@ -19,8 +19,7 @@ This workspace uses \`.beads/redirect\` to store beads in persisted VD storage.
 Do not initialize beads inside repository subdirectories.`;
 
 const DEFAULT_USER_APPEND = `<!--
-Add local workspace instruction customizations here.
-This file is seeded once and is not overwritten by VD updates.
+Seeded once by VD; this file is not overwritten by VD updates.
 -->`;
 
 export interface BdCommandRunner {

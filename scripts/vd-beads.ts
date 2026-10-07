@@ -46,7 +46,7 @@ async function main(): Promise<void> {
   } else {
     console.error('Usage: vd-beads workspace-setup');
     console.error('       vd-beads punt --bead <id> --from-workspace <id> --to-workspace <id> [--yes]');
-    console.error('       vd-beads punt --bead <id> --from-workspace <id> --new-workspace --repo <repo_id>:<branch> [--append-to-prompt <text>] [--executor CODEX] [--no-start] [--yes]');
+    console.error('       vd-beads punt --bead <id> --from-workspace <id> --new-workspace --name <name> --repo <repo_id>:<branch> [--append-to-prompt <text>] [--executor CODEX] [--no-start] [--yes]');
     console.error('       vd-beads migrate-shared-server --dry-run|--apply');
     console.error('       vd-beads migrate-workspaces --dry-run|--apply [--workspace-id <id>]');
     process.exit(2);
@@ -55,8 +55,9 @@ async function main(): Promise<void> {
 
 async function runWorkspaceSetup(): Promise<void> {
   const workspaceId = process.env.VK_WORKSPACE_ID;
-  const workspaceDir = process.env.VK_WORKSPACE_DIR ?? process.cwd();
+  const workspaceDir = process.env.VK_WORKSPACE_DIR;
   if (!workspaceId) throw new Error('VK_WORKSPACE_ID is required');
+  if (!workspaceDir) throw new Error('VK_WORKSPACE_DIR is required');
   const repos = parseReposJson(process.env.VK_WORKSPACE_REPOS_JSON ?? '[]');
   await applyWorkspaceBeadsSetup({ workspaceId, workspaceDir, repos });
   await runUserSetupCommands(workspaceDir);
@@ -273,6 +274,7 @@ async function runPunt(puntArgs: string[]): Promise<void> {
 
   const executor = readFlag(puntArgs, '--executor', false) ?? 'CODEX';
   const requestedName = readFlag(puntArgs, '--name', false);
+  if (newWorkspace && !requestedName) throw new Error('--new-workspace requires --name');
   const initialDestinationWorkspaceId = toWorkspaceId ?? '(created by VK)';
   const plan = { beadId, fromWorkspaceId, destinationWorkspaceId: initialDestinationWorkspaceId, ...(newWorkspace ? { newWorkspace: { repos, start } } : {}) };
   console.log(JSON.stringify(plan, null, 2));
@@ -281,7 +283,7 @@ async function runPunt(puntArgs: string[]): Promise<void> {
   let destinationWorkspaceId = toWorkspaceId;
   if (newWorkspace) {
     const created = await vkPost<{ workspace: { id: string; name?: string | null } }>('/api/workspaces/create-only', {
-      name: requestedName ?? `Punted ${beadId}`,
+      name: requestedName,
       repos: repos.map((repo) => ({ repo_id: repo.repo, target_branch: repo.branch })),
       linked_issue: null,
       attachment_ids: null,
@@ -298,7 +300,7 @@ async function runPunt(puntArgs: string[]): Promise<void> {
     const session = await vkPost<{ id: string }>('/api/sessions', {
       workspace_id: destinationWorkspaceId,
       executor,
-      name: requestedName ?? `Punted ${destinationBeadId}`,
+      name: requestedName,
     });
     await vkPost(`/api/sessions/${encodeURIComponent(session.id)}/follow-up`, {
       prompt,
