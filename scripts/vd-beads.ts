@@ -489,7 +489,8 @@ function readFlag(values: string[], flag: string, required = true): string | und
 function readRepeatedFlag(values: string[], flag: string): string[] {
   const out: string[] = [];
   for (let index = 0; index < values.length; index += 1) {
-    if (values[index] === flag && values[index + 1]) out.push(values[index + 1]);
+    const value = values[index + 1];
+    if (values[index] === flag && value) out.push(value);
   }
   return out;
 }

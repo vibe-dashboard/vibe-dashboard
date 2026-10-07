@@ -289,8 +289,11 @@ async function loadWorkspaceBeadsManifest(options: WorkspaceBeadsOptions): Promi
 
 function parseStringArray(toml: string, key: string): string[] {
   const match = toml.match(new RegExp(`^${key}\\s*=\\s*\\[(.*)\\]\\s*$`, 'm'));
-  if (!match) return [];
-  return [...match[1].matchAll(/"([^"]+)"/g)].map((entry) => entry[1]);
+  const rawItems = match?.[1];
+  if (!rawItems) return [];
+  return [...rawItems.matchAll(/"([^"]+)"/g)]
+    .map((entry) => entry[1])
+    .filter((value): value is string => typeof value === 'string');
 }
 
 async function writeIfMissing(filePath: string, content: string): Promise<void> {

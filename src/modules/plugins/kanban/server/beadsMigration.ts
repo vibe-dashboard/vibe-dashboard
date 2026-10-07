@@ -278,8 +278,9 @@ function explicitWorkspaceId(metadata: Record<string, unknown>): { workspaceId: 
     .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
     .map((value) => value.trim());
   const unique = [...new Set(values)];
-  if (unique.length > 1) return { workspaceId: unique[0], conflict: unique.join('!=') };
-  return { workspaceId: unique[0] ?? null };
+  const first = unique[0] ?? null;
+  if (unique.length > 1) return { workspaceId: first, conflict: unique.join('!=') };
+  return { workspaceId: first };
 }
 
 function dedupeEvidence(
