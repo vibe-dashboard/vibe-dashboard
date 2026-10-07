@@ -37,8 +37,8 @@ option to restrict preview matching to one DNS suffix.
 
 Preview URL generation still needs to choose a public DNS suffix. API callers
 may pass `baseDomain`; the `vk preview-url url` CLI and Vibe Dashboard internal
-preview URL route also use `PREVIEW_BASE_DOMAIN` as a fallback when no per-call
-base domain is supplied.
+preview URL route also use the hostname from `SITE_ORIGIN` as a fallback when
+no per-call base domain is supplied.
 
 ## Runtime request flow
 

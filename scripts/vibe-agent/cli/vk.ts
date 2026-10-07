@@ -687,6 +687,18 @@ function optionalEnvString(name: string): string | undefined {
   return value || undefined;
 }
 
+function previewBaseDomainFromSiteOrigin(): string | undefined {
+  const siteOrigin = optionalEnvString('SITE_ORIGIN');
+  if (!siteOrigin) return undefined;
+  try {
+    const url = new URL(siteOrigin);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return undefined;
+    return url.hostname || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function parseRunConfigKind(value: string | undefined): RunConfigKind {
   const kind = value ?? 'long_running';
   if (kind === 'long_running' || kind === 'one_shot' || kind === 'test') {
@@ -813,7 +825,7 @@ async function commandPreviewUrl(positional: string[], flags: FlagMap) {
       );
       const previewSlotId = positional[2] ?? getFlagString(flags, 'slot-id') ?? getFlagString(flags, 'preview-slot-id');
       const customerSlug = getFlagString(flags, 'customer') ?? getFlagString(flags, 'customer-slug');
-      const baseDomain = getFlagString(flags, 'base-domain') ?? optionalEnvString('PREVIEW_BASE_DOMAIN');
+      const baseDomain = getFlagString(flags, 'base-domain') ?? previewBaseDomainFromSiteOrigin();
       if (!previewSlotId || !customerSlug) {
         console.error('Usage: vk preview-url url <workspace-id> <preview-slot-id> --customer <customer-slug> [--base-domain <domain>] [--json]');
         process.exit(1);

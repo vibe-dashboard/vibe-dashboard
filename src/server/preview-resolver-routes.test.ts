@@ -4,6 +4,7 @@ import { registerPreviewResolverRoutes } from './preview-resolver-routes';
 import type { PreviewResolveRequest } from './vk-client';
 
 describe('registerPreviewResolverRoutes', () => {
+  const originalSiteOrigin = process.env.SITE_ORIGIN;
   const routeClient = {
     resolvePreview: vi.fn(),
     getRunConfigs: vi.fn(),
@@ -15,7 +16,11 @@ describe('registerPreviewResolverRoutes', () => {
   };
 
   afterEach(() => {
-    delete process.env.PREVIEW_BASE_DOMAIN;
+    if (originalSiteOrigin === undefined) {
+      delete process.env.SITE_ORIGIN;
+    } else {
+      process.env.SITE_ORIGIN = originalSiteOrigin;
+    }
   });
 
   it('proxies named preview resolve payloads to VK', async () => {
@@ -139,8 +144,8 @@ describe('registerPreviewResolverRoutes', () => {
     });
   });
 
-  it('uses PREVIEW_BASE_DOMAIN as canonical URL fallback', async () => {
-    process.env.PREVIEW_BASE_DOMAIN = 'customer.example';
+  it('uses SITE_ORIGIN host as canonical URL fallback', async () => {
+    process.env.SITE_ORIGIN = 'https://customer.example/app';
     const client = {
       ...routeClient,
       getPreviewSlotUrl: vi.fn(async () => ({
@@ -166,6 +171,61 @@ describe('registerPreviewResolverRoutes', () => {
     });
     await expect(response.json()).resolves.toMatchObject({
       url: 'https://0123456789abcdef-vibekanban-web-mickmister.customer.example/',
+    });
+  });
+
+  it('keeps explicit baseDomain ahead of SITE_ORIGIN fallback', async () => {
+    process.env.SITE_ORIGIN = 'https://customer.example';
+    const client = {
+      ...routeClient,
+      getPreviewSlotUrl: vi.fn(async () => ({
+        previewSlotId: 'slot1',
+        workspaceToken: '0123456789abcdef',
+        repoSlug: 'vibekanban',
+        slotSlug: 'web',
+        customerSlug: 'mickmister',
+        host: '0123456789abcdef-vibekanban-web-mickmister.override.example',
+        url: 'https://0123456789abcdef-vibekanban-web-mickmister.override.example/',
+      })),
+    };
+    const app = new Hono();
+    registerPreviewResolverRoutes(app, { vkClient: client });
+
+    const response = await app.request(
+      '/internal/preview/workspaces/ws1/preview-slots/slot1/url?customerSlug=mickmister&baseDomain=override.example',
+    );
+
+    expect(client.getPreviewSlotUrl).toHaveBeenCalledWith('ws1', 'slot1', {
+      customerSlug: 'mickmister',
+      baseDomain: 'override.example',
+    });
+    await expect(response.json()).resolves.toMatchObject({
+      url: 'https://0123456789abcdef-vibekanban-web-mickmister.override.example/',
+    });
+  });
+
+  it('ignores malformed SITE_ORIGIN for canonical URL fallback', async () => {
+    process.env.SITE_ORIGIN = 'not a url';
+    const client = {
+      ...routeClient,
+      getPreviewSlotUrl: vi.fn(async () => ({
+        previewSlotId: 'slot1',
+        workspaceToken: '0123456789abcdef',
+        repoSlug: 'vibekanban',
+        slotSlug: 'web',
+        customerSlug: 'mickmister',
+        host: '0123456789abcdef-vibekanban-web-mickmister',
+        url: 'https://0123456789abcdef-vibekanban-web-mickmister/',
+      })),
+    };
+    const app = new Hono();
+    registerPreviewResolverRoutes(app, { vkClient: client });
+
+    await app.request('/internal/preview/workspaces/ws1/preview-slots/slot1/url?customerSlug=mickmister');
+
+    expect(client.getPreviewSlotUrl).toHaveBeenCalledWith('ws1', 'slot1', {
+      customerSlug: 'mickmister',
+      baseDomain: undefined,
     });
   });
 });

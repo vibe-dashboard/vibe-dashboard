@@ -127,7 +127,7 @@ export function registerPreviewResolverRoutes(
     const workspaceId = c.req.param('workspaceId');
     const previewSlotId = c.req.param('previewSlotId');
     const customerSlug = c.req.query('customerSlug') || '';
-    const baseDomain = c.req.query('baseDomain') || optionalEnvString('PREVIEW_BASE_DOMAIN');
+    const baseDomain = c.req.query('baseDomain') || previewBaseDomainFromSiteOrigin();
     try {
       const response = await vkClient.getPreviewSlotUrl!(workspaceId, previewSlotId, { customerSlug, baseDomain });
       return c.json(response, 200);
@@ -141,6 +141,18 @@ export function registerPreviewResolverRoutes(
 function optionalEnvString(name: string): string | undefined {
   const value = process.env[name]?.trim();
   return value || undefined;
+}
+
+function previewBaseDomainFromSiteOrigin(): string | undefined {
+  const siteOrigin = optionalEnvString('SITE_ORIGIN');
+  if (!siteOrigin) return undefined;
+  try {
+    const url = new URL(siteOrigin);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return undefined;
+    return url.hostname || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function parseJson<T>(request: Request): Promise<{ ok: true; value: T } | { ok: false; message: string }> {
