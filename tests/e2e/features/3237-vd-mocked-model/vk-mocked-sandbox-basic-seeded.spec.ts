@@ -72,9 +72,11 @@ test.describe('VK mocked-provider basic-seeded fixture', () => {
     await expect(
       agentFrame.getByRole('button', { name: 'Send', exact: true }),
     ).toHaveCount(0);
-    await page
-      .getByRole('textbox', { name: 'Follow-up message' })
-      .fill(proofFollowUp);
+    await fillEditor(
+      page,
+      page.getByRole('textbox', { name: 'Follow-up message' }),
+      proofFollowUp,
+    );
     await page.getByRole('button', { name: 'Send', exact: true }).click();
 
     await expect(agentFrame.locator('body')).toContainText(proofFollowUp);
@@ -121,4 +123,11 @@ async function clickLocatorInViewport(page: Page, locator: Locator) {
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+async function fillEditor(page: Page, locator: Locator, value: string) {
+  await locator.click();
+  await page.keyboard.press('Control+A');
+  await page.keyboard.press('Backspace');
+  await page.keyboard.insertText(value);
 }
