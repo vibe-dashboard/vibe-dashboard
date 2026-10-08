@@ -1,5 +1,7 @@
+import { createReadStream } from 'node:fs';
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { createInterface } from 'node:readline';
 import {
   applyWorkspaceBeadsSetup,
   type WorkspaceSetupInput,
@@ -236,10 +238,9 @@ export async function scanProcessCreationEvidence(
   let filesScanned = 0;
   for (const file of files) {
     filesScanned += 1;
-    const content = await readFile(file, 'utf8').catch(() => '');
     const fileMentions = new Set<string>();
     const fileWorktreeCwds: string[] = [];
-    for (const line of content.split('\n')) {
+    for await (const line of readJsonlLines(file)) {
       const trimmed = line.trim();
       if (!trimmed) continue;
       const parsed = parseJsonObject(trimmed);
@@ -450,6 +451,16 @@ async function listJsonlFiles(root: string): Promise<string[]> {
     }
   }
   return files.sort();
+}
+
+async function* readJsonlLines(file: string): AsyncGenerator<string> {
+  const stream = createReadStream(file, { encoding: 'utf8' });
+  const rl = createInterface({ input: stream, crlfDelay: Infinity });
+  try {
+    for await (const line of rl) yield line;
+  } catch {
+    // Session logs can be removed while scanning; missing evidence is reported as unresolved.
+  }
 }
 
 function parseJsonObject(value: string): Record<string, unknown> | null {
