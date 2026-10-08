@@ -476,7 +476,8 @@ async function openCreatedCraftFromVd(page: Page, promptTitle: string) {
 }
 
 async function fillEditor(page: Page, locator: Locator, value: string) {
-  await locator.click();
+  await expect(locator).toBeVisible();
+  await locator.focus();
   await page.keyboard.press('Control+A');
   await page.keyboard.press('Backspace');
   await page.keyboard.insertText(value);
