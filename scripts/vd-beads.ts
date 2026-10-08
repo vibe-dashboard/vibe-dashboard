@@ -208,7 +208,9 @@ async function runCollectCreationEvidence(evidenceArgs: string[]): Promise<void>
   const scans = [];
   for (const root of roots) {
     if (!existsSync(root)) continue;
-    const scan = await scanProcessCreationEvidence(root, beadIds);
+    const scan = await scanProcessCreationEvidence(root, beadIds, (progress) => {
+      console.error(`[collect-creation-evidence] ${JSON.stringify(progress)}`);
+    });
     allEvidence.push(...scan.evidence);
     scans.push({ root, records: scan.evidence.length, filesScanned: scan.filesScanned, sourceCounts: scan.sourceCounts });
   }

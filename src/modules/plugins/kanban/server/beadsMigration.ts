@@ -33,6 +33,15 @@ export interface CreationEvidenceScan {
   filesScanned: number;
 }
 
+export interface CreationEvidenceScanProgress {
+  phase: 'candidate-search-start' | 'candidate-search-complete' | 'scan-progress' | 'scan-complete';
+  root: string;
+  beadIds?: number;
+  candidateFiles?: number;
+  filesScanned?: number;
+  evidenceRecords?: number;
+}
+
 export interface WorkspaceRoot {
   workspaceId: string;
   root?: string | null;
@@ -210,29 +219,51 @@ export async function loadCreationEvidenceFile(evidencePath: string): Promise<Cr
 export async function scanProcessCreationEvidence(
   sessionsDir = '/home/vkuser/.local/share/vibe-kanban/sessions',
   beadIds?: string[],
+  onProgress?: (progress: CreationEvidenceScanProgress) => void,
 ): Promise<CreationEvidenceScan> {
+  onProgress?.({ phase: 'candidate-search-start', root: sessionsDir, beadIds: beadIds?.length });
   const files = beadIds?.length ? await listJsonlFilesMatchingBeadIds(sessionsDir, beadIds) : await listJsonlFiles(sessionsDir);
+  onProgress?.({ phase: 'candidate-search-complete', root: sessionsDir, beadIds: beadIds?.length, candidateFiles: files.length });
   const evidence: CreationEvidence[] = [];
   const sourceCounts: Record<string, number> = {};
+  let filesScanned = 0;
   for (const file of files) {
+    filesScanned += 1;
     const content = await readFile(file, 'utf8').catch(() => '');
-    if (!content.includes('bd ')) continue;
-    for (const line of content.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      if (!trimmed.includes('bd ')) continue;
-      for (const item of processItemsFromJsonlLine(trimmed)) {
-        const command = typeof item.command === 'string' ? item.command : '';
-        if (!isBdCreateCommand(command)) continue;
-        const cwd = typeof item.cwd === 'string' ? item.cwd : null;
-        const beadId = beadIdFromCommandOutput(outputTextFromItem(item));
-        if (!beadId) continue;
-        const source = `process-jsonl:${path.basename(file)}`;
-        evidence.push({ beadId, cwd, source });
-        sourceCounts.processJsonl = (sourceCounts.processJsonl ?? 0) + 1;
+    if (content.includes('bd ')) {
+      for (const line of content.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        if (!trimmed.includes('bd ')) continue;
+        for (const item of processItemsFromJsonlLine(trimmed)) {
+          const command = typeof item.command === 'string' ? item.command : '';
+          if (!isBdCreateCommand(command)) continue;
+          const cwd = typeof item.cwd === 'string' ? item.cwd : null;
+          const beadId = beadIdFromCommandOutput(outputTextFromItem(item));
+          if (!beadId) continue;
+          const source = `process-jsonl:${path.basename(file)}`;
+          evidence.push({ beadId, cwd, source });
+          sourceCounts.processJsonl = (sourceCounts.processJsonl ?? 0) + 1;
+        }
       }
     }
+    if (filesScanned === 1 || filesScanned % 100 === 0 || filesScanned === files.length) {
+      onProgress?.({
+        phase: 'scan-progress',
+        root: sessionsDir,
+        candidateFiles: files.length,
+        filesScanned,
+        evidenceRecords: evidence.length,
+      });
+    }
   }
+  onProgress?.({
+    phase: 'scan-complete',
+    root: sessionsDir,
+    candidateFiles: files.length,
+    filesScanned,
+    evidenceRecords: evidence.length,
+  });
   return { evidence, sourceCounts, filesScanned: files.length };
 }
 
