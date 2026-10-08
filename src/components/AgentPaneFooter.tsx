@@ -6,12 +6,13 @@ import {
   type DraftFollowUpData,
   type Executor,
   type ExecutorConfig,
+  type ModelInfo,
+  type ModelSelectorConfig,
   type QueueStatus,
   type Session,
 } from '../lib/vk-client';
 import {
   PERMISSION_POLICY_VALUES,
-  SUPPORTED_EXECUTORS,
   agentDraftStorageKey,
   draftFromQueuedMessage,
   isCodingAgentProcessRunning,
@@ -41,6 +42,7 @@ interface Props {
   loading: boolean;
   error: string | null;
   onSelect: (sessionId: string) => void;
+  onSessionCreated: (session: Session) => void;
   onRetry: () => void;
   style: React.CSSProperties;
 }
@@ -50,8 +52,28 @@ const draft = (
   executor_config: ExecutorConfig,
 ): DraftFollowUpData => ({ message, executor_config, session_command: null });
 
+const CHAT_MAX_WIDTH_CLASS = 'mx-auto w-full max-w-[48rem]';
+const RESERVED_PROFILE_KEYS = new Set(['recently_used_models']);
+
 function buildSessionProcessesWsUrl(sessionId: string): string {
   const path = `/vk-api/execution-processes/stream/session/ws?${new URLSearchParams({ session_id: sessionId })}`;
+  if (typeof window === 'undefined') return path;
+  const url = new URL(path, window.location.href);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  return url.href;
+}
+
+function buildModelSelectorWsUrl(
+  executor: Executor,
+  workspaceId: string,
+  sessionId: string | null,
+): string {
+  const params = new URLSearchParams({
+    executor,
+    workspace_id: workspaceId,
+  });
+  if (sessionId) params.set('session_id', sessionId);
+  const path = `/vk-api/agents/discovered-options/ws?${params}`;
   if (typeof window === 'undefined') return path;
   const url = new URL(path, window.location.href);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -80,6 +102,89 @@ function applyProcessPatch(
   return next;
 }
 
+function applyPlainJsonPatch<T>(
+  current: T,
+  patch: Array<{ op?: string; path?: string; value?: unknown }>,
+): T {
+  let next: unknown = current;
+  for (const op of patch) {
+    if (op.op === 'remove') continue;
+    if (!op.path || op.path === '') {
+      next = op.value;
+      continue;
+    }
+    const parts = op.path.split('/').slice(1).map((part) =>
+      part.replace(/~1/g, '/').replace(/~0/g, '~'),
+    );
+    if (parts.length === 0) continue;
+    const clone = Array.isArray(next) ? [...next] : { ...(next as object) };
+    let target: Record<string, unknown> = clone as Record<string, unknown>;
+    for (const part of parts.slice(0, -1)) {
+      const child = target[part];
+      const copy = Array.isArray(child) ? [...child] : { ...(child as object) };
+      target[part] = copy;
+      target = copy as Record<string, unknown>;
+    }
+    target[parts[parts.length - 1]!] = op.value;
+    next = clone;
+  }
+  return next as T;
+}
+
+function prettyCase(value: string): string {
+  return value
+    .split(/[_-]/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
+function permissionLabel(value: string): string {
+  if (value === '') return 'Inherited';
+  if (value === 'SUPERVISED') return 'Ask first';
+  return prettyCase(value);
+}
+
+function optionLabel(value: string | null | undefined): string {
+  return value ? prettyCase(value) : 'Default';
+}
+
+function getVariantOptions(
+  profiles: Partial<Record<Executor, Record<string, unknown>>> | null,
+  executor: Executor,
+  selectedVariant: string | null | undefined,
+): string[] {
+  const keys = Object.keys(profiles?.[executor] ?? {}).filter(
+    (key) => !RESERVED_PROFILE_KEYS.has(key),
+  );
+  const withSelected = selectedVariant && !keys.includes(selectedVariant)
+    ? [selectedVariant, ...keys]
+    : keys;
+  return withSelected.sort((left, right) => {
+    if (left === 'DEFAULT') return -1;
+    if (right === 'DEFAULT') return 1;
+    return left.localeCompare(right);
+  });
+}
+
+function parseModelId(
+  value: string | null | undefined,
+  hasProviders: boolean,
+): { providerId: string | null; modelId: string | null } {
+  if (!value) return { providerId: null, modelId: null };
+  if (!hasProviders) return { providerId: null, modelId: value };
+  const index = value.indexOf('/');
+  return index === -1
+    ? { providerId: null, modelId: value }
+    : { providerId: value.slice(0, index), modelId: value.slice(index + 1) };
+}
+
+function modelOptionValue(model: ModelInfo, hasProviders: boolean): string {
+  return hasProviders && model.provider_id
+    ? `${model.provider_id}/${model.id}`
+    : model.id;
+}
+
 export function AgentPaneFooter(props: Props) {
   const session = props.sessions.find(
     ({ id }) => id === props.selectedSessionId,
@@ -91,6 +196,14 @@ export function AgentPaneFooter(props: Props) {
   const [queue, setQueue] = useState<QueueStatus>({ status: 'empty' });
   const [busy, setBusy] = useState<Busy>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [newSessionMode, setNewSessionMode] = useState(false);
+  const [profiles, setProfiles] = useState<Partial<
+    Record<Executor, Record<string, unknown>>
+  > | null>(null);
+  const [modelConfig, setModelConfig] = useState<ModelSelectorConfig | null>(
+    null,
+  );
+  const [modelConfigLoading, setModelConfigLoading] = useState(false);
   const [processes, setProcesses] = useState<Record<string, ExecutionProcess>>(
     {},
   );
@@ -101,6 +214,7 @@ export function AgentPaneFooter(props: Props) {
 
   useEffect(() => {
     const id = props.selectedSessionId;
+    setNewSessionMode(false);
     if (!id) {
       setMessage('');
       setQueue({ status: 'empty' });
@@ -138,6 +252,21 @@ export function AgentPaneFooter(props: Props) {
       if (timer.current) clearTimeout(timer.current);
     };
   }, [props.selectedSessionId, props.workspaceId, session?.executor]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void vkClient.getInfo().then(
+      (info) => {
+        if (!cancelled) setProfiles(info.executors ?? null);
+      },
+      () => {
+        if (!cancelled) setProfiles(null);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const id = props.selectedSessionId;
@@ -198,6 +327,71 @@ export function AgentPaneFooter(props: Props) {
   }, [processes, processesError, processesLoading, props.selectedSessionId]);
 
   useEffect(() => {
+    const executor = config.executor;
+    if (!props.workspaceId || typeof WebSocket === 'undefined') {
+      setModelConfig(null);
+      setModelConfigLoading(false);
+      return;
+    }
+    let cancelled = false;
+    const socket = new WebSocket(
+      buildModelSelectorWsUrl(
+        executor,
+        props.workspaceId,
+        newSessionMode ? null : props.selectedSessionId,
+      ),
+    );
+    setModelConfig(null);
+    setModelConfigLoading(true);
+    socket.onmessage = (event) => {
+      if (cancelled) return;
+      try {
+        const value = JSON.parse(String(event.data)) as {
+          JsonPatch?: Array<{ op?: string; path?: string; value?: unknown }>;
+          Ready?: boolean;
+          Finished?: boolean;
+          finished?: boolean;
+        };
+        if (value.JsonPatch) {
+          setModelConfig((current) =>
+            applyPlainJsonPatch<{
+              options?: { model_selector?: ModelSelectorConfig };
+            }>(
+              {
+                options: current
+                  ? { model_selector: current }
+                  : undefined,
+              },
+              value.JsonPatch!,
+            ).options?.model_selector ?? null,
+          );
+        }
+        if (
+          value.Ready !== undefined ||
+          value.Finished !== undefined ||
+          value.finished !== undefined
+        ) {
+          setModelConfigLoading(false);
+        }
+      } catch {
+        setModelConfigLoading(false);
+      }
+    };
+    socket.onerror = () => {
+      if (!cancelled) setModelConfigLoading(false);
+    };
+    return () => {
+      cancelled = true;
+      socket.close();
+    };
+  }, [
+    config.executor,
+    newSessionMode,
+    props.selectedSessionId,
+    props.workspaceId,
+  ]);
+
+  useEffect(() => {
     const id = props.selectedSessionId;
     if (!id) return;
     if (executionState !== 'running' && queue.status !== 'queued') return;
@@ -249,14 +443,19 @@ export function AgentPaneFooter(props: Props) {
   }, [props.selectedSessionId, props.workspaceId]);
 
   const locked = queue.status === 'queued';
-  const disabled =
-    !props.selectedSessionId || props.loading || Boolean(props.error);
+  const hasTarget = newSessionMode || Boolean(props.selectedSessionId);
+  const disabled = !hasTarget || props.loading || Boolean(props.error);
   const hasMessage = Boolean(message.trim());
   const sending = busy !== 'idle';
   const canSend =
-    !disabled && !locked && !sending && executionState === 'idle' && hasMessage;
+    !disabled &&
+    !locked &&
+    !sending &&
+    (newSessionMode || executionState === 'idle') &&
+    hasMessage;
   const canQueue =
     !disabled &&
+    !newSessionMode &&
     !locked &&
     !sending &&
     executionState === 'running' &&
@@ -264,9 +463,11 @@ export function AgentPaneFooter(props: Props) {
   const canCancelQueue = !disabled && locked && !sending;
   const canStop =
     !disabled &&
+    !newSessionMode &&
     !sending &&
     (executionState === 'running' || queue.status === 'queued');
-  const readOnly = locked || sending || executionState === 'loading';
+  const readOnly =
+    locked || sending || (!newSessionMode && executionState === 'loading');
   const statusText =
     error ??
     processesError ??
@@ -280,6 +481,8 @@ export function AgentPaneFooter(props: Props) {
             ? 'Stopping…'
             : queue.status === 'queued'
               ? 'Follow-up queued; editor locked until cancelled or consumed'
+              : newSessionMode
+                ? 'New session · Ctrl/Cmd+Enter to start'
               : executionState === 'running'
                 ? 'Agent running; queue or stop'
                 : executionState === 'loading'
@@ -291,22 +494,20 @@ export function AgentPaneFooter(props: Props) {
       if (locked) return;
       const next = value ?? '';
       setMessage(next);
-      persist(next, config);
+      if (!newSessionMode) persist(next, config);
     },
-    [config, locked, persist],
+    [config, locked, newSessionMode, persist],
   );
   const changeConfig = useCallback(
     (
-      patch: Partial<Omit<ExecutorConfig, 'executor'>> & {
-        executor?: Executor;
-      },
+      patch: Partial<Omit<ExecutorConfig, 'executor'>>,
     ) => {
       if (locked) return;
       const next = { ...config, ...patch };
       setConfig(next);
-      persist(message, next);
+      if (!newSessionMode) persist(message, next);
     },
-    [config, locked, message, persist],
+    [config, locked, message, newSessionMode, persist],
   );
 
   const refreshQueue = useCallback(async () => {
@@ -327,7 +528,7 @@ export function AgentPaneFooter(props: Props) {
             : kind === 'cancel'
               ? canCancelQueue
               : canStop;
-      if (!id || !allowed) {
+      if (!allowed || (!id && kind !== 'send')) {
         return;
       }
       setBusy(
@@ -342,15 +543,27 @@ export function AgentPaneFooter(props: Props) {
       setError(null);
       try {
         if (kind === 'send') {
-          await vkClient.sendFollowUp(id, draft(prompt, config));
-          clearDraft();
-          await refreshQueue();
+          if (newSessionMode) {
+            const created = await vkClient.createSession(
+              props.workspaceId,
+              config.executor,
+            );
+            props.onSessionCreated(created);
+            props.onSelect(created.id);
+            await vkClient.sendFollowUp(created.id, draft(prompt, config));
+            setNewSessionMode(false);
+            setMessage('');
+          } else {
+            await vkClient.sendFollowUp(id!, draft(prompt, config));
+            clearDraft();
+            await refreshQueue();
+          }
         } else if (kind === 'queue') {
-          setQueue(await vkClient.queueFollowUp(id, draft(prompt, config)));
+          setQueue(await vkClient.queueFollowUp(id!, draft(prompt, config)));
           clearDraft();
         } else if (kind === 'cancel') {
           const queuedDraft = draftFromQueuedMessage(queue);
-          setQueue(await vkClient.cancelQueuedFollowUp(id));
+          setQueue(await vkClient.cancelQueuedFollowUp(id!));
           if (queuedDraft) {
             const restoredConfig = normalizeExecutorConfig(
               queuedDraft.executor_config,
@@ -361,7 +574,7 @@ export function AgentPaneFooter(props: Props) {
             persist(queuedDraft.message, restoredConfig);
           }
         } else {
-          await vkClient.stopSessionExecution(id);
+          await vkClient.stopSessionExecution(id!);
           await refreshQueue();
         }
       } catch (cause) {
@@ -378,8 +591,12 @@ export function AgentPaneFooter(props: Props) {
       clearDraft,
       config,
       message,
+      newSessionMode,
       persist,
+      props.onSelect,
+      props.onSessionCreated,
       props.selectedSessionId,
+      props.workspaceId,
       queue,
       refreshQueue,
       sending,
@@ -428,6 +645,30 @@ export function AgentPaneFooter(props: Props) {
     [readOnly],
   );
   const configDisabled = disabled || locked || sending;
+  const variantOptions = getVariantOptions(
+    profiles,
+    config.executor,
+    config.variant,
+  );
+  const hasProviders = (modelConfig?.providers.length ?? 0) > 0;
+  const modelOptions = modelConfig?.models ?? [];
+  const selectedModel = (() => {
+    const parsed = parseModelId(config.model_id, hasProviders);
+    if (!parsed.modelId) return null;
+    return modelOptions.find((model) => {
+      if (model.id !== parsed.modelId) return false;
+      return !parsed.providerId || model.provider_id === parsed.providerId;
+    }) ?? null;
+  })();
+  const providerNames = new Map(
+    modelConfig?.providers.map((provider) => [provider.id, provider.name]) ??
+      [],
+  );
+  const selectedModelMissing =
+    config.model_id &&
+    !modelOptions.some(
+      (model) => modelOptionValue(model, hasProviders) === config.model_id,
+    );
 
   return (
     <footer
@@ -435,114 +676,174 @@ export function AgentPaneFooter(props: Props) {
       style={{ ...props.style, height: AGENT_PANE_FOOTER_HEIGHT_PX }}
       data-testid="agent-pane-footer"
     >
-      <div className="flex h-10 shrink-0 items-center gap-2 overflow-x-auto border-b border-neutral-800 px-3">
-        {props.error ? (
-          <>
-            <span className="min-w-32 flex-1 truncate text-red-400">
-              {props.error}
-            </span>
-            <button type="button" onClick={props.onRetry}>
-              Retry
-            </button>
-          </>
-        ) : (
-          <select
-            aria-label="Agent session"
-            className="min-w-32 max-w-48 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200"
-            disabled={props.loading || props.sessions.length === 0}
-            value={props.selectedSessionId ?? ''}
-            onChange={(event) => props.onSelect(event.target.value)}
+      <div className="shrink-0 border-b border-neutral-800 px-3">
+        <div className={`${CHAT_MAX_WIDTH_CLASS} flex h-10 items-center gap-2 overflow-x-auto`}>
+          {props.error ? (
+            <>
+              <span className="min-w-32 flex-1 truncate text-red-400">
+                {props.error}
+              </span>
+              <button type="button" onClick={props.onRetry}>
+                Retry
+              </button>
+            </>
+          ) : (
+            <select
+              aria-label="Agent session"
+              className="min-w-32 max-w-48 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200"
+              disabled={props.loading || props.sessions.length === 0}
+              value={
+                newSessionMode ? '__new__' : (props.selectedSessionId ?? '')
+              }
+              onChange={(event) => {
+                if (event.target.value === '__new__') {
+                  setNewSessionMode(true);
+                  setMessage('');
+                  setQueue({ status: 'empty' });
+                  return;
+                }
+                setNewSessionMode(false);
+                props.onSelect(event.target.value);
+              }}
+            >
+              {newSessionMode && <option value="__new__">New session</option>}
+              {props.loading && <option value="">Loading sessions…</option>}
+              {!props.loading && props.sessions.length === 0 && (
+                <option value="">No sessions</option>
+              )}
+              {props.sessions.map((item, index) => (
+                <option key={item.id} value={item.id}>
+                  {index === 0 ? 'Latest · ' : ''}
+                  {item.name || item.id.slice(0, 8)}
+                </option>
+              ))}
+            </select>
+          )}
+          <button
+            type="button"
+            className="shrink-0 rounded border border-neutral-700 px-2 py-1 text-neutral-200 hover:bg-neutral-900"
+            disabled={props.loading}
+            onClick={() => {
+              setNewSessionMode(true);
+              setMessage('');
+              setQueue({ status: 'empty' });
+            }}
           >
-            {props.loading && <option value="">Loading sessions…</option>}
-            {!props.loading && props.sessions.length === 0 && (
-              <option value="">No sessions</option>
-            )}
-            {props.sessions.map((item, index) => (
-              <option key={item.id} value={item.id}>
-                {index === 0 ? 'Latest · ' : ''}
-                {item.name || item.id.slice(0, 8)}
+            New session
+          </button>
+          <select
+            aria-label="Variant"
+            value={config.variant ?? ''}
+            disabled={configDisabled}
+            onChange={(event) =>
+              changeConfig({ variant: event.target.value || null })
+            }
+            className="w-28 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200"
+          >
+            <option value="">Default</option>
+            {variantOptions.map((item) => (
+              <option key={item} value={item === 'DEFAULT' ? '' : item}>
+                {optionLabel(item)}
               </option>
             ))}
           </select>
-        )}
-        <select
-          aria-label="Executor"
-          value={config.executor}
-          disabled={configDisabled}
-          onChange={(event) =>
-            changeConfig({ executor: event.target.value as Executor })
-          }
-          className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200"
-        >
-          {SUPPORTED_EXECUTORS.map((item) => (
-            <option key={item}>{item}</option>
-          ))}
-        </select>
-        <input
-          aria-label="Variant"
-          placeholder="Variant"
-          value={config.variant ?? ''}
-          disabled={configDisabled}
-          onChange={(event) =>
-            changeConfig({ variant: event.target.value || null })
-          }
-          className="w-24 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200"
-        />
-        <input
-          aria-label="Model"
-          placeholder="Model"
-          value={config.model_id ?? ''}
-          disabled={configDisabled}
-          onChange={(event) =>
-            changeConfig({ model_id: event.target.value || null })
-          }
-          className="min-w-32 flex-1 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200"
-        />
-        <input
-          aria-label="Reasoning"
-          placeholder="Reasoning"
-          value={config.reasoning_id ?? ''}
-          disabled={configDisabled}
-          onChange={(event) =>
-            changeConfig({ reasoning_id: event.target.value || null })
-          }
-          className="w-24 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200"
-        />
-        <select
-          aria-label="Permission policy"
-          value={config.permission_policy ?? ''}
-          disabled={configDisabled}
-          onChange={(event) =>
-            changeConfig({
-              permission_policy: normalizePermissionPolicy(event.target.value),
-            })
-          }
-          className="w-28 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200"
-        >
-          {PERMISSION_POLICY_VALUES.map((item) => (
-            <option key={item} value={item}>
-              {item || 'Inherited'}
+          <select
+            aria-label="Model"
+            value={config.model_id ?? ''}
+            disabled={configDisabled || modelConfigLoading}
+            onChange={(event) =>
+              changeConfig({
+                model_id: event.target.value || null,
+                reasoning_id: null,
+              })
+            }
+            className="min-w-36 flex-1 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200"
+          >
+            <option value="">
+              {modelConfigLoading ? 'Loading models…' : 'Default model'}
             </option>
-          ))}
-        </select>
+            {selectedModelMissing && (
+              <option value={config.model_id ?? ''}>
+                {config.model_id}
+              </option>
+            )}
+            {modelOptions.map((model) => {
+              const value = modelOptionValue(model, hasProviders);
+              const provider = model.provider_id
+                ? providerNames.get(model.provider_id)
+                : null;
+              return (
+                <option key={value} value={value}>
+                  {provider ? `${model.name} · ${provider}` : model.name}
+                </option>
+              );
+            })}
+          </select>
+          <select
+            aria-label="Reasoning"
+            value={config.reasoning_id ?? ''}
+            disabled={configDisabled || !selectedModel}
+            onChange={(event) =>
+              changeConfig({ reasoning_id: event.target.value || null })
+            }
+            className="w-32 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200"
+          >
+            <option value="">Default reasoning</option>
+            {selectedModel?.reasoning_options.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label}
+              </option>
+            ))}
+            {config.reasoning_id &&
+              !selectedModel?.reasoning_options.some(
+                (item) => item.id === config.reasoning_id,
+              ) && (
+                <option value={config.reasoning_id}>
+                  {optionLabel(config.reasoning_id)}
+                </option>
+              )}
+          </select>
+          <select
+            aria-label="Permission policy"
+            value={config.permission_policy ?? ''}
+            disabled={configDisabled}
+            onChange={(event) =>
+              changeConfig({
+                permission_policy: normalizePermissionPolicy(event.target.value),
+              })
+            }
+            className="w-28 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200"
+          >
+            {PERMISSION_POLICY_VALUES.map((item) => (
+              <option key={item} value={item}>
+                {permissionLabel(item)}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
-      <div className="min-h-0 flex-1">
-        <Editor
-          language="markdown"
-          theme="vs-dark"
-          value={message}
-          onChange={changeMessage}
-          onMount={mount}
-          options={options}
-        />
+      <div className="min-h-0 flex-1 px-3">
+        <div className={`${CHAT_MAX_WIDTH_CLASS} h-full`}>
+          <Editor
+            language="markdown"
+            theme="vs-dark"
+            value={message}
+            onChange={changeMessage}
+            onMount={mount}
+            options={options}
+          />
+        </div>
       </div>
-      <div className="flex h-10 shrink-0 items-center gap-2 overflow-x-auto border-t border-neutral-800 px-3">
-        <span
-          className="min-w-24 flex-1 truncate"
-          role={error || processesError ? 'alert' : 'status'}
+      <div className="shrink-0 border-t border-neutral-800 px-3">
+        <div
+          className={`${CHAT_MAX_WIDTH_CLASS} flex h-10 items-center gap-2 overflow-x-auto`}
         >
-          {statusText}
-        </span>
+          <span
+            className="min-w-24 flex-1 truncate"
+            role={error || processesError ? 'alert' : 'status'}
+          >
+            {statusText}
+          </span>
         {queue.status === 'queued' ? (
           <button
             type="button"
@@ -581,6 +882,7 @@ export function AgentPaneFooter(props: Props) {
             Send
           </button>
         )}
+        </div>
       </div>
     </footer>
   );

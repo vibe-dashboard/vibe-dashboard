@@ -89,6 +89,7 @@ function renderFooter(selectedSessionId = "session-1") {
       loading: false,
       error: null,
       onSelect: vi.fn(),
+      onSessionCreated: vi.fn(),
       onRetry: vi.fn(),
       style: { left: 0, right: 0 },
     }),
@@ -106,6 +107,7 @@ function renderFooterWithProps(
       loading: false,
       error: null,
       onSelect: vi.fn(),
+      onSessionCreated: vi.fn(),
       onRetry: vi.fn(),
       style: { left: 0, right: 0 },
       ...props,
@@ -159,6 +161,12 @@ describe("AgentPaneFooter interactions", () => {
         if (url.includes("/scratch")) {
           return Response.json({ success: true, data: {} });
         }
+        if (url.endsWith("/sessions") && init?.method === "POST") {
+          return Response.json({
+            success: true,
+            data: session("session-new"),
+          });
+        }
         return Response.json({ success: true, data: {} });
       }),
     );
@@ -205,6 +213,40 @@ describe("AgentPaneFooter interactions", () => {
     expect(
       setIntervalSpy.mock.calls.some(([, delay]) => delay === 1_500),
     ).toBe(false);
+  });
+
+  it("starts a new session from the chat footer without exposing executor switching", async () => {
+    const onSessionCreated = vi.fn();
+    const onSelect = vi.fn();
+    renderFooterWithProps({ onSessionCreated, onSelect });
+
+    expect(screen.queryByLabelText("Executor")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "New session" }));
+    fireEvent.change(await screen.findByLabelText("Follow-up message"), {
+      target: { value: "fresh start" },
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole<HTMLButtonElement>("button", { name: "Send" })
+          .disabled,
+      ).toBe(false),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => expect(onSessionCreated).toHaveBeenCalled());
+    expect(onSelect).toHaveBeenCalledWith("session-new");
+    expect(
+      calls.some((call) => call.url.endsWith("/sessions") && call.method === "POST"),
+    ).toBe(true);
+    expect(
+      calls.some(
+        (call) =>
+          call.url.includes("/sessions/session-new/follow-up") &&
+          call.method === "POST",
+      ),
+    ).toBe(true);
   });
 
   it("sends when idle and queues while a selected-session execution is running", async () => {
@@ -410,13 +452,13 @@ describe("AgentPaneFooter interactions", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel queue" }));
 
     await waitFor(() => expect(editor.value).toBe("queued text"));
-    expect(screen.getByLabelText<HTMLInputElement>("Variant").value).toBe(
+    expect(screen.getByLabelText<HTMLSelectElement>("Variant").value).toBe(
       "queued-variant",
     );
-    expect(screen.getByLabelText<HTMLInputElement>("Model").value).toBe(
+    expect(screen.getByLabelText<HTMLSelectElement>("Model").value).toBe(
       "queued-model",
     );
-    expect(screen.getByLabelText<HTMLInputElement>("Reasoning").value).toBe(
+    expect(screen.getByLabelText<HTMLSelectElement>("Reasoning").value).toBe(
       "queued-reasoning",
     );
     expect(

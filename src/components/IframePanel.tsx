@@ -1200,6 +1200,7 @@ export function IframePanel({
             loading={agentSession.loading}
             error={agentSession.error}
             onSelect={agentSession.selectSession}
+            onSessionCreated={agentSession.addSession}
             onRetry={agentSession.reload}
             style={getAgentFooterStyle(effectiveTabGroup, activePair)}
           />
@@ -1312,6 +1313,11 @@ function useAgentSession(tabGroup: TabGroup, enabled: boolean) {
     available: Boolean(enabled && workspaceId && agentTab),
     workspaceId: workspaceId ?? '',
     selectSession: setSelectedSessionId,
+    addSession: (session: Session) => {
+      setSessions((current) => sortAgentSessions([session, ...current]));
+      setSessionsWorkspaceId(session.workspace_id);
+      setSelectedSessionId(session.id);
+    },
     reload: () => setReloadKey((key) => key + 1),
   };
 }

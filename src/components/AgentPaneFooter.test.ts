@@ -21,13 +21,15 @@ describe('AgentPaneFooter', () => {
         loading: false,
         error: null,
         onSelect: () => undefined,
+        onSessionCreated: () => undefined,
         onRetry: () => undefined,
         style: { left: 0, right: 0 },
       }),
     );
 
     expect(html).toContain('aria-label="Agent session"');
-    expect(html).toContain('aria-label="Executor"');
+    expect(html).toContain('New session');
+    expect(html).toContain('aria-label="Variant"');
     expect(html).toContain('aria-label="Model"');
     expect(html).toContain('aria-label="Reasoning"');
     expect(html).toContain('aria-label="Permission policy"');

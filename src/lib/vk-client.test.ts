@@ -69,4 +69,25 @@ describe('VibeKanbanClient Agent composer APIs', () => {
       ['/vk-api/scratch/DRAFT_FOLLOW_UP/session-1', 'DELETE'],
     ]);
   });
+
+  it('creates a session with the selected executor', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: { id: 'session-new', workspace_id: 'workspace-1' },
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const client = new VibeKanbanClient('/vk-api');
+
+    await client.createSession('workspace-1', 'CODEX');
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('/vk-api/sessions');
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe('POST');
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({
+      workspace_id: 'workspace-1',
+      executor: 'CODEX',
+    });
+  });
 });

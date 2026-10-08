@@ -72,6 +72,7 @@ export interface ExecutorConfig {
   executor: Executor;
   variant?: string | null;
   model_id?: string | null;
+  agent_id?: string | null;
   reasoning_id?: string | null;
   permission_policy?: string | null;
 }
@@ -92,6 +93,37 @@ export type QueueStatus =
         queued_at: string;
       };
     };
+
+export interface UserSystemInfo {
+  executors?: Partial<Record<Executor, Record<string, unknown>>>;
+}
+
+export interface ReasoningOption {
+  id: string;
+  label: string;
+  is_default: boolean;
+}
+
+export interface ModelInfo {
+  id: string;
+  name: string;
+  provider_id?: string | null;
+  reasoning_options: ReasoningOption[];
+}
+
+export interface ModelProvider {
+  id: string;
+  name: string;
+}
+
+export interface ModelSelectorConfig {
+  providers: ModelProvider[];
+  models: ModelInfo[];
+  model_order?: string[];
+  default_model?: string | null;
+  agents: Array<{ id: string; label: string; is_default: boolean }>;
+  permissions: string[];
+}
 
 interface Scratch {
   payload?: { type: 'DRAFT_FOLLOW_UP'; data: DraftFollowUpData };
@@ -176,6 +208,14 @@ export class VibeKanbanClient {
     return this.get(
       `/sessions?workspace_id=${encodeURIComponent(workspaceId)}`,
     );
+  }
+
+  createSession(workspaceId: string, executor: Executor): Promise<Session> {
+    return this.post('/sessions', { workspace_id: workspaceId, executor });
+  }
+
+  getInfo(): Promise<UserSystemInfo> {
+    return this.get('/info');
   }
 
   sendFollowUp(sessionId: string, data: DraftFollowUpData): Promise<unknown> {
