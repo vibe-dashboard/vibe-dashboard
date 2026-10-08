@@ -477,7 +477,12 @@ async function openCreatedCraftFromVd(page: Page, promptTitle: string) {
 
 async function fillEditor(page: Page, locator: Locator, value: string) {
   await expect(locator).toBeVisible();
-  await locator.focus();
+  const box = await locator.boundingBox();
+  if (!box) throw new Error('Editor textbox is not laid out');
+  await page.mouse.click(
+    box.x + Math.min(20, box.width / 2),
+    box.y + Math.min(20, box.height / 2),
+  );
   await page.keyboard.press('Control+A');
   await page.keyboard.press('Backspace');
   await page.keyboard.insertText(value);
