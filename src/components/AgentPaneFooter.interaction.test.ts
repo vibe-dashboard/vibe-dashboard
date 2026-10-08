@@ -249,6 +249,42 @@ describe("AgentPaneFooter interactions", () => {
     ).toBe(true);
   });
 
+  it("enables Send after typing even if model discovery is still streaming", async () => {
+    renderFooter();
+    const editor = await screen.findByLabelText("Follow-up message");
+    act(() => {
+      FakeWebSocket.instances.find((socket) =>
+        socket.url.includes("/execution-processes/"),
+      )?.emit({ Ready: true });
+      FakeWebSocket.instances.find((socket) =>
+        socket.url.includes("/agents/discovered-options/"),
+      )?.emit({
+        JsonPatch: [
+          {
+            op: "replace",
+            path: "/options/model_selector",
+            value: {
+              providers: [],
+              models: [],
+              model_order: [],
+              default_model: null,
+              agents: [],
+              permissions: [],
+            },
+          },
+        ],
+      });
+    });
+    fireEvent.change(editor, { target: { value: "hello after model patch" } });
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole<HTMLButtonElement>("button", { name: "Send" })
+          .disabled,
+      ).toBe(false),
+    );
+  });
+
   it("sends when idle and queues while a selected-session execution is running", async () => {
     renderFooter();
     act(() => {

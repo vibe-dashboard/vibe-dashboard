@@ -366,11 +366,7 @@ export function AgentPaneFooter(props: Props) {
             ).options?.model_selector ?? null,
           );
         }
-        if (
-          value.Ready !== undefined ||
-          value.Finished !== undefined ||
-          value.finished !== undefined
-        ) {
+        if (value.JsonPatch || value.Ready !== undefined) {
           setModelConfigLoading(false);
         }
       } catch {
