@@ -123,7 +123,7 @@ const ChangesPanelInner = <TDiff extends ChangesPanelDiff>(
       const isExpanded =
         getIsExpanded?.(path, item.initialExpanded) ??
         item.initialExpanded ??
-        false;
+        true;
 
       return estimateDiffHeight(item.diff, isExpanded);
     },

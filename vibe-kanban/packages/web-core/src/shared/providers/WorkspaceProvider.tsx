@@ -18,9 +18,13 @@ import { WorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
 
 interface WorkspaceProviderProps {
   children: ReactNode;
+  requestedSessionId?: string;
 }
 
-export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
+export function WorkspaceProvider({
+  children,
+  requestedSessionId,
+}: WorkspaceProviderProps) {
   const { workspaceId } = useParams({ strict: false });
   const appNavigation = useAppNavigation();
   const currentDestination = useCurrentAppDestination();
@@ -48,7 +52,10 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     isLoading: isSessionsLoading,
     isNewSessionMode,
     startNewSession,
-  } = useWorkspaceSessions(workspaceId, { enabled: !isCreateMode });
+  } = useWorkspaceSessions(workspaceId, {
+    enabled: !isCreateMode,
+    requestedSessionId,
+  });
 
   const { repos, isLoading: isReposLoading } = useWorkspaceRepo(workspaceId, {
     enabled: !isCreateMode,

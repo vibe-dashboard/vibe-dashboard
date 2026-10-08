@@ -318,11 +318,18 @@ export function SessionChatBox<TExecutor extends string = string>({
             : 'Continue working on this task...';
 
   // Cmd+Enter handler
+  const submitCustomQuestionAnswer = () => {
+    const banner = askQuestionBannerRef.current;
+    if (!banner) return;
+    void banner.submitCustomAnswer(editor.value).then((submitted: boolean) => {
+      if (submitted) editor.onChange('');
+    });
+  };
+
   const handleCmdEnter = () => {
     // AskUserQuestion mode: Enter submits custom text as answer
     if (isInAskQuestionMode && hasContent) {
-      askQuestionBannerRef.current?.submitCustomAnswer(editor.value);
-      editor.onChange('');
+      submitCustomQuestionAnswer();
       return;
     }
     // Approval mode: Cmd+Enter triggers approve or request changes based on input
@@ -496,10 +503,7 @@ export function SessionChatBox<TExecutor extends string = string>({
           />
           {hasMessage && (
             <PrimaryButton
-              onClick={() => {
-                askQuestionBannerRef.current?.submitCustomAnswer(editor.value);
-                editor.onChange('');
-              }}
+              onClick={submitCustomQuestionAnswer}
               disabled={askQuestionMode?.isSubmitting}
               actionIcon={askQuestionMode?.isSubmitting ? 'spinner' : undefined}
               value={t('conversation.actions.send')}

@@ -21,6 +21,9 @@ import { getFileIcon } from '@/shared/lib/fileTypeIcon';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
 import { useTheme } from '@/shared/hooks/useTheme';
 import WYSIWYGEditor from '@/shared/components/WYSIWYGEditor';
+import PendingApprovalEntry from '@/shared/components/NormalizedConversation/PendingApprovalEntry';
+import { InlineAskUserQuestionEntry } from './InlineAskUserQuestionEntry';
+import { getPendingApprovalPlacement } from '../model/inlineApprovalPolicy';
 import { useMessageEditContext } from '../model/contexts/MessageEditContext';
 import type { UseResetProcessResult } from '../model/hooks/useResetProcess';
 import { useChangesViewActions } from '@/shared/hooks/useChangesView';
@@ -77,6 +80,7 @@ type Props = {
   aggregatedGroup: AggregatedPatchGroup | null;
   aggregatedDiffGroup: AggregatedDiffGroup | null;
   aggregatedThinkingGroup: AggregatedThinkingGroup | null;
+  inlineApprovalControls: boolean;
 };
 
 type FileEditAction = Extract<ActionType, { action: 'file_edit' }>;
@@ -265,12 +269,22 @@ function renderToolUseEntry(
 
   // Generic tool pending approval - use plan-style card
   if (status.status === 'pending_approval') {
+    const placement = getPendingApprovalPlacement(
+      action_type.action,
+      props.inlineApprovalControls
+    );
     // Question approvals are rendered via askQuestionMode in SessionChatBoxContainer.
     // Avoid showing a duplicate inline approval card in the conversation timeline.
     if (action_type.action === 'ask_user_question') {
-      return null;
+      return placement === 'question-inline' ? (
+        <InlineAskUserQuestionEntry
+          approvalId={status.approval_id}
+          executionProcessId={executionProcessId}
+          questions={action_type.questions}
+        />
+      ) : null;
     }
-    return (
+    const approvalCard = (
       <GenericToolApprovalEntry
         toolName={entryType.tool_name}
         content={entry.content}
@@ -279,6 +293,16 @@ function renderToolUseEntry(
         sessionId={sessionId}
         status={status}
       />
+    );
+    return placement === 'approval-inline' ? (
+      <PendingApprovalEntry
+        pendingStatus={status}
+        executionProcessId={executionProcessId}
+      >
+        {approvalCard}
+      </PendingApprovalEntry>
+    ) : (
+      approvalCard
     );
   }
 
@@ -525,7 +549,7 @@ function FileEditEntry({
   );
   const { theme } = useTheme();
   const actualTheme = getActualTheme(theme);
-  const { viewFileInChanges, findMatchingDiffPath } = useChangesViewActions();
+  const { viewFileInChanges, hasDiffPath } = useChangesViewActions();
   const FileIcon = useMemo(
     () => getFileIcon(path, actualTheme),
     [path, actualTheme]
@@ -570,9 +594,11 @@ function FileEditEntry({
   );
   const hasDiffContent = Boolean(diffContent && diffPreviewData.isValid);
 
+  // Only show "open in changes" button if the file exists in current diffs
   const handleOpenInChanges = useCallback(() => {
-    viewFileInChanges(findMatchingDiffPath(path) ?? path);
-  }, [viewFileInChanges, findMatchingDiffPath, path]);
+    if (!hasDiffPath(path)) return;
+    viewFileInChanges(path);
+  }, [viewFileInChanges, hasDiffPath, path]);
   const handleOpenInVSCode = useCallback((filename: string) => {
     openFileInVSCode(filename, { openAsDiff: false });
   }, []);
@@ -1310,7 +1336,7 @@ function AggregatedThinkingGroupEntry({
 function AggregatedDiffGroupEntry({ group }: { group: AggregatedDiffGroup }) {
   const { theme } = useTheme();
   const actualTheme = getActualTheme(theme);
-  const { viewFileInChanges, findMatchingDiffPath } = useChangesViewActions();
+  const { viewFileInChanges, hasDiffPath } = useChangesViewActions();
   const [expanded, toggle] = usePersistedExpanded(
     `diff:${group.patchKey}`,
     false
@@ -1357,8 +1383,9 @@ function AggregatedDiffGroupEntry({ group }: { group: AggregatedDiffGroup }) {
   }, []);
 
   const handleOpenInChanges = useCallback(() => {
-    viewFileInChanges(findMatchingDiffPath(group.filePath) ?? group.filePath);
-  }, [viewFileInChanges, findMatchingDiffPath, group.filePath]);
+    if (!hasDiffPath(group.filePath)) return;
+    viewFileInChanges(group.filePath);
+  }, [viewFileInChanges, hasDiffPath, group.filePath]);
   const handleOpenInVSCode = useCallback((filePath: string) => {
     openFileInVSCode(filePath, { openAsDiff: false });
   }, []);

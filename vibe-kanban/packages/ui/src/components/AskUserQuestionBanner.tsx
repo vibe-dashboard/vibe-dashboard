@@ -3,6 +3,7 @@ import {
   useCallback,
   useImperativeHandle,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -11,12 +12,12 @@ import { QuestionIcon } from '@phosphor-icons/react';
 
 export interface AskUserQuestionBannerHandle {
   /** Submit a custom free-text answer for the current question (triggered by Enter in the editor) */
-  submitCustomAnswer: (text: string) => void;
+  submitCustomAnswer: (text: string) => Promise<boolean>;
 }
 
 interface AskUserQuestionBannerProps {
   questions: AskUserQuestionItem[];
-  onSubmitAnswers: (answers: QuestionAnswer[]) => void;
+  onSubmitAnswers: (answers: QuestionAnswer[]) => void | Promise<void>;
   isSubmitting: boolean;
   isTimedOut: boolean;
   error: string | null;
@@ -32,6 +33,7 @@ export const AskUserQuestionBanner = forwardRef<
   const { t } = useTranslation('common');
   // Track completed answers: question text -> selected labels array
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
+  const finalSubmitRef = useRef<Promise<void> | null>(null);
 
   // Convert internal state to ordered QuestionAnswer[] for submission
   const toQuestionAnswers = useCallback(
@@ -58,6 +60,27 @@ export const AskUserQuestionBanner = forwardRef<
     currentIndex < questions.length ? questions[currentIndex] : null;
   const isAllAnswered = currentIndex >= questions.length;
   const disabled = isSubmitting || isTimedOut;
+  const submitFinalAnswers = useCallback(
+    async (newAnswers: Record<string, string[]>) => {
+      if (finalSubmitRef.current) {
+        await finalSubmitRef.current;
+        return;
+      }
+      const submission = (async () => {
+        await onSubmitAnswers(toQuestionAnswers(newAnswers));
+        setAnswers(newAnswers);
+      })();
+      finalSubmitRef.current = submission;
+      try {
+        await submission;
+      } finally {
+        if (finalSubmitRef.current === submission) {
+          finalSubmitRef.current = null;
+        }
+      }
+    },
+    [onSubmitAnswers, toQuestionAnswers]
+  );
 
   // Select an option for single-select questions → immediately advance
   const handleSelectOption = useCallback(
@@ -81,11 +104,11 @@ export const AskUserQuestionBanner = forwardRef<
           ...answers,
           [currentQuestion.question]: [label],
         };
-        setAnswers(newAnswers);
-
         // If this was the last question, submit
         if (currentIndex === questions.length - 1) {
-          onSubmitAnswers(toQuestionAnswers(newAnswers));
+          void submitFinalAnswers(newAnswers).catch(() => undefined);
+        } else {
+          setAnswers(newAnswers);
         }
       }
     },
@@ -95,8 +118,7 @@ export const AskUserQuestionBanner = forwardRef<
       answers,
       currentIndex,
       questions.length,
-      onSubmitAnswers,
-      toQuestionAnswers,
+      submitFinalAnswers,
     ]
   );
 
@@ -111,11 +133,15 @@ export const AskUserQuestionBanner = forwardRef<
       ...answers,
       [currentQuestion.question]: labels,
     };
-    setAnswers(newAnswers);
-    setMultiSelectLabels(new Set());
-
     if (currentIndex === questions.length - 1) {
-      onSubmitAnswers(toQuestionAnswers(newAnswers));
+      void submitFinalAnswers(newAnswers)
+        .then(() => {
+          setMultiSelectLabels(new Set());
+        })
+        .catch(() => undefined);
+    } else {
+      setAnswers(newAnswers);
+      setMultiSelectLabels(new Set());
     }
   }, [
     disabled,
@@ -124,23 +150,24 @@ export const AskUserQuestionBanner = forwardRef<
     answers,
     currentIndex,
     questions.length,
-    onSubmitAnswers,
-    toQuestionAnswers,
+    submitFinalAnswers,
   ]);
 
   useImperativeHandle(
     ref,
     () => ({
-      submitCustomAnswer: (text: string) => {
-        if (disabled || !currentQuestion || !text.trim()) return;
+      submitCustomAnswer: async (text: string) => {
+        if (disabled || !currentQuestion || !text.trim()) return false;
         const newAnswers = {
           ...answers,
           [currentQuestion.question]: [text.trim()],
         };
-        setAnswers(newAnswers);
         if (currentIndex === questions.length - 1) {
-          onSubmitAnswers(toQuestionAnswers(newAnswers));
+          await submitFinalAnswers(newAnswers);
+          return true;
         }
+        setAnswers(newAnswers);
+        return true;
       },
     }),
     [
@@ -149,8 +176,7 @@ export const AskUserQuestionBanner = forwardRef<
       answers,
       currentIndex,
       questions.length,
-      onSubmitAnswers,
-      toQuestionAnswers,
+      submitFinalAnswers,
     ]
   );
 

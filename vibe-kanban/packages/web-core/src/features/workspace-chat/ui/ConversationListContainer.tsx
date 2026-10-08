@@ -61,6 +61,7 @@ interface ConversationListProps {
   onAtBottomChange?: (atBottom: boolean) => void;
   sessionScopeId?: string;
   previewMode?: 'workspace' | 'session' | 'disabled';
+  inlineApprovalControls?: boolean;
 }
 
 export interface ConversationListHandle {
@@ -76,7 +77,8 @@ function renderRowContent(
   entry: DisplayEntry,
   attempt: WorkspaceWithSession,
   resetAction: UseResetProcessResult,
-  repos: RepoWithTargetBranch[]
+  repos: RepoWithTargetBranch[],
+  inlineApprovalControls: boolean
 ): React.ReactNode {
   if (isAggregatedGroup(entry)) {
     return (
@@ -90,6 +92,7 @@ function renderRowContent(
         workspaceWithSession={attempt}
         resetAction={resetAction}
         repos={repos}
+        inlineApprovalControls={inlineApprovalControls}
       />
     );
   }
@@ -106,6 +109,7 @@ function renderRowContent(
         workspaceWithSession={attempt}
         resetAction={resetAction}
         repos={repos}
+        inlineApprovalControls={inlineApprovalControls}
       />
     );
   }
@@ -122,6 +126,7 @@ function renderRowContent(
         workspaceWithSession={attempt}
         resetAction={resetAction}
         repos={repos}
+        inlineApprovalControls={inlineApprovalControls}
       />
     );
   }
@@ -145,6 +150,7 @@ function renderRowContent(
         workspaceWithSession={attempt}
         resetAction={resetAction}
         repos={repos}
+        inlineApprovalControls={inlineApprovalControls}
       />
     );
   }
@@ -162,6 +168,7 @@ export const ConversationList = forwardRef<
     onAtBottomChange,
     sessionScopeId,
     previewMode = attempt.session ? 'session' : 'workspace',
+    inlineApprovalControls = false,
   },
   ref
 ) {
@@ -783,7 +790,13 @@ export const ConversationList = forwardRef<
                       transform: `translateY(${virtualItem.start}px)`,
                     }}
                   >
-                    {renderRowContent(row.entry, attempt, resetAction, repos)}
+                    {renderRowContent(
+                      row.entry,
+                      attempt,
+                      resetAction,
+                      repos,
+                      inlineApprovalControls
+                    )}
                   </div>
                 );
               })}

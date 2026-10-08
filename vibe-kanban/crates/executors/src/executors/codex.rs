@@ -44,7 +44,6 @@ pub(crate) fn fork_params_from(thread_id: String, params: ThreadStartParams) -> 
         base_instructions: params.base_instructions,
         developer_instructions: params.developer_instructions,
         service_tier: params.service_tier,
-        exclude_turns: true,
         ..Default::default()
     }
 }

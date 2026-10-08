@@ -4,9 +4,11 @@ import { sessionsApi } from '@/shared/lib/api';
 import { useHostId } from '@/shared/providers/HostIdProvider';
 import { workspaceSessionKeys } from '@/shared/hooks/workspaceSessionKeys';
 import type { Session } from 'shared/types';
+import { resolveWorkspaceSessionId } from './workspaceSessionSelection';
 
 interface UseWorkspaceSessionsOptions {
   enabled?: boolean;
+  requestedSessionId?: string;
 }
 
 /** Discriminated union for session selection state */
@@ -37,7 +39,7 @@ export function useWorkspaceSessions(
   options: UseWorkspaceSessionsOptions = {}
 ): UseWorkspaceSessionsResult {
   const hostId = useHostId();
-  const { enabled = true } = options;
+  const { enabled = true, requestedSessionId } = options;
   const [selection, setSelection] = useState<SessionSelection | undefined>(
     undefined
   );
@@ -70,8 +72,13 @@ export function useWorkspaceSessions(
   }, [workspaceId, sessions]);
 
   const isNewSessionMode = selection?.mode === 'new' || sessions.length === 0;
-  const selectedSessionId =
+  const locallySelectedSessionId =
     selection?.mode === 'existing' ? selection.sessionId : undefined;
+  const selectedSessionId = resolveWorkspaceSessionId(
+    sessions,
+    locallySelectedSessionId,
+    requestedSessionId
+  );
 
   const selectedSession = useMemo(
     () => sessions.find((s) => s.id === selectedSessionId),

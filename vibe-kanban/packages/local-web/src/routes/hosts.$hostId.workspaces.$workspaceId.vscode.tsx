@@ -8,6 +8,7 @@ import { ActionsProvider } from '@/shared/providers/ActionsProvider';
 import { TerminalProvider } from '@/shared/providers/TerminalProvider';
 import { useWorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
 import { VSCodeWorkspacePage } from '@/pages/workspaces/VSCodeWorkspacePage';
+import { parseVSCodeWorkspaceSearch } from '@/pages/workspaces/vscodeWorkspaceSearch';
 
 function ExecutionProcessesProviderWrapper({
   children,
@@ -24,14 +25,18 @@ function ExecutionProcessesProviderWrapper({
 }
 
 function HostVSCodeWorkspaceRouteComponent() {
+  const { chatOnly, sessionId } = Route.useSearch();
+
   return (
     <HostIdProvider>
-      <WorkspaceProvider>
+      <WorkspaceProvider requestedSessionId={sessionId}>
         <ExecutionProcessesProviderWrapper>
           <ActionsProvider>
             <NiceModalProvider>
               <TerminalProvider>
-                <VSCodeWorkspacePage />
+                <VSCodeWorkspacePage
+                  chatOnly={chatOnly}
+                />
               </TerminalProvider>
             </NiceModalProvider>
           </ActionsProvider>
@@ -44,5 +49,6 @@ function HostVSCodeWorkspaceRouteComponent() {
 export const Route = createFileRoute(
   '/hosts/$hostId/workspaces/$workspaceId/vscode'
 )({
+  validateSearch: parseVSCodeWorkspaceSearch,
   component: HostVSCodeWorkspaceRouteComponent,
 });

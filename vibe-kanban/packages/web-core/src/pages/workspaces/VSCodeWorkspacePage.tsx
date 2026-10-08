@@ -80,7 +80,13 @@ function VSCodeChatBox({
   );
 }
 
-export function VSCodeWorkspacePage() {
+interface VSCodeWorkspacePageProps {
+  chatOnly?: boolean;
+}
+
+export function VSCodeWorkspacePage({
+  chatOnly = false,
+}: VSCodeWorkspacePageProps) {
   const { t } = useTranslation('common');
   const setTheme = useStyleOverrideThemeSetter();
   const mainContainerRef = useRef<HTMLElement>(null);
@@ -136,6 +142,8 @@ export function VSCodeWorkspacePage() {
   }, [isAtBottom]);
 
   useEffect(() => {
+    if (chatOnly) return;
+
     const container = mainContainerRef.current;
     if (!container || typeof ResizeObserver === 'undefined') return;
 
@@ -168,7 +176,7 @@ export function VSCodeWorkspacePage() {
     return () => {
       observer.disconnect();
     };
-  }, [workspaceWithSession?.id, selectedSession?.id]);
+  }, [chatOnly, workspaceWithSession?.id, selectedSession?.id]);
 
   return (
     <AppWithStyleOverride setTheme={setTheme}>
@@ -221,6 +229,7 @@ export function VSCodeWorkspacePage() {
                                   ? 'disabled'
                                   : 'workspace'
                           }
+                          inlineApprovalControls={chatOnly}
                         />
                       </RetryUiProvider>
                     </div>
@@ -245,23 +254,25 @@ export function VSCodeWorkspacePage() {
                     </div>
                   </div>
                 )}
-                <div
-                  className="flex justify-center @container pl-px"
-                  data-chatbox-container="true"
-                >
-                  <VSCodeChatBox
-                    session={selectedSession}
-                    workspaceId={workspaceWithSession?.id}
-                    isNewSessionMode={isNewSessionMode}
-                    sessions={sessions}
-                    onSelectSession={selectSession}
-                    onStartNewSession={startNewSession}
-                    onScrollToPreviousMessage={handleScrollToPreviousMessage}
-                    onScrollToBottom={handleScrollToBottom}
-                    onScrollToUserMessage={handleScrollToUserMessage}
-                    getActiveTurnPatchKey={handleGetActiveTurnPatchKey}
-                  />
-                </div>
+                {!chatOnly && (
+                  <div
+                    className="flex justify-center @container pl-px"
+                    data-chatbox-container="true"
+                  >
+                    <VSCodeChatBox
+                      session={selectedSession}
+                      workspaceId={workspaceWithSession?.id}
+                      isNewSessionMode={isNewSessionMode}
+                      sessions={sessions}
+                      onSelectSession={selectSession}
+                      onStartNewSession={startNewSession}
+                      onScrollToPreviousMessage={handleScrollToPreviousMessage}
+                      onScrollToBottom={handleScrollToBottom}
+                      onScrollToUserMessage={handleScrollToUserMessage}
+                      getActiveTurnPatchKey={handleGetActiveTurnPatchKey}
+                    />
+                  </div>
+                )}
               </MessageEditProvider>
             </EntriesProvider>
           </ApprovalFeedbackProvider>
