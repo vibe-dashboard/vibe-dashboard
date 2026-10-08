@@ -157,10 +157,16 @@ export function AgentPaneFooter(props: Props) {
       try {
         const value = JSON.parse(String(event.data)) as {
           JsonPatch?: Array<{ op?: string; path?: string; value?: unknown }>;
+          Ready?: boolean;
         };
-        if (!value.JsonPatch) return;
-        setProcesses((current) => applyProcessPatch(current, value.JsonPatch!));
-        setProcessesLoading(false);
+        if (value.JsonPatch) {
+          setProcesses((current) =>
+            applyProcessPatch(current, value.JsonPatch!),
+          );
+        }
+        if (value.JsonPatch || value.Ready !== undefined) {
+          setProcessesLoading(false);
+        }
       } catch {
         setProcessesError('Could not read execution state');
         setProcessesLoading(false);
@@ -194,7 +200,7 @@ export function AgentPaneFooter(props: Props) {
   useEffect(() => {
     const id = props.selectedSessionId;
     if (!id) return;
-    if (executionState === 'idle' && queue.status !== 'queued') return;
+    if (executionState !== 'running' && queue.status !== 'queued') return;
     let cancelled = false;
     const interval = setInterval(() => {
       void vkClient.getQueueStatus(id).then(

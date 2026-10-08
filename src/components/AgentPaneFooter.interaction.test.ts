@@ -166,7 +166,45 @@ describe("AgentPaneFooter interactions", () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it("enables Send after the execution stream is ready with no running process", async () => {
+    renderFooter();
+    const editor = await screen.findByLabelText("Follow-up message");
+    fireEvent.change(editor, { target: { value: "hello" } });
+
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Send" })
+        .disabled,
+    ).toBe(true);
+
+    act(() => {
+      FakeWebSocket.instances[0]?.emit({ Ready: true });
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole<HTMLButtonElement>("button", { name: "Send" })
+          .disabled,
+      ).toBe(false),
+    );
+  });
+
+  it("does not poll queue while execution state is loading and nothing is queued", async () => {
+    const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
+    renderFooter();
+
+    await waitFor(() =>
+      expect(calls.filter((call) => call.url.includes("/queue"))).toHaveLength(
+        1,
+      ),
+    );
+
+    expect(
+      setIntervalSpy.mock.calls.some(([, delay]) => delay === 1_500),
+    ).toBe(false);
   });
 
   it("sends when idle and queues while a selected-session execution is running", async () => {
