@@ -1,14 +1,9 @@
-import { execFile as execFileCallback } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import {
   applyWorkspaceBeadsSetup,
   type WorkspaceSetupInput,
 } from './workspaceBeads.ts';
-
-const execFile = promisify(execFileCallback);
 
 export interface LegacyBeadRecord {
   sourceDb: string;
@@ -34,12 +29,13 @@ export interface CreationEvidenceScan {
 }
 
 export interface CreationEvidenceScanProgress {
-  phase: 'candidate-search-start' | 'candidate-search-complete' | 'scan-progress' | 'scan-complete';
+  phase: 'file-discovery-start' | 'file-discovery-complete' | 'scan-progress' | 'scan-complete';
   root: string;
   beadIds?: number;
   candidateFiles?: number;
   filesScanned?: number;
   evidenceRecords?: number;
+  mentionedBeads?: number;
 }
 
 export interface WorkspaceRoot {
@@ -221,39 +217,84 @@ export async function scanProcessCreationEvidence(
   beadIds?: string[],
   onProgress?: (progress: CreationEvidenceScanProgress) => void,
 ): Promise<CreationEvidenceScan> {
-  onProgress?.({ phase: 'candidate-search-start', root: sessionsDir, beadIds: beadIds?.length });
-  const files = beadIds?.length ? await listJsonlFilesMatchingBeadIds(sessionsDir, beadIds) : await listJsonlFiles(sessionsDir);
-  onProgress?.({ phase: 'candidate-search-complete', root: sessionsDir, beadIds: beadIds?.length, candidateFiles: files.length });
+  onProgress?.({ phase: 'file-discovery-start', root: sessionsDir, beadIds: beadIds?.length });
+  const files = await sortFilesByMtime(await listJsonlFiles(sessionsDir));
+  onProgress?.({ phase: 'file-discovery-complete', root: sessionsDir, beadIds: beadIds?.length, candidateFiles: files.length });
   const evidence: CreationEvidence[] = [];
-  const sourceCounts: Record<string, number> = {};
+  const sourceCounts: Record<string, number> = {
+    sameRecordCwd: 0,
+    fileDominantCwd: 0,
+    mentionedNoCwd: 0,
+    worktreeCwdRecords: 0,
+    homeRepoCwdRecords: 0,
+    otherCwdRecords: 0,
+  };
+  const emitted = new Set<string>();
+  const mentioned = new Set<string>();
+  const beadPattern = beadIdMentionPattern(beadIds);
+  const beadIdSet = beadIds?.length ? new Set(beadIds) : null;
   let filesScanned = 0;
   for (const file of files) {
     filesScanned += 1;
     const content = await readFile(file, 'utf8').catch(() => '');
-    if (content.includes('bd ')) {
-      for (const line of content.split('\n')) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        if (!trimmed.includes('bd ')) continue;
-        for (const item of processItemsFromJsonlLine(trimmed)) {
-          const command = typeof item.command === 'string' ? item.command : '';
-          if (!isBdCreateCommand(command)) continue;
-          const cwd = typeof item.cwd === 'string' ? item.cwd : null;
-          const beadId = beadIdFromCommandOutput(outputTextFromItem(item));
-          if (!beadId) continue;
-          const source = `process-jsonl:${path.basename(file)}`;
-          evidence.push({ beadId, cwd, source });
-          sourceCounts.processJsonl = (sourceCounts.processJsonl ?? 0) + 1;
+    const fileMentions = new Set<string>();
+    const fileWorktreeCwds: string[] = [];
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const parsed = parseJsonObject(trimmed);
+      const cwds = parsed ? cwdValuesFromJsonRecord(parsed) : [];
+      const worktreeCwds = cwds.filter((cwd) => cwd.startsWith('/var/tmp/vibe-kanban/worktrees/'));
+      fileWorktreeCwds.push(...worktreeCwds);
+      for (const cwd of cwds) {
+        if (cwd.startsWith('/var/tmp/vibe-kanban/worktrees/')) {
+          sourceCounts.worktreeCwdRecords += 1;
+        } else if (cwd.startsWith('/home/vkuser/repos/')) {
+          sourceCounts.homeRepoCwdRecords += 1;
+        } else {
+          sourceCounts.otherCwdRecords += 1;
         }
       }
+      const ids = beadIdsFromText(trimmed, beadPattern, beadIdSet);
+      if (ids.length === 0) continue;
+      for (const beadId of ids) {
+        mentioned.add(beadId);
+        fileMentions.add(beadId);
+        if (emitted.has(beadId) || worktreeCwds.length === 0) continue;
+        evidence.push({
+          beadId,
+          cwd: worktreeCwds[0],
+          source: `bead-id-scan:same-record:${path.basename(file)}`,
+        });
+        emitted.add(beadId);
+        sourceCounts.sameRecordCwd += 1;
+      }
     }
-    if (filesScanned === 1 || filesScanned % 100 === 0 || filesScanned === files.length) {
+    const dominantFileCwd = mostCommon(fileWorktreeCwds);
+    if (dominantFileCwd) {
+      for (const beadId of fileMentions) {
+        if (emitted.has(beadId)) continue;
+        evidence.push({
+          beadId,
+          cwd: dominantFileCwd,
+          source: `bead-id-scan:file-dominant:${path.basename(file)}`,
+        });
+        emitted.add(beadId);
+        sourceCounts.fileDominantCwd += 1;
+      }
+    } else {
+      for (const beadId of fileMentions) {
+        if (!emitted.has(beadId)) sourceCounts.mentionedNoCwd += 1;
+      }
+    }
+    if (filesScanned === 1 || filesScanned % 250 === 0 || filesScanned === files.length) {
       onProgress?.({
         phase: 'scan-progress',
         root: sessionsDir,
         candidateFiles: files.length,
         filesScanned,
         evidenceRecords: evidence.length,
+        mentionedBeads: mentioned.size,
       });
     }
   }
@@ -263,6 +304,7 @@ export async function scanProcessCreationEvidence(
     candidateFiles: files.length,
     filesScanned,
     evidenceRecords: evidence.length,
+    mentionedBeads: mentioned.size,
   });
   return { evidence, sourceCounts, filesScanned: files.length };
 }
@@ -410,60 +452,6 @@ async function listJsonlFiles(root: string): Promise<string[]> {
   return files.sort();
 }
 
-async function listJsonlFilesMatchingBeadIds(root: string, beadIds: string[]): Promise<string[]> {
-  const dir = await mkdtemp(path.join(tmpdir(), 'vd-beads-evidence-'));
-  const patternPath = path.join(dir, 'bead-ids.txt');
-  try {
-    await writeFile(patternPath, [...new Set(beadIds)].sort().join('\n') + '\n');
-    const { stdout } = await execFile(
-      'rg',
-      ['-l', '-F', '-f', patternPath, '--glob', '*.jsonl', root],
-      { timeout: 600_000, maxBuffer: 50 * 1024 * 1024 },
-    ).catch((error: unknown) => {
-      const maybe = error as { code?: number; stdout?: string };
-      if (maybe.code === 1) return { stdout: '' };
-      throw error;
-    });
-    return stdout.split('\n').map((line) => line.trim()).filter(Boolean).sort();
-  } catch {
-    return [];
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-}
-
-function processItemsFromJsonlLine(line: string): Array<Record<string, unknown>> {
-  const parsed = parseJsonObject(line);
-  if (!parsed) return [];
-  const chunks = typeof parsed.Stdout === 'string' ? [parsed.Stdout] : [];
-  const out = commandItemsFromObject(parsed);
-  for (const chunk of chunks) {
-    const inner = parseJsonObject(chunk.trim());
-    if (!inner) continue;
-    out.push(...commandItemsFromObject(inner));
-  }
-  return out;
-}
-
-function commandItemsFromObject(root: unknown): Array<Record<string, unknown>> {
-  const out: Array<Record<string, unknown>> = [];
-  const stack = [root];
-  while (stack.length) {
-    const value = stack.pop();
-    if (!value || typeof value !== 'object') continue;
-    if (Array.isArray(value)) {
-      for (const item of value) stack.push(item);
-      continue;
-    }
-    const row = value as Record<string, unknown>;
-    if (typeof row.command === 'string' && typeof row.cwd === 'string') out.push(row);
-    for (const child of Object.values(row)) {
-      if (child && typeof child === 'object') stack.push(child);
-    }
-  }
-  return out;
-}
-
 function parseJsonObject(value: string): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse(value) as unknown;
@@ -473,27 +461,93 @@ function parseJsonObject(value: string): Record<string, unknown> | null {
   }
 }
 
-function isBdCreateCommand(command: string): boolean {
-  return /\bbd\s+(create|new|q|todo)\b/.test(command);
+async function sortFilesByMtime(files: string[]): Promise<string[]> {
+  const rows = await Promise.all(files.map(async (file) => ({
+    file,
+    mtimeMs: await stat(file).then((entry) => entry.mtimeMs).catch(() => 0),
+  })));
+  return rows.sort((a, b) => a.mtimeMs - b.mtimeMs || a.file.localeCompare(b.file)).map((row) => row.file);
 }
 
-function outputTextFromItem(item: Record<string, unknown>): string {
-  return [
-    item.aggregatedOutput,
-    item.output,
-    item.stdout,
-    item.result,
-    item.content,
-  ].filter((value): value is string => typeof value === 'string').join('\n');
+function beadIdMentionPattern(beadIds?: string[]): RegExp {
+  if (!beadIds?.length) return /(?<![A-Za-z0-9_.-])[A-Za-z][A-Za-z0-9_-]*-[A-Za-z0-9]+(?:\.[A-Za-z0-9]+)*(?![A-Za-z0-9_.-])/g;
+  const prefixes = [...new Set(beadIds.map((id) => id.match(/^(.+)-[A-Za-z0-9]+(?:\.[A-Za-z0-9]+)*$/)?.[1]).filter((value): value is string => Boolean(value)))]
+    .sort((a, b) => b.length - a.length || a.localeCompare(b));
+  if (prefixes.length === 0) return /$^/g;
+  return new RegExp(`(?<![A-Za-z0-9_.-])(?:${prefixes.map(escapeRegExp).join('|')})-[A-Za-z0-9]+(?:\\.[A-Za-z0-9]+)*(?![A-Za-z0-9_.-])`, 'g');
 }
 
-function beadIdFromCommandOutput(output: string): string | null {
-  const parsed = parseJsonObject(output.trim());
-  if (typeof parsed?.id === 'string') return parsed.id;
-  const created = output.match(/(?:✓\s*)?Created (?:issue|bead):\s*([A-Za-z0-9][A-Za-z0-9._-]*)/);
-  if (created?.[1]) return created[1];
-  const bare = output.trim();
-  return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(bare) ? bare : null;
+function beadIdsFromText(text: string, pattern: RegExp, allowed: Set<string> | null): string[] {
+  pattern.lastIndex = 0;
+  const out = new Set<string>();
+  for (const match of text.matchAll(pattern)) {
+    const beadId = match[0];
+    if (!allowed || allowed.has(beadId)) out.add(beadId);
+  }
+  return [...out];
+}
+
+function cwdValuesFromJsonRecord(root: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  const stack: unknown[] = [root];
+  let visited = 0;
+  while (stack.length && visited < 5000) {
+    visited += 1;
+    const value = stack.pop();
+    if (!value || typeof value !== 'object') continue;
+    if (Array.isArray(value)) {
+      for (const item of value) stack.push(item);
+      continue;
+    }
+    const row = value as Record<string, unknown>;
+    for (const [key, child] of Object.entries(row)) {
+      if (typeof child === 'string') {
+        if (key === 'cwd' || key === 'workdir' || key === 'working_dir' || key === 'current_working_directory') {
+          out.push(child);
+          continue;
+        }
+        if (key === 'arguments') {
+          const parsed = parseJsonObject(child.trim());
+          if (parsed) stack.push(parsed);
+          continue;
+        }
+        const trimmed = child.trim();
+        if ((trimmed.startsWith('{') || trimmed.startsWith('[')) && trimmed.length < 2_000_000) {
+          const parsed = parseJsonValue(trimmed);
+          if (parsed) stack.push(parsed);
+        }
+      } else if (child && typeof child === 'object') {
+        stack.push(child);
+      }
+    }
+  }
+  return out;
+}
+
+function parseJsonValue(value: string): unknown | null {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function mostCommon(values: string[]): string | null {
+  const counts = new Map<string, number>();
+  for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
+  let best: string | null = null;
+  let bestCount = 0;
+  for (const [value, count] of counts) {
+    if (count > bestCount) {
+      best = value;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function metadataObject(value: unknown): Record<string, unknown> {

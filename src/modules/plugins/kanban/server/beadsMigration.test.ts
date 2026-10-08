@@ -317,7 +317,7 @@ describe('beadsMigration planner', () => {
       expect(scan.evidence).toEqual([{
         beadId: 'Vktest-6m8e',
         cwd: '/var/tmp/vibe-kanban/worktrees/cd92-vk-import-existi/Vktest',
-        source: 'process-jsonl:process.jsonl',
+        source: 'bead-id-scan:same-record:process.jsonl',
       }]);
     } finally {
       await rm(dir, { recursive: true, force: true });

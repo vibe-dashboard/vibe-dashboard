@@ -544,6 +544,7 @@ function defaultEvidenceRoots(): string[] {
     process.env.CODEX_SESSION_LOG_DIR,
     path.join(home, '.local', 'share', 'vibe-kanban', 'sessions'),
     path.join(home, '.codex', 'sessions'),
+    path.join(home, '.claude'),
   ].filter((value, index, array): value is string => (
     typeof value === 'string'
     && value.length > 0
