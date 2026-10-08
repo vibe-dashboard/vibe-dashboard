@@ -1,9 +1,14 @@
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { execFile as execFileCallback } from 'node:child_process';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import {
   applyWorkspaceBeadsSetup,
   type WorkspaceSetupInput,
 } from './workspaceBeads.ts';
+
+const execFile = promisify(execFileCallback);
 
 export interface LegacyBeadRecord {
   sourceDb: string;
@@ -20,6 +25,12 @@ export interface CreationEvidence {
   workspaceId?: string | null;
   sessionId?: string | null;
   source?: string;
+}
+
+export interface CreationEvidenceScan {
+  evidence: CreationEvidence[];
+  sourceCounts: Record<string, number>;
+  filesScanned: number;
 }
 
 export interface WorkspaceRoot {
@@ -106,27 +117,17 @@ export function buildWorkspaceMigrationPlan(input: BuildWorkspaceMigrationPlanIn
     recordsByKey.set(recordKey(record), record);
   }
 
-  const explicitByKey = new Map<string, { workspaceId: string | null; conflict?: string }>();
-  for (const record of input.records) {
-    const explicit = explicitWorkspaceId(record.metadata);
-    if (explicit.conflict && affectsWorkspaceFilter(explicit.workspaceId, input.workspaceIdFilter, explicit.conflict)) {
-      plan.hazards.explicitConflicts.push(`${record.sourceDb}:${record.beadId}:${explicit.conflict}`);
-    }
-    explicitByKey.set(recordKey(record), explicit);
-  }
-
   const evidenceById = dedupeEvidence(input.evidence, slugToWorkspaceId, plan.hazards.evidenceConflicts, input.worktreeBase, input.workspaceIdFilter);
   for (const record of input.records) {
     const key = recordKey(record);
-    const explicit = explicitByKey.get(key)?.workspaceId;
-    const workspaceId = explicit ?? evidenceById.get(record.beadId) ?? null;
+    const workspaceId = evidenceById.get(record.beadId) ?? null;
     if (workspaceId) plan.assignments[key] = workspaceId;
     if (!workspaceId && !input.workspaceIdFilter && isExternalIssueRecord(record.metadata)) {
       plan.hazards.externalIssueMissingWorkspace.push(`${record.sourceDb}:${record.beadId}`);
     }
   }
 
-  inferParentChildAssignments(input.records, plan, explicitByKey, recordsByKey, input.workspaceIdFilter);
+  inferParentChildAssignments(input.records, plan, recordsByKey, input.workspaceIdFilter);
 
   for (const record of input.records) {
     const workspaceId = plan.assignments[recordKey(record)];
@@ -183,7 +184,10 @@ export async function loadLegacySnapshots(legacyDir: string): Promise<LegacyBead
 }
 
 export async function loadCreationEvidence(legacyDir: string, workspaceRoots: WorkspaceRoot[]): Promise<CreationEvidence[]> {
-  const evidencePath = path.join(legacyDir, 'bead-creation-evidence.jsonl');
+  return loadCreationEvidenceFile(path.join(legacyDir, 'bead-creation-evidence.jsonl'));
+}
+
+export async function loadCreationEvidenceFile(evidencePath: string): Promise<CreationEvidence[]> {
   const content = await readFile(evidencePath, 'utf8').catch(() => '');
   const out: CreationEvidence[] = [];
   for (const line of content.split('\n')) {
@@ -203,26 +207,33 @@ export async function loadCreationEvidence(legacyDir: string, workspaceRoots: Wo
   return out;
 }
 
-export function buildSessionCreationEvidence(
-  records: LegacyBeadRecord[],
-  sessions: Array<{ sessionId: string; workspaceId: string; workspaceRoot?: string | null; agentWorkingDir?: string | null }>,
-): CreationEvidence[] {
-  const sessionsById = new Map(sessions.map((session) => [session.sessionId, session]));
-  const out: CreationEvidence[] = [];
-  for (const record of records) {
-    const sessionId = typeof record.metadata.VK_SESSION_ID === 'string' ? record.metadata.VK_SESSION_ID : null;
-    if (!sessionId) continue;
-    const session = sessionsById.get(sessionId);
-    if (!session) continue;
-    out.push({
-      beadId: record.beadId,
-      sessionId,
-      workspaceId: session.workspaceId,
-      cwd: joinWorkspaceCwd(session.workspaceRoot, session.agentWorkingDir),
-      source: 'vk-sqlite-session',
-    });
+export async function scanProcessCreationEvidence(
+  sessionsDir = '/home/vkuser/.local/share/vibe-kanban/sessions',
+  beadIds?: string[],
+): Promise<CreationEvidenceScan> {
+  const files = beadIds?.length ? await listJsonlFilesMatchingBeadIds(sessionsDir, beadIds) : await listJsonlFiles(sessionsDir);
+  const evidence: CreationEvidence[] = [];
+  const sourceCounts: Record<string, number> = {};
+  for (const file of files) {
+    const content = await readFile(file, 'utf8').catch(() => '');
+    if (!content.includes('bd ')) continue;
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      if (!trimmed.includes('bd ')) continue;
+      for (const item of processItemsFromJsonlLine(trimmed)) {
+        const command = typeof item.command === 'string' ? item.command : '';
+        if (!isBdCreateCommand(command)) continue;
+        const cwd = typeof item.cwd === 'string' ? item.cwd : null;
+        const beadId = beadIdFromCommandOutput(outputTextFromItem(item));
+        if (!beadId) continue;
+        const source = `process-jsonl:${path.basename(file)}`;
+        evidence.push({ beadId, cwd, source });
+        sourceCounts.processJsonl = (sourceCounts.processJsonl ?? 0) + 1;
+      }
+    }
   }
-  return out;
+  return { evidence, sourceCounts, filesScanned: files.length };
 }
 
 export async function writeWorkspaceMigrationReport(reportPath: string, report: unknown): Promise<void> {
@@ -269,17 +280,6 @@ function normalizeDependencies(issueId: string, value: unknown): Array<{ issueId
   return out;
 }
 
-function explicitWorkspaceId(metadata: Record<string, unknown>): { workspaceId: string | null; conflict?: string } {
-  const values = ['VK_WORKSPACE_ID', 'vkWorkspaceId', 'workspaceId']
-    .map((key) => metadata[key])
-    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-    .map((value) => value.trim());
-  const unique = [...new Set(values)];
-  const first = unique[0] ?? null;
-  if (unique.length > 1) return { workspaceId: first, conflict: unique.join('!=') };
-  return { workspaceId: first };
-}
-
 function dedupeEvidence(
   evidence: CreationEvidence[],
   slugToWorkspaceId: Map<string, string>,
@@ -289,14 +289,8 @@ function dedupeEvidence(
 ): Map<string, string> {
   const out = new Map<string, string>();
   for (const entry of evidence) {
-    const hasCwd = !!entry.cwd;
-    const cwdWorkspaceId = parseWorktreeCwd(entry.cwd, slugToWorkspaceId, worktreeBase);
-    if (hasCwd && cwdWorkspaceId && entry.workspaceId && cwdWorkspaceId !== entry.workspaceId) {
-      if (!workspaceIdFilter || cwdWorkspaceId === workspaceIdFilter || entry.workspaceId === workspaceIdFilter) {
-        conflicts.push(`${entry.beadId}:cwd:${cwdWorkspaceId}!=fallback:${entry.workspaceId}`);
-      }
-    }
-    const resolved = hasCwd ? cwdWorkspaceId : entry.workspaceId ?? null;
+    if (!entry.cwd) continue;
+    const resolved = parseWorktreeCwd(entry.cwd, slugToWorkspaceId, worktreeBase);
     if (!resolved) continue;
     const existing = out.get(entry.beadId);
     if (existing && existing !== resolved) {
@@ -310,16 +304,9 @@ function dedupeEvidence(
   return out;
 }
 
-function joinWorkspaceCwd(workspaceRoot: string | null | undefined, agentWorkingDir: string | null | undefined): string | null {
-  if (!workspaceRoot) return null;
-  if (!agentWorkingDir) return workspaceRoot;
-  return path.join(workspaceRoot, agentWorkingDir);
-}
-
 function inferParentChildAssignments(
   records: LegacyBeadRecord[],
   plan: WorkspaceMigrationPlan,
-  explicitByKey: Map<string, { workspaceId: string | null; conflict?: string }>,
   recordsByKey: Map<string, LegacyBeadRecord>,
   workspaceIdFilter?: string,
 ): void {
@@ -341,19 +328,17 @@ function inferParentChildAssignments(
         if (!recordsByKey.has(child) || !recordsByKey.has(parent)) continue;
         const childWorkspace = plan.assignments[child];
         const parentWorkspace = plan.assignments[parent];
-        const childExplicit = explicitByKey.get(child)?.workspaceId;
-        const parentExplicit = explicitByKey.get(parent)?.workspaceId;
-        if (childExplicit && parentExplicit && childExplicit !== parentExplicit) {
-          if (!workspaceIdFilter || childExplicit === workspaceIdFilter || parentExplicit === workspaceIdFilter) {
-            conflicts.add(`${child}->${parent}:${childExplicit}!=${parentExplicit}`);
+        if (childWorkspace && parentWorkspace && childWorkspace !== parentWorkspace) {
+          if (!workspaceIdFilter || childWorkspace === workspaceIdFilter || parentWorkspace === workspaceIdFilter) {
+            conflicts.add(`${child}->${parent}:${childWorkspace}!=${parentWorkspace}`);
           }
           continue;
         }
-        if (childWorkspace && !parentWorkspace && !parentExplicit) {
+        if (childWorkspace && !parentWorkspace) {
           plan.assignments[parent] = childWorkspace;
           inferred.add(`${parent}<=${child}:${childWorkspace}`);
           changed = true;
-        } else if (parentWorkspace && !childWorkspace && !childExplicit) {
+        } else if (parentWorkspace && !childWorkspace) {
           plan.assignments[child] = parentWorkspace;
           inferred.add(`${child}=>${parent}:${parentWorkspace}`);
           changed = true;
@@ -374,14 +359,110 @@ function recordKeyFromParts(sourceDb: string, beadId: string): string {
   return `${sourceDb}\0${beadId}`;
 }
 
-function affectsWorkspaceFilter(workspaceId: string | null, workspaceIdFilter?: string, detail?: string): boolean {
-  return !workspaceIdFilter || workspaceId === workspaceIdFilter || detail?.includes(workspaceIdFilter) === true;
-}
-
 function isExternalIssueRecord(metadata: Record<string, unknown>): boolean {
   return Array.isArray(metadata.external_issues)
     || typeof metadata.vdExternalIssueId === 'string'
     || typeof metadata.vdWorkspaceLinkId === 'string';
+}
+
+async function listJsonlFiles(root: string): Promise<string[]> {
+  const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+  const files: string[] = [];
+  for (const entry of entries) {
+    const child = path.join(root, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...await listJsonlFiles(child));
+    } else if (entry.isFile() && child.endsWith('.jsonl')) {
+      files.push(child);
+    }
+  }
+  return files.sort();
+}
+
+async function listJsonlFilesMatchingBeadIds(root: string, beadIds: string[]): Promise<string[]> {
+  const dir = await mkdtemp(path.join(tmpdir(), 'vd-beads-evidence-'));
+  const patternPath = path.join(dir, 'bead-ids.txt');
+  try {
+    await writeFile(patternPath, [...new Set(beadIds)].sort().join('\n') + '\n');
+    const { stdout } = await execFile(
+      'rg',
+      ['-l', '-F', '-f', patternPath, '--glob', '*.jsonl', root],
+      { timeout: 600_000, maxBuffer: 50 * 1024 * 1024 },
+    ).catch((error: unknown) => {
+      const maybe = error as { code?: number; stdout?: string };
+      if (maybe.code === 1) return { stdout: '' };
+      throw error;
+    });
+    return stdout.split('\n').map((line) => line.trim()).filter(Boolean).sort();
+  } catch {
+    return [];
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+function processItemsFromJsonlLine(line: string): Array<Record<string, unknown>> {
+  const parsed = parseJsonObject(line);
+  if (!parsed) return [];
+  const chunks = typeof parsed.Stdout === 'string' ? [parsed.Stdout] : [];
+  const out = commandItemsFromObject(parsed);
+  for (const chunk of chunks) {
+    const inner = parseJsonObject(chunk.trim());
+    if (!inner) continue;
+    out.push(...commandItemsFromObject(inner));
+  }
+  return out;
+}
+
+function commandItemsFromObject(root: unknown): Array<Record<string, unknown>> {
+  const out: Array<Record<string, unknown>> = [];
+  const stack = [root];
+  while (stack.length) {
+    const value = stack.pop();
+    if (!value || typeof value !== 'object') continue;
+    if (Array.isArray(value)) {
+      for (const item of value) stack.push(item);
+      continue;
+    }
+    const row = value as Record<string, unknown>;
+    if (typeof row.command === 'string' && typeof row.cwd === 'string') out.push(row);
+    for (const child of Object.values(row)) {
+      if (child && typeof child === 'object') stack.push(child);
+    }
+  }
+  return out;
+}
+
+function parseJsonObject(value: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
+function isBdCreateCommand(command: string): boolean {
+  return /\bbd\s+(create|new|q|todo)\b/.test(command);
+}
+
+function outputTextFromItem(item: Record<string, unknown>): string {
+  return [
+    item.aggregatedOutput,
+    item.output,
+    item.stdout,
+    item.result,
+    item.content,
+  ].filter((value): value is string => typeof value === 'string').join('\n');
+}
+
+function beadIdFromCommandOutput(output: string): string | null {
+  const parsed = parseJsonObject(output.trim());
+  if (typeof parsed?.id === 'string') return parsed.id;
+  const created = output.match(/(?:✓\s*)?Created (?:issue|bead):\s*([A-Za-z0-9][A-Za-z0-9._-]*)/);
+  if (created?.[1]) return created[1];
+  const bare = output.trim();
+  return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(bare) ? bare : null;
 }
 
 function metadataObject(value: unknown): Record<string, unknown> {

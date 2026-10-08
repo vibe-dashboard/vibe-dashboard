@@ -4,10 +4,10 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   buildWorkspaceMigrationPlan,
-  buildSessionCreationEvidence,
   loadLegacySnapshots,
   parseWorktreeCwd,
   planHasHardHazards,
+  scanProcessCreationEvidence,
   type LegacyBeadRecord,
 } from './beadsMigration';
 import { applyWorkspaceBeadsSetup } from './workspaceBeads';
@@ -59,7 +59,7 @@ describe('beadsMigration planner', () => {
     expect(plan.unresolved.map((item) => item.beadId)).toEqual(['vkvw-677.9.1']);
   });
 
-  it('uses cwd-derived workspace before fallback workspaceId and reports disagreement', () => {
+  it('uses cwd-derived workspace and ignores fallback workspaceId disagreement', () => {
     const plan = buildWorkspaceMigrationPlan({
       records: [record('bead-1')],
       evidence: [{
@@ -75,35 +75,47 @@ describe('beadsMigration planner', () => {
     });
 
     expect(plan.assignments[key('vkvw', 'bead-1')]).toBe(ws1);
-    expect(plan.hazards.evidenceConflicts).toEqual([`bead-1:cwd:${ws1}!=fallback:${ws2}`]);
-    expect(planHasHardHazards(plan)).toBe(true);
+    expect(plan.hazards.evidenceConflicts).toEqual([]);
+    expect(planHasHardHazards(plan)).toBe(false);
   });
 
-  it('uses fallback workspaceId only when cwd evidence is absent', () => {
+  it('ignores fallback workspaceId when cwd evidence is absent', () => {
     const plan = buildWorkspaceMigrationPlan({
       records: [record('bead-1')],
       evidence: [{ beadId: 'bead-1', cwd: null, workspaceId: ws2, source: 'vk-sqlite-session' }],
       workspaceRoots: [{ workspaceId: ws1, root: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor' }],
     });
 
-    expect(plan.assignments[key('vkvw', 'bead-1')]).toBe(ws2);
+    expect(plan.assignments[key('vkvw', 'bead-1')]).toBeUndefined();
+    expect(plan.unresolved.map((item) => item.beadId)).toEqual(['bead-1']);
   });
 
-  it('builds creation evidence from VK sessions and leaves only known unassigned examples unresolved', () => {
+  it('hard-fails conflicting cwd-derived evidence for one bead', () => {
+    const plan = buildWorkspaceMigrationPlan({
+      records: [record('bead-1')],
+      evidence: [
+        { beadId: 'bead-1', cwd: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor/repo' },
+        { beadId: 'bead-1', cwd: '/var/tmp/vibe-kanban/worktrees/other/repo' },
+      ],
+      workspaceRoots: [
+        { workspaceId: ws1, root: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor' },
+        { workspaceId: ws2, root: '/var/tmp/vibe-kanban/worktrees/other' },
+      ],
+    });
+
+    expect(plan.hazards.evidenceConflicts).toEqual([`bead-1:${ws1}!=${ws2}`]);
+    expect(planHasHardHazards(plan)).toBe(true);
+  });
+
+  it('ignores metadata alone and assigns only from cwd evidence', () => {
     const records = [
       record('vkw-1234567890abcdefghijklmnopqrstuv', { metadata: { VK_SESSION_ID: 'session-1' } }),
       record('vkvw-677.9.1', { title: 'Review Gate: approve V1 non-PR branch reuse design' }),
       record('vkvw-8xaj.18.4.11', { title: 'Add typed UIC recent session delete action' }),
     ];
-    const evidence = buildSessionCreationEvidence(records, [{
-      sessionId: 'session-1',
-      workspaceId: ws1,
-      workspaceRoot: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor',
-      agentWorkingDir: 'vibe-kanban-vscode-web',
-    }]);
     const plan = buildWorkspaceMigrationPlan({
       records,
-      evidence,
+      evidence: [{ beadId: 'vkw-1234567890abcdefghijklmnopqrstuv', cwd: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor/vibe-kanban-vscode-web' }],
       workspaceRoots: [{ workspaceId: ws1, root: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor' }],
     });
 
@@ -114,12 +126,12 @@ describe('beadsMigration planner', () => {
   it('infers one-sided parent-child assignments only', () => {
     const plan = buildWorkspaceMigrationPlan({
       records: [
-        record('child', { metadata: { VK_WORKSPACE_ID: ws1 }, dependencies: [{ issueId: 'child', dependsOnId: 'parent', type: 'parent-child' }] }),
+        record('child', { dependencies: [{ issueId: 'child', dependsOnId: 'parent', type: 'parent-child' }] }),
         record('parent'),
         record('related', { dependencies: [{ issueId: 'related', dependsOnId: 'other', type: 'related' }] }),
         record('other'),
       ],
-      evidence: [],
+      evidence: [{ beadId: 'child', cwd: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor/repo' }],
       workspaceRoots: [{ workspaceId: ws1, root: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor' }],
     });
 
@@ -129,20 +141,19 @@ describe('beadsMigration planner', () => {
     expect(plan.reports.nonParentEdges).toContain('vkvw:related->other:related');
   });
 
-  it('keeps duplicate bead assignments source-qualified', () => {
+  it('hard-fails duplicate bead ids selected by cwd evidence', () => {
     const plan = buildWorkspaceMigrationPlan({
       records: [
-        record('same-id', { sourceDb: 'selected', metadata: { VK_WORKSPACE_ID: ws1 } }),
+        record('same-id', { sourceDb: 'selected' }),
         record('same-id', { sourceDb: 'legacy' }),
       ],
-      evidence: [],
+      evidence: [{ beadId: 'same-id', cwd: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor/repo' }],
       workspaceRoots: [{ workspaceId: ws1, root: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor' }],
     });
 
     expect(plan.assignments[key('selected', 'same-id')]).toBe(ws1);
-    expect(plan.assignments[key('legacy', 'same-id')]).toBeUndefined();
-    expect(plan.importsByWorkspace[ws1]).toEqual([{ sourceDb: 'selected', beadId: 'same-id' }]);
-    expect(plan.hazards.duplicateSelected).toEqual([]);
+    expect(plan.assignments[key('legacy', 'same-id')]).toBe(ws1);
+    expect(plan.hazards.duplicateSelected[0]).toContain('same-id:selected,legacy');
   });
 
   it('runs parent-child inference to a fixed point', () => {
@@ -150,9 +161,9 @@ describe('beadsMigration planner', () => {
       records: [
         record('grandparent'),
         record('parent', { dependencies: [{ issueId: 'parent', dependsOnId: 'grandparent', type: 'parent-child' }] }),
-        record('child', { metadata: { VK_WORKSPACE_ID: ws1 }, dependencies: [{ issueId: 'child', dependsOnId: 'parent', type: 'parent-child' }] }),
+        record('child', { dependencies: [{ issueId: 'child', dependsOnId: 'parent', type: 'parent-child' }] }),
       ],
-      evidence: [],
+      evidence: [{ beadId: 'child', cwd: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor/repo' }],
       workspaceRoots: [{ workspaceId: ws1, root: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor' }],
     });
 
@@ -161,15 +172,19 @@ describe('beadsMigration planner', () => {
     expect(plan.reports.parentChildInferred).toEqual([...new Set(plan.reports.parentChildInferred)]);
   });
 
-  it('reports explicit different-workspace parent-child and hard-fails duplicate selected ids', () => {
+  it('reports different-workspace parent-child and hard-fails duplicate selected ids', () => {
     const plan = buildWorkspaceMigrationPlan({
       records: [
-        record('dup', { sourceDb: 'a', metadata: { VK_WORKSPACE_ID: ws1 } }),
-        record('dup', { sourceDb: 'b', metadata: { VK_WORKSPACE_ID: ws1 } }),
-        record('child', { metadata: { VK_WORKSPACE_ID: ws1 }, dependencies: [{ issueId: 'child', dependsOnId: 'parent', type: 'parent-child' }] }),
-        record('parent', { metadata: { VK_WORKSPACE_ID: ws2 } }),
+        record('dup', { sourceDb: 'a' }),
+        record('dup', { sourceDb: 'b' }),
+        record('child', { dependencies: [{ issueId: 'child', dependsOnId: 'parent', type: 'parent-child' }] }),
+        record('parent'),
       ],
-      evidence: [],
+      evidence: [
+        { beadId: 'dup', cwd: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor/repo' },
+        { beadId: 'child', cwd: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor/repo' },
+        { beadId: 'parent', cwd: '/var/tmp/vibe-kanban/worktrees/other/repo' },
+      ],
       workspaceRoots: [{ workspaceId: ws1, root: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor' }, { workspaceId: ws2, root: '/var/tmp/vibe-kanban/worktrees/other' }],
     });
 
@@ -182,10 +197,13 @@ describe('beadsMigration planner', () => {
   it('does not hard-fail cross-workspace parent-child reports by themselves', () => {
     const plan = buildWorkspaceMigrationPlan({
       records: [
-        record('child', { metadata: { VK_WORKSPACE_ID: ws1 }, dependencies: [{ issueId: 'child', dependsOnId: 'parent', type: 'parent-child' }] }),
-        record('parent', { metadata: { VK_WORKSPACE_ID: ws2 } }),
+        record('child', { dependencies: [{ issueId: 'child', dependsOnId: 'parent', type: 'parent-child' }] }),
+        record('parent'),
       ],
-      evidence: [],
+      evidence: [
+        { beadId: 'child', cwd: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor/repo' },
+        { beadId: 'parent', cwd: '/var/tmp/vibe-kanban/worktrees/other/repo' },
+      ],
       workspaceRoots: [{ workspaceId: ws1, root: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor' }, { workspaceId: ws2, root: '/var/tmp/vibe-kanban/worktrees/other' }],
     });
 
@@ -197,15 +215,20 @@ describe('beadsMigration planner', () => {
   it('scopes pilot hard hazards to selected workspace records', () => {
     const plan = buildWorkspaceMigrationPlan({
       records: [
-        record('target', { metadata: { VK_WORKSPACE_ID: ws1 } }),
-        record('other-child', { metadata: { VK_WORKSPACE_ID: ws2 }, dependencies: [{ issueId: 'other-child', dependsOnId: 'other-parent', type: 'parent-child' }] }),
-        record('other-parent', { metadata: { VK_WORKSPACE_ID: '33333333-3333-4333-8333-333333333333' } }),
+        record('target'),
+        record('other-child', { dependencies: [{ issueId: 'other-child', dependsOnId: 'other-parent', type: 'parent-child' }] }),
+        record('other-parent'),
         record('external-missing', { metadata: { external_issues: [{ provider: 'jira', key: 'VD-1' }] } }),
       ],
-      evidence: [],
+      evidence: [
+        { beadId: 'target', cwd: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor/repo' },
+        { beadId: 'other-child', cwd: '/var/tmp/vibe-kanban/worktrees/other/repo' },
+        { beadId: 'other-parent', cwd: '/var/tmp/vibe-kanban/worktrees/third/repo' },
+      ],
       workspaceRoots: [
         { workspaceId: ws1, root: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor' },
         { workspaceId: ws2, root: '/var/tmp/vibe-kanban/worktrees/other' },
+        { workspaceId: '33333333-3333-4333-8333-333333333333', root: '/var/tmp/vibe-kanban/worktrees/third' },
       ],
       workspaceIdFilter: ws1,
     });
@@ -231,15 +254,19 @@ describe('beadsMigration planner', () => {
     expect(plan.hazards.externalIssueMissingWorkspace).toEqual(['vkvw:external']);
   });
 
-  it('plans unknown workspace imports as DB-only while known roots can be reconciled', async () => {
+  it('plans known cwd-derived workspace imports for reconciliation', async () => {
     const root = await mkdtempClean('vd-known-root-');
     try {
       const plan = buildWorkspaceMigrationPlan({
-        records: [record('known', { metadata: { VK_WORKSPACE_ID: ws1 } }), record('unknown', { metadata: { VK_WORKSPACE_ID: 'missing-root' } })],
-        evidence: [],
+        records: [record('known'), record('unknown')],
+        evidence: [
+          { beadId: 'known', cwd: `${root}/repo` },
+          { beadId: 'unknown', cwd: '/var/tmp/vibe-kanban/worktrees/missing/repo' },
+        ],
         workspaceRoots: [{ workspaceId: ws1, root, repos: [{ name: 'repo', targetBranch: 'main' }] }],
       });
-      expect(plan.reports.unknownRoots).toEqual(['missing-root']);
+      expect(plan.importsByWorkspace[ws1]).toEqual([{ sourceDb: 'vkvw', beadId: 'known' }]);
+      expect(plan.reports.unknownRoots).toEqual([]);
 
       await writeFile(path.join(root, 'AGENTS.md'), 'human note\n');
       await applyWorkspaceBeadsSetup(
@@ -262,6 +289,36 @@ describe('beadsMigration planner', () => {
 
       const records = await loadLegacySnapshots(dir);
       expect(records).toMatchObject([{ sourceDb: 'global', beadId: 'a', metadata: { VK_WORKSPACE_ID: ws1 } }]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('extracts bd create cwd evidence from process JSONL', async () => {
+    const dir = await mkdtempClean('process-jsonl-');
+    try {
+      const processDir = path.join(dir, 'aa', 'session', 'processes');
+      await mkdir(processDir, { recursive: true });
+      const item = {
+        method: 'item/completed',
+        params: {
+          item: {
+            type: 'commandExecution',
+            command: '/bin/bash -lc \'bd create "Support unmanaged imported workspace working directories" --json\'',
+            cwd: '/var/tmp/vibe-kanban/worktrees/cd92-vk-import-existi/Vktest',
+            aggregatedOutput: `${JSON.stringify({ id: 'Vktest-6m8e', title: 'redacted' })}\n`,
+          },
+        },
+      };
+      await writeFile(path.join(processDir, 'process.jsonl'), `${JSON.stringify({ Stdout: `${JSON.stringify(item)}\n` })}\n`);
+
+      const scan = await scanProcessCreationEvidence(dir);
+      expect(scan.filesScanned).toBe(1);
+      expect(scan.evidence).toEqual([{
+        beadId: 'Vktest-6m8e',
+        cwd: '/var/tmp/vibe-kanban/worktrees/cd92-vk-import-existi/Vktest',
+        source: 'process-jsonl:process.jsonl',
+      }]);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

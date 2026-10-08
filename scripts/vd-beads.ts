@@ -9,12 +9,14 @@ import readline from 'node:readline/promises';
 import { promisify } from 'node:util';
 import {
   buildWorkspaceMigrationPlan,
-  buildSessionCreationEvidence,
   loadCreationEvidence,
+  loadCreationEvidenceFile,
   loadLegacySnapshots,
   planHasHardHazards,
   reconcileWorkspaceRoot,
+  scanProcessCreationEvidence,
   writeWorkspaceMigrationReport,
+  type CreationEvidence,
   type LegacyBeadRecord,
   type WorkspaceRoot,
 } from '../src/modules/plugins/kanban/server/beadsMigration.ts';
@@ -42,6 +44,8 @@ async function main(): Promise<void> {
     await runPunt(args.slice(1));
   } else if (command === 'migrate-shared-server') {
     await runSharedServerMigration(args.slice(1));
+  } else if (command === 'collect-creation-evidence') {
+    await runCollectCreationEvidence(args.slice(1));
   } else if (command === 'migrate-workspaces') {
     await runWorkspaceMigration(args.slice(1));
   } else {
@@ -49,7 +53,8 @@ async function main(): Promise<void> {
     console.error('       vd-beads punt --bead <id> --from-workspace <id> --to-workspace <id> [--yes]');
     console.error('       vd-beads punt --bead <id> --from-workspace <id> --new-workspace --name <name> --repo <repo_id>:<branch> [--append-to-prompt <text>] [--executor CODEX] [--no-start] [--yes]');
     console.error('       vd-beads migrate-shared-server --dry-run|--apply');
-    console.error('       vd-beads migrate-workspaces --dry-run|--apply [--workspace-id <id>]');
+    console.error('       vd-beads collect-creation-evidence [--output <jsonl>] [--sessions-dir <dir> ...]');
+    console.error('       vd-beads migrate-workspaces --dry-run|--apply [--workspace-id <id>] [--evidence <jsonl>]');
     process.exit(2);
   }
 }
@@ -146,25 +151,18 @@ async function runSharedServerMigration(migrationArgs: string[]): Promise<void> 
     throw new Error(`Shared source exists but all source DB exports were empty; refusing to rewrite bd config. Backup directory: ${backupDir}`);
   }
   const preservedEvidence = await readFile(path.join(legacyDir, 'bead-creation-evidence.jsonl'), 'utf8').catch(() => '');
-  const snapshotRecords = await loadLegacySnapshots(snapshotDir);
-  const sessionEvidence = await collectSessionCreationEvidence(snapshotRecords);
-  const evidenceLines = [
-    ...preservedEvidence.split('\n').map((line) => line.trim()).filter(Boolean),
-    ...sessionEvidence.map((entry) => JSON.stringify(entry)),
-  ];
-  if (evidenceLines.length > 0) {
-    await writeFile(
-      path.join(snapshotDir, 'bead-creation-evidence.jsonl'),
-      evidenceLines.join('\n') + '\n',
-    );
+  const preservedEvidenceLines = preservedEvidence.split('\n').map((line) => line.trim()).filter(Boolean);
+  if (preservedEvidenceLines.length > 0) {
+    await writeFile(path.join(snapshotDir, 'bead-creation-evidence.jsonl'), preservedEvidenceLines.join('\n') + '\n');
   }
   await writeFile(path.join(snapshotDir, 'manifest.json'), `${JSON.stringify({
     sharedDir,
     backupDir,
     exportedSources,
     creationEvidence: {
-      preservedRecords: preservedEvidence.trim() ? preservedEvidence.trim().split('\n').length : 0,
-      collectedRecords: sessionEvidence.length,
+      preservedRecords: preservedEvidenceLines.length,
+      collectedRecords: 0,
+      note: 'Run collect-creation-evidence after snapshot creation to build cwd evidence from provider/session logs.',
     },
   }, null, 2)}\n`);
   await ensureEmbeddedDb(path.join(beadsDir, 'aggregate-workspaces'), 'task');
@@ -177,8 +175,9 @@ async function runSharedServerMigration(migrationArgs: string[]): Promise<void> 
     backupDir,
     exportedSources: finalSources,
     creationEvidence: {
-      preservedRecords: preservedEvidence.trim() ? preservedEvidence.trim().split('\n').length : 0,
-      collectedRecords: sessionEvidence.length,
+      preservedRecords: preservedEvidenceLines.length,
+      collectedRecords: 0,
+      note: 'Run collect-creation-evidence after snapshot creation to build cwd evidence from provider/session logs.',
     },
   }, null, 2)}\n`);
   const nonSharedConfig = 'no-git-ops: true\nno-push: true\n\ndolt:\n  shared-server: false\n  auto-commit: on\n  auto-push: false\n';
@@ -191,9 +190,47 @@ async function runSharedServerMigration(migrationArgs: string[]): Promise<void> 
     backupDir,
     backedUpBdConfig: existsSync(path.join(backupDir, 'bd-config.yaml')),
     legacySources: finalSources,
-    creationEvidenceRecords: sessionEvidence.length,
+    creationEvidenceRecords: preservedEvidenceLines.length,
     initialized: ['aggregate-workspaces'],
     verifiedAggregateExportBytes: aggregateCheck.stdout.length,
+  }, null, 2));
+}
+
+async function runCollectCreationEvidence(evidenceArgs: string[]): Promise<void> {
+  const beadsDir = resolveVdBeadsDirectory();
+  const legacyDir = path.join(beadsDir, 'legacy-all-beads');
+  const output = readFlag(evidenceArgs, '--output', false) ?? path.join(legacyDir, 'bead-creation-evidence.jsonl');
+  const sessionDirs = readRepeatedFlag(evidenceArgs, '--sessions-dir');
+  const roots = sessionDirs.length > 0 ? sessionDirs : defaultEvidenceRoots();
+  const records = await loadLegacySnapshots(legacyDir);
+  const beadIds = records.map((record) => record.beadId);
+  const allEvidence: CreationEvidence[] = [];
+  const scans = [];
+  for (const root of roots) {
+    if (!existsSync(root)) continue;
+    const scan = await scanProcessCreationEvidence(root, beadIds);
+    allEvidence.push(...scan.evidence);
+    scans.push({ root, records: scan.evidence.length, filesScanned: scan.filesScanned, sourceCounts: scan.sourceCounts });
+  }
+
+  await mkdir(path.dirname(output), { recursive: true });
+  await writeFile(output, allEvidence.map((entry) => JSON.stringify(entry)).join('\n') + (allEvidence.length ? '\n' : ''));
+  await writeFile(`${output}.report.json`, `${JSON.stringify({
+    command: 'collect-creation-evidence',
+    output,
+    legacyDir,
+    beadIds: beadIds.length,
+    records: allEvidence.length,
+    uniqueBeads: new Set(allEvidence.map((entry) => entry.beadId)).size,
+    scans,
+  }, null, 2)}\n`);
+  console.log(JSON.stringify({
+    command: 'collect-creation-evidence',
+    output,
+    beadIds: beadIds.length,
+    records: allEvidence.length,
+    uniqueBeads: new Set(allEvidence.map((entry) => entry.beadId)).size,
+    scans,
   }, null, 2));
 }
 
@@ -205,7 +242,11 @@ async function runWorkspaceMigration(migrationArgs: string[]): Promise<void> {
   const legacyDir = path.join(beadsDir, 'legacy-all-beads');
   const records = await loadLegacySnapshots(legacyDir);
   const workspaceRoots = await loadVkWorkspaceRoots();
-  const evidence = await loadCreationEvidence(legacyDir, workspaceRoots);
+  const evidencePath = readFlag(migrationArgs, '--evidence', false) ?? path.join(legacyDir, 'bead-creation-evidence.jsonl');
+  const cachedEvidence = evidencePath === path.join(legacyDir, 'bead-creation-evidence.jsonl')
+    ? await loadCreationEvidence(legacyDir, workspaceRoots)
+    : await loadCreationEvidenceFile(evidencePath);
+  const evidence = cachedEvidence;
   const plan = buildWorkspaceMigrationPlan({ records, evidence, workspaceRoots, workspaceIdFilter });
   const report = {
     command: 'migrate-workspaces',
@@ -214,6 +255,10 @@ async function runWorkspaceMigration(migrationArgs: string[]): Promise<void> {
     legacyDir,
     recordCount: records.length,
     workspaceCount: workspaceRoots.length,
+    evidence: {
+      cachedRecords: cachedEvidence.length,
+      evidencePath,
+    },
     plan,
   };
 
@@ -384,29 +429,6 @@ async function loadVkWorkspaceRoots(): Promise<WorkspaceRoot[]> {
     }));
 }
 
-async function collectSessionCreationEvidence(records: LegacyBeadRecord[]) {
-  const dbPath = process.env.VK_DB_PATH ?? path.join(process.env.HOME ?? '/home/vkuser', '.local', 'share', 'vibe-kanban', 'db.v2.sqlite');
-  if (!existsSync(dbPath)) return [];
-  const sql = `
-SELECT
-  lower(substr(hex(s.id),1,8)||'-'||substr(hex(s.id),9,4)||'-'||substr(hex(s.id),13,4)||'-'||substr(hex(s.id),17,4)||'-'||substr(hex(s.id),21,12)) AS sessionId,
-  lower(substr(hex(s.workspace_id),1,8)||'-'||substr(hex(s.workspace_id),9,4)||'-'||substr(hex(s.workspace_id),13,4)||'-'||substr(hex(s.workspace_id),17,4)||'-'||substr(hex(s.workspace_id),21,12)) AS workspaceId,
-  w.container_ref AS workspaceRoot,
-  s.agent_working_dir AS agentWorkingDir
-FROM sessions s
-JOIN workspaces w ON w.id = s.workspace_id;
-`;
-  const { stdout } = await execFile('sqlite3', ['-json', dbPath, sql], { timeout: 30_000, maxBuffer: 20 * 1024 * 1024 }).catch(() => ({ stdout: '[]' }));
-  const rows = parseJsonOrNull(stdout);
-  if (!Array.isArray(rows)) return [];
-  return buildSessionCreationEvidence(records, rows.filter((row): row is { sessionId: string; workspaceId: string; workspaceRoot?: string | null; agentWorkingDir?: string | null } => (
-    !!row
-    && typeof row === 'object'
-    && typeof (row as { sessionId?: unknown }).sessionId === 'string'
-    && typeof (row as { workspaceId?: unknown }).workspaceId === 'string'
-  )));
-}
-
 function parseJsonOrNull(value: string): unknown | null {
   try {
     return JSON.parse(value);
@@ -511,6 +533,20 @@ function readRepeatedFlag(values: string[], flag: string): string[] {
     if (values[index] === flag && value) out.push(value);
   }
   return out;
+}
+
+function defaultEvidenceRoots(): string[] {
+  const home = process.env.HOME ?? '/home/vkuser';
+  return [
+    process.env.VK_SESSION_LOG_DIR,
+    process.env.CODEX_SESSION_LOG_DIR,
+    path.join(home, '.local', 'share', 'vibe-kanban', 'sessions'),
+    path.join(home, '.codex', 'sessions'),
+  ].filter((value, index, array): value is string => (
+    typeof value === 'string'
+    && value.length > 0
+    && array.indexOf(value) === index
+  ));
 }
 
 function parseStringArray(toml: string, key: string): string[] {
