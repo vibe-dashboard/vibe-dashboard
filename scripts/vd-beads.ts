@@ -2,7 +2,8 @@
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { execFile as execFileCallback } from 'node:child_process';
-import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import { promisify } from 'node:util';
@@ -127,22 +128,22 @@ async function runSharedServerMigration(migrationArgs: string[]): Promise<void> 
     const sourceDir = path.join(snapshotDir, 'sources', sourceDb);
     await mkdir(sourceDir, { recursive: true });
     const exportPath = path.join(sourceDir, 'export.jsonl');
-    const exportResult = await bdLegacyShared(['--global', 'export', '--all'], process.cwd(), sourceDb).catch((error) => ({ error: String(error) }));
+    const exportResult = await bdLegacyShared(['export', '--all'], sourceDb).catch((error) => ({ error: String(error) }));
     if ('error' in exportResult) {
       await restoreOriginalBdConfig(bdConfigPath, backupDir, bdConfigExisted);
       throw new Error(`Legacy shared-server export failed for ${sourceDb}; refusing to rewrite bd config. Backup directory: ${backupDir}. Export error: ${exportResult.error}`);
     }
     const lines = exportResult.stdout.trim().split('\n').filter(Boolean);
-    if (lines.length === 0) {
-      await restoreOriginalBdConfig(bdConfigPath, backupDir, bdConfigExisted);
-      throw new Error(`Legacy shared-server export for ${sourceDb} was empty despite shared source existing; refusing to rewrite bd config. Backup directory: ${backupDir}`);
-    }
     await writeFile(exportPath, exportResult.stdout);
     exportedSources.push({ sourceDb, exportPath, records: lines.length });
   }
   if (sharedSourceExists && exportedSources.length === 0) {
     await restoreOriginalBdConfig(bdConfigPath, backupDir, bdConfigExisted);
     throw new Error(`Shared source exists but no source DBs were enumerated; refusing to rewrite bd config. Backup directory: ${backupDir}`);
+  }
+  if (sharedSourceExists && exportedSources.reduce((total, source) => total + source.records, 0) === 0) {
+    await restoreOriginalBdConfig(bdConfigPath, backupDir, bdConfigExisted);
+    throw new Error(`Shared source exists but all source DB exports were empty; refusing to rewrite bd config. Backup directory: ${backupDir}`);
   }
   const preservedEvidence = await readFile(path.join(legacyDir, 'bead-creation-evidence.jsonl'), 'utf8').catch(() => '');
   const snapshotRecords = await loadLegacySnapshots(snapshotDir);
@@ -430,14 +431,24 @@ async function bd(commandArgs: string[], cwd: string, embedded = true): Promise<
   return execFile('bd', commandArgs, { cwd, env, timeout: 30_000, maxBuffer: 10 * 1024 * 1024 });
 }
 
-async function bdLegacyShared(commandArgs: string[], cwd: string, sourceDb = 'beads_global'): Promise<{ stdout: string }> {
+async function bdLegacyShared(commandArgs: string[], sourceDb = 'beads_global'): Promise<{ stdout: string }> {
+  const cwd = await mkdtemp(path.join(tmpdir(), `vd-beads-${sourceDb}-`));
+  const beadsDir = path.join(cwd, '.beads');
+  await mkdir(beadsDir, { recursive: true });
+  await chmod(beadsDir, 0o700);
+  await writeFile(path.join(beadsDir, 'metadata.json'), `${JSON.stringify({
+    database: 'dolt',
+    backend: 'dolt',
+    dolt_mode: 'server',
+    dolt_database: sourceDb,
+  })}\n`);
+  await writeFile(path.join(beadsDir, 'config.yaml'), 'dolt:\n  shared-server: true\n  host: 127.0.0.1\n  port: 3308\n  auto-start: false\n');
   const env = { ...process.env };
   delete env.BEADS_DIR;
   env.BEADS_DOLT_SHARED_SERVER = 'true';
   env.BEADS_DOLT_SERVER_HOST = env.BEADS_DOLT_SERVER_HOST ?? '127.0.0.1';
   env.BEADS_DOLT_SERVER_PORT = env.BEADS_DOLT_SERVER_PORT ?? '3308';
-  env.BEADS_DOLT_SERVER_DATABASE = sourceDb;
-  return execFile('bd', commandArgs, { cwd, env, timeout: 30_000, maxBuffer: 10 * 1024 * 1024 });
+  return execFile('bd', commandArgs, { cwd, env, timeout: 30_000, maxBuffer: 50 * 1024 * 1024 });
 }
 
 async function enumerateLegacySharedSources(sharedDir: string): Promise<string[]> {
