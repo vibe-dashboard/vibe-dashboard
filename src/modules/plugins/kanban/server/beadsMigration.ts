@@ -62,7 +62,6 @@ export interface WorkspaceMigrationPlan {
     parentChildConflicts: string[];
     nonParentEdges: string[];
     unknownRoots: string[];
-    duplicateMerged: string[];
   };
 }
 
@@ -113,7 +112,6 @@ export function buildWorkspaceMigrationPlan(input: BuildWorkspaceMigrationPlanIn
       parentChildConflicts: [],
       nonParentEdges: [],
       unknownRoots: [],
-      duplicateMerged: [],
     },
   };
 
@@ -159,46 +157,12 @@ export function buildWorkspaceMigrationPlan(input: BuildWorkspaceMigrationPlanIn
       return workspaceId && (!input.workspaceIdFilter || workspaceId === input.workspaceIdFilter);
     });
     if (selected.length > 1) {
-      mergeSameWorkspaceDuplicate(plan, selected, beadId);
+      plan.hazards.duplicateSelected.push(`${beadId}:${selected.map((record) => record.sourceDb).join(',')}`);
     }
   }
 
   plan.reports.unknownRoots = [...new Set(plan.reports.unknownRoots)].sort();
   return plan;
-}
-
-function mergeSameWorkspaceDuplicate(plan: WorkspaceMigrationPlan, selected: LegacyBeadRecord[], beadId: string): void {
-  const workspaceIds = new Set(selected.map((record) => plan.assignments[recordKey(record)]).filter(Boolean));
-  if (workspaceIds.size !== 1) {
-    plan.hazards.duplicateSelected.push(`${beadId}:${selected.map((record) => `${record.sourceDb}@${plan.assignments[recordKey(record)] ?? 'unassigned'}`).join(',')}`);
-    return;
-  }
-
-  const workspaceId = [...workspaceIds][0];
-  if (!workspaceId) return;
-  const keep = chooseDuplicateRecord(selected);
-  const skipped = selected.filter((record) => record !== keep);
-  plan.importsByWorkspace[workspaceId] = (plan.importsByWorkspace[workspaceId] ?? [])
-    .filter((item) => item.beadId !== beadId || item.sourceDb === keep.sourceDb);
-  plan.reports.duplicateMerged.push(`${beadId}:${keep.sourceDb}<=${skipped.map((record) => record.sourceDb).join(',')}`);
-}
-
-function chooseDuplicateRecord(records: LegacyBeadRecord[]): LegacyBeadRecord {
-  const [first] = [...records].sort((a, b) => {
-    const timeDelta = recordTimeMs(b) - recordTimeMs(a);
-    if (timeDelta !== 0) return timeDelta;
-    return a.sourceDb.localeCompare(b.sourceDb);
-  });
-  if (!first) throw new Error('duplicate merge requires at least one record');
-  return first;
-}
-
-function recordTimeMs(record: LegacyBeadRecord): number {
-  const raw = record.raw;
-  const updated = typeof raw.updated_at === 'string' ? Date.parse(raw.updated_at) : NaN;
-  if (Number.isFinite(updated)) return updated;
-  const created = typeof raw.created_at === 'string' ? Date.parse(raw.created_at) : NaN;
-  return Number.isFinite(created) ? created : 0;
 }
 
 export function planHasHardHazards(plan: WorkspaceMigrationPlan): boolean {

@@ -141,22 +141,19 @@ describe('beadsMigration planner', () => {
     expect(plan.reports.nonParentEdges).toContain('vkvw:related->other:related');
   });
 
-  it('merges duplicate bead ids selected into the same workspace', () => {
+  it('hard-fails duplicate bead ids selected by cwd evidence', () => {
     const plan = buildWorkspaceMigrationPlan({
       records: [
-        record('same-id', { sourceDb: 'older', raw: { id: 'same-id', updated_at: '2026-01-01T00:00:00Z' } }),
-        record('same-id', { sourceDb: 'newer', raw: { id: 'same-id', updated_at: '2026-01-02T00:00:00Z' } }),
+        record('same-id', { sourceDb: 'selected' }),
+        record('same-id', { sourceDb: 'legacy' }),
       ],
       evidence: [{ beadId: 'same-id', cwd: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor/repo' }],
       workspaceRoots: [{ workspaceId: ws1, root: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor' }],
     });
 
-    expect(plan.assignments[key('older', 'same-id')]).toBe(ws1);
-    expect(plan.assignments[key('newer', 'same-id')]).toBe(ws1);
-    expect(plan.importsByWorkspace[ws1]).toEqual([{ sourceDb: 'newer', beadId: 'same-id' }]);
-    expect(plan.reports.duplicateMerged).toEqual(['same-id:newer<=older']);
-    expect(plan.hazards.duplicateSelected).toEqual([]);
-    expect(planHasHardHazards(plan)).toBe(false);
+    expect(plan.assignments[key('selected', 'same-id')]).toBe(ws1);
+    expect(plan.assignments[key('legacy', 'same-id')]).toBe(ws1);
+    expect(plan.hazards.duplicateSelected[0]).toContain('same-id:selected,legacy');
   });
 
   it('runs parent-child inference to a fixed point', () => {
@@ -175,11 +172,11 @@ describe('beadsMigration planner', () => {
     expect(plan.reports.parentChildInferred).toEqual([...new Set(plan.reports.parentChildInferred)]);
   });
 
-  it('reports different-workspace parent-child and merges same-workspace duplicate selected ids', () => {
+  it('reports different-workspace parent-child and hard-fails duplicate selected ids', () => {
     const plan = buildWorkspaceMigrationPlan({
       records: [
-        record('dup', { sourceDb: 'a', raw: { id: 'dup', updated_at: '2026-01-01T00:00:00Z' } }),
-        record('dup', { sourceDb: 'b', raw: { id: 'dup', updated_at: '2026-01-02T00:00:00Z' } }),
+        record('dup', { sourceDb: 'a' }),
+        record('dup', { sourceDb: 'b' }),
         record('child', { dependencies: [{ issueId: 'child', dependsOnId: 'parent', type: 'parent-child' }] }),
         record('parent'),
       ],
@@ -191,11 +188,10 @@ describe('beadsMigration planner', () => {
       workspaceRoots: [{ workspaceId: ws1, root: '/var/tmp/vibe-kanban/worktrees/44d6-vd-beads-per-wor' }, { workspaceId: ws2, root: '/var/tmp/vibe-kanban/worktrees/other' }],
     });
 
-    expect(plan.hazards.duplicateSelected).toEqual([]);
-    expect(plan.reports.duplicateMerged).toEqual(['dup:b<=a']);
+    expect(plan.hazards.duplicateSelected[0]).toContain('dup:a,b');
     expect(plan.hazards.parentChildConflicts).toEqual([]);
     expect(plan.reports.parentChildConflicts[0]).toContain(`${ws1}!=${ws2}`);
-    expect(planHasHardHazards(plan)).toBe(false);
+    expect(planHasHardHazards(plan)).toBe(true);
   });
 
   it('does not hard-fail cross-workspace parent-child reports by themselves', () => {
