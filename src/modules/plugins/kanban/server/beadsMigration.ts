@@ -73,6 +73,17 @@ export interface BuildWorkspaceMigrationPlanInput {
   worktreeBase?: string;
 }
 
+export interface PreparedWorkspaceImport {
+  records: Record<string, unknown>[];
+  strippedDependencies: string[];
+}
+
+export interface ExpandedWorkspaceImport {
+  records: LegacyBeadRecord[];
+  contextRecordKeys: string[];
+  missingAncestorKeys: string[];
+}
+
 export function parseWorktreeCwd(
   cwd: string | null | undefined,
   slugToWorkspaceId: Map<string, string>,
@@ -170,6 +181,73 @@ export function planHasHardHazards(plan: WorkspaceMigrationPlan): boolean {
     || plan.hazards.duplicateSelected.length > 0
     || plan.hazards.externalIssueMissingWorkspace.length > 0
     || plan.hazards.evidenceConflicts.length > 0;
+}
+
+export function prepareWorkspaceImportRecords(records: LegacyBeadRecord[]): PreparedWorkspaceImport {
+  const selectedIds = new Set(records.map((record) => record.beadId));
+  const strippedDependencies: string[] = [];
+  const prepared = records.map((record) => {
+    const raw = JSON.parse(JSON.stringify(record.raw)) as Record<string, unknown>;
+    if (!Array.isArray(raw.dependencies)) return raw;
+    const kept: unknown[] = [];
+    for (const item of raw.dependencies) {
+      if (!item || typeof item !== 'object') {
+        kept.push(item);
+        continue;
+      }
+      const dependency = item as Record<string, unknown>;
+      const dependsOnId = dependency.depends_on_id ?? dependency.dependsOnId;
+      if (typeof dependsOnId !== 'string' || selectedIds.has(dependsOnId)) {
+        kept.push(item);
+        continue;
+      }
+      const type = typeof dependency.type === 'string' ? dependency.type : 'unknown';
+      strippedDependencies.push(`${record.sourceDb}:${record.beadId}->${dependsOnId}:${type}`);
+    }
+    raw.dependencies = kept;
+    raw.dependency_count = kept.length;
+    return raw;
+  });
+  return { records: prepared, strippedDependencies };
+}
+
+export function expandWorkspaceImportAncestors(
+  records: LegacyBeadRecord[],
+  recordsByKey: Map<string, LegacyBeadRecord>,
+): ExpandedWorkspaceImport {
+  const out = [...records];
+  const included = new Set(records.map(recordKey));
+  const contextRecordKeys: string[] = [];
+  const missingAncestorKeys: string[] = [];
+  for (const record of records) {
+    for (const ancestorId of beadAncestorIds(record.beadId)) {
+      const key = recordKeyFromParts(record.sourceDb, ancestorId);
+      if (included.has(key)) continue;
+      const ancestor = recordsByKey.get(key);
+      if (!ancestor) {
+        missingAncestorKeys.push(key);
+        continue;
+      }
+      included.add(key);
+      contextRecordKeys.push(key);
+      out.push(ancestor);
+    }
+  }
+  return {
+    records: out,
+    contextRecordKeys: [...new Set(contextRecordKeys)].sort(),
+    missingAncestorKeys: [...new Set(missingAncestorKeys)].sort(),
+  };
+}
+
+function beadAncestorIds(beadId: string): string[] {
+  const out: string[] = [];
+  let current = beadId;
+  while (current.includes('.')) {
+    current = current.slice(0, current.lastIndexOf('.'));
+    out.push(current);
+  }
+  return out;
 }
 
 export async function loadLegacySnapshots(legacyDir: string): Promise<LegacyBeadRecord[]> {

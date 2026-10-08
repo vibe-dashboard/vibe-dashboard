@@ -9,10 +9,12 @@ import readline from 'node:readline/promises';
 import { promisify } from 'node:util';
 import {
   buildWorkspaceMigrationPlan,
+  expandWorkspaceImportAncestors,
   loadCreationEvidence,
   loadCreationEvidenceFile,
   loadLegacySnapshots,
   planHasHardHazards,
+  prepareWorkspaceImportRecords,
   reconcileWorkspaceRoot,
   scanProcessCreationEvidence,
   writeWorkspaceMigrationReport,
@@ -275,13 +277,18 @@ async function runWorkspaceMigration(migrationArgs: string[]): Promise<void> {
 
   const rootsByWorkspace = new Map(workspaceRoots.map((root) => [root.workspaceId, root]));
   const recordsByKey = new Map(records.map((record) => [`${record.sourceDb}\0${record.beadId}`, record]));
-  const applied: Array<{ workspaceId: string; imported: number; rootReconciled: boolean; importStdout?: string; importJson?: unknown }> = [];
+  const applied: Array<{ workspaceId: string; imported: number; contextRecords?: string[]; strippedDependencies?: string[]; rootReconciled: boolean; importStdout?: string; importJson?: unknown }> = [];
   for (const [workspaceId, imports] of Object.entries(plan.importsByWorkspace)) {
     const workspaceDir = workspaceCwd(workspaceId);
     await ensureEmbeddedDb(workspaceDir, 'task');
     const importPath = path.join(workspaceDir, 'migration-import.jsonl');
     const selectedRecords = imports.map((item) => recordsByKey.get(`${item.sourceDb}\0${item.beadId}`)).filter((record): record is LegacyBeadRecord => !!record);
-    const lines = selectedRecords.map((record) => JSON.stringify(record.raw)).join('\n');
+    const expandedImport = expandWorkspaceImportAncestors(selectedRecords, recordsByKey);
+    if (expandedImport.missingAncestorKeys.length > 0) {
+      throw new Error(`workspace ${workspaceId} import missing ancestor records: ${expandedImport.missingAncestorKeys.join(', ')}`);
+    }
+    const preparedImport = prepareWorkspaceImportRecords(expandedImport.records);
+    const lines = preparedImport.records.map((record) => JSON.stringify(record)).join('\n');
     if (lines.trim()) {
       await writeFile(importPath, `${lines}\n`);
       const importResult = await bd(['import', importPath, '--json'], workspaceDir);
@@ -291,7 +298,9 @@ async function runWorkspaceMigration(migrationArgs: string[]): Promise<void> {
       applied.push({
         workspaceId,
         imported: imports.length,
+        contextRecords: expandedImport.contextRecordKeys,
         rootReconciled: !!root?.root,
+        strippedDependencies: preparedImport.strippedDependencies,
         importStdout: importResult.stdout,
         ...(parsedImport ? { importJson: parsedImport } : {}),
       });

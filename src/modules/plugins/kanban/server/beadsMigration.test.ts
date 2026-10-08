@@ -4,9 +4,11 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   buildWorkspaceMigrationPlan,
+  expandWorkspaceImportAncestors,
   loadLegacySnapshots,
   parseWorktreeCwd,
   planHasHardHazards,
+  prepareWorkspaceImportRecords,
   scanProcessCreationEvidence,
   type LegacyBeadRecord,
 } from './beadsMigration';
@@ -210,6 +212,46 @@ describe('beadsMigration planner', () => {
     expect(plan.hazards.parentChildConflicts).toEqual([]);
     expect(plan.reports.parentChildConflicts[0]).toContain(`${ws1}!=${ws2}`);
     expect(planHasHardHazards(plan)).toBe(false);
+  });
+
+  it('strips dependency edges whose target is outside the workspace import', () => {
+    const prepared = prepareWorkspaceImportRecords([
+      record('child', {
+        raw: {
+          id: 'child',
+          dependency_count: 2,
+          dependencies: [
+            { issue_id: 'child', depends_on_id: 'local-parent', type: 'parent-child' },
+            { issue_id: 'child', depends_on_id: 'remote-parent', type: 'parent-child' },
+          ],
+        },
+      }),
+      record('local-parent', { raw: { id: 'local-parent' } }),
+    ]);
+
+    expect(prepared.strippedDependencies).toEqual(['vkvw:child->remote-parent:parent-child']);
+    expect(prepared.records[0]).toMatchObject({
+      dependency_count: 1,
+      dependencies: [{ issue_id: 'child', depends_on_id: 'local-parent', type: 'parent-child' }],
+    });
+  });
+
+  it('adds dotted id ancestor records as import context', () => {
+    const child = record('task-1.2.3');
+    const parent = record('task-1.2');
+    const grandparent = record('task-1');
+    const expanded = expandWorkspaceImportAncestors(
+      [child],
+      new Map([
+        [key('vkvw', 'task-1.2.3'), child],
+        [key('vkvw', 'task-1.2'), parent],
+        [key('vkvw', 'task-1'), grandparent],
+      ]),
+    );
+
+    expect(expanded.records.map((item) => item.beadId)).toEqual(['task-1.2.3', 'task-1.2', 'task-1']);
+    expect(expanded.contextRecordKeys).toEqual([key('vkvw', 'task-1'), key('vkvw', 'task-1.2')]);
+    expect(expanded.missingAncestorKeys).toEqual([]);
   });
 
   it('scopes pilot hard hazards to selected workspace records', () => {
