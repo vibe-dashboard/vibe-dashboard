@@ -41,6 +41,7 @@ export interface WorkspaceMigrationPlan {
   };
   reports: {
     parentChildInferred: string[];
+    parentChildConflicts: string[];
     nonParentEdges: string[];
     unknownRoots: string[];
   };
@@ -90,6 +91,7 @@ export function buildWorkspaceMigrationPlan(input: BuildWorkspaceMigrationPlanIn
     },
     reports: {
       parentChildInferred: [],
+      parentChildConflicts: [],
       nonParentEdges: [],
       unknownRoots: [],
     },
@@ -158,7 +160,6 @@ export function buildWorkspaceMigrationPlan(input: BuildWorkspaceMigrationPlanIn
 export function planHasHardHazards(plan: WorkspaceMigrationPlan): boolean {
   return plan.hazards.explicitConflicts.length > 0
     || plan.hazards.duplicateSelected.length > 0
-    || plan.hazards.parentChildConflicts.length > 0
     || plan.hazards.externalIssueMissingWorkspace.length > 0
     || plan.hazards.evidenceConflicts.length > 0;
 }
@@ -328,41 +329,41 @@ function inferParentChildAssignments(
   let changed = true;
   while (changed) {
     changed = false;
-  for (const record of records) {
-    for (const edge of record.dependencies) {
-      const type = edge.type ?? '';
-      if (type !== 'parent-child') {
-        nonParentEdges.add(`${record.sourceDb}:${record.beadId}->${edge.dependsOnId}:${type || 'unknown'}`);
-        continue;
-      }
-      const child = recordKeyFromParts(record.sourceDb, edge.issueId);
-      const parent = recordKeyFromParts(record.sourceDb, edge.dependsOnId);
-      if (!recordsByKey.has(child) || !recordsByKey.has(parent)) continue;
-      const childWorkspace = plan.assignments[child];
-      const parentWorkspace = plan.assignments[parent];
-      const childExplicit = explicitByKey.get(child)?.workspaceId;
-      const parentExplicit = explicitByKey.get(parent)?.workspaceId;
-      if (childExplicit && parentExplicit && childExplicit !== parentExplicit) {
-        if (!workspaceIdFilter || childExplicit === workspaceIdFilter || parentExplicit === workspaceIdFilter) {
-          conflicts.add(`${child}->${parent}:${childExplicit}!=${parentExplicit}`);
+    for (const record of records) {
+      for (const edge of record.dependencies) {
+        const type = edge.type ?? '';
+        if (type !== 'parent-child') {
+          nonParentEdges.add(`${record.sourceDb}:${record.beadId}->${edge.dependsOnId}:${type || 'unknown'}`);
+          continue;
         }
-        continue;
-      }
-      if (childWorkspace && !parentWorkspace && !parentExplicit) {
-        plan.assignments[parent] = childWorkspace;
-        inferred.add(`${parent}<=${child}:${childWorkspace}`);
-        changed = true;
-      } else if (parentWorkspace && !childWorkspace && !childExplicit) {
-        plan.assignments[child] = parentWorkspace;
-        inferred.add(`${child}=>${parent}:${parentWorkspace}`);
-        changed = true;
+        const child = recordKeyFromParts(record.sourceDb, edge.issueId);
+        const parent = recordKeyFromParts(record.sourceDb, edge.dependsOnId);
+        if (!recordsByKey.has(child) || !recordsByKey.has(parent)) continue;
+        const childWorkspace = plan.assignments[child];
+        const parentWorkspace = plan.assignments[parent];
+        const childExplicit = explicitByKey.get(child)?.workspaceId;
+        const parentExplicit = explicitByKey.get(parent)?.workspaceId;
+        if (childExplicit && parentExplicit && childExplicit !== parentExplicit) {
+          if (!workspaceIdFilter || childExplicit === workspaceIdFilter || parentExplicit === workspaceIdFilter) {
+            conflicts.add(`${child}->${parent}:${childExplicit}!=${parentExplicit}`);
+          }
+          continue;
+        }
+        if (childWorkspace && !parentWorkspace && !parentExplicit) {
+          plan.assignments[parent] = childWorkspace;
+          inferred.add(`${parent}<=${child}:${childWorkspace}`);
+          changed = true;
+        } else if (parentWorkspace && !childWorkspace && !childExplicit) {
+          plan.assignments[child] = parentWorkspace;
+          inferred.add(`${child}=>${parent}:${parentWorkspace}`);
+          changed = true;
+        }
       }
     }
   }
-  }
   plan.reports.parentChildInferred = [...inferred].sort();
+  plan.reports.parentChildConflicts = [...conflicts].sort();
   plan.reports.nonParentEdges = [...nonParentEdges].sort();
-  plan.hazards.parentChildConflicts.push(...[...conflicts].sort());
 }
 
 function recordKey(record: Pick<LegacyBeadRecord, 'sourceDb' | 'beadId'>): string {

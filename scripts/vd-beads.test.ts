@@ -93,10 +93,15 @@ async function fakeBd(root: string, failExport: boolean): Promise<string> {
   await mkdir(bin, { recursive: true });
   const script = path.join(bin, 'bd');
   await writeFile(script, `#!/usr/bin/env node
+const fs = require('node:fs');
+const path = require('node:path');
 const args = process.argv.slice(2);
-if (args.includes('--global') && args.includes('export')) {
+if (args[0] === 'export' && args.includes('--all')) {
   if (${failExport ? 'true' : 'false'}) process.exit(7);
-  process.stdout.write(JSON.stringify({_type:'issue', id:'legacy-1', title:'Legacy'}) + '\\n');
+  const metadataPath = path.join(process.cwd(), '.beads', 'metadata.json');
+  const metadata = fs.existsSync(metadataPath) ? JSON.parse(fs.readFileSync(metadataPath, 'utf8')) : {};
+  const sourceDb = metadata.dolt_database || 'beads_global';
+  process.stdout.write(JSON.stringify({_type:'issue', id:'legacy-1', title:'Legacy', metadata:{sourceDb}}) + '\\n');
   process.exit(0);
 }
 if (args[0] === 'export') {
