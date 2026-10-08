@@ -152,8 +152,7 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
         name: expectedRepoButtonName,
       }),
     ).toBeVisible();
-    await fillEditor(
-      page,
+    await fillMarkdownEditor(
       createWorkspaceFrame.getByRole('textbox', { name: 'Markdown editor' }),
       `${promptTitle}\n\n${promptBody}`,
     );
@@ -481,6 +480,12 @@ async function fillEditor(page: Page, locator: Locator, value: string) {
   await page.keyboard.press('Control+A');
   await page.keyboard.press('Backspace');
   await page.keyboard.insertText(value);
+}
+
+async function fillMarkdownEditor(locator: Locator, value: string) {
+  await expect(locator).toBeVisible();
+  await locator.fill(value);
+  await expect(locator).toContainText(value.split('\n')[0]);
 }
 
 function escapeRegex(value: string): string {
