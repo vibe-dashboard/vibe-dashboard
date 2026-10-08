@@ -1488,12 +1488,6 @@ impl ContainerService for LocalContainerService {
 
         Self::create_workspace_config_files(&created_workspace.workspace_dir, &repositories)
             .await?;
-        Self::run_workspace_setup_command(
-            &created_workspace.workspace_dir,
-            workspace,
-            &workspace_inputs,
-        )
-        .await?;
 
         Workspace::update_container_ref(
             &self.db.pool,
@@ -1506,6 +1500,20 @@ impl ContainerService for LocalContainerService {
             .workspace_dir
             .to_string_lossy()
             .to_string())
+    }
+
+    async fn run_workspace_setup(&self, workspace: &Workspace) -> Result<(), ContainerError> {
+        let (_, workspace_inputs) = self.workspace_repo_inputs(workspace.id).await?;
+        let workspace_dir = if let Some(container_ref) = &workspace.container_ref {
+            PathBuf::from(container_ref)
+        } else {
+            let label = workspace.name.as_deref().unwrap_or("workspace");
+            let workspace_dir_name =
+                LocalContainerService::dir_name_from_workspace(&workspace.id, label);
+            WorkspaceManager::get_workspace_base_dir().join(&workspace_dir_name)
+        };
+
+        Self::run_workspace_setup_command(&workspace_dir, workspace, &workspace_inputs).await
     }
 
     async fn delete(&self, workspace: &Workspace) -> Result<(), ContainerError> {
@@ -1529,6 +1537,9 @@ impl ContainerService for LocalContainerService {
                 LocalContainerService::dir_name_from_workspace(&workspace.id, label);
             WorkspaceManager::get_workspace_base_dir().join(&workspace_dir_name)
         };
+        let should_run_workspace_setup = workspace.container_ref.is_none()
+            || workspace.worktree_deleted
+            || !workspace_dir.exists();
 
         WorkspaceManager::ensure_workspace_exists(
             &workspace_dir,
@@ -1556,7 +1567,9 @@ impl ContainerService for LocalContainerService {
             .await?;
 
         Self::create_workspace_config_files(&workspace_dir, &repositories).await?;
-        Self::run_workspace_setup_command(&workspace_dir, workspace, &workspace_inputs).await?;
+        if should_run_workspace_setup {
+            Self::run_workspace_setup_command(&workspace_dir, workspace, &workspace_inputs).await?;
+        }
 
         Ok(workspace_dir.to_string_lossy().to_string())
     }
