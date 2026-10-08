@@ -64,7 +64,13 @@ test.describe('VK mocked-provider basic-seeded fixture', () => {
       /\/vscode\?chat_only=true&session_id=/,
     );
     await expect(
-      agentFrame.getByRole('textbox', { name: 'Markdown editor' }),
+      agentFrame.getByText('Continue working on this task...'),
+    ).toHaveCount(0);
+    await expect(
+      agentFrame.getByText('Type a different answer...'),
+    ).toHaveCount(0);
+    await expect(
+      agentFrame.getByRole('button', { name: 'Send', exact: true }),
     ).toHaveCount(0);
     await page
       .getByRole('textbox', { name: 'Follow-up message' })
