@@ -277,13 +277,19 @@ async function runWorkspaceMigration(migrationArgs: string[]): Promise<void> {
 
   const rootsByWorkspace = new Map(workspaceRoots.map((root) => [root.workspaceId, root]));
   const recordsByKey = new Map(records.map((record) => [`${record.sourceDb}\0${record.beadId}`, record]));
+  const recordsById = new Map<string, LegacyBeadRecord[]>();
+  for (const record of records) {
+    const sameId = recordsById.get(record.beadId) ?? [];
+    sameId.push(record);
+    recordsById.set(record.beadId, sameId);
+  }
   const applied: Array<{ workspaceId: string; imported: number; contextRecords?: string[]; strippedDependencies?: string[]; rootReconciled: boolean; importStdout?: string; importJson?: unknown }> = [];
   for (const [workspaceId, imports] of Object.entries(plan.importsByWorkspace)) {
     const workspaceDir = workspaceCwd(workspaceId);
     await ensureEmbeddedDb(workspaceDir, 'task');
     const importPath = path.join(workspaceDir, 'migration-import.jsonl');
     const selectedRecords = imports.map((item) => recordsByKey.get(`${item.sourceDb}\0${item.beadId}`)).filter((record): record is LegacyBeadRecord => !!record);
-    const expandedImport = expandWorkspaceImportAncestors(selectedRecords, recordsByKey);
+    const expandedImport = expandWorkspaceImportAncestors(selectedRecords, recordsByKey, recordsById);
     if (expandedImport.missingAncestorKeys.length > 0) {
       throw new Error(`workspace ${workspaceId} import missing ancestor records: ${expandedImport.missingAncestorKeys.join(', ')}`);
     }

@@ -254,6 +254,20 @@ describe('beadsMigration planner', () => {
     expect(expanded.missingAncestorKeys).toEqual([]);
   });
 
+  it('uses another source copy when the same-source dotted ancestor was deduped', () => {
+    const child = record('task-1.2.3', { sourceDb: 'a' });
+    const parent = record('task-1.2', { sourceDb: 'b' });
+    const grandparent = record('task-1', { sourceDb: 'b' });
+    const expanded = expandWorkspaceImportAncestors(
+      [child],
+      new Map([[key('a', 'task-1.2.3'), child], [key('b', 'task-1.2'), parent], [key('b', 'task-1'), grandparent]]),
+      new Map([['task-1.2.3', [child]], ['task-1.2', [parent]], ['task-1', [grandparent]]]),
+    );
+
+    expect(expanded.records.map((item) => `${item.sourceDb}:${item.beadId}`)).toEqual(['a:task-1.2.3', 'b:task-1.2', 'b:task-1']);
+    expect(expanded.missingAncestorKeys).toEqual([]);
+  });
+
   it('scopes pilot hard hazards to selected workspace records', () => {
     const plan = buildWorkspaceMigrationPlan({
       records: [

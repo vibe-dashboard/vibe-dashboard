@@ -214,6 +214,7 @@ export function prepareWorkspaceImportRecords(records: LegacyBeadRecord[]): Prep
 export function expandWorkspaceImportAncestors(
   records: LegacyBeadRecord[],
   recordsByKey: Map<string, LegacyBeadRecord>,
+  recordsById = new Map<string, LegacyBeadRecord[]>(),
 ): ExpandedWorkspaceImport {
   const out = [...records];
   const included = new Set(records.map(recordKey));
@@ -223,13 +224,15 @@ export function expandWorkspaceImportAncestors(
     for (const ancestorId of beadAncestorIds(record.beadId)) {
       const key = recordKeyFromParts(record.sourceDb, ancestorId);
       if (included.has(key)) continue;
-      const ancestor = recordsByKey.get(key);
+      const ancestor = recordsByKey.get(key) ?? recordsById.get(ancestorId)?.[0];
       if (!ancestor) {
         missingAncestorKeys.push(key);
         continue;
       }
-      included.add(key);
-      contextRecordKeys.push(key);
+      const ancestorKey = recordKey(ancestor);
+      if (included.has(ancestorKey)) continue;
+      included.add(ancestorKey);
+      contextRecordKeys.push(ancestorKey);
       out.push(ancestor);
     }
   }
