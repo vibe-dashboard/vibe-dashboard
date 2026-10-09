@@ -6,7 +6,7 @@ import subprocess
 import sys
 import tempfile
 
-REAL_BD = os.environ.get('REAL_BD', '/usr/local/bin/bd')
+REAL_BD = os.environ.get('REAL_BD', '/usr/local/lib/vk-bd-wrapper/real/bd')
 WORKSPACE_ROOT_OVERRIDE_FLAG = '--ignore-workspace-root'
 
 

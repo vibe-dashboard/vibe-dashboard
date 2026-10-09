@@ -417,10 +417,10 @@ RUN set -eux; \
     test -n "${expected_sha}"; \
     printf '%s  %s\n' "${expected_sha}" "/tmp/${archive_name}" | sha256sum -c -; \
     tar -xzf "/tmp/${archive_name}" -C /tmp; \
-    install -m 0755 /tmp/bd /usr/local/bin/bd; \
-    ln -sf bd /usr/local/bin/beads; \
+    install -d -m 0755 /usr/local/lib/vk-bd-wrapper/real; \
+    install -m 0755 /tmp/bd /usr/local/lib/vk-bd-wrapper/real/bd; \
     rm -f "/tmp/${archive_name}" /tmp/beads-checksums.txt /tmp/bd; \
-    bd version | grep -F "${BEADS_VERSION#v}"
+    /usr/local/lib/vk-bd-wrapper/real/bd version | grep -F "${BEADS_VERSION#v}"
 
 # Install Dolt for Beads shared-server mode. Pin the binary independently from
 # bd so container startup can supervise the shared Dolt server instead of
@@ -500,11 +500,13 @@ COPY plugins/scripts/vd-plugin-reload.sh /usr/local/bin/vd-plugin-reload.sh
 COPY plugins/scripts/vd-plugin-service-runner.mjs /usr/local/bin/vd-plugin-service-runner.mjs
 RUN chmod +x /usr/local/bin/sync-seeded-repo.sh /usr/local/bin/vd-plugin-runtime-apply.sh /usr/local/bin/vd-plugin-reload.sh /usr/local/bin/vd-plugin-service-runner.mjs
 
-# Install bd wrapper ahead of the real Beads CLI so VD-managed agent shells stamp
-# created beads with branch/workspace/session metadata.
+# Install bd wrapper at /usr/local/bin so Codex tool subprocesses still use it
+# after Codex strips PATH down to /usr/local/bin:/usr/bin:/bin.
 RUN mkdir -p /usr/local/lib/vk-bd-wrapper/bin
 COPY scripts/bd-wrapper/bin/bd /usr/local/lib/vk-bd-wrapper/bin/bd
 RUN chmod 0755 /usr/local/lib/vk-bd-wrapper/bin/bd \
+    && ln -sf /usr/local/lib/vk-bd-wrapper/bin/bd /usr/local/bin/bd \
+    && ln -sf /usr/local/lib/vk-bd-wrapper/bin/bd /usr/local/bin/beads \
     && ln -sf bd /usr/local/lib/vk-bd-wrapper/bin/beads
 ENV PATH="/usr/local/lib/vk-bd-wrapper/bin:${PATH}"
 

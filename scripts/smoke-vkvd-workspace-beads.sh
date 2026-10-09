@@ -124,6 +124,12 @@ test "$redirect_target" = "$persisted_beads"
 docker exec "$container_name" test -d "$persisted_beads"
 docker exec "$container_name" test -f "${persisted_beads}/config.yaml"
 
+echo "Asserting stripped Codex-style PATH still uses bd wrapper..."
+repo_worktree="${workspace_dir}/workspace-beads-repo"
+docker exec "$container_name" runuser -u vkuser -- sh -lc 'PATH=/usr/local/bin:/usr/bin:/bin; test "$(command -v bd)" = "/usr/local/bin/bd"'
+docker exec "$container_name" runuser -u vkuser -- sh -lc "cd '${repo_worktree}' && PATH=/usr/local/bin:/usr/bin:/bin bd list >/tmp/repo-subdir-bd-list.out 2>/tmp/repo-subdir-bd-list.err; test \"\$?\" = 2"
+docker exec "$container_name" grep -Fq 'bd must be run from the workspace root' /tmp/repo-subdir-bd-list.err
+
 echo "Asserting generated AGENTS/CLAUDE instructions are inlined..."
 for instruction_file in AGENTS.md CLAUDE.md; do
   docker exec "$container_name" grep -Fq 'BEGIN VD MANAGED BLOCK: workspace-instructions' "${workspace_dir}/${instruction_file}"
