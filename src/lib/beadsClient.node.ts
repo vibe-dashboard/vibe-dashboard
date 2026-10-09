@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process';
 import { access, readdir, realpath } from 'node:fs/promises';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 import {
@@ -20,6 +20,7 @@ import {
 } from './beadsFormCore';
 
 const execFileAsync = promisify(execFile);
+const DEFAULT_VD_BEADS_DIRECTORY = '/var/lib/vd/beads';
 
 export type ExecFileLike = (
   file: string,
@@ -137,21 +138,31 @@ export class BeadsClient {
     includeOtherWorkspaces?: boolean;
     beadId?: string;
   }): Promise<ListWorkspaceBeadsResult> {
-    const repos = await Promise.all(input.repos.map(async (repo) => {
-      const { dir, exists } = await resolveWorkspaceRepoDir({
-        workspaceDir: input.workspaceDir,
-        agentWorkingDir: input.agentWorkingDir,
-        repo,
-      });
-      return this.listRepoBeads({
-        dir,
-        dirExists: exists,
-        repo,
+    const dir = workspaceBeadsStoreDir(input.workspaceId);
+    const repo = { id: 'workspace', name: 'Workspace beads', display_name: 'Workspace beads' };
+    if (!await pathExists(dir)) {
+      return {
         workspaceId: input.workspaceId,
-        includeOtherWorkspaces: input.includeOtherWorkspaces ?? false,
-        beadId: input.beadId,
-      });
-    }));
+        repos: [{
+          repo,
+          dir,
+          dirExists: false,
+          initialized: false,
+          beads: [],
+          unscopedCount: 0,
+          otherWorkspaceCount: 0,
+        }],
+      };
+    }
+    const repos = [await this.listRepoBeads({
+      dir,
+      dirExists: true,
+      repo,
+      workspaceId: input.workspaceId,
+      includeOtherWorkspaces: true,
+      filterByWorkspaceMetadata: false,
+      beadId: input.beadId,
+    })];
     return { workspaceId: input.workspaceId, repos };
   }
 
@@ -257,6 +268,7 @@ export class BeadsClient {
     repo: BeadsWorkspaceRepo;
     workspaceId: string;
     includeOtherWorkspaces: boolean;
+    filterByWorkspaceMetadata?: boolean;
     beadId?: string;
   }): Promise<BeadsRepoListResult> {
     if (!input.dirExists) {
@@ -291,6 +303,7 @@ export class BeadsClient {
         dirExists: true,
         initialized: true,
         beads: input.includeOtherWorkspaces
+          || input.filterByWorkspaceMetadata === false
           ? beads
           : beads.filter((bead) => getMetadataString(bead.metadata, 'VK_WORKSPACE_ID') === input.workspaceId),
         unscopedCount,
@@ -431,6 +444,20 @@ export class BeadsClient {
   }
 }
 
+function workspaceBeadsStoreDir(workspaceId: string): string {
+  const base = process.env.VD_BEADS_DIRECTORY || DEFAULT_VD_BEADS_DIRECTORY;
+  return join(base, 'workspaces', workspaceId, '.beads');
+}
+
+async function pathExists(dir: string): Promise<boolean> {
+  try {
+    await access(dir);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function pendingQueueUpdateStrategy(): PendingBeadsFormQueueResult['updateStrategy'] {
   return {
     mode: 'explicit-refresh',
@@ -454,49 +481,6 @@ function isPendingForm(bead: BeadLike, form: BeadsFormDefinition): boolean {
 
 export function createNodeBeadsClient(options?: BeadsClientOptions): BeadsClient {
   return new BeadsClient(options);
-}
-
-async function resolveWorkspaceRepoDir(input: {
-  workspaceDir: string;
-  agentWorkingDir?: string | null;
-  repo: BeadsWorkspaceRepo;
-}): Promise<{ dir: string; exists: boolean }> {
-  const candidates = repoDirCandidates(input);
-  for (const dir of candidates) {
-    try {
-      await access(dir);
-      return { dir, exists: true };
-    } catch {
-      // Try the next documented workspace layout candidate.
-    }
-  }
-
-  return { dir: candidates[0] ?? join(input.workspaceDir, input.repo.name), exists: false };
-}
-
-function repoDirCandidates(input: {
-  workspaceDir: string;
-  agentWorkingDir?: string | null;
-  repo: BeadsWorkspaceRepo;
-}): string[] {
-  const candidates = [
-    join(input.workspaceDir, input.repo.name),
-  ];
-  const displayOrNameBase = cleanRepoDirBasename(input.repo.display_name ?? input.repo.name);
-  if (displayOrNameBase) candidates.push(join(input.workspaceDir, displayOrNameBase));
-
-  const nameBase = cleanRepoDirBasename(input.repo.name);
-  if (nameBase) candidates.push(join(input.workspaceDir, nameBase));
-
-  if (input.agentWorkingDir && nameBase && cleanRepoDirBasename(input.agentWorkingDir) === nameBase) {
-    candidates.push(input.agentWorkingDir);
-  }
-
-  return Array.from(new Set(candidates));
-}
-
-function cleanRepoDirBasename(value: string): string {
-  return basename(value).replace(/\.git$/, '');
 }
 
 function parseBdJsonArray<T>(stdout: string | Buffer): T[] {
