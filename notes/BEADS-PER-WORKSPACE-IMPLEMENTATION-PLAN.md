@@ -335,16 +335,10 @@ Tests:
 - non-primary issue body is not copied;
 - aggregate remains browsable in plain `bd show`.
 
-### 7. Punt CLI
+### 7. Punt command
 
-Add a VD-owned CLI command:
-
-```bash
-vd beads punt --bead <id> --from-workspace <id> --to-workspace <id>
-vd beads punt --bead <id> --from-workspace <id> --new-workspace \
-  --repo <repo>:<branch> [--repo <repo>:<branch> ...] \
-  [--append-to-prompt <text>] [--no-start]
-```
+Deferred. `vd-beads` is no longer a public/operator CLI. If punt is needed
+again, add it under a product-facing command such as `vibe-agent beads punt`.
 
 Behavior:
 
@@ -366,46 +360,12 @@ Tests:
 - pending rerun repairs to complete;
 - new workspace path confirms inputs and builds canned prompt.
 
-### 8. Offline shared/global and workspace partition migration commands
+### 8. Completed one-off migrations
 
-Add explicit migration commands, not runtime scans:
-
-```bash
-vd beads migrate-shared-server --dry-run
-vd beads migrate-shared-server --apply
-vd beads migrate-workspaces --dry-run [--workspace-id <id>]
-vd beads migrate-workspaces --apply [--workspace-id <id>]
-```
-
-Shared-server migration:
-
-- requires app/agent downtime;
-- backs up current shared-server data;
-- enumerates shared/global source DBs and exports each to raw JSONL under `VD_BEADS_DIRECTORY/legacy-all-beads`;
-- preserves `(sourceDb, beadId)` identity in sidecar/report data and never flat-imports duplicate IDs into one database;
-- initializes live `aggregate-workspaces`;
-- rewrites global `bd` config only after snapshot verification passes.
-
-Inputs:
-
-- raw `legacy-all-beads` snapshots;
-- VK workspace/root mapping;
-- bead creation evidence from rollout/session cwd scan/cache.
-- legacy external issue beads with assignment metadata.
-
-Outputs:
-
-- copied workspace-local beads;
-- SQL external issue links where possible;
-- aggregate workspace bead updates.
-
-Tests:
-
-- dry run reports planned copies;
-- apply refuses if guard/downtime checks fail;
-- backup/export and verification are required before config removal;
-- apply is idempotent;
-- missing workspace IDs are skipped with report.
+The one-server legacy migration has already been applied. The temporary
+shared/global export, session-log evidence scan, and workspace partition
+commands were removed from the runtime codebase. If needed again, recover them
+from Git history rather than keeping dead migration machinery in the app.
 
 ## Concerns and expansions
 

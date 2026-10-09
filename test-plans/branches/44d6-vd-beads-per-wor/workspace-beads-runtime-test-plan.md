@@ -33,7 +33,7 @@ Steps:
 
 1. Trigger or inspect the branch CI job that builds the VK/VD Docker image.
 2. Confirm the image includes a real VK server binary, real VD runtime code, the
-   VD `vd-beads` runtime helper, and the `bd` wrapper.
+   VD workspace beads setup script, and the `bd` wrapper.
 3. Start the container through the documented CI smoke path.
 4. Wait for VK and VD HTTP health/API endpoints to respond.
 

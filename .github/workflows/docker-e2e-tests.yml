@@ -15,7 +15,7 @@ on:
       - "scripts/smoke-vkvd-plugin-runtime.sh"
       - "scripts/smoke-vkvd-workspace-beads.sh"
       - "scripts/build-custom-caddy.sh"
-      - "scripts/vd-beads.ts"
+      - "scripts/workspace-beads-setup.ts"
       - "scripts/bd-wrapper/**"
       - "plugins/scripts/vd-plugin-runtime-apply.sh"
       - "src/modules/plugins/vibe-dashboard/**"
