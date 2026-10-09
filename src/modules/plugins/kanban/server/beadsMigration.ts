@@ -26,8 +26,17 @@ export interface CreationEvidence {
 
 export interface CreationEvidenceScan {
   evidence: CreationEvidence[];
-  sourceCounts: Record<string, number>;
+  sourceCounts: CreationEvidenceSourceCounts;
   filesScanned: number;
+}
+
+export interface CreationEvidenceSourceCounts {
+  sameRecordCwd: number;
+  fileDominantCwd: number;
+  mentionedNoCwd: number;
+  worktreeCwdRecords: number;
+  homeRepoCwdRecords: number;
+  otherCwdRecords: number;
 }
 
 export interface CreationEvidenceScanProgress {
