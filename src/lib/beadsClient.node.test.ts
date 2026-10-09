@@ -19,6 +19,25 @@ const reviewMetadata = {
   },
 };
 
+async function withWorkspaceBeadsStore(workspaceId: string): Promise<{ base: string; store: string; restore: () => void }> {
+  const base = await mkdtemp(join(tmpdir(), 'vd-beads-'));
+  const store = join(base, 'workspaces', workspaceId, '.beads');
+  await mkdir(store, { recursive: true });
+  const previous = process.env.VD_BEADS_DIRECTORY;
+  process.env.VD_BEADS_DIRECTORY = base;
+  return {
+    base,
+    store,
+    restore: () => {
+      if (previous === undefined) {
+        delete process.env.VD_BEADS_DIRECTORY;
+      } else {
+        process.env.VD_BEADS_DIRECTORY = previous;
+      }
+    },
+  };
+}
+
 describe('BeadsClient', () => {
   it('reads a bead with bd show --json --long', async () => {
     const exec = vi.fn<ExecFileLike>(async () => ({ stdout: beadJson({ beadForms: { forms: [] } }), stderr: '' }));
@@ -72,12 +91,12 @@ describe('BeadsClient', () => {
     ]);
   });
 
-  it('lists only current-workspace beads by default across initialized repos', async () => {
+  it('lists workspace beads once from the persisted workspace beads store', async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), 'beads-workspace-'));
-    await mkdir(join(workspaceDir, 'repo-a', '.beads'), { recursive: true });
-    await mkdir(join(workspaceDir, 'repo-b'), { recursive: true });
+    const store = await withWorkspaceBeadsStore('workspace-1');
     const exec = vi.fn<ExecFileLike>(async (_file, args, options) => {
-      if (options.cwd.endsWith('repo-a') && args[0] === '--readonly' && args[1] === 'list') {
+      expect(options.cwd).toBe(store.store);
+      if (args[0] === '--readonly' && args[1] === 'list') {
         expect(args).toContain('--has-metadata-key');
         if (args.includes('beadsWeb')) return { stdout: '[]', stderr: '' };
         return { stdout: JSON.stringify([
@@ -86,113 +105,63 @@ describe('BeadsClient', () => {
           { id: 'unscoped', title: 'Unscoped', metadata: { beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } },
         ]), stderr: '' };
       }
-      if (options.cwd.endsWith('repo-b') && args[0] === '--readonly' && args[1] === 'list') {
-        throw Object.assign(new Error('Command failed: bd list'), { stderr: 'Error: no beads database found' });
-      }
       return { stdout: '[]', stderr: '' };
     });
     const client = new BeadsClient({ execFile: exec });
 
-    const result = await client.listWorkspaceBeads({
-      workspaceId: 'workspace-1',
-      workspaceDir,
-      repos: [{ id: 'repo-a', name: 'repo-a' }, { id: 'repo-b', name: 'repo-b' }],
-    });
+    try {
+      const result = await client.listWorkspaceBeads({
+        workspaceId: 'workspace-1',
+        workspaceDir,
+        repos: [{ id: 'repo-a', name: 'repo-a' }, { id: 'repo-b', name: 'repo-b' }],
+      });
 
-    expect(result.repos[0]).toMatchObject({
-      initialized: true,
-      unscopedCount: 1,
-      otherWorkspaceCount: 1,
-    });
-    expect(result.repos[0]!.beads.map((bead) => bead.id)).toEqual(['current']);
-    expect(result.repos[1]).toMatchObject({ initialized: false, beads: [] });
+      expect(result.repos).toHaveLength(1);
+      expect(result.repos[0]).toMatchObject({
+        repo: { id: 'workspace', name: 'Workspace beads' },
+        dir: store.store,
+        initialized: true,
+        unscopedCount: 1,
+        otherWorkspaceCount: 1,
+      });
+      expect(result.repos[0]!.beads.map((bead) => bead.id)).toEqual(['current', 'other', 'unscoped']);
+      expect(exec).toHaveBeenCalledTimes(2);
+    } finally {
+      store.restore();
+    }
   });
 
-  it('treats a repo as initialized when bd resolves a database even without a local .beads directory', async () => {
+  it('reports an uninitialized workspace when the persisted workspace beads store is missing', async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), 'beads-workspace-'));
-    await mkdir(join(workspaceDir, 'repo-a'), { recursive: true });
-    const exec = vi.fn<ExecFileLike>(async (_file, args, options) => {
-      expect(options.cwd).toBe(join(workspaceDir, 'repo-a'));
-      if (args[0] === '--readonly' && args[1] === 'list') {
-        if (args.includes('beadsWeb')) return { stdout: '[]', stderr: '' };
-        return { stdout: JSON.stringify([{ id: 'current', title: 'Current', metadata: { VK_WORKSPACE_ID: 'workspace-1', beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } }]), stderr: '' };
+    const base = await mkdtemp(join(tmpdir(), 'vd-beads-'));
+    const previous = process.env.VD_BEADS_DIRECTORY;
+    process.env.VD_BEADS_DIRECTORY = base;
+    const exec = vi.fn<ExecFileLike>(async () => ({ stdout: '[]', stderr: '' }));
+    const client = new BeadsClient({ execFile: exec });
+
+    try {
+      const result = await client.listWorkspaceBeads({
+        workspaceId: 'workspace-1',
+        workspaceDir,
+        repos: [{ id: 'repo-a', name: 'repo-a' }],
+      });
+
+      expect(result.repos[0]).toMatchObject({ initialized: false, beads: [] });
+      expect(exec).not.toHaveBeenCalled();
+    } finally {
+      if (previous === undefined) {
+        delete process.env.VD_BEADS_DIRECTORY;
+      } else {
+        process.env.VD_BEADS_DIRECTORY = previous;
       }
-      return { stdout: '[]', stderr: '' };
-    });
-    const client = new BeadsClient({ execFile: exec });
-
-    const result = await client.listWorkspaceBeads({
-      workspaceId: 'workspace-1',
-      workspaceDir,
-      repos: [{ id: 'repo-a', name: 'repo-a' }],
-    });
-
-    expect(result.repos[0]).toMatchObject({
-      dir: join(workspaceDir, 'repo-a'),
-      initialized: true,
-      beads: [{ id: 'current', title: 'Current', metadata: { VK_WORKSPACE_ID: 'workspace-1' } }],
-    });
-  });
-
-  it('resolves owner/repo workspace repo names to basename checkout directories', async () => {
-    const workspaceDir = await mkdtemp(join(tmpdir(), 'beads-workspace-'));
-    await mkdir(join(workspaceDir, 'repo-a', '.beads'), { recursive: true });
-    const exec = vi.fn<ExecFileLike>(async (_file, args, options) => {
-      expect(options.cwd).toBe(join(workspaceDir, 'repo-a'));
-      if (args[0] === '--readonly' && args[1] === 'list') {
-        if (args.includes('beadsWeb')) return { stdout: '[]', stderr: '' };
-        return {
-          stdout: JSON.stringify([
-            { id: 'current', title: 'Current', metadata: { VK_WORKSPACE_ID: 'workspace-1', beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } },
-          ]),
-          stderr: '',
-        };
-      }
-      return { stdout: '[]', stderr: '' };
-    });
-    const client = new BeadsClient({ execFile: exec });
-
-    const result = await client.listWorkspaceBeads({
-      workspaceId: 'workspace-1',
-      workspaceDir,
-      repos: [{ id: 'repo-a', name: 'owner/repo-a', display_name: 'owner/repo-a' }],
-    });
-
-    expect(result.repos[0]).toMatchObject({
-      dir: join(workspaceDir, 'repo-a'),
-      initialized: true,
-    });
-    expect(result.repos[0]!.error).toBeUndefined();
-    expect(result.repos[0]!.beads.map((bead) => bead.id)).toEqual(['current']);
-  });
-
-  it('can opt in to showing unscoped and other-workspace beads', async () => {
-    const workspaceDir = await mkdtemp(join(tmpdir(), 'beads-workspace-'));
-    await mkdir(join(workspaceDir, 'repo-a', '.beads'), { recursive: true });
-    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
-      if (args[0] === '--readonly' && args[1] === 'list') return { stdout: args.includes('beadsWeb') ? '[]' : JSON.stringify([
-        { id: 'current', title: 'Current', metadata: { VK_WORKSPACE_ID: 'workspace-1', beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } },
-        { id: 'other', title: 'Other', metadata: { VK_WORKSPACE_ID: 'workspace-2', beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } },
-        { id: 'unscoped', title: 'Unscoped', metadata: { beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } },
-      ]), stderr: '' };
-      return { stdout: '[]', stderr: '' };
-    });
-    const client = new BeadsClient({ execFile: exec });
-
-    const result = await client.listWorkspaceBeads({
-      workspaceId: 'workspace-1',
-      workspaceDir,
-      repos: [{ id: 'repo-a', name: 'repo-a' }],
-      includeOtherWorkspaces: true,
-    });
-
-    expect(result.repos[0]!.beads.map((bead) => bead.id)).toEqual(['current', 'other', 'unscoped']);
+    }
   });
 
   it('uses form-bearing list metadata for workspace discovery without bulk showing every bead', async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), 'beads-workspace-'));
-    await mkdir(join(workspaceDir, 'repo-a'), { recursive: true });
-    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+    const store = await withWorkspaceBeadsStore('workspace-1');
+    const exec = vi.fn<ExecFileLike>(async (_file, args, options) => {
+      expect(options.cwd).toBe(store.store);
       if (args[0] === '--readonly' && args[1] === 'show') throw new Error(`unexpected bulk show: ${args.join(' ')}`);
       expect(args).toEqual(['--readonly', 'list', '--json', '--all', '--limit', '0', '--has-metadata-key', args.includes('beadsWeb') ? 'beadsWeb' : 'beadForms']);
       if (args.includes('beadsWeb')) return { stdout: '[]', stderr: '' };
@@ -203,50 +172,57 @@ describe('BeadsClient', () => {
     });
     const client = new BeadsClient({ execFile: exec });
 
-    const result = await client.listWorkspaceBeads({
-      workspaceId: 'workspace-1',
-      workspaceDir,
-      repos: [{ id: 'repo-a', name: 'repo-a' }],
-    });
+    try {
+      const result = await client.listWorkspaceBeads({
+        workspaceId: 'workspace-1',
+        workspaceDir,
+        repos: [{ id: 'repo-a', name: 'repo-a' }],
+      });
 
-    expect(result.repos[0]!.beads.map((bead) => bead.id)).toEqual(['current']);
-    expect(exec).toHaveBeenCalledTimes(2);
+      expect(result.repos[0]!.beads.map((bead) => bead.id)).toEqual(['current', 'other']);
+      expect(exec).toHaveBeenCalledTimes(2);
+    } finally {
+      store.restore();
+    }
   });
 
-  it('does not show when selected bead is absent from a repo', async () => {
+  it('looks for a selected bead once in the workspace beads store', async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), 'beads-workspace-'));
-    await mkdir(join(workspaceDir, 'repo-a'), { recursive: true });
-    await mkdir(join(workspaceDir, 'repo-b'), { recursive: true });
+    const store = await withWorkspaceBeadsStore('workspace-1');
     const exec = vi.fn<ExecFileLike>(async (_file, args, options) => {
+      expect(options.cwd).toBe(store.store);
       expect(args).not.toContain('--has-metadata-key');
       expect(args).not.toContain('unrelated-1');
       if (args[1] === 'show') throw new Error(`unexpected show for ${options.cwd}: ${args.join(' ')}`);
-      if (options.cwd.endsWith('repo-a')) return { stdout: '[]', stderr: '' };
       return { stdout: JSON.stringify([
         { id: 'selected', title: 'Selected', metadata: { VK_WORKSPACE_ID: 'workspace-1', beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } },
       ]), stderr: '' };
     });
     const client = new BeadsClient({ execFile: exec });
 
-    const result = await client.listWorkspaceBeads({
-      workspaceId: 'workspace-1',
-      workspaceDir,
-      repos: [{ id: 'repo-a', name: 'repo-a' }, { id: 'repo-b', name: 'repo-b' }],
-      beadId: 'selected',
-    });
+    try {
+      const result = await client.listWorkspaceBeads({
+        workspaceId: 'workspace-1',
+        workspaceDir,
+        repos: [{ id: 'repo-a', name: 'repo-a' }, { id: 'repo-b', name: 'repo-b' }],
+        beadId: 'selected',
+      });
 
-    expect(result.repos.flatMap((repo) => repo.beads.map((bead) => bead.id))).toEqual(['selected']);
-    expect(exec.mock.calls.map(([, args]) => args)).toEqual([
-      ['--readonly', 'list', '--json', '--all', '--limit', '0', '--id', 'selected'],
-      ['--readonly', 'list', '--json', '--all', '--limit', '0', '--id', 'selected'],
-    ]);
-    expect(exec.mock.calls.some(([, args]) => args.includes('--has-metadata-key'))).toBe(false);
+      expect(result.repos.flatMap((repo) => repo.beads.map((bead) => bead.id))).toEqual(['selected']);
+      expect(exec.mock.calls.map(([, args]) => args)).toEqual([
+        ['--readonly', 'list', '--json', '--all', '--limit', '0', '--id', 'selected'],
+      ]);
+      expect(exec.mock.calls.some(([, args]) => args.includes('--has-metadata-key'))).toBe(false);
+    } finally {
+      store.restore();
+    }
   });
 
   it('falls back to one targeted show when selected list metadata is insufficient', async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), 'beads-workspace-'));
-    await mkdir(join(workspaceDir, 'repo-a'), { recursive: true });
-    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+    const store = await withWorkspaceBeadsStore('workspace-1');
+    const exec = vi.fn<ExecFileLike>(async (_file, args, options) => {
+      expect(options.cwd).toBe(store.store);
       if (args[0] === '--readonly' && args[1] === 'list') {
         return { stdout: JSON.stringify([{ id: 'selected', title: 'Selected without metadata' }]), stderr: '' };
       }
@@ -257,24 +233,29 @@ describe('BeadsClient', () => {
     });
     const client = new BeadsClient({ execFile: exec });
 
-    const result = await client.listWorkspaceBeads({
-      workspaceId: 'workspace-1',
-      workspaceDir,
-      repos: [{ id: 'repo-a', name: 'repo-a' }],
-      beadId: 'selected',
-    });
+    try {
+      const result = await client.listWorkspaceBeads({
+        workspaceId: 'workspace-1',
+        workspaceDir,
+        repos: [{ id: 'repo-a', name: 'repo-a' }],
+        beadId: 'selected',
+      });
 
-    expect(result.repos[0]!.beads[0]).toMatchObject({ id: 'selected', metadata: { VK_WORKSPACE_ID: 'workspace-1' } });
-    expect(exec.mock.calls.map(([, args]) => args)).toEqual([
-      ['--readonly', 'list', '--json', '--all', '--limit', '0', '--id', 'selected'],
-      ['--readonly', 'show', 'selected', '--json', '--long'],
-    ]);
+      expect(result.repos[0]!.beads[0]).toMatchObject({ id: 'selected', metadata: { VK_WORKSPACE_ID: 'workspace-1' } });
+      expect(exec.mock.calls.map(([, args]) => args)).toEqual([
+        ['--readonly', 'list', '--json', '--all', '--limit', '0', '--id', 'selected'],
+        ['--readonly', 'show', 'selected', '--json', '--long'],
+      ]);
+    } finally {
+      store.restore();
+    }
   });
 
   it('does not show when selected list metadata is sufficient to render forms', async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), 'beads-workspace-'));
-    await mkdir(join(workspaceDir, 'repo-a'), { recursive: true });
-    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+    const store = await withWorkspaceBeadsStore('workspace-1');
+    const exec = vi.fn<ExecFileLike>(async (_file, args, options) => {
+      expect(options.cwd).toBe(store.store);
       if (args[1] === 'show') throw new Error(`unexpected show: ${args.join(' ')}`);
       return { stdout: JSON.stringify([
         { id: 'selected', title: 'Selected', metadata: { VK_WORKSPACE_ID: 'workspace-1', beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } },
@@ -282,40 +263,21 @@ describe('BeadsClient', () => {
     });
     const client = new BeadsClient({ execFile: exec });
 
-    const result = await client.listWorkspaceBeads({
-      workspaceId: 'workspace-1',
-      workspaceDir,
-      repos: [{ id: 'repo-a', name: 'repo-a' }],
-      beadId: 'selected',
-    });
+    try {
+      const result = await client.listWorkspaceBeads({
+        workspaceId: 'workspace-1',
+        workspaceDir,
+        repos: [{ id: 'repo-a', name: 'repo-a' }],
+        beadId: 'selected',
+      });
 
-    expect(result.repos[0]!.beads[0]).toMatchObject({ id: 'selected', metadata: { VK_WORKSPACE_ID: 'workspace-1' } });
-    expect(exec.mock.calls.map(([, args]) => args)).toEqual([
-      ['--readonly', 'list', '--json', '--all', '--limit', '0', '--id', 'selected'],
-    ]);
-  });
-
-  it('keeps workspace loading partial when one repo fails', async () => {
-    const workspaceDir = await mkdtemp(join(tmpdir(), 'beads-workspace-'));
-    await mkdir(join(workspaceDir, 'repo-a'), { recursive: true });
-    await mkdir(join(workspaceDir, 'repo-b'), { recursive: true });
-    const exec = vi.fn<ExecFileLike>(async (_file, _args, options) => {
-      if (options.cwd.endsWith('repo-a')) {
-        if (_args.includes('beadsWeb')) return { stdout: '[]', stderr: '' };
-        return { stdout: JSON.stringify([{ id: 'current', metadata: { VK_WORKSPACE_ID: 'workspace-1', beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } }]), stderr: '' };
-      }
-      throw new Error('schema skew');
-    });
-    const client = new BeadsClient({ execFile: exec });
-
-    const result = await client.listWorkspaceBeads({
-      workspaceId: 'workspace-1',
-      workspaceDir,
-      repos: [{ id: 'repo-a', name: 'repo-a' }, { id: 'repo-b', name: 'repo-b' }],
-    });
-
-    expect(result.repos[0]!.beads.map((bead) => bead.id)).toEqual(['current']);
-    expect(result.repos[1]).toMatchObject({ initialized: true, beads: [], error: 'schema skew' });
+      expect(result.repos[0]!.beads[0]).toMatchObject({ id: 'selected', metadata: { VK_WORKSPACE_ID: 'workspace-1' } });
+      expect(exec.mock.calls.map(([, args]) => args)).toEqual([
+        ['--readonly', 'list', '--json', '--all', '--limit', '0', '--id', 'selected'],
+      ]);
+    } finally {
+      store.restore();
+    }
   });
 
   it('lists pending bead forms from a bounded ~/repos-style scan without mutating bead databases', async () => {

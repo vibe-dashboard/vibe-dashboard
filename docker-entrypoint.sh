@@ -96,9 +96,10 @@ startup_step_end
 startup_step_begin "prepare persistent user configuration"
 install -d -m 0755 -o vkuser -g vkuser /home/vkuser/.config
 install -d -m 0755 -o vkuser -g vkuser /home/vkuser/.config/bd
+install -d -m 0755 -o vkuser -g vkuser /home/vkuser/.config/git
 install -d -m 0700 -o vkuser -g vkadmin /home/vkuser/.beads
-install -d -m 0700 -o vkuser -g vkadmin /home/vkuser/.beads/shared-server
-install -d -m 0700 -o vkuser -g vkadmin /home/vkuser/.beads/shared-server/dolt
+install -d -m 0750 -o vkuser -g vkadmin "${VK_SETTINGS_DIRECTORY:-/var/lib/vd/vk-config}"
+install -d -m 0750 -o vkuser -g vkadmin "${VD_BEADS_DIRECTORY:-/var/lib/vd/beads}"
 
 BD_CONFIG=/home/vkuser/.config/bd/config.yaml
 if [ ! -e "$BD_CONFIG" ] && [ ! -L "$BD_CONFIG" ]; then
@@ -110,9 +111,53 @@ else
     startup_log "Preserving existing Beads config at ${BD_CONFIG}"
 fi
 
+if ! runuser -u vkuser -- git config --global --get beads.role >/dev/null 2>&1; then
+    runuser -u vkuser -- git config --global beads.role maintainer
+    startup_log "Initialized global beads.role=maintainer for vkuser"
+else
+    startup_log "Preserving existing global beads.role for vkuser"
+fi
+
 runuser -u vkuser -- test -w /home/vkuser/.config
 runuser -u vkuser -- test -w /home/vkuser/.config/bd
-runuser -u vkuser -- test -w /home/vkuser/.beads/shared-server/dolt
+runuser -u vkuser -- test -w /home/vkuser/.config/git
+runuser -u vkuser -- test -w "${VK_SETTINGS_DIRECTORY:-/var/lib/vd/vk-config}"
+runuser -u vkuser -- test -w "${VD_BEADS_DIRECTORY:-/var/lib/vd/beads}"
+
+WORKSPACE_SETUP_TOML="${VK_SETTINGS_DIRECTORY:-/var/lib/vd/vk-config}/workspace-setup.toml"
+if [ ! -e "$WORKSPACE_SETUP_TOML" ] && [ ! -L "$WORKSPACE_SETUP_TOML" ]; then
+    WORKSPACE_SETUP_TOML_TMP=$(mktemp "${WORKSPACE_SETUP_TOML}.tmp.XXXXXX")
+    {
+        echo 'enabled = true'
+        echo 'required = true'
+        echo 'timeout_seconds = 120'
+        echo 'command = "workspace-setup.sh"'
+    } > "$WORKSPACE_SETUP_TOML_TMP"
+    chown vkuser:vkadmin "$WORKSPACE_SETUP_TOML_TMP"
+    chmod 0640 "$WORKSPACE_SETUP_TOML_TMP"
+    mv "$WORKSPACE_SETUP_TOML_TMP" "$WORKSPACE_SETUP_TOML"
+fi
+
+WORKSPACE_SETUP_SH="${VK_SETTINGS_DIRECTORY:-/var/lib/vd/vk-config}/workspace-setup.sh"
+if [ ! -e "$WORKSPACE_SETUP_SH" ] && [ ! -L "$WORKSPACE_SETUP_SH" ]; then
+    WORKSPACE_SETUP_SH_TMP=$(mktemp "${WORKSPACE_SETUP_SH}.tmp.XXXXXX")
+    {
+        echo '#!/usr/bin/env sh'
+        echo 'exec node --experimental-strip-types /opt/vibe-kanban-vscode-web-seed/scripts/workspace-beads-setup.ts "$@"'
+    } > "$WORKSPACE_SETUP_SH_TMP"
+    chown vkuser:vkadmin "$WORKSPACE_SETUP_SH_TMP"
+    chmod 0750 "$WORKSPACE_SETUP_SH_TMP"
+    mv "$WORKSPACE_SETUP_SH_TMP" "$WORKSPACE_SETUP_SH"
+elif grep -q '/opt/vibe-kanban-vscode-web-seed/scripts/vd-beads.ts workspace-setup' "$WORKSPACE_SETUP_SH" 2>/dev/null; then
+    WORKSPACE_SETUP_SH_TMP=$(mktemp "${WORKSPACE_SETUP_SH}.tmp.XXXXXX")
+    {
+        echo '#!/usr/bin/env sh'
+        echo 'exec node --experimental-strip-types /opt/vibe-kanban-vscode-web-seed/scripts/workspace-beads-setup.ts "$@"'
+    } > "$WORKSPACE_SETUP_SH_TMP"
+    chown vkuser:vkadmin "$WORKSPACE_SETUP_SH_TMP"
+    chmod 0750 "$WORKSPACE_SETUP_SH_TMP"
+    mv "$WORKSPACE_SETUP_SH_TMP" "$WORKSPACE_SETUP_SH"
+fi
 startup_step_end
 
 # Ensure mounted mutable volumes keep shared group write semantics. This avoids
@@ -142,8 +187,8 @@ startup_log "Skipping recursive repository permission repair; repository files a
 # supervisord starts. Plugin artifact installation intentionally runs after
 # Caddy starts so first boot is not blocked on large downloads.
 startup_step_begin "prepare plugin runtime directories"
-mkdir -p /var/lib/vd/instance-config /var/lib/vd/plugin-cache /var/lib/vd/plugins /var/lib/vd/plugin-bin /var/lib/vd/toolchains/bin /var/lib/vd/toolchains/npm /var/lib/vd/plugin-data /var/lib/vd/silverbullet/space /etc/supervisor/conf.d/vd-generated /etc/caddy
-ensure_shared_dir /var/lib/vd /var/lib/vd/instance-config /var/lib/vd/plugin-cache /var/lib/vd/plugins /var/lib/vd/plugin-bin /var/lib/vd/toolchains /var/lib/vd/plugin-data /var/lib/vd/silverbullet
+mkdir -p /var/lib/vd/instance-config /var/lib/vd/vk-config /var/lib/vd/beads /var/lib/vd/plugin-cache /var/lib/vd/plugins /var/lib/vd/plugin-bin /var/lib/vd/toolchains/bin /var/lib/vd/toolchains/npm /var/lib/vd/plugin-data /var/lib/vd/silverbullet/space /etc/supervisor/conf.d/vd-generated /etc/caddy
+ensure_shared_dir /var/lib/vd /var/lib/vd/instance-config /var/lib/vd/vk-config /var/lib/vd/beads /var/lib/vd/plugin-cache /var/lib/vd/plugins /var/lib/vd/plugin-bin /var/lib/vd/toolchains /var/lib/vd/plugin-data /var/lib/vd/silverbullet
 startup_debug_path_summary /var/lib/vd
 startup_step_end
 if [ ! -f /etc/caddy/plugins.caddy ]; then

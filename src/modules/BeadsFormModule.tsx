@@ -701,13 +701,8 @@ function BeadsFormRoute({ actions }: { actions: {
           <div className="beadsform-heading-row">
             <div>
               <h2>Workspace beads</h2>
-              <p>Select a bead to view its forms. By default this only shows beads created for this workspace.</p>
+              <p>Select a bead to view its forms. This reads the persisted workspace-scoped beads store.</p>
             </div>
-            {workspaceId ? (
-              <a href={formViewUrl({ workspaceId, includeOtherWorkspaces: !includeOtherWorkspaces })}>
-                {includeOtherWorkspaces ? 'Show workspace beads only' : 'Show all beads'}
-              </a>
-            ) : null}
           </div>
           {loaded.workspaceBeads.repos.map((repo) => (
             <section key={repo.dir}>
@@ -716,9 +711,9 @@ function BeadsFormRoute({ actions }: { actions: {
               {repo.error ? (
                 <p role="alert" className="beadsform-error">{repo.error}</p>
               ) : !repo.initialized ? (
-                <p>This repo is not initialized for beads yet. Run <code>bd init</code> in this repo to track beads here.</p>
+                <p>The workspace beads store is not initialized yet.</p>
               ) : repo.beads.length === 0 ? (
-                <p>No matching beads. {repo.unscopedCount + repo.otherWorkspaceCount > 0 && !includeOtherWorkspaces ? 'Use “Show all beads” to include unscoped and other-workspace beads.' : null}</p>
+                <p>No matching beads.</p>
               ) : (
                 <ul>
                   {repo.beads.map((repoBead) => (
@@ -842,17 +837,12 @@ springboard.registerModule(
       },
       loadWorkspaceForms: async (input: LoadWorkspaceFormsInput): Promise<LoadWorkspaceFormsResult> => {
         if (!input.workspaceId.trim()) throw new Error('workspaceId is required');
-        const [workspace, repos] = await Promise.all([
-          vkClient().getWorkspace(input.workspaceId),
-          vkClient().getWorkspaceRepos(input.workspaceId),
-        ]);
-        const workspaceDir = workspace.container_ref || workspace.agent_working_dir;
-        if (!workspaceDir) throw new Error(`Workspace ${input.workspaceId} does not have a local workspace directory`);
+        const workspace = await vkClient().getWorkspace(input.workspaceId);
         const workspaceBeads = await nodeClient().listWorkspaceBeads({
           workspaceId: input.workspaceId,
-          workspaceDir,
+          workspaceDir: workspace.container_ref || workspace.agent_working_dir || '',
           agentWorkingDir: workspace.agent_working_dir,
-          repos,
+          repos: [],
           includeOtherWorkspaces: input.includeOtherWorkspaces ?? false,
           ...(input.beadId ? { beadId: input.beadId } : {}),
         });

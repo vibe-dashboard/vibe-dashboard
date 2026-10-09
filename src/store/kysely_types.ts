@@ -2,6 +2,7 @@ import type { ColumnType, Generated } from 'kysely';
 
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
 export type NullableTimestamp = ColumnType<Date | null, Date | string | null | undefined, Date | string | null | undefined>;
+export type NullableText = ColumnType<string | null, string | null | undefined, string | null | undefined>;
 export type SqliteBoolean = ColumnType<boolean, boolean | number, boolean | number>;
 
 export type ExternalProvider = 'jira' | 'github' | 'linear';
@@ -103,6 +104,8 @@ export interface ExternalIssueWorkspaceLink {
   id: string;
   externalIssueId: string;
   vkWorkspaceId: string;
+  workspaceBeadId: NullableText;
+  workspaceBeadsDirKey: NullableText;
   isPrimary: SqliteBoolean;
   lastOpenedAt: NullableTimestamp;
   metadataJson: string | null;

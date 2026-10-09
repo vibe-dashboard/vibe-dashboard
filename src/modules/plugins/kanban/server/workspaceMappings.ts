@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { sql, type Kysely } from 'kysely';
 import type { DB, ExternalProvider } from '../../../../store/kysely_types';
 import type { ExternalKanbanBoardViewDto, ExternalKanbanCardDto } from '../boardTypes';
+import { ensureExternalIssueWorkspaceBead, type WorkspaceBeadsOptions } from './workspaceBeads';
 
 export interface ExternalIssueRef {
   provider: ExternalProvider;
@@ -80,6 +81,7 @@ interface NormalizedVKWorkspaceRef {
 export async function upsertExternalIssueWorkspaceMapping(
   db: Kysely<DB>,
   args: UpsertExternalIssueWorkspaceMappingArgs,
+  beads?: WorkspaceBeadsOptions,
 ): Promise<ExternalIssueWorkspaceMapping> {
   const externalIssue = normalizeExternalIssueRef(args.externalIssue);
   const workspace = normalizeVKWorkspaceRef(args.workspace);
@@ -152,6 +154,35 @@ export async function upsertExternalIssueWorkspaceMapping(
     }))
     .execute();
 
+  const linkRow = await db
+    .selectFrom('ExternalIssueWorkspaceLink')
+    .select(['id', 'workspaceBeadId', 'workspaceBeadsDirKey'])
+    .where('externalIssueId', '=', externalIssueRow.id)
+    .where('vkWorkspaceId', '=', workspaceRow.id)
+    .executeTakeFirstOrThrow();
+
+  if (beads) {
+    const bead = await ensureExternalIssueWorkspaceBead({
+      externalIssue: denormalizeExternalIssueRef(externalIssue),
+      workspace: denormalizeVKWorkspaceRef(workspace),
+      externalIssueId: externalIssueRow.id,
+      linkId: linkRow.id,
+      isPrimary: args.isPrimary,
+    }, beads);
+
+    if (linkRow.workspaceBeadId !== bead.beadId || linkRow.workspaceBeadsDirKey !== bead.beadsDirKey) {
+      await db
+        .updateTable('ExternalIssueWorkspaceLink')
+        .set({
+          workspaceBeadId: bead.beadId,
+          workspaceBeadsDirKey: bead.beadsDirKey,
+          updatedAt: sql`CURRENT_TIMESTAMP`,
+        })
+        .where('id', '=', linkRow.id)
+        .execute();
+    }
+  }
+
   return {
     externalIssue: denormalizeExternalIssueRef(externalIssue),
     workspace: {
@@ -162,6 +193,15 @@ export async function upsertExternalIssueWorkspaceMapping(
       ...(args.lastOpenedAt ? { lastOpenedAt: args.lastOpenedAt } : {}),
       ...(args.metadata ? { metadata: args.metadata } : {}),
     },
+  };
+}
+
+function denormalizeVKWorkspaceRef(workspace: NormalizedVKWorkspaceRef): VKWorkspaceRef {
+  return {
+    workspaceId: workspace.workspaceId,
+    ...(workspace.workspaceDir ? { workspaceDir: workspace.workspaceDir } : {}),
+    ...(workspace.displayName ? { displayName: workspace.displayName } : {}),
+    ...(workspace.metadataJson ? { metadata: parseMetadata(workspace.metadataJson) } : {}),
   };
 }
 
