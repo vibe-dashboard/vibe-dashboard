@@ -21,6 +21,7 @@ describe('bd metadata wrapper', () => {
     const { bin, argsFile } = await fakeBd(tempRoot);
 
     await execFileAsync(wrapper, ['create', 'Task title', '--metadata', '{"priority":"high","branch":"old"}'], {
+      cwd: tempRoot,
       env: {
         ...process.env,
         REAL_BD: bin,
@@ -48,6 +49,7 @@ describe('bd metadata wrapper', () => {
     const { bin, argsFile } = await fakeBd(tempRoot);
 
     await execFileAsync(wrapper, ['show', 'vkvw-123', '--json'], {
+      cwd: tempRoot,
       env: { ...process.env, REAL_BD: bin },
     });
 
@@ -65,6 +67,7 @@ describe('bd metadata wrapper', () => {
     await writeFile(metadataPath, JSON.stringify({ beadForms: { forms: [] }, VK_WORKSPACE_ID: 'old-workspace' }));
 
     await execFileAsync(wrapper, ['update', 'bead-1', '--metadata', `@${metadataPath}`], {
+      cwd: tempRoot,
       env: {
         ...process.env,
         REAL_BD: bin,
