@@ -92,12 +92,21 @@ describe('bd metadata wrapper', () => {
     const { bin } = await fakeBd(tempRoot);
     const workspaceRoot = join(tempRoot, 'workspace');
     const repoDir = join(workspaceRoot, 'repo');
+    const repoSubdir = join(repoDir, 'src', 'nested');
     await mkdir(join(workspaceRoot, '.beads'), { recursive: true });
-    await mkdir(repoDir, { recursive: true });
+    await mkdir(repoSubdir, { recursive: true });
     await writeFile(join(workspaceRoot, '.beads', 'redirect'), '/persisted/beads\n');
 
     await expect(execFileAsync(wrapper, ['list'], {
       cwd: repoDir,
+      env: { ...process.env, REAL_BD: bin },
+    })).rejects.toMatchObject({
+      code: 2,
+      stderr: expect.stringContaining('bd must be run from the workspace root'),
+    });
+
+    await expect(execFileAsync(wrapper, ['list'], {
+      cwd: repoSubdir,
       env: { ...process.env, REAL_BD: bin },
     })).rejects.toMatchObject({
       code: 2,
