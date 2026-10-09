@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process';
 import { access, readdir, realpath } from 'node:fs/promises';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
 
 import {
