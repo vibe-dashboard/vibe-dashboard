@@ -313,7 +313,7 @@ export async function scanProcessCreationEvidence(
   const files = await sortFilesByMtime(await listJsonlFiles(sessionsDir));
   onProgress?.({ phase: 'file-discovery-complete', root: sessionsDir, beadIds: beadIds?.length, candidateFiles: files.length });
   const evidence: CreationEvidence[] = [];
-  const sourceCounts: Record<string, number> = {
+  const sourceCounts: CreationEvidenceSourceCounts = {
     sameRecordCwd: 0,
     fileDominantCwd: 0,
     mentionedNoCwd: 0,
