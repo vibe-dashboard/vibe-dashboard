@@ -87,6 +87,7 @@
 		path /.springboard/*
 		path /node_modules/*
 		path /packages/*
+		path /vibe-kanban/packages/*
 		path /src/*
 		path /@vite/*
 		path /@id/*

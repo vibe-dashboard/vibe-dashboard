@@ -13,6 +13,7 @@
 	@vibe_dashboard_assets {
 		path /.springboard/*
 		path /node_modules/*
+		path /vibe-kanban/packages/*
 		path /src/*
 		path /@vite/*
 		path /@id/*
