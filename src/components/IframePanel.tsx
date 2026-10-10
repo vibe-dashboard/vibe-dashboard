@@ -476,7 +476,7 @@ function isSelfAppOrigin(origin: string): boolean {
 
 function getTabRenderTargetForTab(
   tab: Tab,
-  tabGroup?: Pick<TabGroup, 'tabs' | 'workspace'>,
+  tabGroup?: Pick<TabGroup, 'tabs' | 'workspace'> & { id?: string },
 ): TabRenderTarget {
   const reactSurface = tabGroup
     ? getReactCraftSurfaceTarget(tab, tabGroup)
@@ -612,7 +612,7 @@ export const __iframePanelTestUtils = {
   },
   getTabRenderTargetForTest(
     tab: Tab,
-    tabGroup?: Pick<TabGroup, 'tabs' | 'workspace'>,
+    tabGroup?: Pick<TabGroup, 'tabs' | 'workspace'> & { id?: string },
   ) {
     return getTabRenderTargetForTab(tab, tabGroup);
   },

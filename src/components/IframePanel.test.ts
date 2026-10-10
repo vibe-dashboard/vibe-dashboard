@@ -176,6 +176,37 @@ describe('iframe reveal behavior', () => {
     });
   });
 
+  it('routes built-in Agent workspace tabs to an in-process React surface', () => {
+    const target = __iframePanelTestUtils.getTabRenderTargetForTest(
+      {
+        id: 'agent',
+        title: 'Agent',
+        url: 'https://vd.example.test/workspaces/workspace-e2e',
+      },
+      {
+        id: 'craft_workspace',
+        tabs: [],
+        workspace: {
+          workspaceId: 'workspace-e2e',
+          workspaceDir: '/work/repo',
+        },
+      },
+    );
+
+    expect(target).toEqual({
+      kind: 'react-surface',
+      target: {
+        kind: 'react',
+        pluginId: 'vd.built-in',
+        surfaceKey: 'agent-chat',
+        props: {
+          workspaceId: 'workspace-e2e',
+          surfaceId: 'craft_workspace:agent',
+        },
+      },
+    });
+  });
+
   it('renders PreviewServer React craft surfaces inside pair layouts', () => {
     const previewTab = {
       id: 'craft-surface:craft_workspace:dev.mickmister.preview-server/run-configs',
@@ -223,6 +254,47 @@ describe('iframe reveal behavior', () => {
     expect(markup).toContain('stored run configs');
     expect(markup).toContain('left:calc(50.000000% + 2.000px)');
     expect(markup).toContain('width:calc(50.000000% - 2.000px)');
+  });
+
+  it('renders built-in Agent React surfaces inside pair layouts without iframe chrome', () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(IframePanel, {
+        activeItemId: 'agent+code',
+        onUpdatePairRatios: () => {},
+        tabGroup: {
+          id: 'craft_workspace',
+          label: 'Workspace',
+          order: 0,
+          tabs: [
+            {
+              id: 'agent',
+              title: 'Agent',
+              url: 'https://vd.example.test/workspaces/workspace-e2e',
+            },
+            {
+              id: 'code',
+              title: 'Code',
+              url: 'http://code.example.test',
+            },
+          ],
+          pairs: [
+            {
+              id: 'agent+code',
+              tabIds: ['agent', 'code'],
+              ratios: [50, 50],
+            },
+          ],
+          workspace: {
+            workspaceId: 'workspace-e2e',
+            workspaceDir: '/work/repo',
+          },
+        },
+      }),
+    );
+
+    expect(markup).toContain('data-testid="inline-vk-agent-chat"');
+    expect(markup).toContain('Loading agent chat');
+    expect(markup).not.toContain('/workspaces/workspace-e2e');
   });
 
   it('clears first-activation tracking when an iframe is removed', () => {

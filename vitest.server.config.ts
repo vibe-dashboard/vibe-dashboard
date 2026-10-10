@@ -12,6 +12,12 @@ export default defineConfig({
         __dirname,
         'packages/beads-form/src/index.ts',
       ),
+      '@vibe/inline-chat': path.resolve(
+        __dirname,
+        'vibe-kanban/packages/inline-chat/src/index.tsx',
+      ),
+      react: path.resolve(__dirname, 'node_modules/react'),
+      'react-dom': path.resolve(__dirname, 'node_modules/react-dom'),
     },
   },
   test: {

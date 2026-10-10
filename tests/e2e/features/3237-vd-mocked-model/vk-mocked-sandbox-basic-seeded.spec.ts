@@ -44,17 +44,14 @@ test.describe('VK mocked-provider basic-seeded fixture', () => {
       .getByRole('button', { name: new RegExp(escapeRegex(manifest.craftTitle)) })
       .click();
 
-    const agentFrame = page.frameLocator('iframe[title="Agent"]').first();
-    await expect(agentFrame.locator('body')).toContainText(manifest.craftTitle);
+    const agentChat = page.getByTestId('inline-vk-agent-chat').first();
+    await expect(agentChat).toContainText(manifest.craftTitle);
 
-    await agentFrame
-      .getByRole('textbox', { name: 'Markdown editor' })
-      .last()
-      .fill(proofFollowUp);
-    await sendFollowUpThroughVkApi(page, proofFollowUp);
+    await agentChat.getByRole('textbox', { name: 'Follow up' }).fill(proofFollowUp);
+    await agentChat.getByRole('button', { name: 'Send' }).click();
 
-    await expect(agentFrame.locator('body')).toContainText(proofFollowUp);
-    await expect(agentFrame.locator('body')).toContainText('Ran a test command', {
+    await expect(agentChat).toContainText(proofFollowUp);
+    await expect(agentChat).toContainText('Ran a test command', {
       timeout: 60_000,
     });
   });
@@ -93,70 +90,6 @@ async function clickLocatorInViewport(page: Page, locator: Locator) {
   await locator
     .first()
     .evaluate((element) => (element as HTMLButtonElement).click());
-}
-
-async function sendFollowUpThroughVkApi(page: Page, followUp: string) {
-  const agentFrameSrc = await page
-    .locator('iframe[title="Agent"]')
-    .first()
-    .evaluate((iframe) => (iframe as HTMLIFrameElement).src);
-  const sessionId = agentFrameSrc.match(
-    /\/sessions\/([0-9a-fA-F-]{36})(?:[/?#]|$)/,
-  )?.[1];
-  const workspaceId = agentFrameSrc.match(
-    /\/workspaces\/([0-9a-fA-F-]{36})(?:[/?#]|$)/,
-  )?.[1];
-  const resolvedSessionId =
-    sessionId ??
-    (workspaceId ? await latestSessionIdForWorkspace(page, workspaceId) : null);
-  if (!resolvedSessionId) {
-    throw new Error(`Could not resolve VK session id from ${agentFrameSrc}`);
-  }
-
-  const response = await page.request.post(
-    new URL(
-      `/api/sessions/${resolvedSessionId}/follow-up`,
-      sandboxUrl,
-    ).toString(),
-    {
-      data: {
-        prompt: followUp,
-        executor_config: {
-          executor: 'CODEX',
-          permission_policy: 'AUTO',
-        },
-        retry_process_id: null,
-        force_when_dirty: null,
-        perform_git_reset: null,
-      },
-    },
-  );
-
-  if (!response.ok()) {
-    throw new Error(
-      `VK follow-up API failed with ${response.status()}: ${await response.text()}`,
-    );
-  }
-}
-
-async function latestSessionIdForWorkspace(page: Page, workspaceId: string) {
-  const response = await page.request.get(
-    new URL(`/api/sessions?workspace_id=${workspaceId}`, sandboxUrl).toString(),
-  );
-  if (!response.ok()) {
-    throw new Error(
-      `VK sessions API failed with ${response.status()}: ${await response.text()}`,
-    );
-  }
-
-  const body = (await response.json()) as {
-    data?: Array<{ id?: string; created_at?: string }>;
-  };
-  return body.data
-    ?.slice()
-    .sort((left, right) =>
-      String(right.created_at ?? '').localeCompare(String(left.created_at ?? '')),
-    )[0]?.id;
 }
 
 function escapeRegex(value: string): string {

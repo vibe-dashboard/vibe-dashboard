@@ -1,7 +1,11 @@
 import React from 'react';
 import type { Tab, TabGroup } from '../../../types';
 import { PreviewRunConfigsPanel } from '../../../components/PreviewRunConfigsPanel';
-import { getBuiltInWorkspaceMetadata } from './craft-surfaces';
+import { InlineVkAgentChat } from '@vibe/inline-chat';
+import {
+  BUILT_IN_AGENT_TAB_ID,
+  getBuiltInWorkspaceMetadata,
+} from './craft-surfaces';
 
 export interface ReactCraftSurfaceTarget {
   kind: 'react';
@@ -18,18 +22,37 @@ const FIRST_PARTY_REACT_SURFACES: Record<string, ReactCraftSurfaceComponent> = {
   'dev.mickmister.preview-server/run-configs': (props) => (
     <PreviewRunConfigsPanel workspaceId={props.workspaceId ?? ''} />
   ),
+  'vd.built-in/agent-chat': (props) => (
+    <InlineVkAgentChat
+      workspaceId={props.workspaceId ?? ''}
+      surfaceId={props.surfaceId ?? props.workspaceId ?? 'agent'}
+    />
+  ),
 };
 
 export function getReactCraftSurfaceTarget(
   tab: Tab,
-  tabGroup: Pick<TabGroup, 'tabs' | 'workspace'>,
+  tabGroup: Pick<TabGroup, 'tabs' | 'workspace'> & { id?: string },
 ): ReactCraftSurfaceTarget | null {
+  const workspace = getBuiltInWorkspaceMetadata(tabGroup);
+
+  if (tab.id === BUILT_IN_AGENT_TAB_ID && workspace?.workspaceId) {
+    return {
+      kind: 'react',
+      pluginId: 'vd.built-in',
+      surfaceKey: 'agent-chat',
+      props: {
+        workspaceId: workspace.workspaceId,
+        surfaceId: `${tabGroup.id ?? workspace.workspaceId}:${tab.id}`,
+      },
+    };
+  }
+
   if (tab.ephemeral?.kind !== 'craft-surface') return null;
 
   const key = getReactCraftSurfaceLookupKey(tab.ephemeral);
   if (!key) return null;
 
-  const workspace = getBuiltInWorkspaceMetadata(tabGroup);
   return {
     kind: 'react',
     pluginId: tab.ephemeral.pluginId,
