@@ -16,9 +16,8 @@ export default defineConfig({
         __dirname,
         'vibe-kanban/packages/inline-chat/src/index.tsx',
       ),
-      react: path.resolve(__dirname, 'node_modules/react'),
-      'react-dom': path.resolve(__dirname, 'node_modules/react-dom'),
     },
+    dedupe: ['react', 'react-dom'],
   },
   test: {
     environment: 'node',
