@@ -24,4 +24,5 @@ data/*.sqlite-*
 src/storybook-fixtures/external-jira/*.generated.json
 
 .vk-mocked-sandbox
+.tmp
 .playwright-cli
