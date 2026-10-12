@@ -377,10 +377,11 @@ export class VibeKanbanServerClient {
   getPreviewSlotUrl(
     workspaceId: string,
     previewSlotId: string,
-    args: { customerSlug: string; baseDomain?: string },
+    args: { customerSlug: string; baseDomain?: string; urlScheme?: 'http' | 'https' },
   ): Promise<PreviewSlotUrlResponse> {
     const params = new URLSearchParams({ customerSlug: args.customerSlug });
     if (args.baseDomain) params.set('baseDomain', args.baseDomain);
+    if (args.urlScheme) params.set('urlScheme', args.urlScheme);
     return this.get(
       `/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots/${encodeURIComponent(previewSlotId)}/url?${params}`,
     );
