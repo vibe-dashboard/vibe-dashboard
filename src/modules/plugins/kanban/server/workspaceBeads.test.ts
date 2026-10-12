@@ -41,6 +41,8 @@ describe('workspaceBeads', () => {
         beadsDirectory: '/var/lib/vd/beads',
       });
       expect(instructions).toContain('Run `bd` commands from this workspace root/top-level directory.');
+      expect(instructions).toContain('`bd list` — list tasks');
+      expect(instructions).toContain('`bd show <id>` — inspect a task');
       expect(instructions).toContain('custom local note');
     } finally {
       await rm(root, { recursive: true, force: true });

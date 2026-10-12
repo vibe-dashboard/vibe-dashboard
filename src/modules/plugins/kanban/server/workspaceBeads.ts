@@ -16,7 +16,13 @@ const REQUIRED_FRAGMENT = `## Workspace Beads
 
 Run \`bd\` commands from this workspace root/top-level directory.
 This workspace uses \`.beads/redirect\` to store beads in persisted VD storage.
-Do not initialize beads inside repository subdirectories.`;
+Do not initialize beads inside repository subdirectories.
+
+Useful commands:
+- \`bd list\` — list tasks
+- \`bd show <id>\` — inspect a task
+- \`bd update <id> --claim\` — claim a task
+- \`bd close <id>\` — mark a task complete`;
 
 const DEFAULT_USER_APPEND = `<!--
 Seeded once by VD; this file is not overwritten by VD updates.
