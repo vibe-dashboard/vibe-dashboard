@@ -280,44 +280,56 @@ describe('BeadsClient', () => {
     }
   });
 
-  it('lists pending bead forms from a bounded ~/repos-style scan without mutating bead databases', async () => {
-    const reposRoot = await mkdtemp(join(tmpdir(), 'beads-repos-'));
-    await mkdir(join(reposRoot, 'repo-a'), { recursive: true });
-    await mkdir(join(reposRoot, 'repo-b'), { recursive: true });
-    await mkdir(join(reposRoot, 'repo-c'), { recursive: true });
+  it('lists pending bead forms from persisted workspace stores without mutating bead databases', async () => {
+    const beadsRoot = await mkdtemp(join(tmpdir(), 'vd-beads-'));
+    const workspaceAStore = join(beadsRoot, 'workspaces', 'workspace-a', '.beads');
+    const workspaceBRoot = join(beadsRoot, 'workspaces', 'workspace-b');
+    const workspaceCStore = join(beadsRoot, 'workspaces', 'workspace-c', '.beads');
+    await mkdir(workspaceAStore, { recursive: true });
+    await mkdir(workspaceBRoot, { recursive: true });
+    await mkdir(workspaceCStore, { recursive: true });
+    const previous = process.env.VD_BEADS_DIRECTORY;
+    process.env.VD_BEADS_DIRECTORY = beadsRoot;
     const exec = vi.fn<ExecFileLike>(async (_file, args, options) => {
       expect(args[0]).toBe('--readonly');
-      if (options.cwd.endsWith('repo-a') && args[1] === 'list') {
+      expect(options.cwd).not.toContain('/repos/');
+      if (options.cwd === workspaceAStore && args[1] === 'list') {
         if (args.includes('beadFormsSummary')) return { stdout: JSON.stringify([
           { id: 'summary_done', title: 'Summary done', metadata: { beadFormsSummary: { hasForms: true, hasPendingAnswer: false, pendingResponseCount: 0, formIds: ['summary_done_form'], pendingFormIds: [] }, beadForms: { forms: [{ id: 'summary_done_form', title: 'Done', html: '<form></form>' }] } } },
         ]), stderr: '' };
         return { stdout: args.includes('beadForms') ? JSON.stringify([
-          { id: 'pending', title: 'Pending bead', metadata: { beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } },
+          { id: 'task-pending', title: 'Pending bead', metadata: { beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } },
           { id: 'done', title: 'Done bead', metadata: { beadForms: { forms: [{ id: 'done_form', title: 'Done', html: '<form></form>', responses: [{ submittedAt: 'now', submittedBy: 'user', values: {} }] }] } } },
           { id: 'closed', title: 'Closed bead', status: 'closed', metadata: { beadForms: { forms: [{ id: 'closed_form', title: 'Closed', html: '<form></form>' }] } } },
         ]) : '[]', stderr: '' };
-      }
-      if (options.cwd.endsWith('repo-b')) {
-        throw Object.assign(new Error('Command failed: bd list'), { stderr: 'Error: no beads database found' });
       }
       return { stdout: '[]', stderr: '' };
     });
     const client = new BeadsClient({ execFile: exec });
 
-    const result = await client.listPendingBeadsFormQueue({ reposRoot, repoLimit: 2 });
+    try {
+      const result = await client.listPendingBeadsFormQueue({ repoLimit: 2 });
 
-    expect(result.reposScanned).toBe(2);
-    expect(result.repoLimit).toBe(2);
-    expect(result.reposRoot).toBe(reposRoot);
-    expect(result.entries).toEqual([{
-      repoDir: join(reposRoot, 'repo-a'),
-      repoName: 'repo-a',
-      bead: { id: 'pending', title: 'Pending bead' },
-      form: { id: 'review', title: 'Review', responseCount: 0 },
-    }]);
-    expect(result.skipped).toEqual([{ repoDir: join(reposRoot, 'repo-b'), reason: 'not initialized for beads' }]);
-    expect(result.updateStrategy.mode).toBe('explicit-refresh');
-    expect(exec.mock.calls.some(([, args]) => args.includes('update'))).toBe(false);
-    expect(exec.mock.calls.some(([, args]) => args.includes('show'))).toBe(false);
+      expect(result.reposScanned).toBe(2);
+      expect(result.repoLimit).toBe(2);
+      expect(result.reposRoot).toBe(join(beadsRoot, 'workspaces'));
+      expect(result.entries).toEqual([{
+        workspaceId: 'workspace-a',
+        repoDir: workspaceAStore,
+        repoName: 'workspace-a',
+        bead: { id: 'task-pending', title: 'Pending bead' },
+        form: { id: 'review', title: 'Review', responseCount: 0 },
+      }]);
+      expect(result.skipped).toEqual([{ repoDir: join(workspaceBRoot, '.beads'), reason: 'workspace beads store not initialized' }]);
+      expect(result.updateStrategy.mode).toBe('explicit-refresh');
+      expect(exec.mock.calls.some(([, args]) => args.includes('update'))).toBe(false);
+      expect(exec.mock.calls.some(([, args]) => args.includes('show'))).toBe(false);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.VD_BEADS_DIRECTORY;
+      } else {
+        process.env.VD_BEADS_DIRECTORY = previous;
+      }
+    }
   });
 });
