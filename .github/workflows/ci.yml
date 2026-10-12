@@ -275,7 +275,8 @@ jobs:
           go-version: 1.25.7
 
       - name: Run Caddy module Go tests
-        run: go test ./caddy-module
+        working-directory: caddy-module
+        run: go test ./...
 
       - name: Build custom Caddy
         run: scripts/build-custom-caddy.sh caddy-module .tmp/custom-caddy/caddy
