@@ -343,8 +343,8 @@ async function runPreviewUrlCommand(action: string, options: PreviewUrlOptions):
 
   if (action === "url") {
     const slotId = requirePreviewOption(options, "slot");
-    const customerSlug = requirePreviewOption(options, "customer");
-    const params = new URLSearchParams({ customerSlug });
+    const params = new URLSearchParams();
+    if (options.customer) params.set("customerSlug", options.customer);
     if (options.baseDomain) params.set("baseDomain", options.baseDomain);
     if (options.urlScheme) params.set("urlScheme", options.urlScheme);
     const data = await previewApiRequest<{ url: string }>(
@@ -377,7 +377,26 @@ async function runPreviewUrlCommand(action: string, options: PreviewUrlOptions):
     return;
   }
 
+  if (action === "delete-run-config") {
+    const runConfigId = requirePreviewOption(options, "runConfig");
+    await previewApiRequest(options, `/workspaces/${encodeURIComponent(workspaceId)}/execution/run-configs/${encodeURIComponent(runConfigId)}`, {
+      method: "DELETE",
+    });
+    console.log(JSON.stringify({ deleted: true }, null, 2));
+    return;
+  }
+
+  if (action === "delete-slot") {
+    const slotId = requirePreviewOption(options, "slot");
+    await previewApiRequest(options, `/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots/${encodeURIComponent(slotId)}`, {
+      method: "DELETE",
+    });
+    console.log(JSON.stringify({ deleted: true }, null, 2));
+    return;
+  }
+
   console.error(`Unknown preview-url action: ${action}`);
+  console.error("Actions: list, upsert-run-config, upsert-slot, url, delete-run-config, delete-slot, start-run-config, start-slot");
   console.error("Actions: list, upsert-run-config, upsert-slot, url, start-run-config, start-slot");
   process.exit(1);
 }

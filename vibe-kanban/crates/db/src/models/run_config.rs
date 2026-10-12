@@ -42,6 +42,7 @@ pub struct RunConfig {
     pub repo_id: Uuid,
     pub slug: String,
     pub name: String,
+    pub description: Option<String>,
     pub command: String,
     pub working_dir: Option<String>,
     pub kind: RunConfigKind,
@@ -58,6 +59,7 @@ struct RunConfigRow {
     pub repo_id: Uuid,
     pub slug: String,
     pub name: String,
+    pub description: Option<String>,
     pub command: String,
     pub working_dir: Option<String>,
     pub kind: String,
@@ -78,6 +80,7 @@ impl TryFrom<RunConfigRow> for RunConfig {
             repo_id: value.repo_id,
             slug: value.slug,
             name: value.name,
+            description: value.description,
             command: value.command,
             working_dir: value.working_dir,
             kind,
@@ -96,6 +99,8 @@ pub struct UpsertRunConfig {
     pub repo_id: Uuid,
     pub slug: String,
     pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
     pub command: String,
     #[serde(default)]
     pub working_dir: Option<String>,
@@ -111,7 +116,7 @@ fn default_enabled() -> bool {
 impl RunConfig {
     pub async fn find_by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Self>, sqlx::Error> {
         let row = sqlx::query_as::<_, RunConfigRow>(
-            r#"SELECT id, repo_id, slug, name, command, working_dir, kind, enabled, created_at, updated_at
+            r#"SELECT id, repo_id, slug, name, description, command, working_dir, kind, enabled, created_at, updated_at
                FROM run_configs
                WHERE id = ?"#,
         )
@@ -127,7 +132,7 @@ impl RunConfig {
         repo_id: Uuid,
     ) -> Result<Vec<Self>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RunConfigRow>(
-            r#"SELECT id, repo_id, slug, name, command, working_dir, kind, enabled, created_at, updated_at
+            r#"SELECT id, repo_id, slug, name, description, command, working_dir, kind, enabled, created_at, updated_at
                FROM run_configs
                WHERE repo_id = ?
                ORDER BY name ASC, created_at ASC"#,
@@ -143,12 +148,13 @@ impl RunConfig {
         let id = input.id.unwrap_or_else(Uuid::new_v4);
         sqlx::query(
             r#"INSERT INTO run_configs
-               (id, repo_id, slug, name, command, working_dir, kind, enabled)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+               (id, repo_id, slug, name, description, command, working_dir, kind, enabled)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(id) DO UPDATE SET
                  repo_id = excluded.repo_id,
                  slug = excluded.slug,
                  name = excluded.name,
+                 description = excluded.description,
                  command = excluded.command,
                  working_dir = excluded.working_dir,
                  kind = excluded.kind,
@@ -159,6 +165,7 @@ impl RunConfig {
         .bind(input.repo_id)
         .bind(&input.slug)
         .bind(&input.name)
+        .bind(&input.description)
         .bind(&input.command)
         .bind(&input.working_dir)
         .bind(input.kind.as_str())
@@ -169,5 +176,49 @@ impl RunConfig {
         Self::find_by_id(pool, id)
             .await?
             .ok_or(sqlx::Error::RowNotFound)
+    }
+
+    pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query("DELETE FROM run_configs WHERE id = ?")
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(result.rows_affected())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UpsertRunConfig;
+
+    #[test]
+    fn upsert_description_round_trips_and_remains_optional() {
+        let with_description: UpsertRunConfig = serde_json::from_value(serde_json::json!({
+            "repo_id": "00000000-0000-0000-0000-000000000001",
+            "slug": "web",
+            "name": "Web",
+            "description": "Vite UI review",
+            "command": "pnpm dev",
+            "kind": "long_running"
+        }))
+        .expect("description should deserialize");
+        assert_eq!(
+            with_description.description.as_deref(),
+            Some("Vite UI review")
+        );
+        assert_eq!(
+            serde_json::to_value(with_description).unwrap()["description"],
+            "Vite UI review"
+        );
+
+        let without_description: UpsertRunConfig = serde_json::from_value(serde_json::json!({
+            "repo_id": "00000000-0000-0000-0000-000000000001",
+            "slug": "web",
+            "name": "Web",
+            "command": "pnpm dev",
+            "kind": "long_running"
+        }))
+        .expect("description should remain optional");
+        assert_eq!(without_description.description, None);
     }
 }

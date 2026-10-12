@@ -61,6 +61,10 @@ pub struct NamedPreviewResolveResponse {
     pub message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execution_process_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview_slot_id: Option<Uuid>,
 }
 
 async fn resolve_named_preview(
@@ -120,6 +124,8 @@ async fn resolve_named_preview(
                     NamedPreviewResolveResponse::ready(
                         active.assigned_port,
                         active.execution_process_id,
+                        workspace.id,
+                        slot.id,
                     ),
                 )));
             }
@@ -130,7 +136,11 @@ async fn resolve_named_preview(
             )
             .await?;
             return Ok(ResponseJson(ApiResponse::success(
-                NamedPreviewResolveResponse::starting_with_process(active.execution_process_id),
+                NamedPreviewResolveResponse::starting_with_process(
+                    active.execution_process_id,
+                    workspace.id,
+                    slot.id,
+                ),
             )));
         }
         PreviewProcessLink::mark_ended_for_process(
@@ -140,7 +150,12 @@ async fn resolve_named_preview(
         )
         .await?;
         return Ok(ResponseJson(ApiResponse::success(
-            NamedPreviewResolveResponse::failed("Preview process is no longer running"),
+            NamedPreviewResolveResponse::failed_with_process(
+                "Preview process is no longer running",
+                active.execution_process_id,
+                workspace.id,
+                slot.id,
+            ),
         )));
     }
 
@@ -181,22 +196,35 @@ async fn resolve_named_preview(
             NamedPreviewResolveResponse::ready(
                 started.preview_process_link.assigned_port,
                 started.execution_process.id,
+                workspace.id,
+                slot.id,
             ),
         )));
     }
 
     Ok(ResponseJson(ApiResponse::success(
-        NamedPreviewResolveResponse::starting_with_process(started.execution_process.id),
+        NamedPreviewResolveResponse::starting_with_process(
+            started.execution_process.id,
+            workspace.id,
+            slot.id,
+        ),
     )))
 }
 
 impl NamedPreviewResolveResponse {
-    fn ready(port: i64, execution_process_id: Uuid) -> Self {
+    fn ready(
+        port: i64,
+        execution_process_id: Uuid,
+        workspace_id: Uuid,
+        preview_slot_id: Uuid,
+    ) -> Self {
         Self {
             status: "ready".to_string(),
             upstream: Some(format!("http://127.0.0.1:{port}")),
             message: None,
             execution_process_id: Some(execution_process_id),
+            workspace_id: Some(workspace_id),
+            preview_slot_id: Some(preview_slot_id),
         }
     }
 
@@ -206,15 +234,23 @@ impl NamedPreviewResolveResponse {
             upstream: None,
             message: Some("Preview server is starting".to_string()),
             execution_process_id: None,
+            workspace_id: None,
+            preview_slot_id: None,
         }
     }
 
-    fn starting_with_process(execution_process_id: Uuid) -> Self {
+    fn starting_with_process(
+        execution_process_id: Uuid,
+        workspace_id: Uuid,
+        preview_slot_id: Uuid,
+    ) -> Self {
         Self {
             status: "starting".to_string(),
             upstream: None,
             message: Some("Preview server is starting".to_string()),
             execution_process_id: Some(execution_process_id),
+            workspace_id: Some(workspace_id),
+            preview_slot_id: Some(preview_slot_id),
         }
     }
 
@@ -224,6 +260,8 @@ impl NamedPreviewResolveResponse {
             upstream: None,
             message: Some(message.to_string()),
             execution_process_id: None,
+            workspace_id: None,
+            preview_slot_id: None,
         }
     }
 
@@ -233,6 +271,8 @@ impl NamedPreviewResolveResponse {
             upstream: None,
             message: Some(message.to_string()),
             execution_process_id: None,
+            workspace_id: None,
+            preview_slot_id: None,
         }
     }
 
@@ -242,6 +282,24 @@ impl NamedPreviewResolveResponse {
             upstream: None,
             message: Some(message.to_string()),
             execution_process_id: None,
+            workspace_id: None,
+            preview_slot_id: None,
+        }
+    }
+
+    fn failed_with_process(
+        message: &str,
+        execution_process_id: Uuid,
+        workspace_id: Uuid,
+        preview_slot_id: Uuid,
+    ) -> Self {
+        Self {
+            status: "failed".to_string(),
+            upstream: None,
+            message: Some(message.to_string()),
+            execution_process_id: Some(execution_process_id),
+            workspace_id: Some(workspace_id),
+            preview_slot_id: Some(preview_slot_id),
         }
     }
 }
@@ -422,4 +480,33 @@ async fn subdomain_proxy_request(
         request,
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use uuid::Uuid;
+
+    use super::NamedPreviewResolveResponse;
+
+    #[test]
+    fn process_backed_responses_expose_stable_slot_identity() {
+        let process_id = Uuid::new_v4();
+        let workspace_id = Uuid::new_v4();
+        let slot_id = Uuid::new_v4();
+
+        for response in [
+            NamedPreviewResolveResponse::starting_with_process(process_id, workspace_id, slot_id),
+            NamedPreviewResolveResponse::failed_with_process(
+                "Process exited",
+                process_id,
+                workspace_id,
+                slot_id,
+            ),
+        ] {
+            let value = serde_json::to_value(response).expect("response should serialize");
+            assert_eq!(value["executionProcessId"], process_id.to_string());
+            assert_eq!(value["workspaceId"], workspace_id.to_string());
+            assert_eq!(value["previewSlotId"], slot_id.to_string());
+        }
+    }
 }
