@@ -529,7 +529,9 @@ export function createSandboxPlan(input: {
   const workspaceRoot = resolve(input.workspaceRoot ?? process.cwd(), '..');
   const vdRoot = resolve(workspaceRoot, 'vibe-kanban-vscode-web');
   const configuredVkCheckout = env.VK_CHECKOUT?.trim();
-  const vkRoot = resolve(workspaceRoot, configuredVkCheckout || 'Vktest');
+  const vkRoot = configuredVkCheckout
+    ? resolve(workspaceRoot, configuredVkCheckout)
+    : join(vdRoot, 'vibe-kanban');
   const ciReleaseArtifact = ciReleaseArtifactFromEnv(vdRoot, env);
   if (ciReleaseArtifact && env.VK_MOCKED_PREBUILD_BACKEND === '1') {
     throw new Error(
@@ -873,7 +875,9 @@ async function main(): Promise<void> {
   const vdRoot = resolve(workspaceRoot, 'vibe-kanban-vscode-web');
   const caddyfile = await loadSandboxCaddyfile(vdRoot);
   const configuredVkCheckout = process.env.VK_CHECKOUT?.trim();
-  const vkRoot = resolve(workspaceRoot, configuredVkCheckout || 'Vktest');
+  const vkRoot = configuredVkCheckout
+    ? resolve(workspaceRoot, configuredVkCheckout)
+    : join(vdRoot, 'vibe-kanban');
   let env = process.env;
   if (isCiReleaseBackend(process.env)) {
     const artifact = await resolveCiReleaseArtifact(vdRoot, vkRoot, process.env);
