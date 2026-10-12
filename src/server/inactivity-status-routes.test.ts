@@ -8,6 +8,7 @@ import {
   registerRuntimeInactivityStatusRoutes,
 } from './inactivity-status-routes';
 import type { WorkspaceSummary } from './vk-client';
+import { ExecutionProcessStatus } from '../../vibe-kanban/shared/types';
 
 const NOW = new Date('2026-09-02T20:00:00.000Z');
 
@@ -19,10 +20,12 @@ function summary(overrides: Partial<WorkspaceSummary>): WorkspaceSummary {
     files_changed: null,
     lines_added: null,
     lines_removed: null,
-    latest_process_completed_at: null,
-    latest_process_status: 'completed',
+    latest_process_status: ExecutionProcessStatus.completed,
     has_running_dev_server: false,
     has_unseen_turns: false,
+    pr_status: null,
+    pr_number: null,
+    pr_url: null,
     ...overrides,
   };
 }
@@ -84,7 +87,7 @@ describe('buildRuntimeInactivityStatus', () => {
     const status = buildRuntimeInactivityStatus({
       now: NOW,
       workspaceSummaries: [summary({
-        latest_process_status: 'running',
+        latest_process_status: ExecutionProcessStatus.running,
         latest_process_completed_at: '2026-09-02T19:00:00.000Z',
         has_pending_approval: true,
         has_running_dev_server: true,
@@ -191,9 +194,9 @@ describe('buildRuntimeInactivityStatus', () => {
 describe('registerRuntimeInactivityStatusRoutes', () => {
   it('serves the status route only for loopback hosts', async () => {
     const app = new Hono();
-    const getWorkspaceSummaries = vi.fn(async () => [
-      summary({ latest_process_completed_at: '2026-09-02T19:44:00.000Z' }),
-    ]);
+    const getWorkspaceSummaries = vi.fn(async () => ({
+      summaries: [summary({ latest_process_completed_at: '2026-09-02T19:44:00.000Z' })],
+    }));
     const browserActivityStore = new RuntimeBrowserActivityStore();
     browserActivityStore.recordActivity({ eventType: 'heartbeat', observedAt: new Date('2026-09-02T19:44:00.000Z') });
     registerRuntimeInactivityStatusRoutes(app, {
@@ -223,7 +226,7 @@ describe('registerRuntimeInactivityStatusRoutes', () => {
     const app = new Hono();
     const browserActivityStore = new RuntimeBrowserActivityStore();
     registerRuntimeInactivityStatusRoutes(app, {
-      vkClient: { getWorkspaceSummaries: vi.fn(async () => [summary({ latest_process_completed_at: '2026-09-02T19:00:00.000Z' })]) },
+      vkClient: { getWorkspaceSummaries: vi.fn(async () => ({ summaries: [summary({ latest_process_completed_at: '2026-09-02T19:00:00.000Z' })] })) },
       now: () => NOW,
       browserActivityStore,
     });

@@ -6,6 +6,7 @@ import {
   selectLatestSession,
   type Session,
 } from './vk-client';
+import { ExecutionProcessStatus } from '../../vibe-kanban/shared/types';
 
 describe('resolveVibeApiBaseUrl', () => {
   it('prefers VIBE_API_URL, falls back to VK_API_URL, then localhost API', () => {
@@ -32,16 +33,44 @@ describe('VibeKanbanServerClient', () => {
         expect(JSON.parse(String(init.body))).toEqual({ archived: false });
         return jsonResponse({
           success: true,
-          data: { summaries: [{ workspace_id: 'ws1', latest_process_status: 'running' }] },
+          data: {
+            summaries: [{
+              workspace_id: 'ws1',
+              latest_session_id: null,
+              has_pending_approval: false,
+              files_changed: null,
+              lines_added: null,
+              lines_removed: null,
+              latest_process_status: ExecutionProcessStatus.running,
+              has_running_dev_server: false,
+              has_unseen_turns: false,
+              pr_status: null,
+              pr_number: null,
+              pr_url: null,
+            }],
+          },
         });
       }
       throw new Error(`unexpected request ${url}`);
     });
     const client = new VibeKanbanServerClient({ baseUrl: 'http://vk.local/api', fetch: fetchImpl });
 
-    await expect(client.getWorkspaceSummaries()).resolves.toEqual([
-      { workspace_id: 'ws1', latest_process_status: 'running' },
-    ]);
+    await expect(client.getWorkspaceSummaries()).resolves.toEqual({
+      summaries: [{
+        workspace_id: 'ws1',
+        latest_session_id: null,
+        has_pending_approval: false,
+        files_changed: null,
+        lines_added: null,
+        lines_removed: null,
+        latest_process_status: ExecutionProcessStatus.running,
+        has_running_dev_server: false,
+        has_unseen_turns: false,
+        pr_status: null,
+        pr_number: null,
+        pr_url: null,
+      }],
+    });
   });
 
   it('fetches workspaces and workspace repos from VK API envelope', async () => {

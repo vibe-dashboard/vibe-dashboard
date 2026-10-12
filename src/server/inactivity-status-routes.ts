@@ -128,7 +128,7 @@ export function registerRuntimeInactivityStatusRoutes(
     let workspaceSummaries: WorkspaceSummary[] | undefined;
     let workspaceSummaryError: unknown;
     try {
-      workspaceSummaries = await vkClient.getWorkspaceSummaries(false);
+      workspaceSummaries = (await vkClient.getWorkspaceSummaries(false)).summaries;
     } catch (error) {
       workspaceSummaryError = error;
     }

@@ -200,7 +200,9 @@ impl PreviewProcessLink {
             .map(TryInto::try_into)
             .collect::<Result<Vec<Self>, sqlx::Error>>()?
             .into_iter()
-            .find(|link| preview_slot_id.map_or(true, |slot_id| link.preview_slot_id == Some(slot_id)))
+            .find(|link| {
+                preview_slot_id.map_or(true, |slot_id| link.preview_slot_id == Some(slot_id))
+            })
             .map(Ok)
             .transpose()
     }

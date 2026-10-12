@@ -7,8 +7,9 @@ import type { ExternalTrackerAuthService } from './auth';
 import { registerExternalTrackerBoardRoutes, resolveJiraAccessToken } from './boardRoutes';
 import { migrateExternalIntegrationsDb } from '../../server/migrate';
 import type { CreateJiraIssue, FetchJiraBoardView } from './boardRoutes';
-import type { RepoWithBranch, VibeKanbanServerClient } from '../../../../../server/vk-client';
+import type { RepoWithBranch, VibeKanbanServerClient, WorkspaceSummary } from '../../../../../server/vk-client';
 import { upsertExternalIssueWorkspaceMapping } from '../../server/workspaceMappings';
+import { ExecutionProcessStatus } from '../../../../../../vibe-kanban/shared/types';
 
 function createAuthService(session: Awaited<ReturnType<ExternalTrackerAuthService['getSession']>>): ExternalTrackerAuthService {
   return {
@@ -73,6 +74,25 @@ function createVkClient(overrides: Partial<TestVkClient> = {}): TestVkClient {
     ...overrides,
   } as TestVkClient;
 }
+
+function workspaceSummary(overrides: Partial<WorkspaceSummary>): WorkspaceSummary {
+  return {
+    workspace_id: 'ws-1',
+    latest_session_id: null,
+    has_pending_approval: false,
+    files_changed: null,
+    lines_added: null,
+    lines_removed: null,
+    latest_process_status: ExecutionProcessStatus.completed,
+    has_running_dev_server: false,
+    has_unseen_turns: false,
+    pr_status: null,
+    pr_number: null,
+    pr_url: null,
+    ...overrides,
+  };
+}
+
 const boardView = {
   provider: 'jira' as const,
   sourceUrl: jiraBoardUrl,
@@ -321,7 +341,7 @@ describe('external Jira board routes', () => {
   it('loads linked VK workspace activity metrics from a separate endpoint', async () => {
     const app = new Hono();
     const vkClient = createVkClient({
-      getWorkspaceSummaries: vi.fn(async (archived: boolean) => ({ summaries: archived ? [] : [{ workspace_id: 'ws-1', latest_session_id: 'session-2', files_changed: 7, lines_added: 30, lines_removed: 12 }] })),
+      getWorkspaceSummaries: vi.fn(async (archived: boolean) => ({ summaries: archived ? [] : [workspaceSummary({ latest_session_id: 'session-2', files_changed: 7, lines_added: 30, lines_removed: 12 })] })),
       getSessions: vi.fn(async () => [
         { id: 'session-1', workspace_id: 'ws-1', executor: 'CODEX' as const, created_at: '2026-07-27T00:00:00Z', updated_at: '2026-07-27T00:00:00Z' },
         { id: 'session-2', workspace_id: 'ws-1', executor: 'AMP' as const, created_at: '2026-07-27T01:00:00Z', updated_at: '2026-07-27T01:00:00Z' },
@@ -352,7 +372,7 @@ describe('external Jira board routes', () => {
     const vkClient = createVkClient({
       getWorkspaceSummaries: vi.fn((archived: boolean) => archived
         ? new Promise<never>(() => undefined)
-        : Promise.resolve({ summaries: [{ workspace_id: 'ws-1', latest_session_id: 'session-1', files_changed: 7, lines_added: 30, lines_removed: 12 }] })),
+        : Promise.resolve({ summaries: [workspaceSummary({ latest_session_id: 'session-1', files_changed: 7, lines_added: 30, lines_removed: 12 })] })),
       getSessions: vi.fn(async () => [
         { id: 'session-1', workspace_id: 'ws-1', executor: 'CODEX' as const, created_at: '2026-07-27T00:00:00Z', updated_at: '2026-07-27T00:00:00Z' },
       ]),
