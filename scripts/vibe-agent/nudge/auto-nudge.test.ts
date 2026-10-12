@@ -123,6 +123,7 @@ function fake(input: { processes: Record<string, ExecutionProcess[]>; entries?: 
       return finalResponse(process, response);
     },
     async sendMessage(id, body) { sent.push({ sessionId: id, body }); return proc(id === 'overseer' ? 'checkpoint' : `sent-${sent.length}`, id, 'running', 10); },
+    async createSession(body) { return session(`fresh-${sent.length + 1}`, body.name ?? 'fresh', body.executor); },
     async getExecutionProcess(id) { return proc(id, 'overseer', 'completed', 10); },
   };
   return { client, sent };
@@ -463,6 +464,47 @@ describe('auto nudge', () => {
     await runAutoNudgeCycle(client, options);
     expect(sent).toEqual([]);
     expect(readResponseRouteState(options.responseRoutesPath).routes['target-process:overseer']).toMatchObject({ status: 'pending' });
+  });
+
+  it('does not send a checkpoint to a reply session already sent a response route this cycle', async () => {
+    const { options } = setup();
+    options.responseRoutesPath = join(options.statePath, '..', 'routes.json');
+    appendResponseRoute(options.responseRoutesPath, {
+      processId: 'target-process', targetRole: 'review', targetSessionId: 'review', replySessionId: 'overseer',
+      createdAt: iso(1), updatedAt: iso(1),
+    });
+    const complete = proc('complete', 'impl', 'completed', 5);
+    const { client, sent } = fake({ processes: { impl: [complete], review: [], overseer: [] }, entries: { complete: [msg('Finished')] } });
+    client.getExecutionProcessFinalResponse = async id => id === 'target-process'
+      ? { process_id: id, status: 'completed', finished: true, final_response: 'Review response.', terminal_no_response: false }
+      : finalResponse(complete, 'Finished');
+    await runAutoNudgeCycle(client, options);
+    expect(sent).toEqual([expect.objectContaining({ sessionId: 'overseer', body: expect.objectContaining({ prompt: 'Response from review:\n\nReview response.' }) })]);
+    expect(readAutoNudgeState(options.statePath).triggers.complete).toBeUndefined();
+  });
+
+  it('does not process a queued send to a session already sent a response route this cycle', async () => {
+    const { options } = setup();
+    options.responseRoutesPath = join(options.statePath, '..', 'routes.json');
+    appendResponseRoute(options.responseRoutesPath, {
+      processId: 'target-process', targetRole: 'review', targetSessionId: 'review', replySessionId: 'overseer',
+      createdAt: iso(1), updatedAt: iso(1),
+    });
+    enqueueSend(options.sendQueuePath!, {
+      id: 'queued-overseer',
+      targetRole: 'overseer',
+      targetSessionId: 'overseer',
+      executor: 'CODEX',
+      prompt: 'do not overlap',
+      now: new Date(iso(2)),
+    });
+    const { client, sent } = fake({ processes: { impl: [], review: [], overseer: [] } });
+    client.getExecutionProcessFinalResponse = async id => ({
+      process_id: id, status: 'completed', finished: true, final_response: 'Review response.', terminal_no_response: false,
+    });
+    await runAutoNudgeCycle(client, options);
+    expect(sent).toEqual([expect.objectContaining({ sessionId: 'overseer', body: expect.objectContaining({ prompt: 'Response from review:\n\nReview response.' }) })]);
+    expect(readSendQueue(options.sendQueuePath!).sends['queued-overseer']).toMatchObject({ status: 'queued' });
   });
 
   it('reconciles a pre-send response-route intent after an accepted dropped follow-up', async () => {
@@ -816,6 +858,77 @@ describe('auto nudge', () => {
     })]);
     expect(sends[0]?.prompt).toContain('The overseer created a decision form');
     expect(sends[0]?.prompt).toContain('Forms: decision-form');
+  });
+
+  it('treats an existing matching workflow send as idempotent success on retry', async () => {
+    const { options } = setup();
+    const complete = proc('complete', 'impl', 'completed', 5);
+    const state = readAutoNudgeState(options.statePath);
+    state.triggers.complete = { processId: 'complete', workspaceId: 'w1', sessionId: 'impl', observedAt: iso(6), status: 'checkpoint-sent', checkpointProcessId: 'persisted', baselineProcessIds: ['complete'], updatedAt: iso(6), error: null };
+    writeAutoNudgeState(options.statePath, state);
+    const response = `<auto-nudge-result version="1">
+  <actions>
+    <action type="send_message" role="decision_maker" message_type="created_form_handoff">
+      <form id="decision-form" />
+    </action>
+    <action type="wait" mode="callback-wait" />
+  </actions>
+</auto-nudge-result>`;
+    enqueueSend(options.sendQueuePath!, {
+      id: 'complete:send_message:decision_maker:created_form_handoff',
+      targetRole: 'decision_maker',
+      targetSessionId: 'decision',
+      executor: 'CODEX',
+      prompt: 'The overseer created a decision form for the next milestone.\nPlease review the form and respond with the decision needed to continue.\nForms: decision-form',
+      replySessionId: 'overseer',
+      now: new Date(iso(7)),
+    });
+    const { client } = fake({
+      processes: { impl: [complete], overseer: [], decision: [] },
+      sessions: [session('overseer', 'overseer'), session('impl', 'impl'), session('decision', 'decision_maker')],
+      entries: { persisted: [msg(response)] },
+    });
+    client.getExecutionProcess = async () => proc('persisted', 'overseer', 'completed', 8);
+    await runAutoNudgeCycle(client, options);
+    expect(readAutoNudgeState(options.statePath).triggers.complete).toMatchObject({ status: 'delegated', error: null });
+    expect(readSendQueue(options.sendQueuePath!).sends['complete:send_message:decision_maker:created_form_handoff']).toMatchObject({ status: 'accepted' });
+  });
+
+  it('uses explicit fresh workflow sessions for fresh message types', async () => {
+    const { options } = setup();
+    const complete = proc('complete', 'impl', 'completed', 5);
+    const state = readAutoNudgeState(options.statePath);
+    state.triggers.complete = { processId: 'complete', workspaceId: 'w1', sessionId: 'impl', observedAt: iso(6), status: 'checkpoint-sent', checkpointProcessId: 'persisted', baselineProcessIds: ['complete'], updatedAt: iso(6), error: null };
+    writeAutoNudgeState(options.statePath, state);
+    writeFileSync(options.workflowConfigPath!, `version: 1
+roles:
+  overseer:
+    can_emit_actions:
+      - send_message
+prompts:
+  p:
+    text: |
+      fresh handoff
+message_types:
+  m:
+    from_role: overseer
+    to_role: decision_maker
+    prompt_id: p
+    fresh: true
+    allowed_actions: []
+handlers: {}
+`);
+    const response = `<auto-nudge-result version="1"><actions><action type="send_message" role="decision_maker" message_type="m" /></actions></auto-nudge-result>`;
+    const { client, sent } = fake({
+      processes: { impl: [complete], overseer: [], decision: [] },
+      sessions: [session('overseer', 'overseer'), session('impl', 'impl'), session('decision', 'decision_maker')],
+      entries: { persisted: [msg(response)] },
+    });
+    client.createSession = async body => session('fresh-decision', body.name ?? 'fresh', body.executor);
+    client.getExecutionProcess = async () => proc('persisted', 'overseer', 'completed', 8);
+    await runAutoNudgeCycle(client, options);
+    expect(sent).toEqual([expect.objectContaining({ sessionId: 'fresh-decision', body: expect.objectContaining({ prompt: 'fresh handoff' }) })]);
+    expect(readSendQueue(options.sendQueuePath!).sends['complete:send_message:decision_maker:m']).toMatchObject({ targetSessionId: 'fresh-decision', status: 'accepted' });
   });
 
   it('processes queued sends through VK and records response routing', async () => {

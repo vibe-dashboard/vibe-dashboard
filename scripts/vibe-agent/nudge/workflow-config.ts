@@ -212,7 +212,6 @@ export function parseWorkflowConfig(raw: string, source = '<memory>'): WorkflowC
     requireString(message.toRole, `message_types.${id}.to_role`);
     requireString(message.promptId, `message_types.${id}.prompt_id`);
     if (!config.prompts[message.promptId]) throw new Error(`message_types.${id}.prompt_id references missing prompt ${message.promptId}`);
-    if (message.fresh) throw new Error(`message_types.${id}.fresh is not supported in this slice`);
   }
   for (const [id, handler] of Object.entries(config.handlers)) {
     if (handler.enabled && handler.command.length === 0) throw new Error(`handlers.${id}.command is required when enabled`);

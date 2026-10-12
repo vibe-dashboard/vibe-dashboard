@@ -149,6 +149,45 @@ export function enqueueSend(filePath: string, input: QueueSendInput): QueuedSend
   });
 }
 
+function matchingSend(send: QueuedSend, input: QueueSendInput): boolean {
+  return send.targetRole === input.targetRole
+    && send.targetSessionId === input.targetSessionId
+    && send.executor === input.executor
+    && send.prompt === input.prompt
+    && send.replySessionId === (input.replySessionId ?? null);
+}
+
+export function enqueueSendIdempotent(filePath: string, input: QueueSendInput & { id: string }): QueuedSend {
+  return withSendQueueLock(filePath, () => {
+    const state = readSendQueue(filePath);
+    const existing = state.sends[input.id];
+    if (existing) {
+      if (!matchingSend(existing, input)) throw new Error(`Queued send ${input.id} conflicts with existing send`);
+      if (!['queued', 'sending', 'accepted'].includes(existing.status)) {
+        throw new Error(`Queued send ${input.id} is ${existing.status}; cannot treat as idempotent success`);
+      }
+      return existing;
+    }
+    const now = (input.now ?? new Date()).toISOString();
+    const send: QueuedSend = {
+      id: input.id,
+      status: 'queued',
+      targetRole: input.targetRole,
+      targetSessionId: input.targetSessionId,
+      executor: input.executor,
+      prompt: input.prompt,
+      replySessionId: input.replySessionId ?? null,
+      createdAt: now,
+      updatedAt: now,
+      processId: null,
+      error: null,
+    };
+    state.sends[input.id] = send;
+    writeSendQueue(filePath, state);
+    return send;
+  });
+}
+
 export function amendQueuedSend(filePath: string, id: string, prompt: string, now = new Date()): QueuedSend {
   return withSendQueueLock(filePath, () => {
     const state = readSendQueue(filePath);
@@ -204,6 +243,10 @@ export function markQueuedSendAccepted(filePath: string, id: string, processId: 
 
 export function markQueuedSendFailed(filePath: string, id: string, error: string, now = new Date()): QueuedSend {
   return updateClaimedSend(filePath, id, send => ({ ...send, status: 'failed', error, updatedAt: now.toISOString() }));
+}
+
+export function deferClaimedQueuedSend(filePath: string, id: string, now = new Date()): QueuedSend {
+  return updateClaimedSend(filePath, id, send => ({ ...send, status: 'queued', error: null, updatedAt: now.toISOString() }));
 }
 
 export function markStaleSendingIndeterminate(

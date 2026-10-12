@@ -81,7 +81,7 @@ handlers:
     enabled: yes
     command: []
 `)).toThrow(/handlers.post.enabled must be true or false/);
-    expect(() => parseWorkflowConfig(`version: 1
+    expect(parseWorkflowConfig(`version: 1
 roles:
   overseer:
     can_emit_actions: []
@@ -97,7 +97,7 @@ message_types:
     fresh: true
     allowed_actions: []
 handlers: {}
-`)).toThrow(/fresh is not supported/);
+`).messageTypes.m).toMatchObject({ fresh: true });
   });
 });
 

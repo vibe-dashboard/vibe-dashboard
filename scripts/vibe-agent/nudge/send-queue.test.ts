@@ -7,7 +7,9 @@ import {
   cancelQueuedSend,
   claimNextQueuedSend,
   claimNextQueuedSendWhere,
+  deferClaimedQueuedSend,
   enqueueSend,
+  enqueueSendIdempotent,
   markQueuedSendAccepted,
   markQueuedSendFailed,
   markStaleSendingIndeterminate,
@@ -74,12 +76,40 @@ describe('send queue', () => {
     expect(readSendQueue(file).sends.blocked).toMatchObject({ status: 'queued' });
   });
 
+  it('treats matching deterministic sends as idempotent success', () => {
+    const file = queuePath();
+    const created = enqueueSendIdempotent(file, input());
+    const existing = enqueueSendIdempotent(file, input({ now: new Date('2026-10-06T00:10:00.000Z') }));
+    expect(existing).toEqual(created);
+    claimNextQueuedSend(file);
+    expect(enqueueSendIdempotent(file, input())).toMatchObject({ id: 'send-1', status: 'sending' });
+    markQueuedSendAccepted(file, 'send-1', 'process-1');
+    expect(enqueueSendIdempotent(file, input())).toMatchObject({ id: 'send-1', status: 'accepted', processId: 'process-1' });
+  });
+
+  it('rejects conflicting or terminal deterministic send duplicates', () => {
+    const file = queuePath();
+    enqueueSendIdempotent(file, input());
+    expect(() => enqueueSendIdempotent(file, input({ prompt: 'different' }))).toThrow(/conflicts/);
+    claimNextQueuedSend(file);
+    markQueuedSendFailed(file, 'send-1', 'failed');
+    expect(() => enqueueSendIdempotent(file, input())).toThrow(/failed/);
+  });
+
   it('records failed sends only from the sending state', () => {
     const file = queuePath();
     enqueueSend(file, input());
     expect(() => markQueuedSendFailed(file, 'send-1', 'offline')).toThrow(/only sending sends/);
     claimNextQueuedSend(file);
     expect(markQueuedSendFailed(file, 'send-1', 'offline')).toMatchObject({ status: 'failed', error: 'offline' });
+  });
+
+  it('can defer a claimed queued send without failing it', () => {
+    const file = queuePath();
+    enqueueSend(file, input());
+    claimNextQueuedSend(file);
+    expect(deferClaimedQueuedSend(file, 'send-1')).toMatchObject({ status: 'queued', error: null });
+    expect(claimNextQueuedSend(file)).toMatchObject({ id: 'send-1', status: 'sending' });
   });
 
   it('fails closed stale sending entries instead of retrying duplicate-prone sends', () => {

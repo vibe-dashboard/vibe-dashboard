@@ -13,6 +13,7 @@ import {
   type WorkspaceRepoInput,
 } from './vk-service.js';
 import { config, type Executor } from './vk-config.js';
+import { callbacksForTrigger, DEFAULT_CALLBACK_REGISTRY_PATH, type CallbackRecord } from '../nudge/callback-registry.js';
 
 const service = new VKService();
 
@@ -1062,7 +1063,7 @@ async function commandSend(sessionId: string, prompt: string, flags: FlagMap = {
   const timeoutMs = parseDurationMs(getFlagString(flags, 'timeout') ?? getFlagString(flags, 'timeout-ms') ?? '30m', getFlagString(flags, 'timeout-ms') ? 'ms' : null);
 
   if (sync) {
-    const final = await waitForFinalResponse(executionProcess.id, timeoutMs);
+    const { final } = await waitForFinalResponseWithCallbacks(service, executionProcess.id, timeoutMs);
     if (flags.json === true) {
       console.log(JSON.stringify({ process: executionProcess, final_response: final }, null, 2));
       return;
@@ -1100,15 +1101,55 @@ function parseDurationMs(value: string, defaultUnit: 'ms' | null = null): number
   return timeoutMs;
 }
 
-async function waitForFinalResponse(processId: string, timeoutMs: number) {
+interface FinalResponseService {
+  getExecutionProcessFinalResponse(processId: string): Promise<SyncFinalResponse>;
+}
+
+interface SyncFinalResponse {
+  process_id: string;
+  status: string;
+  finished: boolean;
+  final_response: string | null;
+  terminal_no_response: boolean;
+}
+
+export async function waitForFinalResponseWithCallbacks(
+  service: FinalResponseService,
+  processId: string,
+  timeoutMs: number,
+  options: { callbackRegistryPath?: string; now?: () => Date; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<{ processId: string; final: SyncFinalResponse }> {
   const expiresAt = Date.now() + timeoutMs;
+  const callbackRegistryPath = options.callbackRegistryPath ?? process.env.VD_CALLBACK_REGISTRY_PATH ?? DEFAULT_CALLBACK_REGISTRY_PATH;
+  const now = options.now ?? (() => new Date());
+  const sleep = options.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms)));
+  let currentProcessId = processId;
+  let depth = 0;
   while (true) {
-    const final = await service.getExecutionProcessFinalResponse(processId);
-    if (final.finished) return final;
+    const callbacks = callbacksForTrigger(callbackRegistryPath, currentProcessId, now(), false);
+    if (callbacks.some(item => item.status === 'running')) {
+      // wait below
+    } else {
+      const completion = latestFinishedCallbackWithProcess(callbacks);
+      if (completion?.completionProcessId && completion.completionProcessId !== currentProcessId) {
+        currentProcessId = completion.completionProcessId;
+        depth++;
+        if (depth > 8) throw new Error(`Callback chain exceeded 8 processes while waiting for ${processId}`);
+        continue;
+      }
+      const final = await service.getExecutionProcessFinalResponse(currentProcessId);
+      if (final.finished) return { processId: currentProcessId, final };
+    }
     const remaining = expiresAt - Date.now();
     if (remaining <= 0) throw new Error(`Timed out waiting for ${processId} after ${timeoutMs}ms`);
-    await new Promise(resolve => setTimeout(resolve, Math.min(1_000, remaining)));
+    await sleep(Math.min(1_000, remaining));
   }
+}
+
+function latestFinishedCallbackWithProcess(callbacks: CallbackRecord[]): CallbackRecord | null {
+  return callbacks
+    .filter(item => item.status !== 'running' && item.completionProcessId)
+    .sort((left, right) => (right.finishedAt ?? '').localeCompare(left.finishedAt ?? '') || right.id.localeCompare(left.id))[0] ?? null;
 }
 
 async function commandSummary(flags: FlagMap) {
