@@ -35,10 +35,10 @@ first label satisfies the full `workspaceToken-repoSlug-slotSlug-customerSlug`
 grammar. Advanced deployments may still set the optional `base_domain` handler
 option to restrict preview matching to one DNS suffix.
 
-Preview URL generation still needs to choose a public DNS suffix. API callers
-may pass `baseDomain`; the `vk preview-url url` CLI and Vibe Dashboard internal
-preview URL route also use the hostname from `SITE_ORIGIN` as a fallback when
-no per-call base domain is supplied.
+Preview URL generation still needs to choose a public scheme, DNS suffix, and
+optional port. The `vk preview-url url` CLI and Vibe Dashboard internal preview
+URL route use the scheme, hostname, and port from `SITE_ORIGIN`. Override those
+for a single command or runtime by setting `SITE_ORIGIN` for that process.
 
 ## Runtime request flow
 

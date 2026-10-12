@@ -127,9 +127,13 @@ export function registerPreviewResolverRoutes(
     const workspaceId = c.req.param('workspaceId');
     const previewSlotId = c.req.param('previewSlotId');
     const customerSlug = c.req.query('customerSlug') || '';
-    const baseDomain = c.req.query('baseDomain') || previewBaseDomainFromSiteOrigin();
+    const previewUrlDefaults = previewUrlDefaultsFromSiteOrigin();
     try {
-      const response = await vkClient.getPreviewSlotUrl!(workspaceId, previewSlotId, { customerSlug, baseDomain });
+      const response = await vkClient.getPreviewSlotUrl!(workspaceId, previewSlotId, {
+        customerSlug,
+        baseDomain: previewUrlDefaults?.baseDomain,
+        urlScheme: previewUrlDefaults?.urlScheme,
+      });
       return c.json(response, 200);
     } catch (error) {
       console.warn('Preview slot URL generation failed', error);
@@ -143,13 +147,18 @@ function optionalEnvString(name: string): string | undefined {
   return value || undefined;
 }
 
-function previewBaseDomainFromSiteOrigin(): string | undefined {
+function previewUrlDefaultsFromSiteOrigin(): { baseDomain: string; urlScheme: 'http' | 'https' } | undefined {
   const siteOrigin = optionalEnvString('SITE_ORIGIN');
   if (!siteOrigin) return undefined;
   try {
     const url = new URL(siteOrigin);
     if (url.protocol !== 'https:' && url.protocol !== 'http:') return undefined;
-    return url.hostname || undefined;
+    const baseDomain = url.host || undefined;
+    if (!baseDomain) return undefined;
+    return {
+      baseDomain,
+      urlScheme: url.protocol === 'http:' ? 'http' : 'https',
+    };
   } catch {
     return undefined;
   }
