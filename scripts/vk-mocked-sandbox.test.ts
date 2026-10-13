@@ -175,7 +175,7 @@ describe('VK mocked sandbox helpers', () => {
     expect(plan.paths).toMatchObject({
       workspaceRoot: '/tmp/worktrees/example',
       vdRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
-      vkRoot: '/tmp/worktrees/example/Vktest',
+      vkRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web/vibe-kanban',
       runDir: '/tmp/run',
     });
     expect(plan.caddyfile).toBe('mocked sandbox caddyfile');
@@ -295,7 +295,7 @@ describe('VK mocked sandbox helpers', () => {
       'vk-build-backend-qa',
     ]);
     expect(plan.setupCommands[1]).toMatchObject({
-      cwd: '/tmp/worktrees/example/Vktest',
+      cwd: '/tmp/worktrees/example/vibe-kanban-vscode-web/vibe-kanban',
       command: 'cargo',
       args: ['build', '--features', 'qa-mode', '--bin', 'server'],
     });
@@ -359,7 +359,7 @@ describe('VK mocked sandbox helpers', () => {
     });
     expect(plan.commands[0]).toMatchObject({
       name: 'vk-backend-ci-release',
-      cwd: '/tmp/worktrees/example/Vktest',
+      cwd: '/tmp/worktrees/example/vibe-kanban-vscode-web/vibe-kanban',
       command: `${artifactRoot}/extracted/vibe-kanban`,
       args: [],
       env: {
@@ -545,7 +545,7 @@ describe('VK mocked sandbox helpers', () => {
     expect(plan.commands[0]?.cwd).toBe('/tmp/custom-vk-checkout');
   });
 
-  it('falls back to the sibling VK checkout when VK_CHECKOUT is blank', () => {
+  it('falls back to the vendored VK checkout when VK_CHECKOUT is blank', () => {
     const plan = createSandboxPlan({
       workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
       env: {
@@ -563,12 +563,14 @@ describe('VK mocked sandbox helpers', () => {
       caddyfile: 'mocked sandbox caddyfile',
     });
 
-    expect(plan.paths.vkRoot).toBe('/tmp/worktrees/example/Vktest');
+    expect(plan.paths.vkRoot).toBe(
+      '/tmp/worktrees/example/vibe-kanban-vscode-web/vibe-kanban',
+    );
   });
 
   it('skips the VK local-web build when prebuilt assets are available', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'vk-mocked-sandbox-workspace-'));
-    const vkRoot = join(workspaceRoot, 'Vktest');
+    const vkRoot = join(workspaceRoot, 'vibe-kanban-vscode-web', 'vibe-kanban');
     const localWebDist = join(vkRoot, 'packages/local-web/dist');
     try {
       const planWithoutDist = createSandboxPlan({

@@ -8,7 +8,7 @@ This plan covers the smallest merge-safe path from the existing hotswap seams to
 
 ### VK release/prerelease artifacts
 
-VK release assets are produced by `Vktest/.github/workflows/release-binaries.yml`.
+VK release assets are produced by `vibe-kanban/.github/workflows/release-binaries.yml`.
 
 - Triggered for pushes to any branch, tags, and manual dispatch with an optional `vk_ref`.
 - Resolves a branch, tag, or SHA to a full VK commit SHA.
@@ -27,9 +27,9 @@ VD already consumes those assets in `Dockerfile.vkvd` by downloading `https://gi
 
 VK local build paths exist but are heavier than artifact install:
 
-- `Vktest/package.json` has `build:npx` via `local-build.sh`.
+- `vibe-kanban/package.json` has `build:npx` via `local-build.sh`.
 - `local-build.sh` builds the local web app, then runs Rust release builds and packages zip files for the NPX distribution.
-- `Vktest/Dockerfile` also builds the web UI and Rust server binary locally.
+- `vibe-kanban/Dockerfile` also builds the web UI and Rust server binary locally.
 - The release workflow uses nightly Rust, target-specific builds, Zig/cargo-zigbuild for Linux musl, and CI caches.
 
 Policy update after the weekly-dev disk exhaustion incident: do not use local VK release builds as the default workflow. Local Rust build remains an emergency/manual fallback only, must require explicit operator allowance, and should be avoided in the weekly-dev container because it is slow, environment-sensitive, disk-heavy, and does not have the same prevalidated release-artifact contract. For normal VK hotswap prep, push the source commit and consume the CI prerelease asset keyed by the VK commit SHA.
@@ -214,7 +214,7 @@ A local VK release build during weekly-dev integration exhausted the container f
 
 - local VK work in the weekly-dev container is limited to quick checks and focused validation;
 - VK release/build artifact generation is offloaded to CI;
-- the hotswap flow should use GitHub prerelease assets produced by `Vktest/.github/workflows/release-binaries.yml`, keyed by the source commit SHA;
+- the hotswap flow should use GitHub prerelease assets produced by `vibe-kanban/.github/workflows/release-binaries.yml`, keyed by the source commit SHA;
 - local prebuilt/local Rust artifact paths remain available only as explicit fallback tools, not the planned path.
 
 This means future VK hotswap retry plans should wait for or trigger CI release assets, verify `manifest.json` and asset SHA256, then run VK-only hotswap from the downloaded artifact. Do not queue local `cargo build --release`, `local-build.sh`, or `pnpm run build:npx` for VK weekly-dev hotswap unless a human explicitly approves the disk/time risk for that specific run.
