@@ -2,6 +2,8 @@ name: Publish VK/VD Image to GHCR
 
 on:
   push:
+  pull_request:
+    types: [labeled]
   workflow_dispatch:
     inputs:
       image_tag:
@@ -45,6 +47,7 @@ jobs:
       vk_commit: ${{ steps.resolve.outputs.vk_commit }}
       vk_short_commit: ${{ steps.resolve.outputs.vk_short_commit }}
       vk_asset_repository: ${{ steps.resolve.outputs.vk_asset_repository }}
+      vd_branch: ${{ steps.resolve.outputs.vd_branch }}
       vd_ref: ${{ steps.resolve.outputs.vd_ref }}
       vd_commit: ${{ steps.resolve.outputs.vd_commit }}
       vd_short_commit: ${{ steps.resolve.outputs.vd_short_commit }}
@@ -631,6 +634,7 @@ jobs:
           EVENT_PR_NUMBER: ${{ needs.resolve-vk-ref.outputs.pr_number }}
           GITHUB_TOKEN: ${{ github.token }}
           PUBLISH_LATEST: ${{ needs.resolve-vk-ref.outputs.publish_latest }}
+          VD_BRANCH: ${{ needs.resolve-vk-ref.outputs.vd_branch }}
         run: |
           set -euo pipefail
 
@@ -827,6 +831,33 @@ jobs:
             echo "::error::COOLIFY_WEBHOOK must include a uuid query parameter."
             exit 1
           fi
+
+          if [[ -z "$VD_BRANCH" ]]; then
+            echo "::error::VD_BRANCH was not resolved; refusing to update Coolify."
+            exit 1
+          fi
+
+          coolify_app_url="${coolify_deploy_url%/deploy}/applications/${coolify_uuid}"
+          app_payload="$(
+            python3 -c 'import json, os; print(json.dumps({"git_branch": os.environ["VD_BRANCH"], "is_preserve_repository_enabled": True}))'
+          )"
+
+          curl \
+            --fail-with-body \
+            --show-error \
+            --silent \
+            --retry 5 \
+            --retry-delay 5 \
+            --retry-all-errors \
+            --request PATCH \
+            "$coolify_app_url" \
+            --header "Authorization: Bearer $COOLIFY_TOKEN" \
+            --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+            --header "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+            --header "Content-Type: application/json" \
+            --data "$app_payload"
+
+          echo "Coolify git branch updated to ${VD_BRANCH}."
 
           coolify_env_url="${coolify_deploy_url%/deploy}/applications/${coolify_uuid}/envs"
           env_payload="$(printf '{"key":"VKVD_IMAGE_VERSION","value":"%s","is_preview":false,"is_literal":true}' "$DEPLOY_IMAGE_TAG")"
