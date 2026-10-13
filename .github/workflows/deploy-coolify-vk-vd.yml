@@ -7,6 +7,10 @@ on:
         description: Existing ghcr.io image tag to deploy, for example latest, vd-<full-vd-sha>, or vk-abc1234-vd-def5678
         required: true
         default: latest
+      branch:
+        description: Git branch Coolify should use for docker-compose.yaml
+        required: true
+        default: main
 
 permissions:
   contents: read
@@ -29,6 +33,7 @@ jobs:
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
           GITHUB_TOKEN: ${{ github.token }}
           IMAGE_TAG: ${{ inputs.image_tag }}
+          VD_BRANCH: ${{ inputs.branch }}
         run: |
           set -euo pipefail
 
@@ -54,6 +59,11 @@ jobs:
 
           if [[ -z "$IMAGE_TAG" ]]; then
             echo "::error::image_tag input is required."
+            exit 1
+          fi
+
+          if [[ -z "$VD_BRANCH" ]]; then
+            echo "::error::branch input is required."
             exit 1
           fi
 
@@ -116,6 +126,28 @@ jobs:
             echo "::error::COOLIFY_WEBHOOK must include a uuid query parameter."
             exit 1
           fi
+
+          coolify_app_url="${coolify_deploy_url%/deploy}/applications/${coolify_uuid}"
+          app_payload="$(
+            python3 -c 'import json, os; print(json.dumps({"git_branch": os.environ["VD_BRANCH"]}))'
+          )"
+
+          curl \
+            --fail-with-body \
+            --show-error \
+            --silent \
+            --retry 5 \
+            --retry-delay 5 \
+            --retry-all-errors \
+            --request PATCH \
+            "$coolify_app_url" \
+            --header "Authorization: Bearer $COOLIFY_TOKEN" \
+            --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+            --header "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+            --header "Content-Type: application/json" \
+            --data "$app_payload"
+
+          echo "Coolify git branch updated to ${VD_BRANCH}."
 
           coolify_env_url="${coolify_deploy_url%/deploy}/applications/${coolify_uuid}/envs"
           env_payload="$(printf '{"key":"VKVD_IMAGE_VERSION","value":"%s","is_preview":false,"is_literal":true}' "$IMAGE_TAG")"

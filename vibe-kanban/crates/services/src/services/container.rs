@@ -188,6 +188,11 @@ pub trait ContainerService {
 
     async fn create(&self, workspace: &Workspace) -> Result<ContainerRef, ContainerError>;
 
+    async fn run_workspace_setup(&self, workspace: &Workspace) -> Result<(), ContainerError> {
+        let _ = workspace;
+        Ok(())
+    }
+
     async fn kill_all_running_processes(&self) -> Result<(), ContainerError>;
 
     async fn delete(&self, workspace: &Workspace) -> Result<(), ContainerError>;
@@ -1156,6 +1161,7 @@ pub trait ContainerService {
     ) -> Result<ExecutionProcess, ContainerError> {
         // Create container
         self.create(workspace).await?;
+        self.run_workspace_setup(workspace).await?;
 
         let repos = WorkspaceRepo::find_repos_for_workspace(&self.db().pool, workspace.id).await?;
 
