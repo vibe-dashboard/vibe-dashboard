@@ -7,7 +7,11 @@ import {
   SpinnerIcon,
 } from '@phosphor-icons/react';
 import type { Session } from 'shared/types';
-import { Popover, PopoverContent, PopoverTrigger } from '@vibe/ui/components/Popover';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@vibe/ui/components/Popover';
 import { Tooltip } from '@vibe/ui/components/Tooltip';
 
 const HOUSEKEEPING_MESSAGE = "Please do housekeeping on this workspace's beads";
@@ -57,36 +61,52 @@ export function WorkspaceBeadsTaskList({
   workspaceId: string | undefined;
   sessions: Session[];
   selectedSessionId?: string;
-  onRequestHousekeeping: (sessionId: string, message: string) => Promise<boolean>;
+  onRequestHousekeeping: (
+    sessionId: string,
+    message: string
+  ) => Promise<boolean>;
 }) {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
-  const [selectedHousekeepingSessionId, setSelectedHousekeepingSessionId] = useState('');
+  const [selectedHousekeepingSessionId, setSelectedHousekeepingSessionId] =
+    useState('');
   const [isSendingHousekeeping, setIsSendingHousekeeping] = useState(false);
 
   useEffect(() => {
-    setSelectedHousekeepingSessionId(selectedSessionId || sessions[0]?.id || '');
+    setSelectedHousekeepingSessionId(
+      selectedSessionId || sessions[0]?.id || ''
+    );
   }, [selectedSessionId, sessions]);
 
-  const load = useCallback(async (signal?: AbortSignal) => {
-    if (!workspaceId) return;
-    setState((current) => ({ status: 'loading', data: current.data }));
-    try {
-      const response = await fetch(`/dashboard/api/workspaces/${encodeURIComponent(workspaceId)}/beads/tasks`, {
-        credentials: 'same-origin',
-        signal,
-      });
-      if (!response.ok) throw new Error(response.statusText || `Request failed with status ${response.status}`);
-      const data = await response.json() as WorkspaceTasksResult;
-      setState({ status: 'ready', data });
-    } catch (error) {
-      if (signal?.aborted) return;
-      setState((current) => ({
-        status: 'error',
-        data: current.data,
-        error: error instanceof Error ? error.message : String(error),
-      }));
-    }
-  }, [workspaceId]);
+  const load = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!workspaceId) return;
+      setState((current) => ({ status: 'loading', data: current.data }));
+      try {
+        const response = await fetch(
+          `/dashboard/api/workspaces/${encodeURIComponent(workspaceId)}/beads/tasks`,
+          {
+            credentials: 'same-origin',
+            signal,
+          }
+        );
+        if (!response.ok)
+          throw new Error(
+            response.statusText ||
+              `Request failed with status ${response.status}`
+          );
+        const data = (await response.json()) as WorkspaceTasksResult;
+        setState({ status: 'ready', data });
+      } catch (error) {
+        if (signal?.aborted) return;
+        setState((current) => ({
+          status: 'error',
+          data: current.data,
+          error: error instanceof Error ? error.message : String(error),
+        }));
+      }
+    },
+    [workspaceId]
+  );
 
   useEffect(() => {
     if (!workspaceId) return undefined;
@@ -94,7 +114,11 @@ export function WorkspaceBeadsTaskList({
     void load(controller.signal);
 
     const poll = () => {
-      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      if (
+        typeof document !== 'undefined' &&
+        document.visibilityState !== 'visible'
+      )
+        return;
       void load();
     };
     const interval = window.setInterval(poll, TASK_POLL_INTERVAL_MS);
@@ -121,7 +145,10 @@ export function WorkspaceBeadsTaskList({
     if (!selectedHousekeepingSessionId) return;
     setIsSendingHousekeeping(true);
     try {
-      const sent = await onRequestHousekeeping(selectedHousekeepingSessionId, HOUSEKEEPING_MESSAGE);
+      const sent = await onRequestHousekeeping(
+        selectedHousekeepingSessionId,
+        HOUSEKEEPING_MESSAGE
+      );
       if (sent) void load();
     } finally {
       setIsSendingHousekeeping(false);
@@ -159,7 +186,9 @@ export function WorkspaceBeadsTaskList({
         <div className="flex min-h-0 flex-col gap-base">
           <div className="flex items-start justify-between gap-base">
             <div>
-              <h4 className="text-sm font-medium text-normal">Workspace tasks</h4>
+              <h4 className="text-sm font-medium text-normal">
+                Workspace tasks
+              </h4>
               <p className="text-xs text-low">
                 {data ? (
                   <>
@@ -169,7 +198,9 @@ export function WorkspaceBeadsTaskList({
                     <span aria-hidden> · </span>
                     <span>{data.counts.done} done</span>
                   </>
-                ) : 'Loading bd tasks…'}
+                ) : (
+                  'Loading bd tasks…'
+                )}
               </p>
             </div>
             <button
@@ -182,14 +213,18 @@ export function WorkspaceBeadsTaskList({
           </div>
 
           {state.status === 'error' ? (
-            <p role="alert" className="rounded border border-error/30 bg-error/10 px-base py-2 text-xs text-error">
+            <p
+              role="alert"
+              className="rounded border border-error/30 bg-error/10 px-base py-2 text-xs text-error"
+            >
               {state.error}
             </p>
           ) : null}
 
           {data && !data.initialized ? (
             <p className="rounded border border-secondary bg-secondary/40 px-base py-2 text-xs text-low">
-              Workspace beads are not initialized yet at <code>{data.dir}</code>.
+              Workspace beads are not initialized yet at <code>{data.dir}</code>
+              .
             </p>
           ) : null}
 
@@ -219,7 +254,10 @@ export function WorkspaceBeadsTaskList({
           ) : null}
 
           <div className="border-t border-secondary pt-base">
-            <label className="mb-1 block text-xs font-medium text-low" htmlFor="workspace-beads-housekeeping-session">
+            <label
+              className="mb-1 block text-xs font-medium text-low"
+              htmlFor="workspace-beads-housekeeping-session"
+            >
               Housekeeping session
             </label>
             <div className="flex gap-base">
@@ -227,26 +265,39 @@ export function WorkspaceBeadsTaskList({
                 id="workspace-beads-housekeeping-session"
                 className="min-w-0 flex-1 rounded border border-secondary bg-primary px-2 py-1 text-sm text-normal"
                 value={selectedHousekeepingSessionId}
-                onChange={(event) => setSelectedHousekeepingSessionId(event.target.value)}
+                onChange={(event) =>
+                  setSelectedHousekeepingSessionId(event.target.value)
+                }
               >
                 {sessions.length === 0 ? (
                   <option value="">No sessions yet</option>
-                ) : sessions.map((session, index) => (
-                  <option key={session.id} value={session.id}>
-                    {session.name || (session.id === selectedSessionId ? 'Current session' : index === 0 ? 'Latest session' : new Date(session.created_at).toLocaleString())}
-                  </option>
-                ))}
+                ) : (
+                  sessions.map((session, index) => (
+                    <option key={session.id} value={session.id}>
+                      {session.name ||
+                        (session.id === selectedSessionId
+                          ? 'Current session'
+                          : index === 0
+                            ? 'Latest session'
+                            : new Date(session.created_at).toLocaleString())}
+                    </option>
+                  ))
+                )}
               </select>
               <button
                 type="button"
                 onClick={handleHousekeeping}
-                disabled={!selectedHousekeepingSessionId || isSendingHousekeeping}
+                disabled={
+                  !selectedHousekeepingSessionId || isSendingHousekeeping
+                }
                 className="rounded bg-brand px-3 py-1 text-sm text-white transition-colors hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isSendingHousekeeping ? 'Requesting…' : 'Request housekeeping'}
               </button>
             </div>
-            <p className="mt-1 text-[11px] text-low">Sends: “{HOUSEKEEPING_MESSAGE}”</p>
+            <p className="mt-1 text-[11px] text-low">
+              Sends: “{HOUSEKEEPING_MESSAGE}”
+            </p>
           </div>
         </div>
       </PopoverContent>
@@ -268,32 +319,50 @@ function TaskSection({
   defaultOpen?: boolean;
 }) {
   return (
-    <details className="group border-t border-secondary py-2 first:border-t-0 first:pt-0" open={defaultOpen}>
+    <details
+      className="group border-t border-secondary py-2 first:border-t-0 first:pt-0"
+      open={defaultOpen}
+    >
       <summary className="flex cursor-pointer list-none items-center justify-between gap-base text-sm font-medium text-normal">
         <span className="flex items-center gap-2">
           {bucketIcon(bucket)}
           {title}
         </span>
-        <span className="rounded-full bg-secondary px-2 py-0.5 text-xs text-low">{tasks.length}</span>
+        <span className="rounded-full bg-secondary px-2 py-0.5 text-xs text-low">
+          {tasks.length}
+        </span>
       </summary>
       {tasks.length === 0 ? (
         <p className="py-2 pl-6 text-xs text-low">No tasks in this group.</p>
       ) : (
         <ul className="space-y-1 py-2">
           {tasks.map((task) => (
-            <li key={task.id} className="rounded border border-secondary/70 bg-secondary/20 px-2 py-1.5">
+            <li
+              key={task.id}
+              className="rounded border border-secondary/70 bg-secondary/20 px-2 py-1.5"
+            >
               <div className="flex items-start justify-between gap-base">
                 <div className="min-w-0">
                   <p className="truncate text-sm text-normal">
-                    <span className="font-mono text-xs text-low">{task.id}</span>
+                    <span className="font-mono text-xs text-low">
+                      {task.id}
+                    </span>
                     <span aria-hidden> · </span>
                     {task.title}
                   </p>
                   <p className="mt-0.5 flex flex-wrap gap-1 text-[11px] text-low">
                     <span>{task.status}</span>
-                    {task.priority !== undefined ? <span>priority {task.priority}</span> : null}
-                    {task.assignee || task.owner ? <span>{task.assignee || task.owner}</span> : null}
-                    {task.forms.hasForms ? <span>{task.forms.pendingResponseCount} pending forms</span> : null}
+                    {task.priority !== undefined ? (
+                      <span>priority {task.priority}</span>
+                    ) : null}
+                    {task.assignee || task.owner ? (
+                      <span>{task.assignee || task.owner}</span>
+                    ) : null}
+                    {task.forms.hasForms ? (
+                      <span>
+                        {task.forms.pendingResponseCount} pending forms
+                      </span>
+                    ) : null}
                   </p>
                 </div>
                 {task.forms.hasForms ? (
@@ -314,7 +383,9 @@ function TaskSection({
 }
 
 function bucketIcon(bucket: TaskBucket) {
-  if (bucket === 'done') return <CheckIcon className="size-icon-sm text-success" />;
-  if (bucket === 'inProgress') return <CircleDashedIcon className="size-icon-sm text-blue-500" />;
+  if (bucket === 'done')
+    return <CheckIcon className="size-icon-sm text-success" />;
+  if (bucket === 'inProgress')
+    return <CircleDashedIcon className="size-icon-sm text-blue-500" />;
   return <CircleIcon className="size-icon-sm text-low" />;
 }

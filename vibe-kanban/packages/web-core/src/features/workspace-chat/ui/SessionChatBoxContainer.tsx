@@ -822,10 +822,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
   // PR review toolbar actions depend on the full VK app shell. Inline VD chat
   // keeps the toolbar empty until those dialogs are transplanted.
-  const toolbarActionItems = useMemo(
-    () => [],
-    []
-  );
+  const toolbarActionItems = useMemo(() => [], []);
 
   // Handle approve action
   const handleApprove = useCallback(async () => {
