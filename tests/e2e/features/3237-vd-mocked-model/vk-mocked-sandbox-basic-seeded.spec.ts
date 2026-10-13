@@ -31,19 +31,7 @@ test.describe('VK mocked-provider basic-seeded fixture', () => {
     await expect(page.getByText(manifest.voyageName).first()).toBeVisible({
       timeout: 30_000,
     });
-    await clickLocatorInViewport(
-      page,
-      page.getByRole('button', { name: 'Open Craft' }),
-    );
-    await expect(
-      page.getByRole('heading', { name: 'Open VK Workspace' }),
-    ).toBeVisible();
-    await page
-      .getByRole('textbox', { name: 'Search workspaces...' })
-      .fill(manifest.craftTitle);
-    await page
-      .getByRole('button', { name: new RegExp(escapeRegex(manifest.craftTitle)) })
-      .click();
+    await openSeededCraft(page, manifest.craftTitle);
 
     const agentChat = page.getByTestId('inline-vk-agent-chat').first();
     await expect(agentChat).toContainText(manifest.craftTitle);
@@ -111,6 +99,30 @@ async function clickLocatorInViewport(page: Page, locator: Locator) {
   await locator
     .first()
     .evaluate((element) => (element as HTMLButtonElement).click());
+}
+
+async function openSeededCraft(page: Page, craftTitle: string) {
+  const craftButton = page
+    .getByRole('button', { name: new RegExp(escapeRegex(craftTitle)) })
+    .first();
+  if (await craftButton.isVisible().catch(() => false)) {
+    await clickLocatorInViewport(page, craftButton);
+    return;
+  }
+
+  await clickLocatorInViewport(
+    page,
+    page.getByRole('button', { name: 'Open Craft' }),
+  );
+  await expect(
+    page.getByRole('heading', { name: 'Open VK Workspace' }),
+  ).toBeVisible();
+  await page
+    .getByRole('textbox', { name: 'Search workspaces...' })
+    .fill(craftTitle);
+  await page
+    .getByRole('button', { name: new RegExp(escapeRegex(craftTitle)) })
+    .click();
 }
 
 function escapeRegex(value: string): string {
