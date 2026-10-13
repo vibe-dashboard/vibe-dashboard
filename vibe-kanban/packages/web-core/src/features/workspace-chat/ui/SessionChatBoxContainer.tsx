@@ -20,7 +20,6 @@ import { useMessageEditContext } from '../model/contexts/MessageEditContext';
 import { useEntries, useTokenUsage } from '../model/contexts/EntriesContext';
 import { useExecutionProcesses } from '@/shared/hooks/useExecutionProcesses';
 import { useReviewOptional } from '@/shared/hooks/useReview';
-import { useActions } from '@/shared/hooks/useActions';
 import { useTodos } from '../model/hooks/useTodos';
 import { getLatestConfigFromProcesses } from '@/shared/lib/executor';
 import { useExecutorConfig } from '@/shared/hooks/useExecutorConfig';
@@ -54,13 +53,6 @@ import {
   RIGHT_MAIN_PANEL_MODES,
 } from '@/shared/stores/useUiPreferencesStore';
 import { useInspectModeStore } from '../model/store/useInspectModeStore';
-import {
-  isSpecialIcon,
-  getActionTooltip,
-  isActionEnabled,
-  isActionVisible,
-  type ActionDefinition,
-} from '@/shared/types/actions';
 import { useActionVisibilityContext } from '@/shared/hooks/useActionVisibilityContext';
 import { PrCommentsDialog } from '@/shared/dialogs/tasks/PrCommentsDialog';
 import type { NormalizedComment } from '@vibe/ui/components/pr-comment-node';
@@ -204,7 +196,6 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
   const appNavigation = useAppNavigation();
 
-  const { executeAction } = useActions();
   const actionCtx = useActionVisibilityContext();
   const { rightMainPanelMode, setRightMainPanelMode } =
     useWorkspacePanelState(workspaceId);
@@ -808,45 +799,11 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     }
   }, [workspaceId, repos, handleInsertMarkdown]);
 
-  // Toolbar actions handler
-  const handleToolbarAction = useCallback(
-    (action: ActionDefinition) => {
-      if (action.requiresTarget && workspaceId) {
-        executeAction(action, workspaceId);
-      } else {
-        executeAction(action);
-      }
-    },
-    [executeAction, workspaceId]
-  );
-
-  // Define which actions appear in the toolbar
-  const toolbarActionsList = useMemo(
-    () => [] as ActionDefinition[],
-    []
-  );
-
+  // PR review toolbar actions depend on the full VK app shell. Inline VD chat
+  // keeps the toolbar empty until those dialogs are transplanted.
   const toolbarActionItems = useMemo(
-    () =>
-      toolbarActionsList.flatMap((action) => {
-        if (isSpecialIcon(action.icon)) {
-          return [];
-        }
-
-        const label = action.label;
-
-        return [
-          {
-            id: action.id,
-            icon: action.icon,
-            label,
-            tooltip: getActionTooltip(action, actionCtx),
-            disabled: !isActionEnabled(action, actionCtx),
-            onClick: () => handleToolbarAction(action),
-          },
-        ];
-      }),
-    [toolbarActionsList, actionCtx, handleToolbarAction]
+    () => [],
+    []
   );
 
   // Handle approve action
