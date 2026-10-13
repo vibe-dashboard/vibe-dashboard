@@ -109,6 +109,10 @@ async function openSeededCraft(page: Page, craftTitle: string) {
     .first();
   if (await craftButton.isVisible().catch(() => false)) {
     await clickLocatorInViewport(page, craftButton);
+    const agentButton = page.getByRole('button', { name: 'Agent', exact: true });
+    if (await agentButton.first().isVisible().catch(() => false)) {
+      await clickLocatorInViewport(page, agentButton);
+    }
     return;
   }
 
