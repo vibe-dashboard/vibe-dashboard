@@ -113,20 +113,20 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
         .getByRole('button', { name: 'Create' })
         .click();
       await expect(
-        createWorkspaceFrame.getByRole('heading', {
+        page.getByRole('heading', {
           name: 'Create New Repository',
         }),
       ).toBeVisible();
-      await createWorkspaceFrame
+      await page
         .getByRole('textbox', { name: 'my-project' })
         .fill(repoName);
-      await createWorkspaceFrame
+      await page
         .getByRole('textbox', { name: 'Current directory' })
         .fill(sandboxRepoDir);
-      await createWorkspaceFrame
+      await page
         .getByRole('button', { name: 'Create Repository' })
         .click();
-      await createWorkspaceFrame
+      await page
         .getByRole('option', { name: /main/ })
         .click();
 

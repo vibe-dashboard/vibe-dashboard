@@ -62,13 +62,23 @@ async function openSidebarIfNeeded(page: Page) {
   const openCraftButton = page
     .getByRole('button', { name: 'Open Craft' })
     .first();
-  await expect(openCraftButton).toBeVisible({ timeout: 30_000 });
-  if (await openCraftButton.isVisible()) {
+  const openSidebarButton = page
+    .getByRole('button', { name: 'Open sidebar' })
+    .first();
+  await expect
+    .poll(
+      async () =>
+        (await openCraftButton.isVisible().catch(() => false)) ||
+        (await openSidebarButton.isVisible().catch(() => false)),
+      { timeout: 60_000 },
+    )
+    .toBe(true);
+  if (await openCraftButton.isVisible().catch(() => false)) {
     const box = await openCraftButton.boundingBox();
     if (box && box.x >= 0) return;
   }
 
-  await page.getByRole('button', { name: 'Open sidebar' }).first().click();
+  await openSidebarButton.click();
   await expect(openCraftButton).toBeVisible();
 }
 
