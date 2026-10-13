@@ -278,16 +278,9 @@ type CreateWorkspaceSurface = Locator;
 async function ensureRepositorySelectionStep(
   createWorkspaceFrame: CreateWorkspaceSurface,
 ): Promise<boolean> {
-  if (await isRepositorySelectionStep(createWorkspaceFrame)) {
-    return true;
-  }
-
-  if (
-    await createWorkspaceFrame
-      .textContent()
-      .then((text) => Boolean(text?.includes('What would you like to work on?')))
-      .catch(() => false)
-  ) {
+  const visibleStep = await waitForCreateWorkspaceStep(createWorkspaceFrame);
+  if (visibleStep === 'repo-selection') return true;
+  if (visibleStep === 'prompt') {
     return false;
   }
 
@@ -310,6 +303,36 @@ async function ensureRepositorySelectionStep(
   }
 
   return false;
+}
+
+async function waitForCreateWorkspaceStep(
+  createWorkspaceFrame: CreateWorkspaceSurface,
+): Promise<'repo-selection' | 'prompt' | 'unknown'> {
+  return expect
+    .poll(
+      async () => {
+        const text = await createWorkspaceFrame.textContent().catch(() => '');
+        if (text?.includes('Which repositories would you like to work on?')) {
+          return 'repo-selection';
+        }
+        if (text?.includes('What would you like to work on?')) {
+          return 'prompt';
+        }
+        return 'unknown';
+      },
+      { timeout: 30_000 },
+    )
+    .not.toBe('unknown')
+    .then(async () => {
+      const text = await createWorkspaceFrame.textContent().catch(() => '');
+      if (text?.includes('Which repositories would you like to work on?')) {
+        return 'repo-selection';
+      }
+      if (text?.includes('What would you like to work on?')) {
+        return 'prompt';
+      }
+      return 'unknown';
+    });
 }
 
 async function isRepositorySelectionStep(createWorkspaceFrame: CreateWorkspaceSurface) {

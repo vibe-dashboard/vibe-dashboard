@@ -27,9 +27,10 @@ test.describe('VK mocked-provider basic-seeded fixture', () => {
     const proofFollowUp = `${manifest.followUpPrompt} Proof-of-concept reuse ${Date.now()}.`;
 
     await page.goto(sandboxUrl);
-    await expect(page.getByText(manifest.voyageName).first()).toBeVisible();
-
     await openSidebarIfNeeded(page);
+    await expect(
+      page.getByRole('button', { name: manifest.voyageName }).first(),
+    ).toBeVisible({ timeout: 30_000 });
     await clickLocatorInViewport(
       page,
       page.getByRole('button', { name: 'Open Craft' }),
@@ -61,6 +62,7 @@ async function openSidebarIfNeeded(page: Page) {
   const openCraftButton = page
     .getByRole('button', { name: 'Open Craft' })
     .first();
+  await expect(openCraftButton).toBeVisible({ timeout: 30_000 });
   if (await openCraftButton.isVisible()) {
     const box = await openCraftButton.boundingBox();
     if (box && box.x >= 0) return;
