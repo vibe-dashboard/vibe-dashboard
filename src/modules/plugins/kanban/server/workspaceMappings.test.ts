@@ -85,6 +85,30 @@ describe('external issue workspace mappings', () => {
     expect(workspaceRows).toHaveLength(1);
   });
 
+  it('stores deterministic workspace bead pointer when bead service is supplied', async () => {
+    const bdCalls: string[][] = [];
+    await upsertExternalIssueWorkspaceMapping(db, {
+      externalIssue: { provider: 'jira', key: 'VD-1', id: '10001', url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net' },
+      workspace: { workspaceId: 'ws-1', workspaceDir: '/repo/a', displayName: 'Workspace A' },
+    }, {
+      beadsDirectory: '/tmp/beads',
+      runBd: async (args) => {
+        bdCalls.push(args);
+        if (args[0] === 'show') throw new Error('missing');
+        return { stdout: '' };
+      },
+    });
+
+    const link = await db
+      .selectFrom('ExternalIssueWorkspaceLink')
+      .select(['workspaceBeadId', 'workspaceBeadsDirKey'])
+      .executeTakeFirstOrThrow();
+
+    expect(link.workspaceBeadId).toMatch(/^vde-/);
+    expect(link.workspaceBeadsDirKey).toBe('workspace:ws-1');
+    expect(bdCalls.some((args) => args[0] === 'create' && args.includes(link.workspaceBeadId ?? ''))).toBe(true);
+  });
+
   it('decorates Jira board cards without hiding unmapped cards', async () => {
     await upsertExternalIssueWorkspaceMapping(db, {
       externalIssue: { provider: 'jira', key: 'VD-1', id: '10001', url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net' },

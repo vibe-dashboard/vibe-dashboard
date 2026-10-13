@@ -3,7 +3,7 @@
 import { execFile } from 'node:child_process';
 import { access, readdir, realpath } from 'node:fs/promises';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -20,6 +20,7 @@ import {
 } from './beadsFormCore';
 
 const execFileAsync = promisify(execFile);
+const DEFAULT_VD_BEADS_DIRECTORY = '/var/lib/vd/beads';
 
 export type ExecFileLike = (
   file: string,
@@ -76,6 +77,7 @@ export type ListWorkspaceBeadsResult = {
 };
 
 export type PendingBeadsFormEntry = {
+  workspaceId: string;
   repoDir: string;
   repoName: string;
   bead: Pick<BeadLike, 'id' | 'title' | 'description'>;
@@ -137,41 +139,51 @@ export class BeadsClient {
     includeOtherWorkspaces?: boolean;
     beadId?: string;
   }): Promise<ListWorkspaceBeadsResult> {
-    const repos = await Promise.all(input.repos.map(async (repo) => {
-      const { dir, exists } = await resolveWorkspaceRepoDir({
-        workspaceDir: input.workspaceDir,
-        agentWorkingDir: input.agentWorkingDir,
-        repo,
-      });
-      return this.listRepoBeads({
-        dir,
-        dirExists: exists,
-        repo,
+    const dir = workspaceBeadsStoreDir(input.workspaceId);
+    const repo = { id: 'workspace', name: 'Workspace beads', display_name: 'Workspace beads' };
+    if (!await pathExists(dir)) {
+      return {
         workspaceId: input.workspaceId,
-        includeOtherWorkspaces: input.includeOtherWorkspaces ?? false,
-        beadId: input.beadId,
-      });
-    }));
+        repos: [{
+          repo,
+          dir,
+          dirExists: false,
+          initialized: false,
+          beads: [],
+          unscopedCount: 0,
+          otherWorkspaceCount: 0,
+        }],
+      };
+    }
+    const repos = [await this.listRepoBeads({
+      dir,
+      dirExists: true,
+      repo,
+      workspaceId: input.workspaceId,
+      includeOtherWorkspaces: true,
+      filterByWorkspaceMetadata: false,
+      beadId: input.beadId,
+    })];
     return { workspaceId: input.workspaceId, repos };
   }
 
   async listPendingBeadsFormQueue(input: {
-    reposRoot?: string;
+    beadsDirectory?: string;
     repoLimit?: number;
   } = {}): Promise<PendingBeadsFormQueueResult> {
-    const requestedReposRoot = input.reposRoot ?? join(homedir(), 'repos');
+    const requestedReposRoot = join(input.beadsDirectory ?? vdBeadsDirectory(), 'workspaces');
     const repoLimit = input.repoLimit ?? 80;
-    let repoDirs: string[];
+    let workspaceStores: Array<{ workspaceId: string; storeDir: string }>;
     let reposRoot: string;
     try {
       reposRoot = await realpath(requestedReposRoot);
-      repoDirs = (await readdir(reposRoot, { withFileTypes: true }))
+      workspaceStores = (await readdir(reposRoot, { withFileTypes: true }))
         .filter((entry) => entry.isDirectory())
         .map((entry) => entry.name)
         .filter((name) => !name.startsWith('.') && name !== 'node_modules')
         .sort((a, b) => a.localeCompare(b))
         .slice(0, repoLimit)
-        .map((name) => join(reposRoot, name));
+        .map((workspaceId) => ({ workspaceId, storeDir: join(reposRoot, workspaceId, '.beads') }));
     } catch (error) {
       return {
         reposRoot: requestedReposRoot,
@@ -185,14 +197,18 @@ export class BeadsClient {
 
     const entries: PendingBeadsFormEntry[] = [];
     const skipped: Array<{ repoDir: string; reason: string }> = [];
-    for (const repoDir of repoDirs) {
+    for (const { workspaceId, storeDir } of workspaceStores) {
       try {
-        entries.push(...await this.listPendingFormsInRepo(repoDir));
+        if (!await pathExists(storeDir)) {
+          skipped.push({ repoDir: storeDir, reason: 'workspace beads store not initialized' });
+          continue;
+        }
+        entries.push(...await this.listPendingFormsInWorkspaceStore(workspaceId, storeDir));
       } catch (error) {
         if (isNoBeadsDatabaseError(error)) {
-          skipped.push({ repoDir, reason: 'not initialized for beads' });
+          skipped.push({ repoDir: storeDir, reason: 'not initialized for beads' });
         } else {
-          skipped.push({ repoDir, reason: error instanceof Error ? error.message : String(error) });
+          skipped.push({ repoDir: storeDir, reason: error instanceof Error ? error.message : String(error) });
         }
       }
     }
@@ -200,14 +216,14 @@ export class BeadsClient {
     return {
       reposRoot,
       repoLimit,
-      reposScanned: repoDirs.length,
+      reposScanned: workspaceStores.length,
       entries,
       skipped,
       updateStrategy: pendingQueueUpdateStrategy(),
     };
   }
 
-  private async listPendingFormsInRepo(repoDir: string): Promise<PendingBeadsFormEntry[]> {
+  private async listPendingFormsInWorkspaceStore(workspaceId: string, storeDir: string): Promise<PendingBeadsFormEntry[]> {
     const candidates = new Map<string, BeadLike>();
     for (const metadataKey of ['beadFormsSummary', 'beadForms', 'beadsWeb']) {
       const listed = parseBdJsonArray<BeadLike>((await this.exec(this.bdPath, [
@@ -220,7 +236,7 @@ export class BeadsClient {
         '--has-metadata-key',
         metadataKey,
       ], {
-        cwd: repoDir,
+        cwd: storeDir,
         timeout: 15_000,
         maxBuffer: 1024 * 1024 * 5,
       })).stdout);
@@ -234,8 +250,9 @@ export class BeadsClient {
       const forms = getBeadsForms(bead.metadata)
         .filter((form) => isPendingForm(bead, form));
       return forms.map((form) => ({
-        repoDir,
-        repoName: basename(repoDir),
+        workspaceId,
+        repoDir: storeDir,
+        repoName: basename(workspaceId),
         bead: {
           id: bead.id,
           ...(bead.title ? { title: bead.title } : {}),
@@ -257,6 +274,7 @@ export class BeadsClient {
     repo: BeadsWorkspaceRepo;
     workspaceId: string;
     includeOtherWorkspaces: boolean;
+    filterByWorkspaceMetadata?: boolean;
     beadId?: string;
   }): Promise<BeadsRepoListResult> {
     if (!input.dirExists) {
@@ -291,6 +309,7 @@ export class BeadsClient {
         dirExists: true,
         initialized: true,
         beads: input.includeOtherWorkspaces
+          || input.filterByWorkspaceMetadata === false
           ? beads
           : beads.filter((bead) => getMetadataString(bead.metadata, 'VK_WORKSPACE_ID') === input.workspaceId),
         unscopedCount,
@@ -431,10 +450,27 @@ export class BeadsClient {
   }
 }
 
+function workspaceBeadsStoreDir(workspaceId: string): string {
+  return join(vdBeadsDirectory(), 'workspaces', workspaceId, '.beads');
+}
+
+function vdBeadsDirectory(): string {
+  return process.env.VD_BEADS_DIRECTORY || DEFAULT_VD_BEADS_DIRECTORY;
+}
+
+async function pathExists(dir: string): Promise<boolean> {
+  try {
+    await access(dir);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function pendingQueueUpdateStrategy(): PendingBeadsFormQueueResult['updateStrategy'] {
   return {
     mode: 'explicit-refresh',
-    rationale: 'Use an explicit refresh action for the MVP. bd list --watch is display-oriented, while readonly bounded scans avoid long-lived filesystem/database watchers, unexpected migrations, and cross-repo DB corruption risks.',
+    rationale: 'Use an explicit refresh action for the MVP. bd list --watch is display-oriented, while readonly bounded scans of persisted workspace stores avoid long-lived filesystem/database watchers and unexpected migrations.',
   };
 }
 
@@ -454,49 +490,6 @@ function isPendingForm(bead: BeadLike, form: BeadsFormDefinition): boolean {
 
 export function createNodeBeadsClient(options?: BeadsClientOptions): BeadsClient {
   return new BeadsClient(options);
-}
-
-async function resolveWorkspaceRepoDir(input: {
-  workspaceDir: string;
-  agentWorkingDir?: string | null;
-  repo: BeadsWorkspaceRepo;
-}): Promise<{ dir: string; exists: boolean }> {
-  const candidates = repoDirCandidates(input);
-  for (const dir of candidates) {
-    try {
-      await access(dir);
-      return { dir, exists: true };
-    } catch {
-      // Try the next documented workspace layout candidate.
-    }
-  }
-
-  return { dir: candidates[0] ?? join(input.workspaceDir, input.repo.name), exists: false };
-}
-
-function repoDirCandidates(input: {
-  workspaceDir: string;
-  agentWorkingDir?: string | null;
-  repo: BeadsWorkspaceRepo;
-}): string[] {
-  const candidates = [
-    join(input.workspaceDir, input.repo.name),
-  ];
-  const displayOrNameBase = cleanRepoDirBasename(input.repo.display_name ?? input.repo.name);
-  if (displayOrNameBase) candidates.push(join(input.workspaceDir, displayOrNameBase));
-
-  const nameBase = cleanRepoDirBasename(input.repo.name);
-  if (nameBase) candidates.push(join(input.workspaceDir, nameBase));
-
-  if (input.agentWorkingDir && nameBase && cleanRepoDirBasename(input.agentWorkingDir) === nameBase) {
-    candidates.push(input.agentWorkingDir);
-  }
-
-  return Array.from(new Set(candidates));
-}
-
-function cleanRepoDirBasename(value: string): string {
-  return basename(value).replace(/\.git$/, '');
 }
 
 function parseBdJsonArray<T>(stdout: string | Buffer): T[] {

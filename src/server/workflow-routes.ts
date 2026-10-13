@@ -56,6 +56,15 @@ export function registerWorkflowRoutes(
         event,
         ...payloadSummary,
       });
+      if (isCanceledWorkflowRun(event, payload)) {
+        console.info('GitHub webhook workflow ignored', {
+          delivery,
+          event,
+          outcome: 'ignored',
+          reason: 'canceled_workflow_run',
+        });
+        return c.json({ outcome: 'ignored', reason: 'canceled_workflow_run' }, 200);
+      }
       const run = await runGitHubCiFailureWorkflow({
         event,
         payload,
@@ -173,6 +182,14 @@ function summarizeGitHubWebhookPayload(payload: unknown): Record<string, unknown
     workflowRunConclusion: asString(workflowRun?.conclusion),
     workflowRunHtmlUrl: asString(workflowRun?.html_url),
   };
+}
+
+function isCanceledWorkflowRun(event: string, payload: unknown): boolean {
+  if (event !== 'workflow_run') return false;
+  const record = asRecord(payload);
+  const workflowRun = asRecord(record?.workflow_run);
+  const conclusion = asString(workflowRun?.conclusion)?.toLowerCase();
+  return conclusion === 'cancelled' || conclusion === 'canceled';
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

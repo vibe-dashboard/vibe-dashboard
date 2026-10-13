@@ -1,13 +1,6 @@
 name: VK Test
 
 on:
-  pull_request:
-    branches:
-      - main
-    paths:
-      - vibe-kanban/**
-      - .github/workflows/vk-test.yml
-      - .github/actions/vk-*/**
   push:
     branches:
       - "**"
