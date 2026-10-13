@@ -1,7 +1,7 @@
 import { createServer } from 'node:net';
 import { access, chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { promisify } from 'node:util';
@@ -518,6 +518,20 @@ export async function loadSandboxCaddyfile(vdRoot: string): Promise<string> {
   return await readFile(join(vdRoot, SANDBOX_CADDYFILE_NAME), 'utf8');
 }
 
+export function resolveVkCheckoutPath(
+  workspaceRoot: string,
+  vdRoot: string,
+  configuredPath: string | undefined,
+): string {
+  if (!configuredPath) return join(workspaceRoot, 'Vktest');
+  if (configuredPath.trim() === '') return join(workspaceRoot, 'Vktest');
+  if (isAbsolute(configuredPath)) return configuredPath;
+
+  const repoRelativePath = resolve(vdRoot, configuredPath);
+  const workspaceRelativePath = resolve(workspaceRoot, configuredPath);
+  return existsSync(repoRelativePath) ? repoRelativePath : workspaceRelativePath;
+}
+
 export function createSandboxPlan(input: {
   workspaceRoot?: string;
   env?: NodeJS.ProcessEnv;
@@ -529,7 +543,7 @@ export function createSandboxPlan(input: {
   const workspaceRoot = resolve(input.workspaceRoot ?? process.cwd(), '..');
   const vdRoot = resolve(workspaceRoot, 'vibe-kanban-vscode-web');
   const configuredVkCheckout = env.VK_CHECKOUT?.trim();
-  const vkRoot = resolve(workspaceRoot, configuredVkCheckout || 'Vktest');
+  const vkRoot = resolveVkCheckoutPath(workspaceRoot, vdRoot, configuredVkCheckout);
   const ciReleaseArtifact = ciReleaseArtifactFromEnv(vdRoot, env);
   if (ciReleaseArtifact && env.VK_MOCKED_PREBUILD_BACKEND === '1') {
     throw new Error(
@@ -873,7 +887,7 @@ async function main(): Promise<void> {
   const vdRoot = resolve(workspaceRoot, 'vibe-kanban-vscode-web');
   const caddyfile = await loadSandboxCaddyfile(vdRoot);
   const configuredVkCheckout = process.env.VK_CHECKOUT?.trim();
-  const vkRoot = resolve(workspaceRoot, configuredVkCheckout || 'Vktest');
+  const vkRoot = resolveVkCheckoutPath(workspaceRoot, vdRoot, configuredVkCheckout);
   let env = process.env;
   if (isCiReleaseBackend(process.env)) {
     const artifact = await resolveCiReleaseArtifact(vdRoot, vkRoot, process.env);
