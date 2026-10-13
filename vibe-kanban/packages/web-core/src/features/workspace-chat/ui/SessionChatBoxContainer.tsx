@@ -64,6 +64,7 @@ import {
   isMobilePerfDiagnosticsEnabled,
   recordMobilePerfDiagnostic,
 } from '@/shared/lib/mobilePerfDiagnostics';
+import { WorkspaceBeadsTaskList } from './WorkspaceBeadsTaskList';
 
 /** Compute execution status from boolean flags */
 function computeExecutionStatus(params: {
@@ -507,6 +508,26 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     onSelectSession,
     executorConfig,
   });
+
+  const handleRequestBeadsHousekeeping = useCallback(
+    async (targetSessionId: string, message: string) => {
+      if (!executorConfig) return false;
+      try {
+        await sessionsApi.followUp(targetSessionId, {
+          prompt: message,
+          executor_config: executorConfig,
+          retry_process_id: null,
+          force_when_dirty: null,
+          perform_git_reset: null,
+        });
+        return true;
+      } catch (error) {
+        console.error('Failed to request beads housekeeping', error);
+        return false;
+      }
+    },
+    [executorConfig]
+  );
 
   const handleSend = useCallback(async () => {
     const { prompt, isSlashCommand } = buildAgentPrompt(localMessage, [
@@ -1081,6 +1102,16 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
       agent={effectiveExecutor}
       todos={todos}
       inProgressTodo={inProgressTodo}
+      workspaceTasks={
+        chatViewMode === 'full' ? (
+          <WorkspaceBeadsTaskList
+            workspaceId={workspaceId}
+            sessions={sessions}
+            selectedSessionId={sessionId}
+            onRequestHousekeeping={handleRequestBeadsHousekeeping}
+          />
+        ) : undefined
+      }
       executor={
         needsExecutorSelection
           ? {
