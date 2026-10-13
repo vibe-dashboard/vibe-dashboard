@@ -129,7 +129,7 @@ jobs:
 
           coolify_app_url="${coolify_deploy_url%/deploy}/applications/${coolify_uuid}"
           app_payload="$(
-            python3 -c 'import json, os; print(json.dumps({"git_branch": os.environ["VD_BRANCH"], "is_preserve_repository_enabled": True}))'
+            python3 -c 'import json, os; print(json.dumps({"git_branch": os.environ["VD_BRANCH"]}))'
           )"
 
           curl \
