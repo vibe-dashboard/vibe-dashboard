@@ -219,9 +219,10 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
 
     await page.setViewportSize({ width: 1280, height: 720 });
     const reopenedAgentChat = page.getByTestId('inline-vk-agent-chat').last();
-    await reopenedAgentChat
-      .getByRole('textbox', { name: 'Follow up' })
-      .fill(followUp);
+    await getChatComposer(reopenedAgentChat).fill(followUp);
+    await expect(
+      reopenedAgentChat.getByRole('button', { name: 'Send' }),
+    ).toBeEnabled({ timeout: 60_000 });
     await reopenedAgentChat.getByRole('button', { name: 'Send' }).click();
     await expect(reopenedAgentChat).toContainText(followUp);
     await expect(reopenedAgentChat).toContainText(
@@ -499,4 +500,10 @@ async function openCreatedCraftFromVd(page: Page, promptTitle: string) {
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function getChatComposer(agentChat: Locator) {
+  return agentChat
+    .getByRole('textbox', { name: /^(Follow up|Markdown editor)$/ })
+    .last();
 }

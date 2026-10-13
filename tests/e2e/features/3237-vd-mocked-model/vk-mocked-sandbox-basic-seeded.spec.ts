@@ -28,9 +28,9 @@ test.describe('VK mocked-provider basic-seeded fixture', () => {
 
     await page.goto(sandboxUrl);
     await openSidebarIfNeeded(page);
-    await expect(
-      page.getByRole('button', { name: manifest.voyageName }).first(),
-    ).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(manifest.voyageName).first()).toBeVisible({
+      timeout: 30_000,
+    });
     await clickLocatorInViewport(
       page,
       page.getByRole('button', { name: 'Open Craft' }),
@@ -48,7 +48,10 @@ test.describe('VK mocked-provider basic-seeded fixture', () => {
     const agentChat = page.getByTestId('inline-vk-agent-chat').first();
     await expect(agentChat).toContainText(manifest.craftTitle);
 
-    await agentChat.getByRole('textbox', { name: 'Follow up' }).fill(proofFollowUp);
+    await getChatComposer(agentChat).fill(proofFollowUp);
+    await expect(agentChat.getByRole('button', { name: 'Send' })).toBeEnabled({
+      timeout: 60_000,
+    });
     await agentChat.getByRole('button', { name: 'Send' }).click();
 
     await expect(agentChat).toContainText(proofFollowUp);
@@ -112,4 +115,10 @@ async function clickLocatorInViewport(page: Page, locator: Locator) {
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function getChatComposer(agentChat: Locator) {
+  return agentChat
+    .getByRole('textbox', { name: /^(Follow up|Markdown editor)$/ })
+    .last();
 }
