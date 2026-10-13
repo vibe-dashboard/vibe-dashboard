@@ -35,13 +35,15 @@ jobs:
         with:
           path: vibe-kanban-vscode-web
 
-      - name: Record VK commit
+      - name: Record VK content hash
         id: vk-meta
+        working-directory: vibe-kanban-vscode-web
         shell: bash
         run: |
           set -euo pipefail
-          echo "sha=$(git -C "$VK_CHECKOUT" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          git -C "$VK_CHECKOUT" log --oneline -1
+          hash="$(.github/scripts/vk-content-hash.sh)"
+          echo "content_hash=$hash" >> "$GITHUB_OUTPUT"
+          echo "VK content hash: $hash"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -83,7 +85,7 @@ jobs:
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
         with:
           workspaces: vibe-kanban-vscode-web/vibe-kanban
-          shared-key: vk-mocked-sandbox-${{ runner.os }}-${{ runner.arch }}-${{ steps.vk-meta.outputs.sha }}
+          shared-key: vk-mocked-sandbox-${{ runner.os }}-${{ runner.arch }}-${{ steps.vk-meta.outputs.content_hash }}
           cache-provider: github
           cache-on-failure: "true"
 
@@ -92,7 +94,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: vibe-kanban-vscode-web/vibe-kanban/packages/local-web/dist
-          key: vk-local-web-dist-${{ runner.os }}-${{ steps.vk-meta.outputs.sha }}
+          key: vk-local-web-dist-${{ runner.os }}-${{ steps.vk-meta.outputs.content_hash }}
           restore-keys: |
             vk-local-web-dist-${{ runner.os }}-
 

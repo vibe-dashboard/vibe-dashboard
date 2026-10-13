@@ -46,7 +46,7 @@ describe('VK mocked sandbox helpers', () => {
     )).toBe(true);
     expect(isSandboxRuntimeProcessLine('5678 cargo run --features qa-mode --bin server vk-backend-qa')).toBe(true);
     expect(isSandboxRuntimeProcessLine(
-      '6789 /tmp/workspace/vibe-kanban-vscode-web/.vk-mocked-sandbox/vk-release-assets/ff79144e3842e5454ffc36b5546a1336ab4da993/31655931916/extracted/vibe-kanban',
+      '6789 /tmp/workspace/vibe-kanban-vscode-web/.vk-mocked-sandbox/vk-release-assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/extracted/vibe-kanban',
     )).toBe(true);
   });
 
@@ -320,9 +320,8 @@ describe('VK mocked sandbox helpers', () => {
       workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
       env: {
         VK_MOCKED_VK_BACKEND: 'ci-release',
-        VK_MOCKED_RELEASE_SHA:
-          'ff79144e3842e5454ffc36b5546a1336ab4da993',
-        VK_MOCKED_RELEASE_RUN_ID: '31655931916',
+        VK_MOCKED_RELEASE_HASH:
+          'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       } as NodeJS.ProcessEnv,
       ports: {
         vkBackend: 4107,
@@ -337,7 +336,7 @@ describe('VK mocked sandbox helpers', () => {
     });
 
     const artifactRoot =
-      '/tmp/worktrees/example/vibe-kanban-vscode-web/.vk-mocked-sandbox/vk-release-assets/ff79144e3842e5454ffc36b5546a1336ab4da993/31655931916';
+      '/tmp/worktrees/example/vibe-kanban-vscode-web/.vk-mocked-sandbox/vk-release-assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
     expect(plan.setupCommands.map((command) => command.name)).toEqual([
       'vk-download-release-artifact',
@@ -351,9 +350,10 @@ describe('VK mocked sandbox helpers', () => {
         'download-ci-release',
       ],
       env: {
-        VK_MOCKED_RELEASE_SHA:
-          'ff79144e3842e5454ffc36b5546a1336ab4da993',
-        VK_MOCKED_RELEASE_RUN_ID: '31655931916',
+        VK_MOCKED_RELEASE_HASH:
+          'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        VK_MOCKED_RELEASE_TAG:
+          'vk-assets-sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         VK_MOCKED_RELEASE_CACHE_DIR: artifactRoot,
       },
     });
@@ -412,14 +412,13 @@ describe('VK mocked sandbox helpers', () => {
     expect(plan.caddyfile).not.toContain('@vk_release_assets');
   });
 
-  it('requires an exact SHA for release-asset VK planning', () => {
+  it('requires an exact content hash for release-asset VK planning', () => {
     expect(() =>
       createSandboxPlan({
         workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
         env: {
           VK_MOCKED_VK_BACKEND: 'ci-release',
-          VK_MOCKED_RELEASE_SHA: 'HEAD',
-          VK_MOCKED_RELEASE_RUN_ID: '31655931916',
+          VK_MOCKED_RELEASE_HASH: 'HEAD',
         } as NodeJS.ProcessEnv,
         ports: {
           vkBackend: 4107,
@@ -432,7 +431,7 @@ describe('VK mocked sandbox helpers', () => {
         runDir: '/tmp/run',
         caddyfile: 'mocked sandbox caddyfile',
       }),
-    ).toThrow('VK_MOCKED_RELEASE_SHA must be a full 40-character commit SHA');
+    ).toThrow('VK_MOCKED_RELEASE_HASH must be a full 64-character VK content hash');
   });
 
   it('rejects stale source prebuild env in release-asset VK planning', () => {
@@ -441,9 +440,8 @@ describe('VK mocked sandbox helpers', () => {
         workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
         env: {
           VK_MOCKED_VK_BACKEND: 'ci-release',
-          VK_MOCKED_RELEASE_SHA:
-            'ff79144e3842e5454ffc36b5546a1336ab4da993',
-          VK_MOCKED_RELEASE_RUN_ID: '31655931916',
+          VK_MOCKED_RELEASE_HASH:
+            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
           VK_MOCKED_PREBUILD_BACKEND: '1',
         } as NodeJS.ProcessEnv,
         ports: {
@@ -465,7 +463,7 @@ describe('VK mocked sandbox helpers', () => {
     const binDir = join(root, 'bin');
     const artifactRoot = join(
       root,
-      '.vk-mocked-sandbox/vk-release-assets/ff79144e3842e5454ffc36b5546a1336ab4da993/31655931916',
+      '.vk-mocked-sandbox/vk-release-assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     );
     const artifactDir = join(artifactRoot, 'release-assets-linux-x64');
     const extractDir = join(artifactRoot, 'extracted');
@@ -482,8 +480,8 @@ describe('VK mocked sandbox helpers', () => {
         join(binDir, 'gh'),
         [
           '#!/usr/bin/env bash',
-          'if [ "$1 $2" = "run view" ]; then',
-          '  printf \'{"headSha":"ff79144e3842e5454ffc36b5546a1336ab4da993","status":"completed","conclusion":"success","workflowName":"Release Binaries"}\\n\'',
+          'if [ "$1 $2" = "release view" ]; then',
+          '  printf \'{"tagName":"vk-assets-sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}\\n\'',
           '  exit 0',
           'fi',
           'echo "unexpected gh call: $*" >&2',
@@ -501,7 +499,8 @@ describe('VK mocked sandbox helpers', () => {
         join(artifactDir, 'manifest.json'),
         JSON.stringify({
           schema_version: 1,
-          vk_sha: 'not-the-requested-commit',
+          content_hash:
+            'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
         }),
       );
       await writeFile(join(extractDir, 'vibe-kanban'), '#!/usr/bin/env bash\n');
@@ -510,12 +509,11 @@ describe('VK mocked sandbox helpers', () => {
       process.env.PATH = `${binDir}:${originalPath ?? ''}`;
       await expect(
         downloadCiReleaseArtifactFromEnv(root, {
-          VK_MOCKED_RELEASE_SHA:
-            'ff79144e3842e5454ffc36b5546a1336ab4da993',
-          VK_MOCKED_RELEASE_RUN_ID: '31655931916',
+          VK_MOCKED_RELEASE_HASH:
+            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
           VK_MOCKED_RELEASE_CACHE_DIR: artifactRoot,
         } as NodeJS.ProcessEnv),
-      ).rejects.toThrow('Release manifest commit mismatch');
+      ).rejects.toThrow('Release manifest content hash mismatch');
     } finally {
       process.env.PATH = originalPath;
       await rm(root, { recursive: true, force: true });

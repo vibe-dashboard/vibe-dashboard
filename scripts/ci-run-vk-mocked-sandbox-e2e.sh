@@ -26,11 +26,11 @@ mkdir -p "$RUN_DIR"
 npm run e2e:vk-mocked-sandbox:reset -- --variant basic-seeded
 
 echo "::group::Prepare VK mocked sandbox"
-VK_MOCKED_PREBUILD_BACKEND=1 node --experimental-strip-types scripts/vk-mocked-sandbox.ts setup
+node --experimental-strip-types scripts/vk-mocked-sandbox.ts setup
 echo "::endgroup::"
 
 echo "Starting VK mocked sandbox; log: $SANDBOX_LOG"
-VK_MOCKED_SKIP_SETUP_COMMANDS=1 npm run dev:vk-mocked-sandbox >"$SANDBOX_LOG" 2>&1 &
+VK_MOCKED_SKIP_LOCAL_WEB_BUILD=1 npm run dev:vk-mocked-sandbox >"$SANDBOX_LOG" 2>&1 &
 sandbox_pid=$!
 
 deadline=$((SECONDS + READY_TIMEOUT_SECONDS))
