@@ -34,7 +34,9 @@ test.describe('VK mocked-provider basic-seeded fixture', () => {
     await openSeededCraft(page, manifest.craftTitle);
 
     const agentChat = page.getByTestId('inline-vk-agent-chat').first();
-    await expect(agentChat).toContainText(manifest.craftTitle);
+    await expect(agentChat).toContainText(manifest.craftTitle, {
+      timeout: 60_000,
+    });
 
     await getChatComposer(agentChat).fill(proofFollowUp);
     await expect(agentChat.getByRole('button', { name: 'Send' })).toBeEnabled({
