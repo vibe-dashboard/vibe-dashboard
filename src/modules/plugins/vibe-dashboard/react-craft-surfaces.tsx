@@ -1,11 +1,21 @@
 import React from 'react';
 import type { Tab, TabGroup } from '../../../types';
 import { PreviewRunConfigsPanel } from '../../../components/PreviewRunConfigsPanel';
-import { InlineVkAgentChat } from '@vibe/inline-chat';
 import {
   BUILT_IN_AGENT_TAB_ID,
   getBuiltInWorkspaceMetadata,
 } from './craft-surfaces';
+
+const InlineVkAgentChat = React.lazy(() =>
+  import('@vibe/inline-chat').then((module) => ({
+    default: module.InlineVkAgentChat,
+  })),
+);
+const InlineVkCreateWorkspace = React.lazy(() =>
+  import('@vibe/inline-chat').then((module) => ({
+    default: module.InlineVkCreateWorkspace,
+  })),
+);
 
 export interface ReactCraftSurfaceTarget {
   kind: 'react';
@@ -23,10 +33,19 @@ const FIRST_PARTY_REACT_SURFACES: Record<string, ReactCraftSurfaceComponent> = {
     <PreviewRunConfigsPanel workspaceId={props.workspaceId ?? ''} />
   ),
   'vd.built-in/agent-chat': (props) => (
-    <InlineVkAgentChat
-      workspaceId={props.workspaceId ?? ''}
-      surfaceId={props.surfaceId ?? props.workspaceId ?? 'agent'}
-    />
+    <React.Suspense fallback={<InlineSurfaceLoading />}>
+      <InlineVkAgentChat
+        workspaceId={props.workspaceId ?? ''}
+        surfaceId={props.surfaceId ?? props.workspaceId ?? 'agent'}
+      />
+    </React.Suspense>
+  ),
+  'vd.built-in/create-workspace': (props) => (
+    <React.Suspense fallback={<InlineSurfaceLoading />}>
+      <InlineVkCreateWorkspace
+        surfaceId={props.surfaceId ?? 'create-workspace'}
+      />
+    </React.Suspense>
   ),
 };
 
@@ -48,6 +67,17 @@ export function getReactCraftSurfaceTarget(
     };
   }
 
+  if (isCreateWorkspaceTab(tab)) {
+    return {
+      kind: 'react',
+      pluginId: 'vd.built-in',
+      surfaceKey: 'create-workspace',
+      props: {
+        surfaceId: `${tabGroup.id ?? 'workspace'}:${tab.id}`,
+      },
+    };
+  }
+
   if (tab.ephemeral?.kind !== 'craft-surface') return null;
 
   const key = getReactCraftSurfaceLookupKey(tab.ephemeral);
@@ -61,6 +91,16 @@ export function getReactCraftSurfaceTarget(
       ? { workspaceId: workspace.workspaceId }
       : {},
   };
+}
+
+function isCreateWorkspaceTab(tab: Tab): boolean {
+  if (tab.title !== 'Create Workspace') return false;
+  try {
+    const url = new URL(tab.url, 'https://workspace.local');
+    return url.pathname === '/workspaces';
+  } catch {
+    return tab.url === '/workspaces';
+  }
 }
 
 export function hasReactCraftSurface(
@@ -131,6 +171,17 @@ function UnknownReactCraftSurface({
           {target.pluginId}/{target.surfaceKey}
         </p>
       </div>
+    </div>
+  );
+}
+
+function InlineSurfaceLoading() {
+  return (
+    <div
+      className="flex h-full items-center justify-center bg-neutral-950 text-sm text-neutral-400"
+      data-testid="inline-vk-agent-chat"
+    >
+      Loading agent chat
     </div>
   );
 }

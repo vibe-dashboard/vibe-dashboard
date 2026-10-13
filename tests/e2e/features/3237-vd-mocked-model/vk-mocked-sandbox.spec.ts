@@ -85,11 +85,9 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
     if (!createdVoyageWithCraft) {
       await page.getByRole('button', { name: 'New Craft' }).first().click();
     }
-    const createWorkspaceFrame = page
-      .frameLocator('iframe[title="Create Workspace"]')
-      .last();
+    const createWorkspaceFrame = await getCreateWorkspaceSurface(page);
     await closeSidebarOverlayIfPresent(page);
-    await expectCreateWorkspaceFrameUrl(page);
+    await expectCreateWorkspaceSurface(page);
     const reachedRepositorySelection = await ensureRepositorySelectionStep(
       createWorkspaceFrame,
     );
@@ -203,7 +201,7 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
 
     await clickVoyageActionsMenuItem(page, 'New Craft');
     await expectMobileNewCraftNavigationSettled(page);
-    await expectCreateWorkspaceFrameUrl(page);
+    await expectCreateWorkspaceSurface(page);
     await clickVoyageActionsMenuItem(page, 'Open Craft');
     await expect(
       page.getByRole('heading', { name: 'Open VK Workspace' }),
@@ -276,8 +274,10 @@ async function createVoyage(
   return false;
 }
 
+type CreateWorkspaceSurface = Pick<FrameLocator, 'locator' | 'getByRole' | 'getByText'>;
+
 async function ensureRepositorySelectionStep(
-  createWorkspaceFrame: FrameLocator,
+  createWorkspaceFrame: CreateWorkspaceSurface,
 ): Promise<boolean> {
   const frameBody = createWorkspaceFrame.locator('body');
   if (await isRepositorySelectionStep(createWorkspaceFrame)) {
@@ -314,7 +314,7 @@ async function ensureRepositorySelectionStep(
   return false;
 }
 
-async function isRepositorySelectionStep(createWorkspaceFrame: FrameLocator) {
+async function isRepositorySelectionStep(createWorkspaceFrame: CreateWorkspaceSurface) {
   return createWorkspaceFrame
     .locator('body')
     .textContent()
@@ -324,7 +324,7 @@ async function isRepositorySelectionStep(createWorkspaceFrame: FrameLocator) {
     .catch(() => false);
 }
 
-async function clearSelectedRepositories(createWorkspaceFrame: FrameLocator) {
+async function clearSelectedRepositories(createWorkspaceFrame: CreateWorkspaceSurface) {
   const removeButtons = createWorkspaceFrame.locator(
     'button[aria-label^="Remove "]',
   );
@@ -403,7 +403,7 @@ async function expectMobileNewCraftNavigationSettled(page: Page) {
   ).toBeHidden();
   await expect(page.getByRole('menuitem', { name: 'New Craft' })).toBeHidden();
   await expect(
-    page.locator('iframe[title="Create Workspace"]').last(),
+    page.getByTestId('react-craft-surface:vd.built-in/create-workspace').last(),
   ).toBeVisible();
 }
 
@@ -439,18 +439,22 @@ async function clickLocatorInViewport(page: Page, locator: Locator) {
   );
 }
 
-async function expectCreateWorkspaceFrameUrl(page: Page) {
-  await expect
-    .poll(async () => {
-      return await page
-        .locator('iframe[title="Create Workspace"]')
-        .last()
-        .evaluate((iframe) => (iframe as HTMLIFrameElement).src);
-    })
-    .toMatch(/\/workspaces$/);
+async function getCreateWorkspaceSurface(page: Page): Promise<CreateWorkspaceSurface> {
+  const surface = page
+    .getByTestId('react-craft-surface:vd.built-in/create-workspace')
+    .last();
+  await expect(surface).toBeVisible({ timeout: 30_000 });
+  return surface;
 }
 
-async function dismissVkWelcomeIfPresent(frame: FrameLocator) {
+async function expectCreateWorkspaceSurface(page: Page) {
+  await expect(
+    page.getByTestId('react-craft-surface:vd.built-in/create-workspace').last(),
+  ).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('iframe[title="Create Workspace"]')).toHaveCount(0);
+}
+
+async function dismissVkWelcomeIfPresent(frame: CreateWorkspaceSurface) {
   const closeButton = frame.getByRole('button', { name: 'Close' });
   if (await closeButton.isVisible().catch(() => false)) {
     await closeButton.click();

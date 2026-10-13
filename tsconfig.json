@@ -10,7 +10,15 @@
     "paths": {
       "@vibe-dashboard/workflow-core": ["./packages/workflow-core/src/index.ts"],
       "@vibe-dashboard/beads-form": ["./packages/beads-form/src/index.ts"],
-      "@vibe/inline-chat": ["./vibe-kanban/packages/inline-chat/src/index.tsx"]
+      "@vibe/inline-chat": ["./src/types/vibe-inline-chat.d.ts"],
+      "@vibe/ui": ["./vibe-kanban/packages/ui/src"],
+      "@vibe/ui/*": ["./vibe-kanban/packages/ui/src/*"],
+      "@vibe/web-core": ["./vibe-kanban/packages/web-core/src"],
+      "@vibe/web-core/*": ["./vibe-kanban/packages/web-core/src/*"],
+      "@web/*": ["./vibe-kanban/packages/local-web/src/*"],
+      "shared": ["./vibe-kanban/shared/types.ts"],
+      "shared/*": ["./vibe-kanban/shared/*"],
+      "@/*": ["./vibe-kanban/packages/web-core/src/*", "./src/*"]
     },
 
     // File Layout

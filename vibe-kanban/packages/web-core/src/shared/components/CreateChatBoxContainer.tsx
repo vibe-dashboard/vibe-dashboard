@@ -22,7 +22,6 @@ import {
 } from '@/shared/lib/string';
 import type { BaseCodingAgent, Repo } from 'shared/types';
 import { CreateChatBox } from '@vibe/ui/components/CreateChatBox';
-import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
 import { CreateModeRepoPickerBar } from './CreateModeRepoPickerBar';
 import { ModelSelectorContainer } from '@/shared/components/ModelSelectorContainer';
 import type { ChatViewMode } from '@/shared/stores/useUiPreferencesStore';
@@ -197,7 +196,7 @@ export function CreateChatBoxContainer({
   };
 
   const handleCustomise = () => {
-    SettingsDialog.show({ initialSection: 'agents' });
+    console.warn('Agent settings are not available in the inline VD chat yet.');
   };
 
   // Handle executor change - use saved variant if switching to default executor

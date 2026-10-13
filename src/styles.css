@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @plugin './hero.ts';
 @source '../node_modules/@heroui/theme/dist/**/*.{js,ts,jsx,tsx}';
+@source '../vibe-kanban/packages/ui/src/**/*.{ts,tsx}';
+@source '../vibe-kanban/packages/web-core/src/**/*.{ts,tsx}';
 @custom-variant dark (&:is(.dark *));
 
 html, body, #root {
@@ -36,7 +38,44 @@ textarea {
 :root {
   --mobile-footer-offset: 0px;
   --mobile-footer-height: 0px;
+  --bg-primary: #151515;
+  --bg-secondary: #1f1f1f;
+  --bg-tertiary: #262626;
+  --bg-panel: #0f0f0f;
+  --bg-hover: #2a2a2a;
+  --bg-active: #333333;
+  --bg-accent: #262626;
+  --text-high: #f5f5f5;
+  --text-normal: #d4d4d4;
+  --text-low: #a3a3a3;
+  --text-muted: #737373;
+  --border: #3a3a3a;
+  --border-muted: #2a2a2a;
+  --brand: #3b82f6;
+  --brand-foreground: #ffffff;
 }
+
+.bg-primary { background-color: var(--bg-primary); }
+.bg-secondary { background-color: var(--bg-secondary); }
+.bg-tertiary { background-color: var(--bg-tertiary); }
+.bg-panel { background-color: var(--bg-panel); }
+.bg-hover { background-color: var(--bg-hover); }
+.bg-active { background-color: var(--bg-active); }
+.bg-accent { background-color: var(--bg-accent); }
+.text-high { color: var(--text-high); }
+.text-normal { color: var(--text-normal); }
+.text-low { color: var(--text-low); }
+.text-muted { color: var(--text-muted); }
+.border-border { border-color: var(--border); }
+.border-muted { border-color: var(--border-muted); }
+.w-chat { width: min(100%, 56rem); }
+.px-base { padding-left: 1rem; padding-right: 1rem; }
+.py-base { padding-top: 1rem; padding-bottom: 1rem; }
+.p-base { padding: 1rem; }
+.gap-base { gap: 1rem; }
+.mb-double { margin-bottom: 2rem; }
+.min-h-double { min-height: 2rem; }
+.size-icon-xl { width: 2rem; height: 2rem; }
 
 @media (max-width: 767px) {
   :root {

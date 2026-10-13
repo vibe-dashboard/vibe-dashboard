@@ -54,7 +54,6 @@ import {
   RIGHT_MAIN_PANEL_MODES,
 } from '@/shared/stores/useUiPreferencesStore';
 import { useInspectModeStore } from '../model/store/useInspectModeStore';
-import { Actions } from '@/shared/actions';
 import {
   isSpecialIcon,
   getActionTooltip,
@@ -62,7 +61,6 @@ import {
   isActionVisible,
   type ActionDefinition,
 } from '@/shared/types/actions';
-import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
 import { useActionVisibilityContext } from '@/shared/hooks/useActionVisibilityContext';
 import { PrCommentsDialog } from '@/shared/dialogs/tasks/PrCommentsDialog';
 import type { NormalizedComment } from '@vibe/ui/components/pr-comment-node';
@@ -491,7 +489,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
   // Navigate to agent settings to customise variants
   const handleCustomise = () => {
-    SettingsDialog.show({ initialSection: 'agents' });
+    console.warn('Agent settings are not available in the inline VD chat yet.');
   };
 
   // Queue interaction
@@ -824,11 +822,8 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
   // Define which actions appear in the toolbar
   const toolbarActionsList = useMemo(
-    () =>
-      [Actions.StartReview].filter((action) =>
-        isActionVisible(action, actionCtx)
-      ),
-    [actionCtx]
+    () => [] as ActionDefinition[],
+    []
   );
 
   const toolbarActionItems = useMemo(
