@@ -614,10 +614,11 @@ export class VKService {
   async getPreviewSlotUrl(
     workspaceId: string,
     previewSlotId: string,
-    args: { customerSlug: string; baseDomain?: string },
+    args: { customerSlug: string; baseDomain?: string; urlScheme?: 'http' | 'https' },
   ): Promise<PreviewSlotUrlResponse> {
     const query = new URLSearchParams({ customerSlug: args.customerSlug });
     if (args.baseDomain) query.set('baseDomain', args.baseDomain);
+    if (args.urlScheme) query.set('urlScheme', args.urlScheme);
     const response = await fetch(config.endpoints.previewSlotUrl(workspaceId, previewSlotId, query.toString()));
     return this.parseApiResponse<PreviewSlotUrlResponse>(response, 'fetch preview slot URL');
   }

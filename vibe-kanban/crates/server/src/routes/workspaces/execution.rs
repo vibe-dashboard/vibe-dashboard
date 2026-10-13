@@ -90,6 +90,8 @@ pub struct PreviewSlotUrlQuery {
     pub customer_slug: String,
     #[serde(default)]
     pub base_domain: Option<String>,
+    #[serde(default)]
+    pub url_scheme: Option<String>,
 }
 
 fn repo_has_dev_server(repo: &db::models::repo::Repo) -> bool {
@@ -328,6 +330,18 @@ pub async fn preview_slot_url(
         .trim()
         .trim_start_matches('.')
         .to_ascii_lowercase();
+    let url_scheme = query
+        .url_scheme
+        .as_deref()
+        .unwrap_or("https")
+        .trim()
+        .trim_end_matches(':')
+        .to_ascii_lowercase();
+    if url_scheme != "http" && url_scheme != "https" {
+        return Err(ApiError::BadRequest(
+            "Preview URL scheme must be http or https".to_string(),
+        ));
+    }
     let host = format!(
         "{}-{}-{}-{}.{}",
         workspace_token, repo_slug, slot.slot_slug, query.customer_slug, base_domain
@@ -338,7 +352,7 @@ pub async fn preview_slot_url(
         repo_slug,
         slot_slug: slot.slot_slug,
         customer_slug: query.customer_slug,
-        url: format!("https://{host}/"),
+        url: format!("{url_scheme}://{host}/"),
         host,
     })))
 }
