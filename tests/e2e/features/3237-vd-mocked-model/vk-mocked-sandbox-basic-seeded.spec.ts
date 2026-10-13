@@ -32,9 +32,10 @@ test.describe('VK mocked-provider basic-seeded fixture', () => {
       timeout: 30_000,
     });
     await openSeededCraft(page, manifest.craftTitle);
+    await closeSidebarOverlayIfPresent(page);
 
-    const agentChat = page.getByTestId('inline-vk-agent-chat').first();
-    await expect(agentChat).toContainText(manifest.craftTitle, {
+    const agentChat = page.getByTestId('inline-vk-agent-chat').last();
+    await expect(agentChat).toContainText(manifest.followUpPrompt, {
       timeout: 60_000,
     });
 
@@ -98,24 +99,29 @@ async function clickLocatorInViewport(page: Page, locator: Locator) {
     }
   }
 
-  await locator
-    .first()
-    .evaluate((element) => (element as HTMLButtonElement).click());
+  for (let index = 0; index < count; index += 1) {
+    const candidate = locator.nth(index);
+    if (await candidate.isVisible().catch(() => false)) {
+      await candidate.evaluate((element) =>
+        (element as HTMLButtonElement).click(),
+      );
+      return;
+    }
+  }
+
+  await locator.first().evaluate((element) =>
+    (element as HTMLButtonElement).click(),
+  );
+}
+
+async function closeSidebarOverlayIfPresent(page: Page) {
+  const overlay = page.getByRole('button', { name: 'Close sidebar overlay' });
+  if (await overlay.isVisible().catch(() => false)) {
+    await overlay.evaluate((button) => (button as HTMLButtonElement).click());
+  }
 }
 
 async function openSeededCraft(page: Page, craftTitle: string) {
-  const craftButton = page
-    .getByRole('button', { name: new RegExp(escapeRegex(craftTitle)) })
-    .first();
-  if (await craftButton.isVisible().catch(() => false)) {
-    await clickLocatorInViewport(page, craftButton);
-    const agentButton = page.getByRole('button', { name: 'Agent', exact: true });
-    if (await agentButton.first().isVisible().catch(() => false)) {
-      await clickLocatorInViewport(page, agentButton);
-    }
-    return;
-  }
-
   await clickLocatorInViewport(
     page,
     page.getByRole('button', { name: 'Open Craft' }),

@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { constants } from 'node:fs';
+import { constants, existsSync } from 'node:fs';
 import {
   access,
   copyFile,
@@ -34,7 +34,8 @@ const execFileAsync = promisify(execFile);
 
 const repoRoot = process.cwd();
 const workspaceRoot = path.resolve(repoRoot, '..');
-const vkRoot = path.join(workspaceRoot, 'Vktest');
+const configuredVkCheckout = process.env.VK_CHECKOUT?.trim();
+const vkRoot = resolveVkRoot(configuredVkCheckout);
 const fixtureRoot = path.join(
   repoRoot,
   'tests/e2e/fixtures/vk-mocked-sandbox',
@@ -64,6 +65,15 @@ const generatedVkDevAssetFiles = [
 const fixtureVkDevAssetFiles = generatedVkDevAssetFiles.filter(
   (fileName) => fileName !== 'server_ed25519_signing_key',
 );
+
+function resolveVkRoot(configuredPath: string | undefined): string {
+  if (!configuredPath) return path.join(workspaceRoot, 'Vktest');
+  if (path.isAbsolute(configuredPath)) return configuredPath;
+
+  const repoRelativePath = path.resolve(repoRoot, configuredPath);
+  const workspaceRelativePath = path.resolve(workspaceRoot, configuredPath);
+  return existsSync(repoRelativePath) ? repoRelativePath : workspaceRelativePath;
+}
 
 function usage(): never {
   console.error(`Usage:
