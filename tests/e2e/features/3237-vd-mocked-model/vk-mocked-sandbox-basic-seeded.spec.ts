@@ -65,14 +65,20 @@ async function openSidebarIfNeeded(page: Page) {
   const openSidebarButton = page
     .getByRole('button', { name: 'Open sidebar' })
     .first();
-  await expect
-    .poll(
-      async () =>
-        (await openCraftButton.isVisible().catch(() => false)) ||
-        (await openSidebarButton.isVisible().catch(() => false)),
-      { timeout: 60_000 },
-    )
-    .toBe(true);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const shellReady = await expect
+      .poll(
+        async () =>
+          (await openCraftButton.isVisible().catch(() => false)) ||
+          (await openSidebarButton.isVisible().catch(() => false)),
+        { timeout: 30_000 },
+      )
+      .toBe(true)
+      .then(() => true)
+      .catch(() => false);
+    if (shellReady) break;
+    await page.reload({ waitUntil: 'domcontentloaded' });
+  }
   if (await openCraftButton.isVisible().catch(() => false)) {
     const box = await openCraftButton.boundingBox();
     if (box && box.x >= 0) return;

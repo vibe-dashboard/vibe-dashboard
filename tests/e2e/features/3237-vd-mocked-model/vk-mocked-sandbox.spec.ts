@@ -142,7 +142,9 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
       }),
     ).toBeVisible();
     await expect(
-      createWorkspaceFrame.getByRole('button', { name: 'Codex' }),
+      createWorkspaceFrame.getByRole('button', {
+        name: /^(Codex|Claude Code)$/,
+      }),
     ).toBeVisible();
     await expect(
       createWorkspaceFrame.getByRole('button', {
