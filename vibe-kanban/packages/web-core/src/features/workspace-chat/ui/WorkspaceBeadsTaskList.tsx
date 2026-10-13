@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   CheckIcon,
-  CircleDotIcon,
+  CircleDashedIcon,
   CircleIcon,
   ListChecksIcon,
   SpinnerIcon,
@@ -268,7 +268,7 @@ function TaskSection({
   defaultOpen?: boolean;
 }) {
   return (
-    <details className="group border-t border-secondary py-2 first:border-t-0 first:pt-0" defaultOpen={defaultOpen}>
+    <details className="group border-t border-secondary py-2 first:border-t-0 first:pt-0" open={defaultOpen}>
       <summary className="flex cursor-pointer list-none items-center justify-between gap-base text-sm font-medium text-normal">
         <span className="flex items-center gap-2">
           {bucketIcon(bucket)}
@@ -315,6 +315,6 @@ function TaskSection({
 
 function bucketIcon(bucket: TaskBucket) {
   if (bucket === 'done') return <CheckIcon className="size-icon-sm text-success" />;
-  if (bucket === 'inProgress') return <CircleDotIcon className="size-icon-sm text-blue-500" />;
+  if (bucket === 'inProgress') return <CircleDashedIcon className="size-icon-sm text-blue-500" />;
   return <CircleIcon className="size-icon-sm text-low" />;
 }
