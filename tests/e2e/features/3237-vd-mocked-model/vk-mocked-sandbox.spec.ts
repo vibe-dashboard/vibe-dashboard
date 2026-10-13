@@ -1,7 +1,6 @@
 import {
   expect,
   test,
-  type FrameLocator,
   type Locator,
   type Page,
 } from 'playwright/test';
@@ -157,15 +156,15 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
       .getByRole('button', { name: 'Create' })
       .click();
 
-    await expect(createWorkspaceFrame.locator('body')).toContainText(
+    await expect(createWorkspaceFrame).toContainText(
       'System initialized with model: qa-mock',
       { timeout: 60_000 },
     );
-    await expect(createWorkspaceFrame.locator('body')).toContainText(
+    await expect(createWorkspaceFrame).toContainText(
       'QA mode execution completed successfully',
       { timeout: 60_000 },
     );
-    await expect(createWorkspaceFrame.locator('body')).toContainText(
+    await expect(createWorkspaceFrame).toContainText(
       /\d+ files? changed/,
     );
 
@@ -274,18 +273,17 @@ async function createVoyage(
   return false;
 }
 
-type CreateWorkspaceSurface = Pick<FrameLocator, 'locator' | 'getByRole' | 'getByText'>;
+type CreateWorkspaceSurface = Locator;
 
 async function ensureRepositorySelectionStep(
   createWorkspaceFrame: CreateWorkspaceSurface,
 ): Promise<boolean> {
-  const frameBody = createWorkspaceFrame.locator('body');
   if (await isRepositorySelectionStep(createWorkspaceFrame)) {
     return true;
   }
 
   if (
-    await frameBody
+    await createWorkspaceFrame
       .textContent()
       .then((text) => Boolean(text?.includes('What would you like to work on?')))
       .catch(() => false)
@@ -303,7 +301,7 @@ async function ensureRepositorySelectionStep(
       .waitFor({ state: 'hidden', timeout: 30_000 })
       .catch(() => undefined);
     await selectedRepoButton.click();
-    return await frameBody
+    return await createWorkspaceFrame
       .textContent({ timeout: 10_000 })
       .then((text) =>
         Boolean(text?.includes('Which repositories would you like to work on?')),
@@ -316,7 +314,6 @@ async function ensureRepositorySelectionStep(
 
 async function isRepositorySelectionStep(createWorkspaceFrame: CreateWorkspaceSurface) {
   return createWorkspaceFrame
-    .locator('body')
     .textContent()
     .then((text) =>
       Boolean(text?.includes('Which repositories would you like to work on?')),

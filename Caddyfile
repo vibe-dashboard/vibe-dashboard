@@ -88,6 +88,7 @@
 		path /node_modules/*
 		path /packages/*
 		path /vibe-kanban/packages/*
+		path /vibe-kanban/shared/*
 		path /src/*
 		path /@vite/*
 		path /@id/*
