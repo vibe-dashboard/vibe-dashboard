@@ -478,6 +478,11 @@ async function openCraftFromVoyageActionsMenu(page: Page) {
   await clickVoyageActionsMenuItem(page, 'Open Craft');
 }
 
+async function openCraftFromKeyboardShortcut(page: Page) {
+  await page.locator('body').click({ position: { x: 1, y: 1 } });
+  await page.keyboard.press('Control+K');
+}
+
 async function expectCurrentVoyage(page: Page, voyageName: string) {
   const voyageRow = getVoyageSwitcherVoyageButton(page, voyageName).locator(
     '..',
@@ -1039,7 +1044,7 @@ test.describe('voyage persistence', () => {
     );
     await waitForSavedVoyageWithCraft(page.request, voyageId, menuCraftLabel);
 
-    await page.keyboard.press('Control+K');
+    await openCraftFromKeyboardShortcut(page);
     await expect(page.getByRole('heading', { name: 'Open VK Workspace' })).toBeVisible();
     await page.getByPlaceholder('Search workspaces...').fill(commandWorkspace.name);
     await page.getByRole('button', { name: new RegExp(commandWorkspace.name) }).click();
