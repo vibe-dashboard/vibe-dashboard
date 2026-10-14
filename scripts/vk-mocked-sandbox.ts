@@ -619,10 +619,10 @@ export function createSandboxPlan(input: {
       name: 'vd-dashboard',
       cwd: vdRoot,
       command: 'npm',
-      args: ['run', 'dev'],
+      args: ['run', 'dev', '--', '--port', String(input.ports.vdDashboard)],
       env: {
         ...commonEnv,
-        PORT: String(input.ports.vdDashboard),
+        PORT: String(input.ports.vdServer),
         SERVER_PORT: String(input.ports.vdServer),
         VITE_VK_BASE_ORIGIN: vkFrontendUrl,
         CADDY_PORT: String(input.ports.vdCaddy),

@@ -213,6 +213,9 @@ describe('VK mocked sandbox helpers', () => {
     const vdCommand = plan.commands.find((command) => command.name === 'vd-dashboard');
     const caddyCommand = plan.commands.find((command) => command.name === 'caddy');
 
+    expect(vdCommand?.args).toEqual(['run', 'dev', '--', '--port', '4105']);
+    expect(vdCommand?.env.PORT).toBe('4104');
+    expect(vdCommand?.env.SERVER_PORT).toBe('4104');
     expect(vdCommand?.env.VITE_VK_BASE_ORIGIN).toBe(
       'http://localhost:4101',
     );
