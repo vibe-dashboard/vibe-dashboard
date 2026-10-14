@@ -46,7 +46,7 @@ The canonical Docker/container paths for this sandbox are:
 | `VD_SEED` | `/opt/vibe-kanban-vscode-web-seed` | Image seed/read-only source copy used to initialize `VD_CHECKOUT`; do not use it for mutable sandbox state. |
 | `SANDBOX_RUN_DIR` | `$VD_CHECKOUT/.vk-mocked-sandbox/current` | Generated Caddy/run files for the active mocked sandbox run. |
 | `DISPOSABLE_REPO_DIR` | `$VD_CHECKOUT/.vk-mocked-sandbox/repos` | Disposable repository parent directory to enter in the VK Create Repository UI. |
-| `SEEDED_FIXTURE_REPO` | `/home/vkuser/e2e/repos/basic-seeded-repo` | Canonical absolute repo path recorded by the checked-in `basic-seeded` fixture. |
+| `SEEDED_FIXTURE_REPO` | `$DISPOSABLE_REPO_DIR/basic-seeded-repo` | Worktree-local runtime copy of the checked-in `basic-seeded` repository. |
 
 `SANDBOX_RUN_DIR` and `DISPOSABLE_REPO_DIR` are under `VD_CHECKOUT`; do not write
 them as root-relative `/.vk-mocked-sandbox/...` paths. Substitute your actual
@@ -63,7 +63,7 @@ VD_CHECKOUT="$WORKSPACE_ROOT/vibe-kanban-vscode-web"
 VK_CHECKOUT="$VD_CHECKOUT/vibe-kanban"
 SANDBOX_RUN_DIR="$VD_CHECKOUT/.vk-mocked-sandbox/current"
 DISPOSABLE_REPO_DIR="$VD_CHECKOUT/.vk-mocked-sandbox/repos"
-SEEDED_FIXTURE_REPO=/home/vkuser/e2e/repos/basic-seeded-repo
+SEEDED_FIXTURE_REPO="$DISPOSABLE_REPO_DIR/basic-seeded-repo"
 ```
 
 ## Quick start
@@ -76,6 +76,17 @@ npm run dev:vk-mocked-sandbox
 ```
 
 Open the printed VD URL, for example `http://localhost:50005`.
+
+For the automated seeded E2E flow, run:
+
+```bash
+npm run test:e2e:vk-mocked-sandbox
+```
+
+That runner allocates free ports, keeps mutable state under the current
+worktree, starts the sandbox, runs Playwright against the allocated URL, and
+stops only that sandbox. Different worktrees can therefore keep independent
+E2E rigs running concurrently.
 
 The command should stay running in the foreground. If any child process exits
 unexpectedly, the sandbox should stop and report a failure.
@@ -142,13 +153,14 @@ Most VD feature E2E tests should start from a checked-in fixture instead of
 clicking through first-run onboarding. The sandbox currently supports two
 fixture variants:
 
-- `empty`: no VD/VK sqlite state and no canonical seeded repo.
+- `empty`: no VD/VK sqlite state and no worktree-local seeded repo.
 - `basic-seeded`: a VD voyage/craft backed by a VK qa-mode workspace with an
-  initial prompt and follow-up, using the canonical repository path
+  initial prompt and follow-up, using the worktree-local repository path
   `$SEEDED_FIXTURE_REPO`.
 
 Reset fixtures only while the sandbox is stopped. The reset command refuses to
-run when sandbox ports, sandbox processes, or sqlite handles appear live.
+run when this worktree's sandbox PID or sqlite handles appear live. Sandboxes in
+other worktrees do not block the reset.
 
 ```bash
 # Typical default for VD feature specs that do not need onboarding coverage.

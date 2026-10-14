@@ -877,13 +877,17 @@ async function main(): Promise<void> {
   let stopping = false;
   let stopPromise: Promise<void> | undefined;
   const children: { spec: CommandSpec; child: ChildProcess }[] = [];
+  const pidPath = join(plan.paths.runDir, 'sandbox.pid');
+  await writeFile(pidPath, `${process.pid}\n`);
   const stop = (exitCode?: number): Promise<void> => {
     if (stopPromise) return stopPromise;
     stopping = true;
     if (exitCode !== undefined) process.exitCode = exitCode;
     stopPromise = Promise.all(
       children.map(({ spec, child }) => stopChild(child, spec.name)),
-    ).then(() => undefined);
+    ).then(async () => {
+      await rm(pidPath, { force: true });
+    });
     return stopPromise;
   };
   for (const spec of plan.commands) {

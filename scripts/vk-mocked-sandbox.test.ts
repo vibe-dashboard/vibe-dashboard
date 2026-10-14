@@ -14,7 +14,7 @@ import {
   writeSandboxFiles,
   type PortAllocator,
 } from './vk-mocked-sandbox';
-import { isSandboxRuntimeProcessLine } from './e2e-vk-mocked-sandbox-fixtures';
+import { sandboxRuntimeRepoPath } from './e2e-vk-mocked-sandbox-fixtures';
 
 describe('VK mocked sandbox helpers', () => {
   it('finds the first available port at or above the requested start', async () => {
@@ -37,17 +37,10 @@ describe('VK mocked sandbox helpers', () => {
     );
   });
 
-  it('does not treat CI orchestration commands as live sandbox runtime processes', () => {
-    expect(isSandboxRuntimeProcessLine(
-      '9416 bash scripts/ci-run-vk-mocked-sandbox-e2e.sh',
-    )).toBe(false);
-    expect(isSandboxRuntimeProcessLine(
-      '1234 node --experimental-strip-types scripts/vk-mocked-sandbox.ts start',
-    )).toBe(true);
-    expect(isSandboxRuntimeProcessLine('5678 cargo run --features qa-mode --bin server vk-backend-qa')).toBe(true);
-    expect(isSandboxRuntimeProcessLine(
-      '6789 /tmp/workspace/vibe-kanban-vscode-web/.vk-mocked-sandbox/vk-release-assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/extracted/vibe-kanban',
-    )).toBe(true);
+  it('keeps the seeded runtime repository inside this worktree', () => {
+    expect(sandboxRuntimeRepoPath('/tmp/worktree/vibe-kanban-vscode-web')).toBe(
+      '/tmp/worktree/vibe-kanban-vscode-web/.vk-mocked-sandbox/repos/basic-seeded-repo',
+    );
   });
 
   it('uses explicit env port overrides when present', async () => {

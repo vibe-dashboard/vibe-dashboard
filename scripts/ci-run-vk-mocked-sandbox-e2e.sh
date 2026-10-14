@@ -1,17 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SANDBOX_URL="${VK_MOCKED_SANDBOX_URL:-http://localhost:50005}"
 RUN_DIR="${VK_MOCKED_SANDBOX_RUN_DIR:-.vk-mocked-sandbox/current}"
-SANDBOX_LOG="$RUN_DIR/ci-sandbox.log"
 READY_TIMEOUT_SECONDS="${VK_MOCKED_SANDBOX_READY_TIMEOUT_SECONDS:-1200}"
-
-export VK_MOCKED_BACKEND_PORT="${VK_MOCKED_BACKEND_PORT:-50000}"
-export VK_MOCKED_FRONTEND_PORT="${VK_MOCKED_FRONTEND_PORT:-50001}"
-export VK_MOCKED_PREVIEW_PROXY_PORT="${VK_MOCKED_PREVIEW_PROXY_PORT:-50002}"
-export VK_MOCKED_VD_DASHBOARD_PORT="${VK_MOCKED_VD_DASHBOARD_PORT:-50003}"
-export VK_MOCKED_VD_SERVER_PORT="${VK_MOCKED_VD_SERVER_PORT:-50004}"
-export VK_MOCKED_CADDY_PORT="${VK_MOCKED_CADDY_PORT:-50005}"
 
 cleanup() {
   if [[ -n "${sandbox_pid:-}" ]] && kill -0 "$sandbox_pid" 2>/dev/null; then
@@ -29,8 +20,15 @@ echo "::group::Prepare VK mocked sandbox"
 node --experimental-strip-types scripts/vk-mocked-sandbox.ts setup
 echo "::endgroup::"
 
+# setup owns port allocation. Reuse that exact plan when start constructs its
+# commands, rather than racing another branch on fixed ports.
+source "$RUN_DIR/env.sh"
+export VK_MOCKED_SANDBOX_URL="${VK_MOCKED_SANDBOX_URL:-$VK_MOCKED_VD_URL}"
+SANDBOX_URL="$VK_MOCKED_SANDBOX_URL"
+SANDBOX_LOG="$VK_MOCKED_SANDBOX_RUN_DIR/sandbox.log"
+
 echo "Starting VK mocked sandbox; log: $SANDBOX_LOG"
-VK_MOCKED_SKIP_LOCAL_WEB_BUILD=1 npm run dev:vk-mocked-sandbox >"$SANDBOX_LOG" 2>&1 &
+VK_MOCKED_SKIP_LOCAL_WEB_BUILD=1 VK_MOCKED_SKIP_SETUP_COMMANDS=1 npm run dev:vk-mocked-sandbox >"$SANDBOX_LOG" 2>&1 &
 sandbox_pid=$!
 
 deadline=$((SECONDS + READY_TIMEOUT_SECONDS))
@@ -49,4 +47,4 @@ until curl --fail --silent --show-error "$SANDBOX_URL/workspaces" >/dev/null; do
 done
 
 echo "VK mocked sandbox is ready at $SANDBOX_URL/workspaces"
-npm run test:e2e:vk-mocked-sandbox
+npx playwright test --config playwright.vk-mocked-sandbox.config.ts
