@@ -45,6 +45,13 @@ pub struct WorkspaceNotesData {
     pub content: String,
 }
 
+/// Data for workspace-scoped dev server repo selection
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct WorkspaceDevServerSelectionData {
+    #[serde(default)]
+    pub selected_repo_ids: Vec<Uuid>,
+}
+
 /// Workspace-specific panel state
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct WorkspacePanelStateData {
@@ -245,6 +252,7 @@ pub enum ScratchPayload {
     DraftIssue(DraftIssueData),
     PreviewSettings(PreviewSettingsData),
     WorkspaceNotes(WorkspaceNotesData),
+    WorkspaceDevServerSelection(WorkspaceDevServerSelectionData),
     UiPreferences(UiPreferencesData),
     ProjectRepoDefaults(ProjectRepoDefaultsData),
 }
