@@ -1,0 +1,185 @@
+name: Docker e2e tests
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/docker-e2e-tests.yml"
+      - "Caddyfile"
+      - "Caddyfile.plugins"
+      - "Dockerfile.vkvd"
+      - "docker-entrypoint.sh"
+      - "supervisord.vkvd.conf"
+      - ".docker/vk-runtime/vibe-kanban"
+      - "vibe-kanban/**"
+      - "scripts/smoke-vkvd-plugin-runtime.sh"
+      - "scripts/smoke-vkvd-workspace-beads.sh"
+      - "scripts/build-custom-caddy.sh"
+      - "scripts/workspace-beads-setup.ts"
+      - "scripts/bd-wrapper/**"
+      - "plugins/scripts/vd-plugin-runtime-apply.sh"
+      - "src/modules/plugins/vibe-dashboard/**"
+      - "src/modules/plugins/kanban/server/**"
+      - "plugins/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-e2e-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  NODE_VERSION: 22
+  PNPM_VERSION: 10.13.1
+  RUST_TOOLCHAIN: nightly-2025-12-04
+  IMAGE_TAG: vk-vd-docker-e2e:${{ github.sha }}
+  IMAGE_ARTIFACT_NAME: vk-vd-docker-e2e-image
+
+jobs:
+  build-image:
+    name: build VK/VD Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout VD
+        uses: actions/checkout@v4
+        with:
+          path: vibe-kanban-vscode-web
+
+      - name: Record embedded VK commit
+        id: vk-meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "sha=$(git -C vibe-kanban-vscode-web/vibe-kanban rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git -C vibe-kanban-vscode-web/vibe-kanban log --oneline -1
+
+      - name: Free up disk space
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          docker system prune -af || true
+          df -h
+
+      - name: Build real VK runtime on Debian bookworm
+        # CI compiles embedded VK before Docker build; Dockerfile.vkvd then
+        # copies this local runtime instead of downloading an external release.
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -e "CARGO_TERM_COLOR=${CARGO_TERM_COLOR}" \
+            -e "CARGO_PROFILE_DEV_DEBUG=${CARGO_PROFILE_DEV_DEBUG}" \
+            -e "CARGO_PROFILE_DEV_DEBUG_ASSERTIONS=false" \
+            -e "CARGO_PROFILE_TEST_DEBUG=${CARGO_PROFILE_TEST_DEBUG}" \
+            -e "VK_BUILD_COMMIT_HASH=${{ steps.vk-meta.outputs.sha }}" \
+            -e "CARGO_TARGET_DIR=/work/target-bookworm" \
+            -e "RUST_TOOLCHAIN=${RUST_TOOLCHAIN}" \
+            -v "${PWD}/vibe-kanban-vscode-web/vibe-kanban:/work" \
+            -w /work \
+            rust:bookworm \
+            bash -lc 'apt-get update && apt-get install -y --no-install-recommends clang libclang-dev pkg-config && curl --proto "=https" --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain "${RUST_TOOLCHAIN}" && . /usr/local/cargo/env && git config --global --add safe.directory /work && cargo +"${RUST_TOOLCHAIN}" build --locked -p server --bin server'
+        env:
+          RUST_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Stage VK runtime for Docker build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp vibe-kanban-vscode-web/vibe-kanban/target-bookworm/debug/server vibe-kanban-vscode-web/.docker/vk-runtime/vibe-kanban
+          chmod 0755 vibe-kanban-vscode-web/.docker/vk-runtime/vibe-kanban
+          sudo rm -rf vibe-kanban-vscode-web/vibe-kanban/target-bookworm
+          docker image rm rust:bookworm || true
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build vkvd image with real VK runtime
+        uses: docker/build-push-action@v6
+        with:
+          context: vibe-kanban-vscode-web
+          file: vibe-kanban-vscode-web/Dockerfile.vkvd
+          build-args: |
+            VK_RUNTIME_SOURCE=local
+            VK_COMMIT=${{ steps.vk-meta.outputs.sha }}
+          push: false
+          load: true
+          tags: ${{ env.IMAGE_TAG }}
+
+      - name: Free build-only Docker e2e state
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h
+          docker buildx prune --all --force || true
+          df -h
+
+      - name: Save Docker image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker save "${IMAGE_TAG}" | gzip -1 > /tmp/vk-vd-docker-e2e-image.tar.gz
+          ls -lh /tmp/vk-vd-docker-e2e-image.tar.gz
+
+      - name: Upload Docker image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.IMAGE_ARTIFACT_NAME }}
+          path: /tmp/vk-vd-docker-e2e-image.tar.gz
+          retention-days: 1
+          if-no-files-found: error
+
+  plugin-runtime-smoke:
+    name: beads-web plugin runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: build-image
+
+    steps:
+      - name: Checkout VD
+        uses: actions/checkout@v4
+
+      - name: Download Docker image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.IMAGE_ARTIFACT_NAME }}
+          path: /tmp
+
+      - name: Load Docker image
+        run: gzip -dc /tmp/vk-vd-docker-e2e-image.tar.gz | docker load
+
+      - name: Run beads-web plugin runtime smoke
+        env:
+          VKVD_SMOKE_IMAGE: ${{ env.IMAGE_TAG }}
+        run: bash scripts/smoke-vkvd-plugin-runtime.sh
+
+  workspace-beads-smoke:
+    name: workspace-scoped beads initialization
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: build-image
+
+    steps:
+      - name: Checkout VD
+        uses: actions/checkout@v4
+
+      - name: Download Docker image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.IMAGE_ARTIFACT_NAME }}
+          path: /tmp
+
+      - name: Load Docker image
+        run: gzip -dc /tmp/vk-vd-docker-e2e-image.tar.gz | docker load
+
+      - name: Run workspace beads runtime smoke
+        env:
+          VKVD_SMOKE_IMAGE: ${{ env.IMAGE_TAG }}
+        run: bash scripts/smoke-vkvd-workspace-beads.sh
