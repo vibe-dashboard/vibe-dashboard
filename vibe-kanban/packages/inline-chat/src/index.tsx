@@ -27,7 +27,6 @@ import { useDiffStream } from '@/shared/hooks/useDiffStream';
 import { useWorkspaceRecord } from '@/shared/hooks/useWorkspaceRecord';
 import { useWorkspaceRepo } from '@/shared/hooks/useWorkspaceRepo';
 import { useWorkspaceSessions } from '@/shared/hooks/useWorkspaceSessions';
-import { useWorkspaces } from '@/shared/hooks/useWorkspaces';
 import { configApi } from '@/shared/lib/api';
 import type { AppDestination, AppNavigation } from '@/shared/lib/routes/appNavigation';
 import { resolveLabel, type ActionDefinition } from '@/shared/types/actions';
@@ -246,15 +245,29 @@ function InlineWorkspaceProvider({
   workspaceId: string;
   children: ReactNode;
 }) {
-  const {
-    workspaces: activeWorkspaces,
-    archivedWorkspaces,
-    isLoading: isWorkspacesListLoading,
-  } = useWorkspaces();
   const workspaceQuery = useWorkspaceRecord(workspaceId, { enabled: !!workspaceId });
   const sessionsState = useWorkspaceSessions(workspaceId, { enabled: !!workspaceId });
   const reposState = useWorkspaceRepo(workspaceId, { enabled: !!workspaceId });
   const workspace = workspaceQuery.data;
+  const activeWorkspaces = useMemo(
+    () =>
+      workspace
+        ? [
+            {
+              id: workspace.id,
+              name: workspace.name ?? workspace.branch,
+              branch: workspace.branch,
+              createdAt: workspace.created_at,
+              updatedAt: workspace.updated_at,
+              description: '',
+              isPinned: workspace.pinned,
+              isArchived: workspace.archived,
+            },
+          ]
+        : [],
+    [workspace],
+  );
+  const archivedWorkspaces = useMemo(() => [], []);
 
   const value = useMemo(
     () => ({
@@ -262,8 +275,8 @@ function InlineWorkspaceProvider({
       workspace,
       activeWorkspaces,
       archivedWorkspaces,
-      isWorkspacesListLoading,
-      isLoading: isWorkspacesListLoading || workspaceQuery.isLoading,
+      isWorkspacesListLoading: false,
+      isLoading: workspaceQuery.isLoading,
       isCreateMode: false,
       selectWorkspace: noop,
       navigateToCreate: noop,
@@ -281,7 +294,6 @@ function InlineWorkspaceProvider({
     [
       activeWorkspaces,
       archivedWorkspaces,
-      isWorkspacesListLoading,
       reposState.isLoading,
       reposState.repos,
       sessionsState.isLoading,
