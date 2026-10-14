@@ -1386,15 +1386,16 @@ describe('beads-form CLI helpers', () => {
     expect(result.form.questions?.map((question) => question.id)).toEqual(['decision']);
   });
 
-  it('scans pending forms from first-level repos with read-only list queries and fill-out URLs', async () => {
-    const reposRoot = join(tmpdir(), `beads-form-pending-${process.pid}-${Date.now()}`);
-    await mkdir(join(reposRoot, 'repo-a', '.beads'), { recursive: true });
-    await mkdir(join(reposRoot, 'repo-b', '.beads'), { recursive: true });
-    await mkdir(join(reposRoot, 'repo-c'), { recursive: true });
+  it('scans pending forms from persisted workspace stores with read-only list queries and fill-out URLs', async () => {
+    const beadsDirectory = join(tmpdir(), `beads-form-pending-${process.pid}-${Date.now()}`);
+    const workspaceAStore = join(beadsDirectory, 'workspaces', 'workspace-a', '.beads');
+    const workspaceBStore = join(beadsDirectory, 'workspaces', 'workspace-b', '.beads');
+    await mkdir(workspaceAStore, { recursive: true });
+    await mkdir(workspaceBStore, { recursive: true });
 
     const exec = vi.fn<ExecFileLike>(async (_file, args, options) => {
       expect(args[0]).toBe('--readonly');
-      if (options.cwd.endsWith('repo-a') && args[1] === 'list') {
+      if (options.cwd === workspaceAStore && args[1] === 'list') {
         expect(args).toEqual(['--readonly', 'list', '--json', '--all', '--limit', '0', '--has-metadata-key', 'beadFormsSummary']);
         return { stdout: JSON.stringify([
           {
@@ -1414,7 +1415,7 @@ describe('beads-form CLI helpers', () => {
           },
         ]), stderr: '' };
       }
-      if (options.cwd.endsWith('repo-b') && args[1] === 'list') {
+      if (options.cwd === workspaceBStore && args[1] === 'list') {
         expect(args).toEqual(['--readonly', 'list', '--json', '--all', '--limit', '0', '--has-metadata-key', 'beadFormsSummary']);
         return { stdout: JSON.stringify([
           {
@@ -1439,14 +1440,14 @@ describe('beads-form CLI helpers', () => {
     const result = await scanPendingBeadsForms({
       execFile: exec,
       options: {
-        parentDir: reposRoot,
+        parentDir: beadsDirectory,
         limit: 3,
         origin: 'https://example.test',
       },
     });
 
     expect(result).toMatchObject({
-      parentDir: reposRoot,
+      parentDir: join(beadsDirectory, 'workspaces'),
       repoLimit: 3,
       reposScanned: 2,
       pendingCount: 2,
@@ -1455,16 +1456,16 @@ describe('beads-form CLI helpers', () => {
     });
     expect(result.entries).toEqual([
       {
-        repo: { name: 'repo-a', path: join(reposRoot, 'repo-a') },
+        repo: { name: 'workspace-a', path: workspaceAStore },
         bead: { id: 'summary-pending', title: 'Summary pending' },
         form: { id: 'review', title: 'Review form', description: 'Needs human review.', responseCount: 0 },
-        url: `https://example.test/dashboard/forms?dir=${encodeURIComponent(join(reposRoot, 'repo-a'))}&bead=summary-pending&form=review`,
+        url: `https://example.test/dashboard/forms?dir=${encodeURIComponent(workspaceAStore)}&bead=summary-pending&form=review`,
       },
       {
-        repo: { name: 'repo-b', path: join(reposRoot, 'repo-b') },
+        repo: { name: 'workspace-b', path: workspaceBStore },
         bead: { id: 'summary-pending-b', title: 'Summary pending B' },
         form: { id: 'review_b', title: 'Review B', description: 'Review **decisions**.', responseCount: 0 },
-        url: `https://example.test/dashboard/forms?dir=${encodeURIComponent(join(reposRoot, 'repo-b'))}&bead=summary-pending-b&form=review_b`,
+        url: `https://example.test/dashboard/forms?dir=${encodeURIComponent(workspaceBStore)}&bead=summary-pending-b&form=review_b`,
       },
     ]);
     expect(exec.mock.calls.some(([, args]) => args.includes('show'))).toBe(false);

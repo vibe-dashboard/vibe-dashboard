@@ -102,8 +102,8 @@ describe('BeadsFormReadCache', () => {
     expect(workspaceBeadFormsCacheKey({ workspaceId: 'ws', beadId: 'bd-1', includeOtherWorkspaces: true })).toBe(
       'workspace:{"workspaceId":"ws","beadId":"bd-1","formId":"","includeOtherWorkspaces":true}',
     );
-    expect(pendingBeadsFormsCacheKey({ reposRoot: '/repos', repoLimit: 20 })).toBe(
-      'pending:{"reposRoot":"/repos","repoLimit":20}',
+    expect(pendingBeadsFormsCacheKey({ beadsDirectory: '/var/lib/vd/beads', repoLimit: 20 })).toBe(
+      'pending:{"beadsDirectory":"/var/lib/vd/beads","repoLimit":20}',
     );
   });
 });

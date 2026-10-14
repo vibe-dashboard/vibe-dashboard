@@ -1464,7 +1464,7 @@ export async function scanPendingBeadsForms(input: {
   const { BeadsClient } = await import('../../src/lib/beadsClient.node.ts');
   const client = new BeadsClient(input.execFile ? { execFile: input.execFile } : {});
   const queue = await client.listPendingBeadsFormQueue({
-    reposRoot: input.options.parentDir,
+    beadsDirectory: input.options.parentDir,
     repoLimit: input.options.limit,
   });
   const entries = queue.entries.map((entry) => ({

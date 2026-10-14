@@ -997,16 +997,7 @@ function BeadsFormPendingQueue({ actions, parentDir, pendingQueueSentinel }: {
 
   return (
     <div className="beadsform-root beadsform-page">
-      <header className="beadsform-heading-row">
-        <div>
-          <p className="beadsform-eyebrow">Forms</p>
-          <h1>{parentDir ? 'Open BeadsForms by beads directory' : 'Pending BeadsForm submissions'}</h1>
-          <p>Forms listed here are attached to non-closed beads and have no submitted responses yet. Use Refresh after agents attach new forms or humans submit responses.</p>
-        </div>
-        <Button type="button" color="primary" variant="flat" onPress={() => void load()} isDisabled={loading || refreshing} isLoading={loading || refreshing}>
-          {loading || refreshing ? 'Refreshing…' : 'Refresh'}
-        </Button>
-      </header>
+      {pending ? <h1>Pending BeadsForms</h1> : null}
       {error ? <p role="alert" className="beadsform-error">{error}</p> : null}
       {!pending && !error ? (
         <BeadsFormLoadingCard
@@ -1016,26 +1007,8 @@ function BeadsFormPendingQueue({ actions, parentDir, pendingQueueSentinel }: {
       ) : null}
       {pending ? (
         <>
-          {refreshing ? (
-            <Card className="beadsform-refresh-card" shadow="sm" role="status" aria-live="polite">
-              <CardBody className="beadsform-refresh-card-body">
-                <Spinner size="sm" />
-                <span>Refreshing in the background… cached results remain visible.</span>
-              </CardBody>
-            </Card>
-          ) : null}
+          {refreshing ? <p className="beadsform-refresh-notice" role="status">Checking for updates…</p> : null}
           {refreshNotice ? <p className="beadsform-refresh-notice" role="status">{refreshNotice}</p> : null}
-          <section className="beadsform-warning" role="note">
-            <h2>Update strategy</h2>
-            <p>{pending.updateStrategy.rationale}</p>
-            <p>Scanned {pending.reposScanned} workspace beads stores under <code>{pending.reposRoot}</code> with a limit of {pending.repoLimit}.</p>
-            {pending.cache ? (
-              <p>
-                Showing {pending.cache.status === 'cached' ? 'cached' : 'fresh'} results from {pending.cache.loadedAt}
-                {pending.cache.stale ? ' (stale; refreshing in the background when possible)' : null}.
-              </p>
-            ) : null}
-          </section>
           {pending.entries.length === 0 ? (
             <section className="beadsform-pending-empty" aria-live="polite">
               <h2>Inbox clear</h2>

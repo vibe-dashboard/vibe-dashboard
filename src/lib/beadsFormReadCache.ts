@@ -141,9 +141,9 @@ export function workspaceBeadFormsCacheKey(input: {
   })}`;
 }
 
-export function pendingBeadsFormsCacheKey(input: { reposRoot?: string; repoLimit?: number }): string {
+export function pendingBeadsFormsCacheKey(input: { beadsDirectory?: string; repoLimit?: number }): string {
   return `pending:${JSON.stringify({
-    reposRoot: input.reposRoot ?? '',
+    beadsDirectory: input.beadsDirectory ?? '',
     repoLimit: input.repoLimit ?? 80,
   })}`;
 }

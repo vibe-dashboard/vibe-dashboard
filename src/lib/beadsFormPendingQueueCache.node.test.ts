@@ -82,6 +82,7 @@ function pendingQueueResult(input: { reposRoot: string; repoLimit: number }): Pe
     repoLimit: input.repoLimit,
     reposScanned: 1,
     entries: [{
+      workspaceId: 'workspace-a',
       repoDir: `${input.reposRoot}/repo-a`,
       repoName: 'repo-a',
       bead: { id: 'beads-web-1', title: 'Bead' },
