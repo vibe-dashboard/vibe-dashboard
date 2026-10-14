@@ -320,6 +320,9 @@ impl IntoResponse for ApiError {
             ApiError::Repo(RepoError::NotFound) => {
                 ErrorInfo::not_found("RepoError", "Repository not found.")
             }
+            ApiError::Repo(RepoError::Validation(msg)) => {
+                ErrorInfo::bad_request("RepoError", msg.clone())
+            }
 
             ApiError::Workspace(WorkspaceError::Database(_)) => {
                 ErrorInfo::internal("WorkspaceError")
