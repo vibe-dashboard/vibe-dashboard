@@ -143,6 +143,8 @@ model ExternalIssueWorkspaceLink {
   id              String   @id
   externalIssueId String
   vkWorkspaceId   String
+  workspaceBeadId String?
+  workspaceBeadsDirKey String?
   isPrimary       Boolean  @default(false)
   lastOpenedAt    DateTime?
   metadataJson    String?
@@ -155,6 +157,8 @@ model ExternalIssueWorkspaceLink {
   @@unique([externalIssueId, vkWorkspaceId])
   @@index([externalIssueId])
   @@index([vkWorkspaceId])
+  @@index([workspaceBeadsDirKey, workspaceBeadId])
+  @@unique([vkWorkspaceId, workspaceBeadId])
   @@index([isPrimary])
 }
 

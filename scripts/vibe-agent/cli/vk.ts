@@ -682,6 +682,28 @@ function requireWorkspaceId(value: string | undefined, usage: string): string {
   return value;
 }
 
+function optionalEnvString(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value || undefined;
+}
+
+function previewUrlDefaultsFromSiteOrigin(): { baseDomain: string; urlScheme: 'http' | 'https' } | undefined {
+  const siteOrigin = optionalEnvString('SITE_ORIGIN');
+  if (!siteOrigin) return undefined;
+  try {
+    const url = new URL(siteOrigin);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return undefined;
+    const baseDomain = url.host || undefined;
+    if (!baseDomain) return undefined;
+    return {
+      baseDomain,
+      urlScheme: url.protocol === 'http:' ? 'http' : 'https',
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 function parseRunConfigKind(value: string | undefined): RunConfigKind {
   const kind = value ?? 'long_running';
   if (kind === 'long_running' || kind === 'one_shot' || kind === 'test') {
@@ -804,16 +826,20 @@ async function commandPreviewUrl(positional: string[], flags: FlagMap) {
     case 'url': {
       const workspaceId = requireWorkspaceId(
         positional[1],
-        'Usage: vk preview-url url <workspace-id> <preview-slot-id> --customer <customer-slug> [--base-domain <domain>] [--json]',
+        'Usage: vk preview-url url <workspace-id> <preview-slot-id> --customer <customer-slug> [--json]',
       );
       const previewSlotId = positional[2] ?? getFlagString(flags, 'slot-id') ?? getFlagString(flags, 'preview-slot-id');
       const customerSlug = getFlagString(flags, 'customer') ?? getFlagString(flags, 'customer-slug');
-      const baseDomain = getFlagString(flags, 'base-domain');
+      const previewUrlDefaults = previewUrlDefaultsFromSiteOrigin();
       if (!previewSlotId || !customerSlug) {
-        console.error('Usage: vk preview-url url <workspace-id> <preview-slot-id> --customer <customer-slug> [--base-domain <domain>] [--json]');
+        console.error('Usage: vk preview-url url <workspace-id> <preview-slot-id> --customer <customer-slug> [--json]');
         process.exit(1);
       }
-      const response = await service.getPreviewSlotUrl(workspaceId, previewSlotId, { customerSlug, baseDomain });
+      const response = await service.getPreviewSlotUrl(workspaceId, previewSlotId, {
+        customerSlug,
+        baseDomain: previewUrlDefaults?.baseDomain,
+        urlScheme: previewUrlDefaults?.urlScheme,
+      });
       if (flags.json === true) {
         console.log(JSON.stringify(response, null, 2));
         return;

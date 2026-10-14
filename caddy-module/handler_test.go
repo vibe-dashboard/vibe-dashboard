@@ -64,7 +64,6 @@ func TestPreviewResolverAdaptsBeforeCatchAllHandle(t *testing.T) {
 	caddyfileBody := []byte(`:3001 {
 	vk_preview_resolver {
 		resolver_url http://127.0.0.1:3005/internal/preview/resolve
-		base_domain localhost
 	}
 
 	handle /* {

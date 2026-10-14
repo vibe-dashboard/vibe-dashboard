@@ -137,6 +137,47 @@ describe('registerWorkflowRoutes', () => {
     });
   });
 
+  it('ignores canceled GitHub workflow_run webhooks before starting a workflow run', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const run = vi.fn(async () => ({ outcome: 'should_not_run' }));
+    const registry = createWorkflowRegistry();
+    registry.register({
+      id: 'github-ci-failure',
+      trigger: 'github.workflow_run',
+      run,
+    });
+    const app = new Hono();
+    registerWorkflowRoutes(app, {
+      registry,
+      githubWebhookSecret: 'secret',
+    });
+
+    const body = JSON.stringify({ workflow_run: { status: 'completed', conclusion: 'cancelled' } });
+    const response = await app.request('/dashboard/api/webhooks/github', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-GitHub-Event': 'workflow_run',
+        'X-GitHub-Delivery': 'delivery-cancelled',
+        'X-Hub-Signature-256': signBody(body, 'secret'),
+      },
+      body,
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      outcome: 'ignored',
+      reason: 'canceled_workflow_run',
+    });
+    expect(run).not.toHaveBeenCalled();
+    expect(infoSpy).toHaveBeenCalledWith('GitHub webhook workflow ignored', {
+      delivery: 'delivery-cancelled',
+      event: 'workflow_run',
+      outcome: 'ignored',
+      reason: 'canceled_workflow_run',
+    });
+  });
+
   it('refreshes repo aliases and retries once when no workspace matches', async () => {
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
     const registry = createWorkflowRegistry();

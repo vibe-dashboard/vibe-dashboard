@@ -114,7 +114,7 @@ type SubmitPreviewFormResult = {
 };
 
 type LoadPendingFormsInput = {
-  reposRoot?: string;
+  beadsDirectory?: string;
   repoLimit?: number;
 };
 
@@ -422,7 +422,7 @@ function BeadsFormPendingQueue({ actions, parentDir }: {
     setError(null);
     try {
       const result = await (await actions.loadPendingForms({
-        ...(parentDir ? { reposRoot: parentDir } : {}),
+        ...(parentDir ? { beadsDirectory: parentDir } : {}),
       }));
       setPending(result);
     } catch (reason) {
@@ -441,19 +441,19 @@ function BeadsFormPendingQueue({ actions, parentDir }: {
       <header className="beadsform-heading-row">
         <div>
           <p className="beadsform-eyebrow">Forms</p>
-          <h1>{parentDir ? 'Open BeadsForms by parent directory' : 'Pending BeadsForm submissions'}</h1>
+          <h1>{parentDir ? 'Open BeadsForms by beads directory' : 'Pending BeadsForm submissions'}</h1>
           <p>Forms listed here are attached to non-closed beads and have no submitted responses yet. Use Refresh after agents attach new forms or humans submit responses.</p>
         </div>
         <button type="button" onClick={() => void load()} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button>
       </header>
       {error ? <p role="alert" className="beadsform-error">{error}</p> : null}
-      {!pending && !error ? <p>Scanning first-level child directories under <code>{parentDir || '~/repos'}</code>…</p> : null}
+      {!pending && !error ? <p>Scanning persisted workspace beads stores under <code>{parentDir || 'VD_BEADS_DIRECTORY'}/workspaces</code>…</p> : null}
       {pending ? (
         <>
           <section className="beadsform-warning" role="note">
             <h2>Update strategy</h2>
             <p>{pending.updateStrategy.rationale}</p>
-            <p>Scanned {pending.reposScanned} repos under <code>{pending.reposRoot}</code> with a limit of {pending.repoLimit}.</p>
+            <p>Scanned {pending.reposScanned} workspace beads stores under <code>{pending.reposRoot}</code> with a limit of {pending.repoLimit}.</p>
           </section>
           {pending.entries.length === 0 ? <p>No pending BeadsForms found.</p> : (
             <section>
@@ -470,7 +470,7 @@ function BeadsFormPendingQueue({ actions, parentDir }: {
                         {entry.bead.title ? <> — {entry.bead.title}</> : null}
                       </p>
                       <p><code>{entry.repoDir}</code></p>
-                      <a href={formViewUrl({ dir: entry.repoDir, beadId: entry.bead.id, formId: entry.form.id })}>Fill out form</a>
+                      <a href={formViewUrl({ workspaceId: entry.workspaceId, beadId: entry.bead.id, formId: entry.form.id })}>Fill out form</a>
                     </article>
                   </li>
                 ))}
@@ -479,7 +479,7 @@ function BeadsFormPendingQueue({ actions, parentDir }: {
           )}
           {pending.skipped.length > 0 ? (
             <section>
-              <h2>Skipped repos</h2>
+              <h2>Skipped workspace stores</h2>
               <ul>
                 {pending.skipped.map((skip) => <li key={`${skip.repoDir}:${skip.reason}`}><code>{skip.repoDir}</code>: {skip.reason}</li>)}
               </ul>
@@ -701,13 +701,8 @@ function BeadsFormRoute({ actions }: { actions: {
           <div className="beadsform-heading-row">
             <div>
               <h2>Workspace beads</h2>
-              <p>Select a bead to view its forms. By default this only shows beads created for this workspace.</p>
+              <p>Select a bead to view its forms. This reads the persisted workspace-scoped beads store.</p>
             </div>
-            {workspaceId ? (
-              <a href={formViewUrl({ workspaceId, includeOtherWorkspaces: !includeOtherWorkspaces })}>
-                {includeOtherWorkspaces ? 'Show workspace beads only' : 'Show all beads'}
-              </a>
-            ) : null}
           </div>
           {loaded.workspaceBeads.repos.map((repo) => (
             <section key={repo.dir}>
@@ -716,9 +711,9 @@ function BeadsFormRoute({ actions }: { actions: {
               {repo.error ? (
                 <p role="alert" className="beadsform-error">{repo.error}</p>
               ) : !repo.initialized ? (
-                <p>This repo is not initialized for beads yet. Run <code>bd init</code> in this repo to track beads here.</p>
+                <p>The workspace beads store is not initialized yet.</p>
               ) : repo.beads.length === 0 ? (
-                <p>No matching beads. {repo.unscopedCount + repo.otherWorkspaceCount > 0 && !includeOtherWorkspaces ? 'Use “Show all beads” to include unscoped and other-workspace beads.' : null}</p>
+                <p>No matching beads.</p>
               ) : (
                 <ul>
                   {repo.beads.map((repoBead) => (
@@ -842,17 +837,12 @@ springboard.registerModule(
       },
       loadWorkspaceForms: async (input: LoadWorkspaceFormsInput): Promise<LoadWorkspaceFormsResult> => {
         if (!input.workspaceId.trim()) throw new Error('workspaceId is required');
-        const [workspace, repos] = await Promise.all([
-          vkClient().getWorkspace(input.workspaceId),
-          vkClient().getWorkspaceRepos(input.workspaceId),
-        ]);
-        const workspaceDir = workspace.container_ref || workspace.agent_working_dir;
-        if (!workspaceDir) throw new Error(`Workspace ${input.workspaceId} does not have a local workspace directory`);
+        const workspace = await vkClient().getWorkspace(input.workspaceId);
         const workspaceBeads = await nodeClient().listWorkspaceBeads({
           workspaceId: input.workspaceId,
-          workspaceDir,
+          workspaceDir: workspace.container_ref || workspace.agent_working_dir || '',
           agentWorkingDir: workspace.agent_working_dir,
-          repos,
+          repos: [],
           includeOtherWorkspaces: input.includeOtherWorkspaces ?? false,
           ...(input.beadId ? { beadId: input.beadId } : {}),
         });
@@ -878,7 +868,7 @@ springboard.registerModule(
       },
       loadPendingForms: async (input: LoadPendingFormsInput): Promise<LoadPendingFormsResult> => (
         nodeClient().listPendingBeadsFormQueue({
-          ...(input.reposRoot ? { reposRoot: input.reposRoot } : {}),
+          ...(input.beadsDirectory ? { beadsDirectory: input.beadsDirectory } : {}),
           ...(input.repoLimit ? { repoLimit: input.repoLimit } : {}),
         })
       ),
