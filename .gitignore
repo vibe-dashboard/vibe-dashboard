@@ -24,3 +24,4 @@ src/storybook-fixtures/external-jira/*.generated.json
 
 .vk-mocked-sandbox
 .playwright-cli
+.beads/embeddeddolt/
