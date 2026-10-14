@@ -6,7 +6,7 @@ READY_TIMEOUT_SECONDS="${VK_MOCKED_SANDBOX_READY_TIMEOUT_SECONDS:-1200}"
 
 cleanup() {
   if [[ -n "${sandbox_pid:-}" ]] && kill -0 "$sandbox_pid" 2>/dev/null; then
-    kill -TERM "-$sandbox_pid" 2>/dev/null || kill -TERM "$sandbox_pid" 2>/dev/null || true
+    kill -TERM "$sandbox_pid" 2>/dev/null || true
     wait "$sandbox_pid" 2>/dev/null || true
   fi
 }
@@ -29,7 +29,8 @@ VK_HEALTH_URL="http://127.0.0.1:$VK_MOCKED_BACKEND_PORT/api/health"
 SANDBOX_LOG="$VK_MOCKED_SANDBOX_RUN_DIR/sandbox.log"
 
 echo "Starting VK mocked sandbox; log: $SANDBOX_LOG"
-VK_MOCKED_SKIP_LOCAL_WEB_BUILD=1 VK_MOCKED_SKIP_SETUP_COMMANDS=1 npm run dev:vk-mocked-sandbox >"$SANDBOX_LOG" 2>&1 &
+VK_MOCKED_SKIP_LOCAL_WEB_BUILD=1 VK_MOCKED_SKIP_SETUP_COMMANDS=1 \
+  node --experimental-strip-types scripts/vk-mocked-sandbox.ts start >"$SANDBOX_LOG" 2>&1 &
 sandbox_pid=$!
 
 deadline=$((SECONDS + READY_TIMEOUT_SECONDS))
