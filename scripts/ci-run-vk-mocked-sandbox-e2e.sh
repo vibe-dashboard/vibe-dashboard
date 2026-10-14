@@ -25,6 +25,7 @@ echo "::endgroup::"
 source "$RUN_DIR/env.sh"
 export VK_MOCKED_SANDBOX_URL="${VK_MOCKED_SANDBOX_URL:-$VK_MOCKED_VD_URL}"
 SANDBOX_URL="$VK_MOCKED_SANDBOX_URL"
+VK_HEALTH_URL="http://127.0.0.1:$VK_MOCKED_BACKEND_PORT/api/health"
 SANDBOX_LOG="$VK_MOCKED_SANDBOX_RUN_DIR/sandbox.log"
 
 echo "Starting VK mocked sandbox; log: $SANDBOX_LOG"
@@ -32,7 +33,8 @@ VK_MOCKED_SKIP_LOCAL_WEB_BUILD=1 VK_MOCKED_SKIP_SETUP_COMMANDS=1 npm run dev:vk-
 sandbox_pid=$!
 
 deadline=$((SECONDS + READY_TIMEOUT_SECONDS))
-until curl --fail --silent --show-error "$SANDBOX_URL/workspaces" >/dev/null; do
+until curl --fail --silent "$VK_HEALTH_URL" >/dev/null \
+  && curl --fail --silent "$SANDBOX_URL/workspaces" >/dev/null; do
   if ! kill -0 "$sandbox_pid" 2>/dev/null; then
     echo "VK mocked sandbox exited before becoming ready. Last log lines:" >&2
     tail -200 "$SANDBOX_LOG" >&2 || true
@@ -46,5 +48,5 @@ until curl --fail --silent --show-error "$SANDBOX_URL/workspaces" >/dev/null; do
   sleep 2
 done
 
-echo "VK mocked sandbox is ready at $SANDBOX_URL/workspaces"
+echo "VK mocked sandbox is ready: $VK_HEALTH_URL and $SANDBOX_URL/workspaces"
 npx playwright test --config playwright.vk-mocked-sandbox.config.ts
