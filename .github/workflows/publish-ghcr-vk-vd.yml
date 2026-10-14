@@ -2,6 +2,8 @@ name: Publish VK/VD Image to GHCR
 
 on:
   push:
+  pull_request:
+    types: [labeled]
   workflow_dispatch:
     inputs:
       image_tag:
@@ -45,6 +47,7 @@ jobs:
       vk_commit: ${{ steps.resolve.outputs.vk_commit }}
       vk_short_commit: ${{ steps.resolve.outputs.vk_short_commit }}
       vk_asset_repository: ${{ steps.resolve.outputs.vk_asset_repository }}
+      vd_branch: ${{ steps.resolve.outputs.vd_branch }}
       vd_ref: ${{ steps.resolve.outputs.vd_ref }}
       vd_commit: ${{ steps.resolve.outputs.vd_commit }}
       vd_short_commit: ${{ steps.resolve.outputs.vd_short_commit }}
@@ -252,9 +255,6 @@ jobs:
       CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_PROFILE_TEST_DEBUG: "0"
       CARGO_PROFILE_RELEASE_DEBUG: "0"
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: sccache
-      SCCACHE_CACHE_SIZE: 10G
       CARGO_HOME: ${{ github.workspace }}/.cargo
       RUSTUP_HOME: ${{ github.workspace }}/.rustup
     steps:
@@ -274,9 +274,6 @@ jobs:
           docker-images: true
           tools-cache: false
 
-      - name: Setup sccache
-        uses: BloopAI/sccache-action@main
-
       - name: Cache Rust toolchain
         uses: actions/cache@v5
         with:
@@ -293,7 +290,7 @@ jobs:
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: "vibe-kanban"
-          shared-key: release-binaries-${{ runner.os }}-${{ matrix.target }}
+          shared-key: release-binaries-v2-${{ runner.os }}-${{ matrix.target }}
           cache-provider: github
           cache-all-crates: "true"
           cache-on-failure: "true"
@@ -596,7 +593,15 @@ jobs:
         VK_ASSET_REPOSITORY=${{ needs.resolve-vk-ref.outputs.vk_asset_repository }}
       cache: true
       cache-scope: vk-vd-multiarch
-      sign: false
+      # The mode=max cache is larger than GitHub Actions' repository cache
+      # budget and was continuously evicted. Keep it in GHCR alongside the
+      # output image so intermediate toolchain layers persist across runs.
+      cache-ref: ghcr.io/${{ github.repository_owner }}/vk-vd:buildcache
+      # Export intermediate stages as well as final-image layers. The
+      # dependency installer and toolchain stages are the expensive part of
+      # this image and need to survive application-source changes.
+      cache-mode: max
+      sign: ${{ 'false' }}
       meta-images: ghcr.io/${{ github.repository_owner }}/vk-vd
       meta-tags: |
         type=raw,value=${{ needs.resolve-vk-ref.outputs.image_tag }},enable=${{ needs.resolve-vk-ref.outputs.image_tag != '' }}
@@ -629,6 +634,7 @@ jobs:
           EVENT_PR_NUMBER: ${{ needs.resolve-vk-ref.outputs.pr_number }}
           GITHUB_TOKEN: ${{ github.token }}
           PUBLISH_LATEST: ${{ needs.resolve-vk-ref.outputs.publish_latest }}
+          VD_BRANCH: ${{ needs.resolve-vk-ref.outputs.vd_branch }}
         run: |
           set -euo pipefail
 
@@ -825,6 +831,33 @@ jobs:
             echo "::error::COOLIFY_WEBHOOK must include a uuid query parameter."
             exit 1
           fi
+
+          if [[ -z "$VD_BRANCH" ]]; then
+            echo "::error::VD_BRANCH was not resolved; refusing to update Coolify."
+            exit 1
+          fi
+
+          coolify_app_url="${coolify_deploy_url%/deploy}/applications/${coolify_uuid}"
+          app_payload="$(
+            python3 -c 'import json, os; print(json.dumps({"git_branch": os.environ["VD_BRANCH"]}))'
+          )"
+
+          curl \
+            --fail-with-body \
+            --show-error \
+            --silent \
+            --retry 5 \
+            --retry-delay 5 \
+            --retry-all-errors \
+            --request PATCH \
+            "$coolify_app_url" \
+            --header "Authorization: Bearer $COOLIFY_TOKEN" \
+            --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+            --header "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+            --header "Content-Type: application/json" \
+            --data "$app_payload"
+
+          echo "Coolify git branch updated to ${VD_BRANCH}."
 
           coolify_env_url="${coolify_deploy_url%/deploy}/applications/${coolify_uuid}/envs"
           env_payload="$(printf '{"key":"VKVD_IMAGE_VERSION","value":"%s","is_preview":false,"is_literal":true}' "$DEPLOY_IMAGE_TAG")"

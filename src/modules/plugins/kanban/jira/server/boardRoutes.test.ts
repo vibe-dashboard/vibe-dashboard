@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { Hono } from 'hono';
 import Database from 'better-sqlite3';
 import { Kysely, SqliteDialect } from 'kysely';
@@ -55,6 +57,16 @@ const jiraCoreBoardUrl = 'https://jamtools.atlassian.net/jira/core/projects/SM/b
 const noBeadLinks = {
   runBd: vi.fn(async () => ({ stdout: '' })),
 };
+
+function fakeWorkspaceBeads() {
+  return {
+    beadsDirectory: path.join(tmpdir(), 'vd-beads-test'),
+    runBd: vi.fn(async (args: string[]) => {
+      if (args[0] === 'show') throw new Error('missing');
+      return { stdout: '{}' };
+    }),
+  };
+}
 
 type TestVkClient = Pick<VibeKanbanServerClient, 'getInfo' | 'listRepos' | 'listDirectory' | 'registerRepo' | 'getRepoBranches' | 'createAndStartWorkspace' | 'getWorkspaceSummaries' | 'getSessions' | 'getWorkspaces' | 'getWorkspaceRepos'>;
 
@@ -486,6 +498,7 @@ describe('external Jira board routes', () => {
       enabled: true,
       auth: createAuthService({ user: { id: 'user_1', email: 'u@example.com', name: 'User One' } }),
       db,
+      workspaceBeads: fakeWorkspaceBeads(),
     });
 
     const response = await app.request('/dashboard/api/external-trackers/workspace-links', {
@@ -759,7 +772,7 @@ describe('external Jira board routes', () => {
         { name: 'notes', path: '/tmp/repos/notes', is_directory: true, is_git_repo: false, last_modified: null },
       ] })),
     });
-    registerExternalTrackerBoardRoutes(app, { enabled: true, auth: createAuthService(null), db, vkClient, reposRoot: '/tmp/repos' });
+    registerExternalTrackerBoardRoutes(app, { enabled: true, auth: createAuthService(null), db, vkClient, reposRoot: '/tmp/repos', workspaceBeads: fakeWorkspaceBeads() });
 
     const response = await app.request('/dashboard/api/external-trackers/vk/workspace-create-options');
 
@@ -1424,7 +1437,14 @@ describe('external Jira board routes', () => {
         execution_process: { id: 'proc-1', session_id: 'session-1', status: 'running' as const },
       })),
     });
-    registerExternalTrackerBoardRoutes(app, { enabled: true, auth: createAuthService(null), db, vkClient, reposRoot: '/tmp/repos' });
+    registerExternalTrackerBoardRoutes(app, {
+      enabled: true,
+      auth: createAuthService(null),
+      db,
+      vkClient,
+      reposRoot: '/tmp/repos',
+      workspaceBeads: fakeWorkspaceBeads(),
+    });
 
     const response = await app.request('/dashboard/api/external-trackers/vk/workspaces/start', {
       method: 'POST',

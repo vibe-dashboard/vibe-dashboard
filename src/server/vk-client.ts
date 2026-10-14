@@ -97,6 +97,17 @@ export interface CreateAndStartWorkspaceResponse {
   execution_process: ExecutionProcess;
 }
 
+export interface CreateOnlyWorkspaceRequest {
+  name: string | null;
+  repos: Array<{ repo_id: string; target_branch: string }>;
+  linked_issue: { remote_project_id: string; issue_id: string } | null;
+  attachment_ids: string[] | null;
+}
+
+export interface CreateOnlyWorkspaceResponse {
+  workspace: Workspace;
+}
+
 export interface Session {
   id: string;
   workspace_id: string;
@@ -332,6 +343,10 @@ export class VibeKanbanServerClient {
     return this.post('/workspaces/start', body);
   }
 
+  createOnlyWorkspace(body: CreateOnlyWorkspaceRequest): Promise<CreateOnlyWorkspaceResponse> {
+    return this.post('/workspaces/create-only', body);
+  }
+
   getExecutionProcess(processId: string): Promise<ExecutionProcess> {
     return this.get(`/execution-processes/${encodeURIComponent(processId)}`);
   }
@@ -377,10 +392,11 @@ export class VibeKanbanServerClient {
   getPreviewSlotUrl(
     workspaceId: string,
     previewSlotId: string,
-    args: { customerSlug: string; baseDomain?: string },
+    args: { customerSlug: string; baseDomain?: string; urlScheme?: 'http' | 'https' },
   ): Promise<PreviewSlotUrlResponse> {
     const params = new URLSearchParams({ customerSlug: args.customerSlug });
     if (args.baseDomain) params.set('baseDomain', args.baseDomain);
+    if (args.urlScheme) params.set('urlScheme', args.urlScheme);
     return this.get(
       `/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots/${encodeURIComponent(previewSlotId)}/url?${params}`,
     );

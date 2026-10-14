@@ -1,7 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const DATABASE_VERSION = 4;
 const dbRoot = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(dbRoot, '..');
 const MIGRATIONS_FOLDER = path.join(dbRoot, 'dialects', 'sqlite', 'migrations');
@@ -28,5 +27,5 @@ const migrationObjects = migrationNames
   .map((migrationName) => `  { name: '${migrationName}', migration: _${migrationName} },`)
   .join('\n');
 
-fs.writeFileSync(path.join(OUTPUT_IMPORTS_FOLDER, 'imported_migrations.ts'), `${importStatements}\n\nexport const databaseVersion = ${DATABASE_VERSION};\n\nexport const migrations = [\n${migrationObjects}\n] as const;\n`);
+fs.writeFileSync(path.join(OUTPUT_IMPORTS_FOLDER, 'imported_migrations.ts'), `${importStatements}\n\nexport const migrations = [\n${migrationObjects}\n] as const;\n`);
 console.log(`Generated ${migrationNames.length} migration import${migrationNames.length === 1 ? '' : 's'}`);

@@ -1,0 +1,3 @@
+#!/usr/bin/env sh
+echo "placeholder local VK runtime; copy a real Vktest target/release/server here before building with VK_RUNTIME_SOURCE=local" >&2
+exit 127
