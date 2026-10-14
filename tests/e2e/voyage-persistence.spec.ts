@@ -479,7 +479,13 @@ async function openCraftFromVoyageActionsMenu(page: Page) {
 }
 
 async function openCraftFromKeyboardShortcut(page: Page) {
-  await page.locator('body').click({ position: { x: 1, y: 1 } });
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    document.body.tabIndex = -1;
+    document.body.focus();
+  });
   await page.keyboard.press('Control+K');
 }
 
