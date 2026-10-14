@@ -23,6 +23,13 @@ const defaultOptions: ExecutorDiscoveredOptions = {
   error: null,
 };
 
+const settledEmptyOptions: ExecutorDiscoveredOptions = {
+  ...defaultOptions,
+  loading_models: false,
+  loading_agents: false,
+  loading_slash_commands: false,
+};
+
 function useExecutorDiscovery(
   agent: BaseCodingAgent | null | undefined,
   opts?: { workspaceId?: string; sessionId?: string; repoId?: string }
@@ -44,7 +51,7 @@ function useExecutorDiscovery(
     []
   );
 
-  const { data, error, isConnected, isInitialized } =
+  const { data, error, isConnected, isInitialized, isFinished } =
     useJsonPatchWsStream<ExecutorDiscoveryStreamState>(
       endpoint,
       !!endpoint,
@@ -71,7 +78,7 @@ function useExecutorDiscovery(
   }, [combinedError]);
 
   return {
-    options: data?.options ?? null,
+    options: data?.options ?? (isFinished ? settledEmptyOptions : null),
     error: combinedError,
     isConnected,
     isInitialized,

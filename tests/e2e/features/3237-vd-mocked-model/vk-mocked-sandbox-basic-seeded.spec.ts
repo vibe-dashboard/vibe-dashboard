@@ -38,6 +38,18 @@ test.describe('VK mocked-provider basic-seeded fixture', () => {
     await expect(agentChat).toContainText(manifest.followUpPrompt, {
       timeout: 60_000,
     });
+    await expect(agentChat.getByRole('button', { name: 'Custom' })).toBeVisible(
+      { timeout: 60_000 },
+    );
+    await expect(
+      agentChat.getByRole('button', { name: 'Loading...' }),
+    ).toHaveCount(0);
+    await expect(
+      agentChat.getByRole('button', { name: 'Attach file' }),
+    ).toBeVisible();
+    await expect(
+      agentChat.getByRole('button', { name: 'Workspace tasks' }),
+    ).toBeVisible();
 
     await getChatComposer(agentChat).fill(proofFollowUp);
     await expect(agentChat.getByRole('button', { name: 'Send' })).toBeEnabled({

@@ -440,6 +440,7 @@ export function ModelSelectorContainer({
         <DropdownMenuTriggerButton
           size="sm"
           icon={SlidersHorizontalIcon}
+          aria-label={t('modelSelector.custom')}
           label={
             resolvedPreset?.toLowerCase() !== 'default'
               ? presetLabel
