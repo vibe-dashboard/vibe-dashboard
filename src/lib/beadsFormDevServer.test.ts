@@ -18,6 +18,8 @@ describe('BeadsForm dev server config helpers', () => {
           target: 'http://localhost:3007',
           changeOrigin: true,
           ws: true,
+          rewriteWsOrigin: true,
+          headers: { Origin: 'http://localhost:3007' },
         },
       },
     });
@@ -32,17 +34,24 @@ describe('BeadsForm dev server config helpers', () => {
           target: 'http://localhost:3007',
           changeOrigin: true,
           ws: true,
+          rewriteWsOrigin: true,
+          headers: { Origin: 'http://localhost:3007' },
         },
       },
     });
   });
 
   it('proxies VK HTTP and WebSocket traffic to the configured backend', () => {
-    expect(buildViteDevServerOptions({ BACKEND_PORT: '4123' }).proxy).toEqual({
+    expect(buildViteDevServerOptions({
+      BACKEND_PORT: '4123',
+      VK_ALLOWED_ORIGINS: 'https://dashboard.example,https://*.example',
+    }).proxy).toEqual({
       '/api': {
         target: 'http://localhost:4123',
         changeOrigin: true,
         ws: true,
+        rewriteWsOrigin: true,
+        headers: { Origin: 'https://dashboard.example' },
       },
     });
   });

@@ -25,18 +25,29 @@ export function buildViteDevServerOptions(env: DevServerEnv = process.env): {
       target: string;
       changeOrigin: true;
       ws: true;
+      rewriteWsOrigin: true;
+      headers: { Origin: string };
     };
   };
 } {
+  const vkBackendOrigin = `http://localhost:${env.BACKEND_PORT || '3007'}`;
+  const proxyOrigin =
+    env.VITE_VK_PROXY_ORIGIN ||
+    env.VK_ALLOWED_ORIGINS?.split(',')
+      .map((origin) => origin.trim())
+      .find((origin) => origin && !origin.includes('*')) ||
+    vkBackendOrigin;
   return {
     port: resolveDevPort(env),
     host: true,
     ...(shouldDisableBeadsFormHmr(env) ? { hmr: false as const } : {}),
     proxy: {
       '/api': {
-        target: `http://localhost:${env.BACKEND_PORT || '3007'}`,
+        target: vkBackendOrigin,
         changeOrigin: true,
         ws: true,
+        rewriteWsOrigin: true,
+        headers: { Origin: proxyOrigin },
       },
     },
   };
