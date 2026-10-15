@@ -9,9 +9,8 @@ describe('BeadsForm creating-session notifications', () => {
     expect(isValidBeadsFormSessionId('')).toBe(false);
   });
 
-  it('builds a bounded handoff with lean DSL, structured values, XML, and catch-up guidance', () => {
+  it('sends exactly the normalized response JSON and nothing else', () => {
     const message = buildBeadsFormSessionNotification({
-      beadId: 'beads-web-rwu',
       form: {
         format: 'standard',
         id: 'review',
@@ -32,26 +31,22 @@ describe('BeadsForm creating-session notifications', () => {
         next_instruction: '## Next\n\nImplement follow-up & report.',
         allow_code_file_changes: false,
       },
-      submittedAt: '2026-09-15T00:00:00.000Z',
-      submittedBy: 'human',
     });
 
-    expect(message).toContain('beads-web-rwu');
-    expect(message).toContain('"questions"');
-    expect(message).toContain('"comment": "# Approved"');
-    expect(message).toContain('"next_instruction": "## Next\\n\\nImplement follow-up & report."');
-    expect(message).toContain('<beadsFormSubmission>');
-    expect(message).toContain('<nextInstruction id="next_instruction" type="markdown">');
-    expect(message).toContain('Implement follow-up &amp; report.');
-    expect(message).toContain('vibe-agent full_summary');
-    expect(message).not.toContain('generated');
-    expect(message).not.toContain('"controls"');
-    expect(message).not.toContain('"responses"');
+    expect(message).toBe(JSON.stringify({
+      comment: '# Approved',
+      next_instruction: '## Next\n\nImplement follow-up & report.',
+      allow_code_file_changes: false,
+    }, null, 2));
+    expect(JSON.parse(message)).toEqual({
+      comment: '# Approved',
+      next_instruction: '## Next\n\nImplement follow-up & report.',
+      allow_code_file_changes: false,
+    });
   });
 
   it('rejects an oversized handoff before calling a messaging transport', () => {
     expect(() => buildBeadsFormSessionNotification({
-      beadId: 'beads-web-rwu',
       form: {
         format: 'standard',
         id: 'review',
@@ -60,8 +55,6 @@ describe('BeadsForm creating-session notifications', () => {
         questions: [{ type: 'textarea', id: 'comment', title: 'Comment' }],
       } as never,
       values: { comment: 'large response' },
-      submittedAt: '2026-09-15T00:00:00.000Z',
-      submittedBy: 'human',
       maxBytes: 32,
     })).toThrow('notification exceeds the 32-byte safety limit');
   });

@@ -526,11 +526,8 @@ export class BeadsClient {
       try {
         if (!this.notifySession) throw new Error('creating-session notification service is unavailable');
         await this.notifySession(sessionId, buildBeadsFormSessionNotification({
-          beadId: input.beadId,
           form,
           values,
-          submittedAt,
-          submittedBy,
         }));
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

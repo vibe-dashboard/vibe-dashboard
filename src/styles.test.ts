@@ -18,6 +18,18 @@ describe('BeadsForm styles', () => {
     expect(css).toMatch(/@media \(max-width:\s*640px\)[\s\S]*\.beadsform-root \.beads-form-submit-actions button\s*\{[^}]*box-sizing:\s*border-box[^}]*max-width:\s*100%[^}]*width:\s*100%[^}]*white-space:\s*normal[^}]*overflow-wrap:\s*anywhere/s);
   });
 
+  it('contains long mobile content without clipping or page-level horizontal overflow', async () => {
+    const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
+
+    expect(css).toMatch(/\.beadsform-root\s*>\s*\*,[\s\S]*\.beadsform-root \.beadsform-form-host[\s\S]*\{[^}]*min-width:\s*0[^}]*max-width:\s*100%/);
+    expect(css).toMatch(/\.beadsform-root :where\(h1, h2, h3, h4, h5, h6, p, li, legend, label, a, code, dd\)\s*\{[^}]*overflow-wrap:\s*anywhere/);
+    expect(css).toMatch(/\.beadsform-root :where\(img, video, iframe\)\s*\{[^}]*max-width:\s*100%[^}]*height:\s*auto/);
+    expect(css).toMatch(/\.beadsform-root pre\s*\{[^}]*max-width:\s*100%[^}]*overflow-x:\s*auto[^}]*white-space:\s*pre/s);
+    expect(css).toMatch(/\.beadsform-root :where\(textarea, input, select, button\)\s*\{[^}]*min-width:\s*0[^}]*max-width:\s*100%/);
+    expect(css).toMatch(/\.beadsform-root \.beadsform-submit-result,[\s\S]*\.beadsform-root \.beadsform-batch-submit-panel[\s\S]*\{[^}]*min-width:\s*0[^}]*max-width:\s*100%/);
+    expect(css).toMatch(/\.beadsform-root \.beads-form-media-gallery figure\s*\{[^}]*min-width:\s*0[^}]*max-width:\s*100%[^}]*margin-inline:\s*0/);
+  });
+
   it('keeps the Next Instruction prompt full-width and mobile-safe near submit actions', async () => {
     const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
 

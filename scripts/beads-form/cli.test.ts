@@ -96,6 +96,9 @@ describe('beads-form CLI helpers', () => {
     expect(attachments).toContain('new forms should not use');
     expect(attachments).toContain('never inlines Markdown files');
     expect(attachments).toContain('public query');
+    expect(skill).toContain('sends only the normalized response JSON object');
+    expect(onboarding).toContain('only the normalized response JSON object');
+    expect(`${onboarding}\n${skill}`).not.toContain('sends the canonical lean form DSL, normalized response, and XML handoff');
   });
 
   it('runs the CLI help entrypoint under Node strip-types', async () => {

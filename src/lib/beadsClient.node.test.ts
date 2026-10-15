@@ -206,9 +206,10 @@ describe('BeadsClient', () => {
     const notifySession = vi.fn(async (targetSessionId: string, message: string) => {
       order.push('notify');
       expect(targetSessionId).toBe(sessionId);
-      expect(message).toContain('beads-web-biu');
-      expect(message).toContain('"questions"');
-      expect(message).toContain('<beadsFormSubmission>');
+      expect(message).toBe(JSON.stringify({
+        comment: 'LGTM',
+        allow_code_file_changes: false,
+      }, null, 2));
     });
     const client = new BeadsClient({ execFile: exec, notifySession });
 
@@ -327,6 +328,10 @@ describe('BeadsClient', () => {
     expect(notifySession.mock.calls.map(([sessionId]) => sessionId)).toEqual([
       sessionsByDir['/repo-a'],
       sessionsByDir['/repo-b'],
+    ]);
+    expect(notifySession.mock.calls.map(([, message]) => message)).toEqual([
+      JSON.stringify({ comment: 'A', allow_code_file_changes: false }, null, 2),
+      JSON.stringify({ comment: 'B', allow_code_file_changes: false }, null, 2),
     ]);
   });
 
