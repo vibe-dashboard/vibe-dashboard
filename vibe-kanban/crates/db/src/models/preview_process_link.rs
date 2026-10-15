@@ -201,7 +201,7 @@ impl PreviewProcessLink {
             .collect::<Result<Vec<Self>, sqlx::Error>>()?
             .into_iter()
             .find(|link| {
-                preview_slot_id.map_or(true, |slot_id| link.preview_slot_id == Some(slot_id))
+                preview_slot_id.is_none_or(|slot_id| link.preview_slot_id == Some(slot_id))
             })
             .map(Ok)
             .transpose()
