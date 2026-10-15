@@ -187,6 +187,7 @@ interface SessionChatBoxProps<TExecutor extends string = string> {
   todos?: TodoProgressItem[];
   inProgressTodo?: TodoProgressItem | null;
   workspaceTasks?: ReactNode;
+  workspacePreview?: ReactNode;
   localAttachments?: LocalAttachmentMetadata[];
   onPrCommentClick?: () => void;
   onViewCode?: () => void;
@@ -252,6 +253,7 @@ export function SessionChatBox<TExecutor extends string = string>({
   todos,
   inProgressTodo,
   workspaceTasks,
+  workspacePreview,
   localAttachments,
   onPrCommentClick,
   onViewCode,
@@ -828,6 +830,7 @@ export function SessionChatBox<TExecutor extends string = string>({
             )}
             {/* Workspace task list replaces the conversation todo popup when supplied by the host app. */}
             {workspaceTasks ?? <TodoProgressPopup todos={todos ?? []} />}
+            {workspacePreview}
             {supportsContextUsage && (
               <ContextUsageGauge tokenUsageInfo={tokenUsageInfo} />
             )}

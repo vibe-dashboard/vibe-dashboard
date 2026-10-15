@@ -50,8 +50,30 @@ test.describe('VK mocked-provider basic-seeded fixture', () => {
     await expect(
       agentChat.getByRole('button', { name: 'Workspace tasks' }),
     ).toBeVisible();
+    await expect(
+      agentChat.getByRole('button', { name: 'Preview slots' }),
+    ).toBeVisible();
+    await agentChat.getByRole('button', { name: 'Preview slots' }).click();
+    await expect(
+      agentChat.getByRole('menuitem', { name: 'Configure preview slots' }),
+    ).toBeVisible();
+    await page.keyboard.press('Escape');
 
-    await getChatComposer(agentChat).fill(proofFollowUp);
+    const composer = getChatComposer(agentChat);
+    await composer.fill('Draft survives view mode changes');
+    await agentChat.getByRole('combobox', { name: 'Chat view' }).click();
+    await page.getByRole('option', { name: 'Zen', exact: true }).click();
+    await expect(
+      agentChat.getByRole('button', { name: 'Attach file' }),
+    ).toHaveCount(0);
+    await expect(composer).toHaveText('Draft survives view mode changes');
+    await agentChat.getByRole('combobox', { name: 'Chat view' }).click();
+    await page.getByRole('option', { name: 'Full', exact: true }).click();
+    await expect(
+      agentChat.getByRole('button', { name: 'Attach file' }),
+    ).toBeVisible();
+
+    await composer.fill(proofFollowUp);
     await expect(agentChat.getByRole('button', { name: 'Send' })).toBeEnabled({
       timeout: 60_000,
     });

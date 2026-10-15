@@ -94,6 +94,8 @@ interface SharedProps {
   chatViewMode?: ChatViewMode;
   /** Optional control rendered in the chat header */
   chatViewModeSelector?: ReactNode;
+  /** Optional host-provided workspace preview control */
+  workspacePreview?: ReactNode;
   /** Number of files changed in current session */
   filesChanged: number;
   /** Number of lines added */
@@ -150,6 +152,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     sessions,
     chatViewMode = 'full',
     chatViewModeSelector,
+    workspacePreview,
     filesChanged,
     linesAdded,
     linesRemoved,
@@ -1109,6 +1112,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
           />
         ) : undefined
       }
+      workspacePreview={chatViewMode === 'full' ? workspacePreview : undefined}
       executor={
         needsExecutorSelection
           ? {

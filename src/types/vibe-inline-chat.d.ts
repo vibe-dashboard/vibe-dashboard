@@ -1,5 +1,5 @@
 declare module '@vibe/inline-chat' {
-  import type { CSSProperties, ReactElement } from 'react';
+  import type { CSSProperties, ReactElement, ReactNode } from 'react';
 
   export type InlineVkAgentChatTheme = {
     className?: string;
@@ -12,6 +12,7 @@ declare module '@vibe/inline-chat' {
     title?: string;
     theme?: InlineVkAgentChatTheme;
     chatViewMode?: 'full' | 'zen';
+    workspacePreview?: ReactNode;
   };
 
   export type InlineVkCreateWorkspaceProps = {

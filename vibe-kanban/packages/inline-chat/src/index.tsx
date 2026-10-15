@@ -9,6 +9,13 @@ import React, {
 } from 'react';
 import { Provider as NiceModalProvider } from '@ebay/nice-modal-react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@vibe/ui/components/Select';
 import type { Workspace as RemoteWorkspace } from 'shared/remote-types';
 import type { Workspace } from 'shared/types';
 import { CreateModeProvider } from '@/features/create-mode/model/CreateModeProvider';
@@ -16,7 +23,10 @@ import { WorkspacesMainContainer } from '@/pages/workspaces/WorkspacesMainContai
 import { CreateChatBoxContainer } from '@/shared/components/CreateChatBoxContainer';
 import { AppNavigationProvider } from '@/shared/hooks/useAppNavigation';
 import { AppRuntimeProvider } from '@/shared/hooks/useAppRuntime';
-import { ActionsContext, type ActionsContextValue } from '@/shared/hooks/useActions';
+import {
+  ActionsContext,
+  type ActionsContextValue,
+} from '@/shared/hooks/useActions';
 import { AuthContext } from '@/shared/hooks/auth/useAuth';
 import { ExecutionProcessesProvider } from '@/shared/providers/ExecutionProcessesProvider';
 import { UserContext } from '@/shared/hooks/useUserContext';
@@ -28,11 +38,22 @@ import { useWorkspaceRecord } from '@/shared/hooks/useWorkspaceRecord';
 import { useWorkspaceRepo } from '@/shared/hooks/useWorkspaceRepo';
 import { useWorkspaceSessions } from '@/shared/hooks/useWorkspaceSessions';
 import { configApi } from '@/shared/lib/api';
-import type { AppDestination, AppNavigation } from '@/shared/lib/routes/appNavigation';
+import type {
+  AppDestination,
+  AppNavigation,
+} from '@/shared/lib/routes/appNavigation';
 import { resolveLabel, type ActionDefinition } from '@/shared/types/actions';
 import { WorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
 import { useWorkspaceDiffStore } from '@/shared/stores/useWorkspaceDiffStore';
 import '@/i18n/config';
+import {
+  getBrowserStorage,
+  readSurfaceChatViewMode,
+  readSurfaceSessionId,
+  type SurfaceChatViewMode,
+  writeSurfaceChatViewMode,
+  writeSurfaceSessionId,
+} from './surfaceSessionState';
 
 export type InlineVkAgentChatTheme = {
   className?: string;
@@ -45,6 +66,7 @@ export type InlineVkAgentChatProps = {
   title?: string;
   theme?: InlineVkAgentChatTheme;
   chatViewMode?: 'full' | 'zen';
+  workspacePreview?: ReactNode;
 };
 
 export type InlineVkCreateWorkspaceProps = {
@@ -99,7 +121,7 @@ function InlineUserSystemProvider({ children }: { children: ReactNode }) {
   const saveConfig = useCallback(
     (config: Parameters<typeof configApi.saveConfig>[0]) =>
       configApi.saveConfig(config, null),
-    [],
+    []
   );
   const { value } = useUserSystemController({
     queryKey: ['inline-vk-user-system', 'local'],
@@ -123,7 +145,7 @@ function InlineUserProvider({ children }: { children: ReactNode }) {
       retry: noop,
       getWorkspacesForIssue: () => emptyRemoteWorkspaces,
     }),
-    [],
+    []
   );
 
   return <UserContext.Provider value={value}>{children}</UserContext.Provider>;
@@ -211,11 +233,16 @@ function WorkspaceDiffBridge({
     const diffStats = {
       files_changed: diffs.length,
       lines_added: diffs.reduce((sum, diff) => sum + (diff.additions ?? 0), 0),
-      lines_removed: diffs.reduce((sum, diff) => sum + (diff.deletions ?? 0), 0),
+      lines_removed: diffs.reduce(
+        (sum, diff) => sum + (diff.deletions ?? 0),
+        0
+      ),
     };
     useWorkspaceDiffStore.getState().setWorkspaceDiffData({
       diffs,
-      diffPaths: new Set(diffs.map((diff) => diff.newPath || diff.oldPath || '').filter(Boolean)),
+      diffPaths: new Set(
+        diffs.map((diff) => diff.newPath || diff.oldPath || '').filter(Boolean)
+      ),
       diffStats,
       gitHubComments: [],
       isGitHubCommentsLoading: false,
@@ -232,7 +259,7 @@ function WorkspaceDiffBridge({
     () => () => {
       useWorkspaceDiffStore.getState().clearWorkspaceDiffData();
     },
-    [],
+    []
   );
 
   return null;
@@ -240,13 +267,24 @@ function WorkspaceDiffBridge({
 
 function InlineWorkspaceProvider({
   workspaceId,
+  surfaceId,
   children,
 }: {
   workspaceId: string;
+  surfaceId: string;
   children: ReactNode;
 }) {
-  const workspaceQuery = useWorkspaceRecord(workspaceId, { enabled: !!workspaceId });
-  const sessionsState = useWorkspaceSessions(workspaceId, { enabled: !!workspaceId });
+  const preferredSessionId = useMemo(
+    () => readSurfaceSessionId(getBrowserStorage(), workspaceId, surfaceId),
+    [surfaceId, workspaceId]
+  );
+  const workspaceQuery = useWorkspaceRecord(workspaceId, {
+    enabled: !!workspaceId,
+  });
+  const sessionsState = useWorkspaceSessions(workspaceId, {
+    enabled: !!workspaceId,
+    preferredSessionId,
+  });
   const reposState = useWorkspaceRepo(workspaceId, { enabled: !!workspaceId });
   const workspace = workspaceQuery.data;
   const activeWorkspaces = useMemo(
@@ -265,9 +303,19 @@ function InlineWorkspaceProvider({
             },
           ]
         : [],
-    [workspace],
+    [workspace]
   );
   const archivedWorkspaces = useMemo(() => [], []);
+
+  useEffect(() => {
+    if (!sessionsState.selectedSessionId) return;
+    writeSurfaceSessionId(
+      getBrowserStorage(),
+      workspaceId,
+      surfaceId,
+      sessionsState.selectedSessionId
+    );
+  }, [sessionsState.selectedSessionId, surfaceId, workspaceId]);
 
   const value = useMemo(
     () => ({
@@ -307,7 +355,7 @@ function InlineWorkspaceProvider({
       workspace,
       workspaceId,
       workspaceQuery.isLoading,
-    ],
+    ]
   );
 
   return (
@@ -322,20 +370,67 @@ function InlineWorkspaceProvider({
 
 function InlineWorkspaceChat({
   workspaceId,
+  surfaceId,
   chatViewMode = 'full',
+  workspacePreview,
 }: {
   workspaceId: string;
+  surfaceId: string;
   chatViewMode?: 'full' | 'zen';
+  workspacePreview?: ReactNode;
 }) {
+  const [effectiveChatViewMode, setEffectiveChatViewMode] =
+    useState<SurfaceChatViewMode>(
+      () =>
+        readSurfaceChatViewMode(getBrowserStorage(), workspaceId, surfaceId) ??
+        chatViewMode
+    );
   const workspaceContextRef = useRef<{
     scrollToBottom: (behavior?: 'auto' | 'smooth') => void;
   }>(null);
 
+  const handleChatViewModeChange = useCallback(
+    (mode: SurfaceChatViewMode) => {
+      setEffectiveChatViewMode(mode);
+      writeSurfaceChatViewMode(
+        getBrowserStorage(),
+        workspaceId,
+        surfaceId,
+        mode
+      );
+    },
+    [surfaceId, workspaceId]
+  );
+
+  const chatViewModeSelector = (
+    <div className="shrink-0">
+      <Select
+        value={effectiveChatViewMode}
+        onValueChange={(value) =>
+          handleChatViewModeChange(value as SurfaceChatViewMode)
+        }
+      >
+        <SelectTrigger
+          aria-label="Chat view"
+          className="inline-flex h-9 w-auto min-w-[88px] shrink-0 rounded-sm border-border bg-secondary text-sm text-normal"
+        >
+          <SelectValue placeholder="View" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="full">Full</SelectItem>
+          <SelectItem value="zen">Zen</SelectItem>
+        </SelectContent>
+      </Select>
+    </div>
+  );
+
   return (
-    <InlineWorkspaceProvider workspaceId={workspaceId}>
+    <InlineWorkspaceProvider workspaceId={workspaceId} surfaceId={surfaceId}>
       <InlineWorkspaceChatContent
         refHolder={workspaceContextRef}
-        chatViewMode={chatViewMode}
+        chatViewMode={effectiveChatViewMode}
+        chatViewModeSelector={chatViewModeSelector}
+        workspacePreview={workspacePreview}
       />
     </InlineWorkspaceProvider>
   );
@@ -344,37 +439,44 @@ function InlineWorkspaceChat({
 function InlineWorkspaceChatContent({
   refHolder,
   chatViewMode,
+  chatViewModeSelector,
+  workspacePreview,
 }: {
   refHolder: React.RefObject<{
     scrollToBottom: (behavior?: 'auto' | 'smooth') => void;
   } | null>;
   chatViewMode: 'full' | 'zen';
+  chatViewModeSelector: ReactNode;
+  workspacePreview?: ReactNode;
 }) {
   const workspace = useWorkspaceContext();
 
   return (
-      <WorkspacesMainContainer
-        ref={refHolder}
-        selectedWorkspace={workspace.workspace ?? null}
-        selectedSession={workspace.selectedSession}
-        selectedSessionId={workspace.selectedSessionId}
-        sessions={workspace.sessions}
-        repos={workspace.repos}
-        onSelectSession={workspace.selectSession}
-        isLoading={workspace.isLoading}
-        isSessionsLoading={workspace.isSessionsLoading}
-        isNewSessionMode={workspace.isNewSessionMode}
-        onStartNewSession={workspace.startNewSession}
-        chatViewMode={chatViewMode}
-      />
+    <WorkspacesMainContainer
+      ref={refHolder}
+      selectedWorkspace={workspace.workspace ?? null}
+      selectedSession={workspace.selectedSession}
+      selectedSessionId={workspace.selectedSessionId}
+      sessions={workspace.sessions}
+      repos={workspace.repos}
+      onSelectSession={workspace.selectSession}
+      isLoading={workspace.isLoading}
+      isSessionsLoading={workspace.isSessionsLoading}
+      isNewSessionMode={workspace.isNewSessionMode}
+      onStartNewSession={workspace.startNewSession}
+      chatViewMode={chatViewMode}
+      chatViewModeSelector={chatViewModeSelector}
+      workspacePreview={workspacePreview}
+    />
   );
 }
 
 export function InlineVkAgentChat({
   workspaceId,
-  surfaceId: _surfaceId,
+  surfaceId,
   theme,
   chatViewMode = 'full',
+  workspacePreview,
 }: InlineVkAgentChatProps) {
   if (!workspaceId) {
     return (
@@ -391,25 +493,32 @@ export function InlineVkAgentChat({
       style={theme?.style}
     >
       <InlineVkRuntime>
-        <InlineWorkspaceChat workspaceId={workspaceId} chatViewMode={chatViewMode} />
+        <InlineWorkspaceChat
+          workspaceId={workspaceId}
+          surfaceId={surfaceId}
+          chatViewMode={chatViewMode}
+          workspacePreview={workspacePreview}
+        />
       </InlineVkRuntime>
     </div>
   );
 }
 
 export function InlineVkCreateWorkspace({
-  surfaceId: _surfaceId,
+  surfaceId,
   theme,
   onWorkspaceCreated,
   chatViewMode = 'full',
 }: InlineVkCreateWorkspaceProps) {
-  const [createdWorkspaceId, setCreatedWorkspaceId] = useState<string | null>(null);
+  const [createdWorkspaceId, setCreatedWorkspaceId] = useState<string | null>(
+    null
+  );
   const handleWorkspaceCreated = useCallback(
     (workspaceId: string) => {
       setCreatedWorkspaceId(workspaceId);
       onWorkspaceCreated?.(workspaceId);
     },
-    [onWorkspaceCreated],
+    [onWorkspaceCreated]
   );
 
   return (
@@ -420,7 +529,11 @@ export function InlineVkCreateWorkspace({
     >
       <InlineVkRuntime>
         {createdWorkspaceId ? (
-          <InlineWorkspaceChat workspaceId={createdWorkspaceId} chatViewMode={chatViewMode} />
+          <InlineWorkspaceChat
+            workspaceId={createdWorkspaceId}
+            surfaceId={surfaceId}
+            chatViewMode={chatViewMode}
+          />
         ) : (
           <CreateModeProvider>
             <CreateChatBoxContainer

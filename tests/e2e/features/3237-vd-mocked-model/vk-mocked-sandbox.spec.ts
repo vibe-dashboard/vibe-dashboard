@@ -158,20 +158,19 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
       .getByRole('button', { name: 'Create' })
       .click();
 
-    await expect(createWorkspaceFrame).toContainText(
+    const agentChat = page.getByTestId('inline-vk-agent-chat').last();
+    await expect(agentChat).toContainText(
       'System initialized with model: qa-mock',
       { timeout: 60_000 },
     );
-    await expect(createWorkspaceFrame).toContainText(
+    await expect(agentChat).toContainText(
       'QA mode execution completed successfully',
       { timeout: 60_000 },
     );
-    await expect(createWorkspaceFrame).toContainText(
+    await expect(agentChat).toContainText(
       /\d+ files? changed/,
     );
 
-    await openCreatedCraftFromVd(page, promptTitle);
-    const agentChat = page.getByTestId('inline-vk-agent-chat').last();
     await expect(agentChat).toContainText(promptTitle);
     await expect(
       page.getByRole('button', { name: 'Agent', exact: true }),
@@ -482,20 +481,6 @@ async function dismissVkWelcomeIfPresent(frame: CreateWorkspaceSurface) {
   if (await closeButton.isVisible().catch(() => false)) {
     await closeButton.click();
   }
-}
-
-async function openCreatedCraftFromVd(page: Page, promptTitle: string) {
-  await openSidebarIfNeeded(page);
-  await page.getByRole('button', { name: 'Open Craft' }).first().click();
-  await expect(
-    page.getByRole('heading', { name: 'Open VK Workspace' }),
-  ).toBeVisible();
-  await page
-    .getByRole('textbox', { name: 'Search workspaces...' })
-    .fill(promptTitle);
-  await page
-    .getByRole('button', { name: new RegExp(escapeRegex(promptTitle)) })
-    .click();
 }
 
 function escapeRegex(value: string): string {

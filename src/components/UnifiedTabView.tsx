@@ -8,6 +8,8 @@ import type {
 } from '../types';
 import type { WorkspaceActions, SessionActions } from './WorkspaceShell';
 import { BUILT_IN_AGENT_TAB_ID } from '../modules/plugins/vibe-dashboard/craft-surfaces';
+import { getPreviewServerTabId } from '../modules/plugins/vibe-dashboard/react-craft-surfaces';
+import { loadVkWorkspaceRecord } from '../lib/vkWorkspaceRecord';
 
 interface UnifiedTabViewProps {
   tabGroups: TabGroup[];
@@ -107,6 +109,30 @@ export function UnifiedTabView({
             }}
             onBeadFormSubmitted={() => {
               sessionActions.selectTab(activeTabGroup.id, BUILT_IN_AGENT_TAB_ID);
+            }}
+            onConfigurePreviewSlots={() => {
+              const previewTabId = getPreviewServerTabId(activeTabGroup);
+              if (previewTabId) {
+                sessionActions.selectTab(activeTabGroup.id, previewTabId);
+              }
+            }}
+            onWorkspaceCreated={(workspaceId) => {
+              void (async () => {
+                const created = await loadVkWorkspaceRecord(workspaceId);
+                const spaceId =
+                  workspace.spaces.find((space) =>
+                    space.tabGroupIds.includes(activeTabGroup.id),
+                  )?.id ?? workspace.spaces[0]?.id;
+                if (!spaceId) throw new Error('No voyage space is available');
+                await onOpenVKWorkspace(
+                  created.id,
+                  created.name ?? created.branch,
+                  created.container_ref ?? '',
+                  spaceId,
+                );
+              })().catch((error) => {
+                console.error('Failed to open the created workspace', error);
+              });
             }}
           />
         ) : (

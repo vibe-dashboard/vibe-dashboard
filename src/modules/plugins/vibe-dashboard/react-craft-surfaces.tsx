@@ -1,6 +1,7 @@
 import React from 'react';
 import type { Tab, TabGroup } from '../../../types';
 import { PreviewRunConfigsPanel } from '../../../components/PreviewRunConfigsPanel';
+import { WorkspacePreviewMenu } from '../../../components/WorkspacePreviewMenu';
 import {
   BUILT_IN_AGENT_TAB_ID,
   getBuiltInWorkspaceMetadata,
@@ -24,26 +25,47 @@ export interface ReactCraftSurfaceTarget {
   props: Record<string, string>;
 }
 
+export interface ReactCraftSurfaceHostContext {
+  onConfigurePreviewSlots?: () => void;
+  onWorkspaceCreated?: (workspaceId: string) => void;
+}
+
+interface ReactCraftSurfaceComponentProps {
+  surfaceProps: Record<string, string>;
+  host: ReactCraftSurfaceHostContext;
+}
+
 type ReactCraftSurfaceComponent = (
-  props: Record<string, string>,
+  props: ReactCraftSurfaceComponentProps,
 ) => React.ReactElement;
 
 const FIRST_PARTY_REACT_SURFACES: Record<string, ReactCraftSurfaceComponent> = {
-  'dev.mickmister.preview-server/run-configs': (props) => (
-    <PreviewRunConfigsPanel workspaceId={props.workspaceId ?? ''} />
+  'dev.mickmister.preview-server/run-configs': ({ surfaceProps }) => (
+    <PreviewRunConfigsPanel workspaceId={surfaceProps.workspaceId ?? ''} />
   ),
-  'vd.built-in/agent-chat': (props) => (
+  'vd.built-in/agent-chat': ({ surfaceProps, host }) => (
     <React.Suspense fallback={<InlineSurfaceLoading />}>
       <InlineVkAgentChat
-        workspaceId={props.workspaceId ?? ''}
-        surfaceId={props.surfaceId ?? props.workspaceId ?? 'agent'}
+        workspaceId={surfaceProps.workspaceId ?? ''}
+        surfaceId={
+          surfaceProps.surfaceId ?? surfaceProps.workspaceId ?? 'agent'
+        }
+        workspacePreview={
+          surfaceProps.workspaceId && host.onConfigurePreviewSlots ? (
+            <WorkspacePreviewMenu
+              workspaceId={surfaceProps.workspaceId}
+              onConfigure={host.onConfigurePreviewSlots}
+            />
+          ) : undefined
+        }
       />
     </React.Suspense>
   ),
-  'vd.built-in/create-workspace': (props) => (
+  'vd.built-in/create-workspace': ({ surfaceProps, host }) => (
     <React.Suspense fallback={<InlineSurfaceLoading />}>
       <InlineVkCreateWorkspace
-        surfaceId={props.surfaceId ?? 'create-workspace'}
+        surfaceId={surfaceProps.surfaceId ?? 'create-workspace'}
+        onWorkspaceCreated={host.onWorkspaceCreated}
       />
     </React.Suspense>
   ),
@@ -93,6 +115,20 @@ export function getReactCraftSurfaceTarget(
   };
 }
 
+export function getPreviewServerTabId(
+  tabGroup: Pick<TabGroup, 'tabs'>,
+): string | null {
+  return (
+    tabGroup.tabs.find(
+      (tab) =>
+        tab.ephemeral?.kind === 'craft-surface' &&
+        tab.ephemeral.pluginId === 'dev.mickmister.preview-server' &&
+        tab.ephemeral.surfaceKey ===
+          'dev.mickmister.preview-server/run-configs',
+    )?.id ?? null
+  );
+}
+
 function isCreateWorkspaceTab(tab: Tab): boolean {
   if (tab.title !== 'Create Workspace') return false;
   try {
@@ -111,8 +147,10 @@ export function hasReactCraftSurface(
 
 export function ReactCraftSurfaceHost({
   target,
+  context = {},
 }: {
   target: ReactCraftSurfaceTarget;
+  context?: ReactCraftSurfaceHostContext;
 }): React.ReactElement {
   const Component = getReactCraftSurfaceComponent(target);
   if (!Component) return <UnknownReactCraftSurface target={target} />;
@@ -121,7 +159,7 @@ export function ReactCraftSurfaceHost({
       className="h-full min-h-0 bg-neutral-950"
       data-testid={`react-craft-surface:${target.pluginId}/${target.surfaceKey}`}
     >
-      <Component {...target.props} />
+      <Component surfaceProps={target.props} host={context} />
     </div>
   );
 }

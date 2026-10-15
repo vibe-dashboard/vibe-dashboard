@@ -37,6 +37,7 @@ function ChatBoxWithDiffStats({
   isNewSessionMode,
   chatViewMode,
   chatViewModeSelector,
+  workspacePreview,
   sessions,
   onSelectSession,
   onStartNewSession,
@@ -50,6 +51,7 @@ function ChatBoxWithDiffStats({
   isNewSessionMode: boolean;
   chatViewMode: ChatViewMode;
   chatViewModeSelector?: ReactNode;
+  workspacePreview?: ReactNode;
   sessions: Session[];
   onSelectSession: (sessionId: string) => void;
   onStartNewSession: () => void;
@@ -84,6 +86,7 @@ function ChatBoxWithDiffStats({
       linesRemoved={diffStats.lines_removed}
       chatViewMode={chatViewMode}
       chatViewModeSelector={chatViewModeSelector}
+      workspacePreview={workspacePreview}
       disableViewCode={false}
       showOpenWorkspaceButton={false}
       onScrollToPreviousMessage={onScrollToPreviousMessage}
@@ -111,6 +114,7 @@ interface WorkspacesMainContainerProps {
   onStartNewSession: () => void;
   chatViewMode?: ChatViewMode;
   chatViewModeSelector?: ReactNode;
+  workspacePreview?: ReactNode;
 }
 
 export const WorkspacesMainContainer = forwardRef<
@@ -130,6 +134,7 @@ export const WorkspacesMainContainer = forwardRef<
     onStartNewSession,
     chatViewMode = 'full',
     chatViewModeSelector,
+    workspacePreview,
   },
   ref
 ) {
@@ -248,6 +253,7 @@ export const WorkspacesMainContainer = forwardRef<
       isNewSessionMode={isNewSessionMode}
       chatViewMode={chatViewMode}
       chatViewModeSelector={chatViewModeSelector}
+      workspacePreview={workspacePreview}
       sessions={sessions}
       onSelectSession={onSelectSession}
       onStartNewSession={onStartNewSession}

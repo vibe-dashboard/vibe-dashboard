@@ -40,6 +40,8 @@ interface IframePanelProps {
   onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void | Promise<void>;
   onBeadReferenceClick?: (agentTabId: string, beadId: string) => void | Promise<void>;
   onBeadFormSubmitted?: (formsTabId: string) => void | Promise<void>;
+  onConfigurePreviewSlots?: () => void;
+  onWorkspaceCreated?: (workspaceId: string) => void;
 }
 
 /**
@@ -1020,6 +1022,8 @@ export function IframePanel({
   onOpenVKWorkspace,
   onBeadReferenceClick,
   onBeadFormSubmitted,
+  onConfigurePreviewSlots,
+  onWorkspaceCreated,
 }: IframePanelProps) {
   const activeTab = tabGroup.tabs.find(
     (t) => t.id === activeItemId
@@ -1136,6 +1140,8 @@ export function IframePanel({
           activationShieldState={activationShieldState}
           retryTab={retryTab}
           onUpdatePairRatios={onUpdatePairRatios}
+          onConfigurePreviewSlots={onConfigurePreviewSlots}
+          onWorkspaceCreated={onWorkspaceCreated}
         />
       ) : activeTab ? (
           <SingleTabView
@@ -1155,6 +1161,8 @@ export function IframePanel({
             {...(onStartNewSession ? { onStartNewSession } : {})}
             {...(onNavigateToTabGroup ? { onNavigateToTabGroup } : {})}
             {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
+            {...(onConfigurePreviewSlots ? { onConfigurePreviewSlots } : {})}
+            {...(onWorkspaceCreated ? { onWorkspaceCreated } : {})}
           />
       ) : (
         <EmptyView />
@@ -1503,6 +1511,8 @@ function SingleTabView({
   onStartNewSession,
   onNavigateToTabGroup,
   onOpenVKWorkspace,
+  onConfigurePreviewSlots,
+  onWorkspaceCreated,
 }: {
   activeTab: Tab;
   tabGroup: TabGroup;
@@ -1520,6 +1530,8 @@ function SingleTabView({
   onStartNewSession?: () => void;
   onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void | Promise<void>;
   onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void | Promise<void>;
+  onConfigurePreviewSlots?: () => void;
+  onWorkspaceCreated?: (workspaceId: string) => void;
 }) {
   const isLoaded = loadingState.get(activeIframeKey) ?? false;
   const hasError = errorState.get(activeIframeKey) ?? false;
@@ -1575,7 +1587,10 @@ function SingleTabView({
         className="absolute inset-x-0 top-0 md:bottom-0 z-10 pointer-events-auto"
         style={MOBILE_VIEWPORT_INSET_STYLE}
       >
-        <ReactCraftSurfaceHost target={target.target} />
+        <ReactCraftSurfaceHost
+          target={target.target}
+          context={{ onConfigurePreviewSlots, onWorkspaceCreated }}
+        />
       </div>
     );
   }
@@ -1599,6 +1614,8 @@ function PairView({
   activationShieldState,
   retryTab,
   onUpdatePairRatios,
+  onConfigurePreviewSlots,
+  onWorkspaceCreated,
 }: {
   activePair: { id: string; tabIds: string[]; ratios: number[] };
   tabGroup: TabGroup;
@@ -1607,6 +1624,8 @@ function PairView({
   activationShieldState: Map<string, boolean>;
   retryTab: (tabId: string) => void;
   onUpdatePairRatios: (pairId: string, ratios: number[]) => void;
+  onConfigurePreviewSlots?: () => void;
+  onWorkspaceCreated?: (workspaceId: string) => void;
 }) {
   const pairTabs = activePair.tabIds
     .map((id) => tabGroup.tabs.find((t) => t.id === id))
@@ -1643,6 +1662,8 @@ function PairView({
                 hasError={hasError}
                 isActivationShielded={isActivationShielded}
                 retryTab={retryTab}
+                onConfigurePreviewSlots={onConfigurePreviewSlots}
+                onWorkspaceCreated={onWorkspaceCreated}
               />
             </Panel>
             {i < pairTabs.length - 1 && (
@@ -1663,6 +1684,8 @@ function PairTabView({
   hasError,
   isActivationShielded,
   retryTab,
+  onConfigurePreviewSlots,
+  onWorkspaceCreated,
 }: {
   tab: Tab;
   tabGroup: TabGroup;
@@ -1671,6 +1694,8 @@ function PairTabView({
   hasError: boolean;
   isActivationShielded: boolean;
   retryTab: (tabId: string) => void;
+  onConfigurePreviewSlots?: () => void;
+  onWorkspaceCreated?: (workspaceId: string) => void;
 }) {
   const target = getTabRenderTargetForTab(tab, tabGroup);
   const shouldShowLoadingOverlay = shouldShowIframeLoadingOverlay(isLoaded, isActivationShielded);
@@ -1682,7 +1707,10 @@ function PairTabView({
   if (target.kind === 'react-surface') {
     return (
       <div className="relative w-full h-full pointer-events-auto bg-neutral-950">
-        <ReactCraftSurfaceHost target={target.target} />
+        <ReactCraftSurfaceHost
+          target={target.target}
+          context={{ onConfigurePreviewSlots, onWorkspaceCreated }}
+        />
       </div>
     );
   }
