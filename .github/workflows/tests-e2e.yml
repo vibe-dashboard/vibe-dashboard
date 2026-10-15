@@ -21,7 +21,7 @@ env:
   RUSTC_WRAPPER: sccache
   SCCACHE_GHA_ENABLED: "true"
   RUST_TOOLCHAIN: nightly-2025-12-04
-  VK_REPOSITORY: vibe-dashboard/vibe-kanban
+  VK_CHECKOUT: vibe-kanban-vscode-web/vibe-kanban
 
 jobs:
   tests-e2e:
@@ -30,44 +30,20 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - name: Resolve matching VK branch
-        id: resolve-vk-ref
-        shell: bash
-        run: |
-          set -euo pipefail
-          candidate="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
-          vk_repo_url="https://github.com/${VK_REPOSITORY}.git"
-
-          if git ls-remote --exit-code --heads "$vk_repo_url" "$candidate" >/dev/null; then
-            vk_ref="$candidate"
-            reason="matched branch"
-          else
-            vk_ref="main"
-            reason="fallback"
-          fi
-
-          echo "ref=$vk_ref" >> "$GITHUB_OUTPUT"
-          echo "Resolved VK ref: $vk_ref ($reason for candidate: $candidate)"
-
       - name: Checkout VD
         uses: actions/checkout@v4
         with:
           path: vibe-kanban-vscode-web
 
-      - name: Checkout VK
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.VK_REPOSITORY }}
-          ref: ${{ steps.resolve-vk-ref.outputs.ref }}
-          path: Vktest
-
-      - name: Record VK commit
+      - name: Record VK content hash
         id: vk-meta
+        working-directory: vibe-kanban-vscode-web
         shell: bash
         run: |
           set -euo pipefail
-          echo "sha=$(git -C Vktest rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          git -C Vktest log --oneline -1
+          hash="$(.github/scripts/vk-content-hash.sh)"
+          echo "content_hash=$hash" >> "$GITHUB_OUTPUT"
+          echo "VK content hash: $hash"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -81,7 +57,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: |
             vibe-kanban-vscode-web/pnpm-lock.yaml
-            Vktest/pnpm-lock.yaml
+            vibe-kanban-vscode-web/vibe-kanban/pnpm-lock.yaml
 
       - name: Setup Go for Caddy
         uses: actions/setup-go@v5
@@ -108,8 +84,8 @@ jobs:
       - name: Restore Rust caches
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
         with:
-          workspaces: Vktest
-          shared-key: vk-mocked-sandbox-${{ runner.os }}-${{ runner.arch }}-${{ steps.vk-meta.outputs.sha }}
+          workspaces: vibe-kanban-vscode-web/vibe-kanban
+          shared-key: vk-mocked-sandbox-${{ runner.os }}-${{ runner.arch }}-${{ steps.vk-meta.outputs.content_hash }}
           cache-provider: github
           cache-on-failure: "true"
 
@@ -117,8 +93,8 @@ jobs:
         id: vk-local-web-dist-cache
         uses: actions/cache@v4
         with:
-          path: Vktest/packages/local-web/dist
-          key: vk-local-web-dist-${{ runner.os }}-${{ steps.vk-meta.outputs.sha }}
+          path: vibe-kanban-vscode-web/vibe-kanban/packages/local-web/dist
+          key: vk-local-web-dist-${{ runner.os }}-${{ steps.vk-meta.outputs.content_hash }}
           restore-keys: |
             vk-local-web-dist-${{ runner.os }}-
 
@@ -131,7 +107,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install VK dependencies
-        working-directory: Vktest
+        working-directory: vibe-kanban-vscode-web/vibe-kanban
         run: pnpm install --frozen-lockfile
 
       - name: Install Playwright browsers
@@ -162,5 +138,5 @@ jobs:
             vibe-kanban-vscode-web/playwright-report
             vibe-kanban-vscode-web/test-results
             vibe-kanban-vscode-web/.vk-mocked-sandbox/current
-            Vktest/dev_assets/sessions
+            vibe-kanban-vscode-web/vibe-kanban/dev_assets/sessions
           if-no-files-found: ignore

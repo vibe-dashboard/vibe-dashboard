@@ -89,10 +89,4 @@ If files under `src/` changed, run:
 npm run check-types
 ```
 
-Before committing, run GitNexus change detection as required by repo instructions:
-
-```sh
-npx --yes gitnexus detect_changes
-```
-
 If `bd` is configured for the workspace, update or reference the relevant bead. If `bd where` reports no active beads workspace, note that in the final response.

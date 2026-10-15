@@ -39,14 +39,14 @@ The canonical Docker/container paths for this sandbox are:
 
 | Name | Path | Purpose |
 | --- | --- | --- |
-| `WORKSPACE_ROOT` | `/path/to/workspace` | Parent directory that contains both source checkouts. Agent workspaces normally use this sibling-checkout shape. |
+| `WORKSPACE_ROOT` | `/path/to/workspace` | Parent directory that contains the VD source checkout. |
 | `VD_CHECKOUT` | `$WORKSPACE_ROOT/vibe-kanban-vscode-web` | Mutable VD source checkout where sandbox dev commands normally run. |
-| `VK_CHECKOUT` | `$WORKSPACE_ROOT/Vktest` | Mutable VK source checkout used by the sandbox backend/frontend build. |
+| `VK_CHECKOUT` | `$VD_CHECKOUT/vibe-kanban` | Vendored VK source checkout used by the sandbox backend/frontend build. |
 | `VD_RUNTIME` | `/home/vkuser/.local/share/vibe-dashboard-runtime` | Packaged runtime/dist location used by supervisor/hotswap; this is not where dev sandbox commands normally run. |
 | `VD_SEED` | `/opt/vibe-kanban-vscode-web-seed` | Image seed/read-only source copy used to initialize `VD_CHECKOUT`; do not use it for mutable sandbox state. |
 | `SANDBOX_RUN_DIR` | `$VD_CHECKOUT/.vk-mocked-sandbox/current` | Generated Caddy/run files for the active mocked sandbox run. |
 | `DISPOSABLE_REPO_DIR` | `$VD_CHECKOUT/.vk-mocked-sandbox/repos` | Disposable repository parent directory to enter in the VK Create Repository UI. |
-| `SEEDED_FIXTURE_REPO` | `/home/vkuser/e2e/repos/basic-seeded-repo` | Canonical absolute repo path recorded by the checked-in `basic-seeded` fixture. |
+| `SEEDED_FIXTURE_REPO` | `$DISPOSABLE_REPO_DIR/basic-seeded-repo` | Worktree-local runtime copy of the checked-in `basic-seeded` repository. |
 
 `SANDBOX_RUN_DIR` and `DISPOSABLE_REPO_DIR` are under `VD_CHECKOUT`; do not write
 them as root-relative `/.vk-mocked-sandbox/...` paths. Substitute your actual
@@ -54,16 +54,16 @@ workspace root for `WORKSPACE_ROOT`; do not assume a hardcoded checkout location
 exists.
 
 Before copying command snippets that use these names, set `WORKSPACE_ROOT` to the
-parent directory for your current sibling checkouts. The derived paths should
+parent directory for your current VD checkout. The derived paths should
 then be set from that workspace root:
 
 ```bash
 WORKSPACE_ROOT=/path/to/workspace
 VD_CHECKOUT="$WORKSPACE_ROOT/vibe-kanban-vscode-web"
-VK_CHECKOUT="$WORKSPACE_ROOT/Vktest"
+VK_CHECKOUT="$VD_CHECKOUT/vibe-kanban"
 SANDBOX_RUN_DIR="$VD_CHECKOUT/.vk-mocked-sandbox/current"
 DISPOSABLE_REPO_DIR="$VD_CHECKOUT/.vk-mocked-sandbox/repos"
-SEEDED_FIXTURE_REPO=/home/vkuser/e2e/repos/basic-seeded-repo
+SEEDED_FIXTURE_REPO="$DISPOSABLE_REPO_DIR/basic-seeded-repo"
 ```
 
 ## Quick start
@@ -77,6 +77,17 @@ npm run dev:vk-mocked-sandbox
 
 Open the printed VD URL, for example `http://localhost:50005`.
 
+For the automated seeded E2E flow, run:
+
+```bash
+npm run test:e2e:vk-mocked-sandbox
+```
+
+That runner allocates free ports, keeps mutable state under the current
+worktree, starts the sandbox, runs Playwright against the allocated URL, and
+stops only that sandbox. Different worktrees can therefore keep independent
+E2E rigs running concurrently.
+
 The command should stay running in the foreground. If any child process exits
 unexpectedly, the sandbox should stop and report a failure.
 
@@ -86,26 +97,24 @@ To preview the plan without starting the servers:
 npm run prepare:vk-mocked-sandbox
 ```
 
-When validating VD against a VK release artifact from CI, use the CI-release
-convenience commands instead. They require an exact VK commit SHA and a
-successful `Release Binaries` run. They fail with source-mode guidance if no
-matching release exists and never fall back to local VK builds automatically.
+By default, the sandbox tries to use a prebuilt VK runtime release for the
+vendored `./vibe-kanban` content hash. If the vendored VK tree is dirty or no
+matching `vk-assets-sha256-<hash>` release exists, it falls back to local source
+builds. To force CI-release mode, use the convenience commands with an exact VK
+content hash:
 
 ```bash
-VK_MOCKED_RELEASE_SHA=ff79144e3842e5454ffc36b5546a1336ab4da993 \
-VK_MOCKED_RELEASE_RUN_ID=31655931916 \
+VK_MOCKED_RELEASE_HASH=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
 npm run prepare:vk-mocked-sandbox:ci-release
 
-VK_MOCKED_RELEASE_SHA=ff79144e3842e5454ffc36b5546a1336ab4da993 \
-VK_MOCKED_RELEASE_RUN_ID=31655931916 \
+VK_MOCKED_RELEASE_HASH=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
 npm run dev:vk-mocked-sandbox:ci-release
 ```
 
-If `VK_MOCKED_RELEASE_RUN_ID` is omitted, the command asks GitHub for the most
-recent `Release Binaries` run matching `VK_MOCKED_RELEASE_SHA`. The downloaded
-artifact is cached under
-`$VD_CHECKOUT/.vk-mocked-sandbox/vk-release-assets/<sha>/<run-id>`, which is
-ignored by git. The release archive checksum is verified; `manifest.json` is
+When `VK_MOCKED_RELEASE_HASH` is omitted, the command computes it with
+`.github/scripts/vk-content-hash.sh`. The downloaded artifact is cached under
+`$VD_CHECKOUT/.vk-mocked-sandbox/vk-release-assets/<hash>`, which is ignored by
+git. The release archive checksum is verified; `manifest.json` content hash is
 also checked when the artifact includes it.
 
 Record the printed:
@@ -144,13 +153,14 @@ Most VD feature E2E tests should start from a checked-in fixture instead of
 clicking through first-run onboarding. The sandbox currently supports two
 fixture variants:
 
-- `empty`: no VD/VK sqlite state and no canonical seeded repo.
+- `empty`: no VD/VK sqlite state and no worktree-local seeded repo.
 - `basic-seeded`: a VD voyage/craft backed by a VK qa-mode workspace with an
-  initial prompt and follow-up, using the canonical repository path
+  initial prompt and follow-up, using the worktree-local repository path
   `$SEEDED_FIXTURE_REPO`.
 
 Reset fixtures only while the sandbox is stopped. The reset command refuses to
-run when sandbox ports, sandbox processes, or sqlite handles appear live.
+run when this worktree's sandbox PID or sqlite handles appear live. Sandboxes in
+other worktrees do not block the reset.
 
 ```bash
 # Typical default for VD feature specs that do not need onboarding coverage.
@@ -224,9 +234,9 @@ is `VK_CHECKOUT` in this sandbox.
 | `VK_MOCKED_VD_DASHBOARD_PORT` | Explicit VD Vite port. |
 | `VK_MOCKED_VD_SERVER_PORT` | Explicit VD server port. |
 | `VK_MOCKED_CADDY_PORT` | Explicit front-door Caddy port. |
-| `VK_MOCKED_VK_BACKEND` | Set to `ci-release` through `npm run *:vk-mocked-sandbox:ci-release` to run VK from a CI release artifact instead of local source. |
-| `VK_MOCKED_RELEASE_SHA` | Required for CI-release mode; full 40-character VK commit SHA. |
-| `VK_MOCKED_RELEASE_RUN_ID` | Optional CI-release mode override for the `Release Binaries` GitHub Actions run ID. Example smoke run: `31655931916` for `ff79144e3842e5454ffc36b5546a1336ab4da993`. |
+| `VK_MOCKED_VK_BACKEND` | Defaults to trying a CI release artifact first, then source mode. Set to `ci-release` to require a CI artifact or `source` to force local source mode. |
+| `VK_MOCKED_RELEASE_HASH` | Optional CI-release mode override; full 64-character VK content hash. When omitted, `.github/scripts/vk-content-hash.sh` hashes tracked files under `vibe-kanban`. |
+| `VK_MOCKED_RELEASE_TAG` | Optional CI-release mode release tag override; defaults to `vk-assets-sha256-<VK_MOCKED_RELEASE_HASH>`. |
 | `VK_MOCKED_GH_REPO` | CI-release mode GitHub repo; defaults to `vibe-dashboard/vibe-kanban`. |
 | `VK_MOCKED_GH_ARTIFACT_NAME` | CI-release mode artifact name; defaults to `release-assets-linux-x64`. |
 | `VK_MOCKED_GH_ARCHIVE_NAME` | CI-release mode archive name; defaults to `vibe-kanban-linux-x64.tar.gz`. |

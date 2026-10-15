@@ -26,7 +26,7 @@ done
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 VD_REPO=$(cd "$SCRIPT_DIR/.." && pwd)
-DEFAULT_VK_REPO=$(cd "$VD_REPO/.." && pwd)/Vktest
+DEFAULT_VK_REPO=$VD_REPO/vibe-kanban
 
 VK_REPO=${VK_REPO:-$DEFAULT_VK_REPO}
 VK_REF=${VK_REF:-HEAD}
