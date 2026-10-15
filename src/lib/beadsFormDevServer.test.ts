@@ -21,6 +21,12 @@ describe('BeadsForm dev server config helpers', () => {
           rewriteWsOrigin: true,
           headers: { Origin: 'http://localhost:3007' },
         },
+        '/vk-api': {
+          target: 'http://localhost:3007',
+          changeOrigin: true,
+          rewrite: expect.any(Function),
+          headers: { Origin: 'http://localhost:3007' },
+        },
       },
     });
   });
@@ -35,6 +41,12 @@ describe('BeadsForm dev server config helpers', () => {
           changeOrigin: true,
           ws: true,
           rewriteWsOrigin: true,
+          headers: { Origin: 'http://localhost:3007' },
+        },
+        '/vk-api': {
+          target: 'http://localhost:3007',
+          changeOrigin: true,
+          rewrite: expect.any(Function),
           headers: { Origin: 'http://localhost:3007' },
         },
       },
@@ -53,7 +65,16 @@ describe('BeadsForm dev server config helpers', () => {
         rewriteWsOrigin: true,
         headers: { Origin: 'https://dashboard.example' },
       },
+      '/vk-api': {
+        target: 'http://localhost:4123',
+        changeOrigin: true,
+        rewrite: expect.any(Function),
+        headers: { Origin: 'https://dashboard.example' },
+      },
     });
+
+    const rewrite = buildViteDevServerOptions({ BACKEND_PORT: '4123' }).proxy['/vk-api'].rewrite;
+    expect(rewrite('/vk-api/workspaces')).toBe('/api/workspaces');
   });
 
   it('makes the folder preview command opt out of browser auto-reload by default', () => {

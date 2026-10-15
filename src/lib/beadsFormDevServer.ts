@@ -28,6 +28,12 @@ export function buildViteDevServerOptions(env: DevServerEnv = process.env): {
       rewriteWsOrigin: true;
       headers: { Origin: string };
     };
+    '/vk-api': {
+      target: string;
+      changeOrigin: true;
+      rewrite: (path: string) => string;
+      headers: { Origin: string };
+    };
   };
 } {
   const vkBackendOrigin = `http://localhost:${env.BACKEND_PORT || '3007'}`;
@@ -47,6 +53,12 @@ export function buildViteDevServerOptions(env: DevServerEnv = process.env): {
         changeOrigin: true,
         ws: true,
         rewriteWsOrigin: true,
+        headers: { Origin: proxyOrigin },
+      },
+      '/vk-api': {
+        target: vkBackendOrigin,
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/vk-api/, '/api'),
         headers: { Origin: proxyOrigin },
       },
     },

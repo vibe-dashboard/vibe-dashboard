@@ -15,6 +15,50 @@ const vkWebCoreSrc = path.resolve(dirname, 'vibe-kanban/packages/web-core/src');
 const vkLocalWebSrc = path.resolve(dirname, 'vibe-kanban/packages/local-web/src');
 const vkUiSrc = path.resolve(dirname, 'vibe-kanban/packages/ui/src');
 const vkSharedSrc = path.resolve(dirname, 'vibe-kanban/shared');
+const vkPublicDir = path.resolve(dirname, 'vibe-kanban/packages/public');
+
+function vkPublicIconAssets(): Plugin {
+  const iconDirectories = ['agents', 'ide'];
+
+  return {
+    name: 'vk-public-icon-assets',
+    configureServer(server) {
+      server.middlewares.use((request, response, next) => {
+        const pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
+        const relativePath = pathname.replace(/^\//, '');
+        if (!iconDirectories.some((directory) => relativePath.startsWith(`${directory}/`))) {
+          next();
+          return;
+        }
+
+        const assetPath = path.resolve(vkPublicDir, relativePath);
+        if (
+          !assetPath.startsWith(`${vkPublicDir}${path.sep}`) ||
+          !fs.existsSync(assetPath) ||
+          !fs.statSync(assetPath).isFile()
+        ) {
+          next();
+          return;
+        }
+
+        response.setHeader('Content-Type', 'image/svg+xml');
+        response.end(fs.readFileSync(assetPath));
+      });
+    },
+    generateBundle() {
+      for (const directory of iconDirectories) {
+        const directoryPath = path.join(vkPublicDir, directory);
+        for (const fileName of fs.readdirSync(directoryPath)) {
+          this.emitFile({
+            type: 'asset',
+            fileName: `${directory}/${fileName}`,
+            source: fs.readFileSync(path.join(directoryPath, fileName)),
+          });
+        }
+      }
+    },
+  };
+}
 
 function vkSourceAliases(): Plugin {
   const vkSourceRoots = [
@@ -107,7 +151,7 @@ if (platformVariant === 'node') {
   platforms = ['browser'];
 }
 export default defineConfig({
-  plugins: [vkSourceAliases(), executorSchemasPlugin(), react(), tailwindcss(), springboard({
+  plugins: [vkPublicIconAssets(), vkSourceAliases(), executorSchemasPlugin(), react(), tailwindcss(), springboard({
     entry: './src/index.tsx',
     platforms,
     documentMeta: {
