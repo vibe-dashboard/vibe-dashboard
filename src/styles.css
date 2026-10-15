@@ -5,6 +5,28 @@
 @source '../vibe-kanban/packages/web-core/src/**/*.{ts,tsx}';
 @custom-variant dark (&:is(.dark *));
 
+/* VK's compact workspace controls use named spacing from its Tailwind theme.
+ * Define the same names here so transplanted components retain their native
+ * density instead of silently dropping utilities or using VD-sized fallbacks. */
+@theme inline {
+  --spacing-half: 0.25rem;
+  --spacing-base: 0.5rem;
+  --spacing-plusfifty: 0.75rem;
+  --spacing-double: 1rem;
+  --spacing-chat: 48rem;
+  --spacing-cta: 29px;
+  --spacing-icon-2xs: 0.625rem;
+  --spacing-icon-xs: 0.9375rem;
+  --spacing-icon-sm: 1.09375rem;
+  --spacing-icon-md: 1.171875rem;
+  --spacing-icon-base: 1.25rem;
+  --spacing-icon-lg: 1.40625rem;
+  --spacing-icon-xl: 1.5625rem;
+  --spacing-dot: 0.3rem;
+  --font-ibm-plex-sans: "IBM Plex Sans", "Noto Emoji", sans-serif;
+  --font-ibm-plex-mono: "IBM Plex Mono", monospace;
+}
+
 html, body, #root {
   margin: 0;
   padding: 0;
@@ -68,15 +90,6 @@ textarea {
 .text-muted { color: var(--text-muted); }
 .border-border { border-color: var(--border); }
 .border-muted { border-color: var(--border-muted); }
-.w-chat { width: min(100%, 56rem); }
-.px-base { padding-left: 1rem; padding-right: 1rem; }
-.py-base { padding-top: 1rem; padding-bottom: 1rem; }
-.p-base { padding: 1rem; }
-.gap-base { gap: 1rem; }
-.mb-double { margin-bottom: 2rem; }
-.min-h-double { min-height: 2rem; }
-.size-icon-xl { width: 2rem; height: 2rem; }
-
 @media (max-width: 767px) {
   :root {
     --mobile-footer-offset: calc(7.15rem + env(safe-area-inset-bottom));

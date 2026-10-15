@@ -119,11 +119,13 @@ export function ChatBoxBase({
 
       {/* Header - Stats and selector */}
       {visualVariant === VisualVariant.NORMAL && hasHeaderContent && (
-        <div className="flex items-center gap-base border-b px-base py-base">
+        <div className="flex flex-col items-stretch gap-base border-b px-base py-base sm:flex-row sm:items-center">
           <div className="flex flex-1 items-center gap-base text-sm min-w-0 overflow-hidden">
             {headerLeft}
           </div>
-          <Toolbar className="gap-[9px]">{headerRight}</Toolbar>
+          <Toolbar className="w-full justify-end gap-[9px] sm:w-auto">
+            {headerRight}
+          </Toolbar>
         </div>
       )}
 

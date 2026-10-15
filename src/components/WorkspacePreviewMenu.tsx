@@ -126,10 +126,10 @@ export function WorkspacePreviewMenu({
         aria-haspopup="menu"
         aria-expanded={isOpen}
         onClick={() => setIsOpen((open) => !open)}
-        className="flex h-9 cursor-pointer list-none items-center gap-half rounded-sm border border-border bg-secondary px-base text-sm text-normal focus:outline-none focus-visible:ring-1 focus-visible:ring-brand [&::-webkit-details-marker]:hidden"
+        className="flex h-9 cursor-pointer list-none items-center gap-half rounded-sm border border-border bg-secondary px-half text-sm text-normal focus:outline-none focus-visible:ring-1 focus-visible:ring-brand sm:px-base [&::-webkit-details-marker]:hidden"
       >
         <GlobeIcon className="size-icon-xs" weight="bold" />
-        <span className="max-w-[72px] truncate">Preview</span>
+        <span className="hidden max-w-[72px] truncate sm:inline">Preview</span>
       </button>
       {isOpen ? (
         <div
