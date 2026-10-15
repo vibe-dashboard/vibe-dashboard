@@ -13,6 +13,7 @@ import (
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
+	_ "github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy"
 )
 
 func mockNextHandler(body []byte, statusCode int, headers http.Header) caddyhttp.HandlerFunc {
