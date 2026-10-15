@@ -13,6 +13,13 @@ describe('BeadsForm dev server config helpers', () => {
       port: 55123,
       host: true,
       hmr: false,
+      proxy: {
+        '/api': {
+          target: 'http://localhost:3007',
+          changeOrigin: true,
+          ws: true,
+        },
+      },
     });
   });
 
@@ -20,6 +27,23 @@ describe('BeadsForm dev server config helpers', () => {
     expect(buildViteDevServerOptions({ PORT: '55123' })).toEqual({
       port: 55123,
       host: true,
+      proxy: {
+        '/api': {
+          target: 'http://localhost:3007',
+          changeOrigin: true,
+          ws: true,
+        },
+      },
+    });
+  });
+
+  it('proxies VK HTTP and WebSocket traffic to the configured backend', () => {
+    expect(buildViteDevServerOptions({ BACKEND_PORT: '4123' }).proxy).toEqual({
+      '/api': {
+        target: 'http://localhost:4123',
+        changeOrigin: true,
+        ws: true,
+      },
     });
   });
 

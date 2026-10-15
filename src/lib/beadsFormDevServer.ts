@@ -20,11 +20,25 @@ export function buildViteDevServerOptions(env: DevServerEnv = process.env): {
   port: number;
   host: true;
   hmr?: false;
+  proxy: {
+    '/api': {
+      target: string;
+      changeOrigin: true;
+      ws: true;
+    };
+  };
 } {
   return {
     port: resolveDevPort(env),
     host: true,
     ...(shouldDisableBeadsFormHmr(env) ? { hmr: false as const } : {}),
+    proxy: {
+      '/api': {
+        target: `http://localhost:${env.BACKEND_PORT || '3007'}`,
+        changeOrigin: true,
+        ws: true,
+      },
+    },
   };
 }
 
