@@ -39,9 +39,9 @@ The canonical Docker/container paths for this sandbox are:
 
 | Name | Path | Purpose |
 | --- | --- | --- |
-| `WORKSPACE_ROOT` | `/path/to/workspace` | Parent directory that contains both source checkouts. Agent workspaces normally use this sibling-checkout shape. |
+| `WORKSPACE_ROOT` | `/path/to/workspace` | Parent directory that contains the VD monorepo checkout. |
 | `VD_CHECKOUT` | `$WORKSPACE_ROOT/vibe-kanban-vscode-web` | Mutable VD source checkout where sandbox dev commands normally run. |
-| `VK_CHECKOUT` | `$WORKSPACE_ROOT/Vktest` | Mutable VK source checkout used by the sandbox backend/frontend build. |
+| `VK_CHECKOUT` | `$VD_CHECKOUT/vibe-kanban` | Vendored VK source checkout used by the sandbox backend/frontend build. |
 | `VD_RUNTIME` | `/home/vkuser/.local/share/vibe-dashboard-runtime` | Packaged runtime/dist location used by supervisor/hotswap; this is not where dev sandbox commands normally run. |
 | `VD_SEED` | `/opt/vibe-kanban-vscode-web-seed` | Image seed/read-only source copy used to initialize `VD_CHECKOUT`; do not use it for mutable sandbox state. |
 | `SANDBOX_RUN_DIR` | `$VD_CHECKOUT/.vk-mocked-sandbox/current` | Generated Caddy/run files for the active mocked sandbox run. |
@@ -54,13 +54,13 @@ workspace root for `WORKSPACE_ROOT`; do not assume a hardcoded checkout location
 exists.
 
 Before copying command snippets that use these names, set `WORKSPACE_ROOT` to the
-parent directory for your current sibling checkouts. The derived paths should
+parent directory for your current VD monorepo checkout. The derived paths should
 then be set from that workspace root:
 
 ```bash
 WORKSPACE_ROOT=/path/to/workspace
 VD_CHECKOUT="$WORKSPACE_ROOT/vibe-kanban-vscode-web"
-VK_CHECKOUT="$WORKSPACE_ROOT/Vktest"
+VK_CHECKOUT="$VD_CHECKOUT/vibe-kanban"
 SANDBOX_RUN_DIR="$VD_CHECKOUT/.vk-mocked-sandbox/current"
 DISPOSABLE_REPO_DIR="$VD_CHECKOUT/.vk-mocked-sandbox/repos"
 SEEDED_FIXTURE_REPO=/home/vkuser/e2e/repos/basic-seeded-repo

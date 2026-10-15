@@ -4,41 +4,43 @@ Vibe Dashboard preview hosts use a first-level encoded hostname so Cloudflare TL
 and wildcard routing only need to cover `*.vibedashboard.dev`:
 
 ```text
-{workspaceToken}-{repoSlug}-{slotSlug}-{customerSlug}.vibedashboard.dev
+{slotSlug}-{repoSlug}-{workspaceToken}-{customerSlug}.vibedashboard.dev
 ```
 
 Example:
 
 ```text
-0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev
+web-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev
 ```
 
 The encoded data must fit in the first DNS label, so V1 uses fixed separators
 and dashless lowercase alphanumeric slugs:
 
-- `workspaceToken`: exactly 16 lowercase hexadecimal characters (`[a-f0-9]{16}`).
-- `repoSlug`: 1–18 lowercase alphanumeric characters.
 - `slotSlug`: 1–10 lowercase alphanumeric characters.
-- `customerSlug`: 1–16 lowercase alphanumeric characters.
+- `repoSlug`: 1–18 lowercase alphanumeric characters.
+- `workspaceToken`: exactly 16 lowercase hexadecimal characters (`[a-f0-9]{16}`).
+- `customerSlug`: 1–16 lowercase alphanumeric characters. PreviewServer UI
+  callers do not expose this value; URL generation uses
+  `PREVIEW_URL_DEFAULT_CUSTOMER` unless CLI/API automation passes an override.
 
 The full first-label budget is `16 + 18 + 10 + 16 + 3 separators = 63`
 characters. Old `preview-{workspace}-{slot}--{customer}` numeric hosts are
 intentionally rejected; this branch is a hard break with no backwards
 compatibility for numeric slots.
-By default, the Caddy handler does not need a configured base domain. It detects
-preview requests by the compact first-label pattern on whatever hostname reaches
-Caddy, so previews work for any customer/runtime domain that preserves the
-original requested host.
+Resolver routing does not configure or compare a base domain. The strict first
+label is recognized under any non-empty parent domain. Base-domain selection is
+still required when generating a public URL, but it is separate from routing.
 
+This compact first-label pattern is reserved wherever the resolver is deployed.
 Customer hostnames that merely contain dashes are not preview hosts unless the
-first label satisfies the full `workspaceToken-repoSlug-slotSlug-customerSlug`
-grammar. Advanced deployments may still set the optional `base_domain` handler
-option to restrict preview matching to one DNS suffix.
+first label satisfies the full `slotSlug-repoSlug-workspaceToken-customerSlug`
+grammar.
 
-Preview URL generation still needs to choose a public scheme, DNS suffix, and
-optional port. The `vk preview-url url` CLI and Vibe Dashboard internal preview
-URL route use the scheme, hostname, and port from `SITE_ORIGIN`. Override those
-for a single command or runtime by setting `SITE_ORIGIN` for that process.
+For one migration window, the Caddyfile adapter accepts a legacy `base_domain`
+option but ignores it, and accepts an existing configuration without `routing`.
+Generated and deployed configurations no longer emit `base_domain` and do emit
+`routing domain-independent-v1`, which is the new-binary capability gate. This
+supports deploying the binary before the configuration without a routing gap.
 
 ## Runtime request flow
 
@@ -53,7 +55,22 @@ for a single command or runtime by setting `SITE_ORIGIN` for that process.
 5. If the hostname matches the preview syntax, Caddy calls the local resolver API.
 6. The resolver returns `ready` with an upstream, `starting`, `not_found`,
    `capacity_full`, or `failed`/`unavailable`.
-7. Caddy proxies ready traffic or serves a startup/unavailable response.
+7. Caddy proxies ready traffic or serves a generated Preview starting,
+   not-found, capacity, or failure response.
+
+Preview starting pages auto-refresh for browser navigations. If the resolver
+returns `ready` but the upstream has not begun accepting connections yet, Caddy
+treats that first-hit dial failure as the same expected startup race and serves
+the generated Preview starting page instead of a raw Bad Gateway. When VK has an
+authoritative preview process link, starting and process-failure pages include
+an **Open logs in VD** action. The link carries the workspace and preview-slot
+identities, never a client-selected process ID. VD reloads the latest
+server-side process link for that slot and does not fetch raw logs until the user
+explicitly clicks **Logs**.
+
+Generic `port-*` routes are intentionally different: opening a port URL does not
+start a process. If nothing is listening on that port, Caddy returns plain
+no-listener copy and does not auto-refresh by default.
 
 ## Hard-break compatibility contract
 
@@ -65,7 +82,9 @@ Backend and Worker code must be deployed with the same grammar:
 - `repoSlug` and `slotSlug` are lookup slugs for the repo-level run config and
   preview slot; they are not database IDs.
 - `customerSlug` is the customer alias used by the Worker/control plane to find
-  the canonical customer runtime.
+  the canonical customer runtime. Normal VD usage reads it from
+  `PREVIEW_URL_DEFAULT_CUSTOMER`; explicit CLI/API overrides remain available
+  for automation.
 - The Worker must parse or preserve the full encoded preview host, route it to
   the matching canonical customer runtime, and forward the original host in
   `X-Vibe-Requested-Host`. V1 intentionally does not use a requested-host
@@ -80,7 +99,7 @@ Backend and Worker code must be deployed with the same grammar:
 
 ```json
 {
-  "host": "0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev",
+  "host": "web-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev",
   "workspaceToken": "0123456789abcdef",
   "repoSlug": "vibekanban",
   "slotSlug": "web",
@@ -103,13 +122,19 @@ Expected response:
 
 Other statuses:
 
-- `starting`: render startup page for navigations, plain 503 for non-document requests.
+- `starting`: render a generated auto-refresh Preview starting page for navigations, plain 503 for non-document requests.
 - `not_found`: 404.
 - `capacity_full`: 503.
 - `failed`, `unavailable`, `error`: 502.
 
 The resolver owns workspace validation, preview process state, max-running-server
 capacity, and eviction policy. The Caddy module owns request parsing and proxying.
+
+Log authorization is narrower than ordinary workspace process access: VD first
+requires the requested execution process to appear in VK's latest
+`preview_process_link` data for the requested workspace, then verifies the
+process session belongs to that workspace. Missing or unrelated associations return
+a readable not-found state without opening the raw-log WebSocket.
 
 When proxying a ready preview upstream, Caddy forwards preview metadata headers:
 
@@ -141,7 +166,7 @@ replaced with stronger attestation before release.
 
 Worker request to Caddy:
 
-- `X-Vibe-Requested-Host: {workspaceToken}-{repoSlug}-{slotSlug}-{customerSlug}.vibedashboard.dev`
+- `X-Vibe-Requested-Host: {slotSlug}-{repoSlug}-{workspaceToken}-{customerSlug}.vibedashboard.dev`
 
 Advanced deployments may override the requested-host header name with
 `PREVIEW_REQUESTED_HOST_HEADER` or the equivalent Caddyfile option

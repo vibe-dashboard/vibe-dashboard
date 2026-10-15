@@ -8,10 +8,11 @@
 	# the canonical customer host and preserves the public preview hostname in
 	# X-Vibe-Requested-Host. V1 runs inside the private/Cloudflare Access-protected
 	# sandbox and does not require a shared requested-host secret.
-	# The handler falls through unless it sees {workspaceToken}-{repoSlug}-{slotSlug}-{customerSlug}.
+	# The handler falls through unless it sees {slotSlug}-{repoSlug}-{workspaceToken}-{customerSlug}.
 	vk_preview_resolver {
 		resolver_url {$PREVIEW_RESOLVER_URL:http://127.0.0.1:3005/internal/preview/resolve}
-		startup_page /etc/caddy/startup.html
+		grammar slot-repo-workspace-customer-v1
+		routing domain-independent-v1
 		timeout {$PREVIEW_RESOLVER_TIMEOUT:2s}
 	}
 
@@ -41,15 +42,14 @@
 		}
 	}
 
-	# Handle errors (502/503/504) for port forwarding - show startup page
+	# Handle errors (502/503/504) for port forwarding. Opening port-* does not
+	# start a process, so do not imply startup; tell the user nothing is listening.
 	handle_errors {
 		@port_forward_error {
 			expression {http.request.host}.startsWith("port-")
 		}
 		handle @port_forward_error {
-			root * /etc/caddy
-			rewrite * /startup.html
-			file_server
+			respond "Nothing is listening on this port yet. Start the app that should serve this port, then refresh." 502
 		}
 		# Default error response for other errors
 		handle {

@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
+	_ "github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy"
 )
 
 func mockNextHandler(body []byte, statusCode int, headers http.Header) caddyhttp.HandlerFunc {
@@ -64,6 +67,8 @@ func TestPreviewResolverAdaptsBeforeCatchAllHandle(t *testing.T) {
 	caddyfileBody := []byte(`:3001 {
 	vk_preview_resolver {
 		resolver_url http://127.0.0.1:3005/internal/preview/resolve
+		grammar slot-repo-workspace-customer-v1
+		routing domain-independent-v1
 	}
 
 	handle /* {
@@ -100,6 +105,61 @@ func TestPreviewResolverAdaptsBeforeCatchAllHandle(t *testing.T) {
 	firstHandler := server.Routes[0].Handle[0].Handler
 	if firstHandler != "vibe_preview_resolver" {
 		t.Fatalf("expected preview resolver to adapt before catch-all handle, got first handler %q in %s", firstHandler, adapted)
+	}
+}
+
+func TestPreviewResolverAcceptsDeprecatedIgnoredBaseDomain(t *testing.T) {
+	body := []byte(":3001 {\n vk_preview_resolver {\n resolver_url http://127.0.0.1:1/resolve\n base_domain legacy.example\n grammar slot-repo-workspace-customer-v1\n }\n}")
+	if _, _, err := (caddyfile.Adapter{ServerType: httpcaddyfile.ServerType{}}).Adapt(body, nil); err != nil {
+		t.Fatalf("deprecated base_domain should adapt during migration: %v", err)
+	}
+}
+
+func TestPreviewResolverRejectsObsoleteGrammarCapability(t *testing.T) {
+	caddyfileBody := []byte(":3001 {\n\tvk_preview_resolver {\n\t\tresolver_url http://127.0.0.1:3005/internal/preview/resolve\n\t\tgrammar workspace-repo-slot-customer-v0\n\t\trouting domain-independent-v1\n\t}\n}")
+	if _, _, err := (caddyfile.Adapter{ServerType: httpcaddyfile.ServerType{}}).Adapt(caddyfileBody, nil); err == nil {
+		t.Fatal("expected obsolete grammar capability to fail")
+	}
+}
+
+func TestProductionCaddyfileScopesStartupFallbackAwayFromPreviewAndPortRoutes(t *testing.T) {
+	body, err := os.ReadFile("../Caddyfile")
+	if err != nil {
+		t.Fatalf("read production Caddyfile: %v", err)
+	}
+	text := string(body)
+	if strings.Contains(text, "startup_page") {
+		t.Fatalf("preview resolver should not use startup_page in production Caddyfile:\n%s", text)
+	}
+	if strings.Contains(text, "rewrite * /startup.html") {
+		t.Fatalf("port error handling should not rewrite to generic startup.html:\n%s", text)
+	}
+	if !strings.Contains(text, "Nothing is listening on this port") {
+		t.Fatalf("expected port-* error copy to say nothing is listening, got:\n%s", text)
+	}
+}
+
+func TestPortNoListenerErrorCaddyfileAdaptsToTextResponse(t *testing.T) {
+	caddyfileBody := []byte(`:3001 {
+	@port_forward header_regexp port Host ^port-([0-9]+)\.
+	handle @port_forward {
+		reverse_proxy 127.0.0.1:{re.port.1}
+	}
+	handle_errors {
+		@port_forward_error {
+			expression {http.request.host}.startsWith("port-")
+		}
+		handle @port_forward_error {
+			respond "Nothing is listening on this port yet. Start the app that should serve this port, then refresh." 502
+		}
+	}
+}`)
+	adapted, _, err := (caddyfile.Adapter{ServerType: httpcaddyfile.ServerType{}}).Adapt(caddyfileBody, nil)
+	if err != nil {
+		t.Fatalf("port no-listener Caddyfile should adapt: %v", err)
+	}
+	if !strings.Contains(string(adapted), "Nothing is listening on this port yet") {
+		t.Fatalf("expected adapted Caddy JSON to include no-listener response copy, got %s", adapted)
 	}
 }
 

@@ -6,6 +6,7 @@ import {
   selectLatestSession,
   type Session,
 } from './vk-client';
+import { ExecutionProcessStatus } from '../../vibe-kanban/shared/types';
 
 describe('resolveVibeApiBaseUrl', () => {
   it('prefers VIBE_API_URL, falls back to VK_API_URL, then localhost API', () => {
@@ -26,6 +27,52 @@ describe('resolveVibeApiBaseUrl', () => {
 });
 
 describe('VibeKanbanServerClient', () => {
+  it('fetches workspace summaries from the VK summaries endpoint', async () => {
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === 'http://vk.local/api/workspaces/summaries' && init?.method === 'POST') {
+        expect(JSON.parse(String(init.body))).toEqual({ archived: false });
+        return jsonResponse({
+          success: true,
+          data: {
+            summaries: [{
+              workspace_id: 'ws1',
+              latest_session_id: null,
+              has_pending_approval: false,
+              files_changed: null,
+              lines_added: null,
+              lines_removed: null,
+              latest_process_status: ExecutionProcessStatus.running,
+              has_running_dev_server: false,
+              has_unseen_turns: false,
+              pr_status: null,
+              pr_number: null,
+              pr_url: null,
+            }],
+          },
+        });
+      }
+      throw new Error(`unexpected request ${url}`);
+    });
+    const client = new VibeKanbanServerClient({ baseUrl: 'http://vk.local/api', fetch: fetchImpl });
+
+    await expect(client.getWorkspaceSummaries()).resolves.toEqual({
+      summaries: [{
+        workspace_id: 'ws1',
+        latest_session_id: null,
+        has_pending_approval: false,
+        files_changed: null,
+        lines_added: null,
+        lines_removed: null,
+        latest_process_status: ExecutionProcessStatus.running,
+        has_running_dev_server: false,
+        has_unseen_turns: false,
+        pr_status: null,
+        pr_number: null,
+        pr_url: null,
+      }],
+    });
+  });
+
   it('fetches workspaces and workspace repos from VK API envelope', async () => {
     const fetchImpl = vi.fn(async (url: string) => {
       if (url === 'http://vk.local/api/workspaces') {
@@ -111,6 +158,10 @@ describe('VibeKanbanServerClient', () => {
         expect(JSON.parse(String(init.body))).toEqual({});
         return jsonResponse({ success: true, data: null });
       }
+      if (url === 'http://vk.local/api/workspaces/ws-1/execution/preview-processes/process-1/stop' && init?.method === 'POST') {
+        expect(JSON.parse(String(init.body))).toEqual({ previewSlotId: 'slot-1' });
+        return jsonResponse({ success: true, data: null });
+      }
       if (url === 'http://vk.local/api/health') {
         return jsonResponse({ success: true, data: 'ok' });
       }
@@ -126,8 +177,49 @@ describe('VibeKanbanServerClient', () => {
       status: 'killed',
     });
     await expect(client.stopExecutionProcess('process-1')).resolves.toBeUndefined();
+    await expect(client.stopPreviewProcess('ws-1', 'process-1', { previewSlotId: 'slot-1' })).resolves.toBeUndefined();
     await expect(client.checkHealth()).resolves.toBeUndefined();
     await expect(client.getInfo()).resolves.toEqual({ version: 'test' });
+  });
+
+  it('fetches bounded raw execution logs from the existing VK websocket API', async () => {
+    const openedUrls: string[] = [];
+    const client = new VibeKanbanServerClient({
+      baseUrl: 'http://vk.local/api',
+      fetch: async () => jsonResponse({ success: true, data: null }),
+      webSocketFactory: (url) => {
+        openedUrls.push(url);
+        const listeners: Record<string, Array<(event: { data?: unknown }) => void>> = {};
+        queueMicrotask(() => {
+          listeners.message?.forEach((listener) => listener({
+            data: JSON.stringify({
+              JsonPatch: [
+                { value: { type: 'STDOUT', content: 'one\n' } },
+                { value: { type: 'STDERR', content: 'two\n' } },
+                { value: { type: 'IGNORED', content: 'nope\n' } },
+              ],
+            }),
+          }));
+          listeners.message?.forEach((listener) => listener({
+            data: JSON.stringify({ Ready: {} }),
+          }));
+        });
+        return {
+          close: vi.fn(),
+          addEventListener: (type, listener) => {
+            listeners[type] ??= [];
+            listeners[type]!.push(listener);
+          },
+        };
+      },
+    });
+
+    await expect(client.fetchRawExecutionLogs('process-1', { timeoutMs: 100, maxEntries: 1 })).resolves.toEqual([
+      { type: 'STDERR', content: 'two\n' },
+    ]);
+    expect(openedUrls).toEqual([
+      'ws://vk.local/api/execution-processes/process-1/raw-logs/ws',
+    ]);
   });
 
   it('throws VkApiError with status and body for failed HTTP responses', async () => {
@@ -140,6 +232,19 @@ describe('VibeKanbanServerClient', () => {
       name: 'VkApiError',
       status: 500,
       bodyText: 'nope',
+    });
+  });
+
+  it('uses VK error envelope messages for failed HTTP responses', async () => {
+    const client = new VibeKanbanServerClient({
+      baseUrl: 'http://vk.local/api',
+      fetch: async () => jsonResponse({ success: false, message: 'Delete linked preview slots first.' }, { status: 400, statusText: 'Bad Request' }),
+    });
+
+    await expect(client.getWorkspaces()).rejects.toMatchObject({
+      name: 'VkApiError',
+      status: 400,
+      message: 'Delete linked preview slots first.',
     });
   });
 

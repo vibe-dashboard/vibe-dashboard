@@ -1,3 +1,13 @@
+import type {
+  WorkspaceSummary,
+  WorkspaceSummaryResponse,
+} from '../../vibe-kanban/shared/types';
+
+export type {
+  WorkspaceSummary,
+  WorkspaceSummaryResponse,
+} from '../../vibe-kanban/shared/types';
+
 export type Executor =
   | 'CLAUDE_CODE'
   | 'CODEX'
@@ -22,31 +32,19 @@ export interface Workspace {
   name: string | null;
 }
 
-export interface RepoWithBranch {
-  id: string;
-  name: string;
-  display_name: string;
-  target_branch: string;
-}
-
-export interface WorkspaceSummary {
-  workspace_id: string;
-  latest_session_id?: string | null;
-  files_changed: number | null;
-  lines_added: number | null;
-  lines_removed: number | null;
-}
-
-export interface WorkspaceSummaryResponse {
-  summaries: WorkspaceSummary[];
-}
-
 export interface Repo {
   id: string;
   path: string;
   name: string;
   display_name: string;
   default_target_branch?: string | null;
+}
+
+export interface RepoWithBranch {
+  id: string;
+  name: string;
+  display_name: string;
+  target_branch: string;
 }
 
 export interface DirectoryEntry {
@@ -130,6 +128,11 @@ export interface ExecutionProcess {
   executor_action?: unknown;
 }
 
+export interface RawLogEntry {
+  type: 'STDOUT' | 'STDERR';
+  content: string;
+}
+
 export interface PreviewResolveRequest {
   host: string;
   workspaceToken: string;
@@ -146,6 +149,8 @@ export interface PreviewResolveResponse {
   upstream?: string | null;
   message?: string | null;
   executionProcessId?: string | null;
+  workspaceId?: string | null;
+  previewSlotId?: string | null;
 }
 
 export type RunConfigKind = 'long_running' | 'one_shot' | 'test';
@@ -155,6 +160,7 @@ export interface RunConfig {
   repo_id: string;
   slug: string;
   name: string;
+  description?: string | null;
   command: string;
   working_dir?: string | null;
   kind: RunConfigKind;
@@ -168,6 +174,7 @@ export interface UpsertRunConfig {
   repo_id: string;
   slug: string;
   name: string;
+  description?: string | null;
   command: string;
   working_dir?: string | null;
   kind: RunConfigKind;
@@ -180,6 +187,7 @@ export interface PreviewSlot {
   run_config_id: string;
   slot_slug: string;
   title: string;
+  description?: string | null;
   enabled: boolean;
   created_at: string;
   updated_at: string;
@@ -191,6 +199,7 @@ export interface UpsertPreviewSlot {
   run_config_id: string;
   slot_slug: string;
   title: string;
+  description?: string | null;
   enabled?: boolean;
 }
 
@@ -225,10 +234,11 @@ export interface WorkspaceRunConfigsResponse {
   run_configs: RunConfig[];
   preview_slots: PreviewSlot[];
   preview_url_parts: PreviewSlotUrlParts[];
+  preview_process_links?: PreviewProcessLink[];
 }
 
 export interface PreviewSlotUrlResponse extends PreviewSlotUrlParts {
-  customerSlug: string;
+  customerSlug?: string;
   host: string;
   url: string;
 }
@@ -246,10 +256,16 @@ interface ApiEnvelope<T> {
 }
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
+type WebSocketLike = {
+  close: () => void;
+  addEventListener: (type: 'message' | 'error', listener: (event: { data?: unknown }) => void) => void;
+};
+type WebSocketFactory = (url: string) => WebSocketLike;
 
 export interface VibeKanbanServerClientOptions {
   baseUrl?: string;
   fetch?: FetchLike;
+  webSocketFactory?: WebSocketFactory;
 }
 
 export class VkApiError extends Error {
@@ -285,14 +301,20 @@ export function resolveVibeApiBaseUrl(
 export class VibeKanbanServerClient {
   private readonly baseUrl: string;
   private readonly fetchImpl: FetchLike;
+  private readonly webSocketFactory?: WebSocketFactory;
 
   constructor(options: VibeKanbanServerClientOptions = {}) {
     this.baseUrl = (options.baseUrl ?? resolveVibeApiBaseUrl()).replace(/\/+$/, '');
     this.fetchImpl = options.fetch ?? fetch;
+    this.webSocketFactory = options.webSocketFactory;
   }
 
   getWorkspaces(): Promise<Workspace[]> {
     return this.get('/workspaces');
+  }
+
+  getWorkspaceSummaries(archived = false): Promise<WorkspaceSummaryResponse> {
+    return this.post('/workspaces/summaries', { archived });
   }
 
   getWorkspace(workspaceId: string): Promise<Workspace> {
@@ -301,10 +323,6 @@ export class VibeKanbanServerClient {
 
   getWorkspaceRepos(workspaceId: string): Promise<RepoWithBranch[]> {
     return this.get(`/workspaces/${encodeURIComponent(workspaceId)}/repos`);
-  }
-
-  getWorkspaceSummaries(archived: boolean): Promise<WorkspaceSummaryResponse> {
-    return this.post('/workspaces/summaries', { archived });
   }
 
   getSessions(workspaceId: string): Promise<Session[]> {
@@ -317,6 +335,106 @@ export class VibeKanbanServerClient {
 
   createSession(body: CreateSessionBody): Promise<Session> {
     return this.post('/sessions', body);
+  }
+
+  getExecutionProcess(processId: string): Promise<ExecutionProcess> {
+    return this.get(`/execution-processes/${encodeURIComponent(processId)}`);
+  }
+
+  async stopExecutionProcess(processId: string): Promise<void> {
+    await this.post(`/execution-processes/${encodeURIComponent(processId)}/stop`, {});
+  }
+
+  async stopPreviewProcess(
+    workspaceId: string,
+    processId: string,
+    options: { previewSlotId?: string | null } = {},
+  ): Promise<void> {
+    await this.post(
+      `/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-processes/${encodeURIComponent(processId)}/stop`,
+      { previewSlotId: options.previewSlotId ?? null },
+    );
+  }
+
+  fetchRawExecutionLogs(
+    processId: string,
+    options: { timeoutMs?: number; maxEntries?: number } = {},
+  ): Promise<RawLogEntry[]> {
+    const timeoutMs = clampInteger(options.timeoutMs ?? 1500, 100, 10_000);
+    const maxEntries = clampInteger(options.maxEntries ?? 200, 1, 1_000);
+    const webSocketFactory = this.webSocketFactory ?? defaultWebSocketFactory();
+    const url = `${this.baseUrl.replace(/^http/i, 'ws')}/execution-processes/${encodeURIComponent(processId)}/raw-logs/ws`;
+
+    return new Promise((resolve, reject) => {
+      const logs: RawLogEntry[] = [];
+      let settled = false;
+      let ws: WebSocketLike | null = null;
+      const finish = (result: RawLogEntry[]) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        try {
+          ws?.close();
+        } catch {
+          // Ignore close errors after the log request has already succeeded.
+        }
+        resolve(result.slice(-maxEntries));
+      };
+      const fail = (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        try {
+          ws?.close();
+        } catch {
+          // Ignore close errors while surfacing the original failure.
+        }
+        reject(error);
+      };
+      const timeout = setTimeout(() => finish(logs), timeoutMs);
+
+      try {
+        ws = webSocketFactory(url);
+      } catch (error) {
+        clearTimeout(timeout);
+        reject(error);
+        return;
+      }
+
+      ws.addEventListener('message', (event) => {
+        try {
+          const message = JSON.parse(String(event.data ?? '{}')) as {
+            JsonPatch?: Array<{ value?: { type?: unknown; content?: unknown } }>;
+            Ready?: unknown;
+            finished?: unknown;
+          };
+          for (const op of message.JsonPatch ?? []) {
+            const value = op.value;
+            if (
+              (value?.type === 'STDOUT' || value?.type === 'STDERR') &&
+              typeof value.content === 'string'
+            ) {
+              logs.push({ type: value.type, content: value.content });
+            }
+          }
+          if (message.Ready !== undefined || message.finished === true) {
+            finish(logs);
+          }
+        } catch (error) {
+          fail(error);
+        }
+      });
+      ws.addEventListener('error', (event) => {
+        fail(new VkApiError({
+          message: `VK execution log stream failed for process ${processId}`,
+          errorData: event,
+        }));
+      });
+    });
+  }
+
+  async checkHealth(): Promise<void> {
+    await this.get('/health');
   }
 
   getInfo(): Promise<UserSystemInfo> {
@@ -345,18 +463,6 @@ export class VibeKanbanServerClient {
 
   createOnlyWorkspace(body: CreateOnlyWorkspaceRequest): Promise<CreateOnlyWorkspaceResponse> {
     return this.post('/workspaces/create-only', body);
-  }
-
-  getExecutionProcess(processId: string): Promise<ExecutionProcess> {
-    return this.get(`/execution-processes/${encodeURIComponent(processId)}`);
-  }
-
-  async stopExecutionProcess(processId: string): Promise<void> {
-    await this.post(`/execution-processes/${encodeURIComponent(processId)}/stop`, {});
-  }
-
-  async checkHealth(): Promise<void> {
-    await this.get('/health');
   }
 
   resolvePreview(request: PreviewResolveRequest): Promise<PreviewResolveResponse> {
@@ -392,14 +498,23 @@ export class VibeKanbanServerClient {
   getPreviewSlotUrl(
     workspaceId: string,
     previewSlotId: string,
-    args: { customerSlug: string; baseDomain?: string; urlScheme?: 'http' | 'https' },
+    args: { customerSlug?: string; baseDomain?: string },
   ): Promise<PreviewSlotUrlResponse> {
-    const params = new URLSearchParams({ customerSlug: args.customerSlug });
+    const params = new URLSearchParams();
+    if (args.customerSlug) params.set('customerSlug', args.customerSlug);
     if (args.baseDomain) params.set('baseDomain', args.baseDomain);
-    if (args.urlScheme) params.set('urlScheme', args.urlScheme);
+    const query = params.toString();
     return this.get(
-      `/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots/${encodeURIComponent(previewSlotId)}/url?${params}`,
+      `/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots/${encodeURIComponent(previewSlotId)}/url${query ? `?${query}` : ''}`,
     );
+  }
+
+  async deleteRunConfig(workspaceId: string, runConfigId: string): Promise<void> {
+    await this.delete(`/workspaces/${encodeURIComponent(workspaceId)}/execution/run-configs/${encodeURIComponent(runConfigId)}`);
+  }
+
+  async deletePreviewSlot(workspaceId: string, previewSlotId: string): Promise<void> {
+    await this.delete(`/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots/${encodeURIComponent(previewSlotId)}`);
   }
 
   async sendFollowUp(
@@ -429,6 +544,10 @@ export class VibeKanbanServerClient {
     });
   }
 
+  private delete<T>(path: string): Promise<T> {
+    return this.request<T>(path, { method: 'DELETE' });
+  }
+
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
     const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
       ...init,
@@ -440,8 +559,10 @@ export class VibeKanbanServerClient {
 
     const bodyText = await response.text();
     if (!response.ok) {
+      const message = extractVkErrorMessage(bodyText)
+        ?? `VK API ${path} failed: HTTP ${response.status} ${response.statusText}`;
       throw new VkApiError({
-        message: `VK API ${path} failed: HTTP ${response.status} ${response.statusText}`,
+        message,
         status: response.status,
         bodyText,
       });
@@ -482,4 +603,28 @@ export function selectLatestSession(sessions: Session[]): Session | null {
 function parseTimestamp(value: string): number {
   const parsed = new Date(value).getTime();
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function clampInteger(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, Math.trunc(value)));
+}
+
+function extractVkErrorMessage(bodyText: string): string | null {
+  try {
+    const parsed = JSON.parse(bodyText) as { message?: unknown; error?: unknown };
+    if (typeof parsed.message === 'string' && parsed.message.trim()) return parsed.message;
+    if (typeof parsed.error === 'string' && parsed.error.trim()) return parsed.error;
+  } catch {
+    // Non-JSON VK errors still include the raw body on VkApiError.bodyText.
+  }
+  return null;
+}
+
+function defaultWebSocketFactory(): WebSocketFactory {
+  const WebSocketConstructor = globalThis.WebSocket;
+  if (!WebSocketConstructor) {
+    throw new VkApiError({ message: 'VK execution log stream is unavailable in this runtime' });
+  }
+  return (url) => new WebSocketConstructor(url);
 }

@@ -213,6 +213,7 @@ export interface RunConfig {
   repo_id: string;
   slug: string;
   name: string;
+  description?: string | null;
   command: string;
   working_dir?: string | null;
   kind: RunConfigKind;
@@ -226,6 +227,7 @@ export interface UpsertRunConfig {
   repo_id: string;
   slug: string;
   name: string;
+  description?: string | null;
   command: string;
   working_dir?: string | null;
   kind: RunConfigKind;
@@ -238,6 +240,7 @@ export interface PreviewSlot {
   run_config_id: string;
   slot_slug: string;
   title: string;
+  description?: string | null;
   enabled: boolean;
   created_at: string;
   updated_at: string;
@@ -249,6 +252,7 @@ export interface UpsertPreviewSlot {
   run_config_id: string;
   slot_slug: string;
   title: string;
+  description?: string | null;
   enabled?: boolean;
 }
 
@@ -263,6 +267,7 @@ export interface WorkspaceRunConfigsResponse {
   run_configs: RunConfig[];
   preview_slots: PreviewSlot[];
   preview_url_parts: PreviewSlotUrlParts[];
+  preview_process_links?: PreviewProcessLink[];
 }
 
 export interface PreviewProcessLink {
@@ -286,7 +291,7 @@ export interface RunConfigStartResponse {
 }
 
 export interface PreviewSlotUrlResponse extends PreviewSlotUrlParts {
-  customerSlug: string;
+  customerSlug?: string;
   host: string;
   url: string;
 }
@@ -597,6 +602,20 @@ export class VKService {
     return this.parseApiResponse<PreviewSlot>(response, 'upsert preview slot');
   }
 
+  async deleteRunConfig(workspaceId: string, runConfigId: string): Promise<void> {
+    const response = await fetch(config.endpoints.runConfig(workspaceId, runConfigId), {
+      method: 'DELETE',
+    });
+    return this.parseApiResponse<void>(response, 'delete run config');
+  }
+
+  async deletePreviewSlot(workspaceId: string, previewSlotId: string): Promise<void> {
+    const response = await fetch(config.endpoints.previewSlot(workspaceId, previewSlotId), {
+      method: 'DELETE',
+    });
+    return this.parseApiResponse<void>(response, 'delete preview slot');
+  }
+
   async startRunConfig(workspaceId: string, runConfigId: string): Promise<RunConfigStartResponse> {
     const response = await fetch(config.endpoints.startRunConfig(workspaceId, runConfigId), {
       method: 'POST',
@@ -614,11 +633,11 @@ export class VKService {
   async getPreviewSlotUrl(
     workspaceId: string,
     previewSlotId: string,
-    args: { customerSlug: string; baseDomain?: string; urlScheme?: 'http' | 'https' },
+    args: { customerSlug?: string; baseDomain?: string },
   ): Promise<PreviewSlotUrlResponse> {
-    const query = new URLSearchParams({ customerSlug: args.customerSlug });
+    const query = new URLSearchParams();
+    if (args.customerSlug) query.set('customerSlug', args.customerSlug);
     if (args.baseDomain) query.set('baseDomain', args.baseDomain);
-    if (args.urlScheme) query.set('urlScheme', args.urlScheme);
     const response = await fetch(config.endpoints.previewSlotUrl(workspaceId, previewSlotId, query.toString()));
     return this.parseApiResponse<PreviewSlotUrlResponse>(response, 'fetch preview slot URL');
   }

@@ -89,55 +89,48 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
       .frameLocator('iframe[title="Create Workspace"]')
       .last();
     await closeSidebarOverlayIfPresent(page);
-    await expectCreateWorkspaceFrameUrl(page);
-    const reachedRepositorySelection = await ensureRepositorySelectionStep(
-      createWorkspaceFrame,
+    await ensureRepositorySelectionStep(page, createWorkspaceFrame);
+    await expect(createWorkspaceFrame.locator('body')).toContainText(
+      'Which repositories would you like to work on?',
     );
-    const expectedRepoButtonName = reachedRepositorySelection
-      ? new RegExp(
-          `^(${escapeRegex(repoName)} · main|\\d+ repositories selected)$`,
-        )
-      : /· main/;
+    await expectCreateWorkspaceFrameUrl(page);
+    await clearSelectedRepositories(createWorkspaceFrame);
+    await expect(
+      createWorkspaceFrame.getByRole('button', { name: 'Recent' }),
+    ).toBeVisible();
+    await expect(
+      createWorkspaceFrame.getByRole('button', { name: 'Browse' }),
+    ).toBeVisible();
+    await expect(
+      createWorkspaceFrame.getByRole('button', { name: 'Create' }),
+    ).toBeVisible();
 
-    if (reachedRepositorySelection) {
-      await clearSelectedRepositories(createWorkspaceFrame);
-      await expect(
-        createWorkspaceFrame.getByRole('button', { name: 'Recent' }),
-      ).toBeVisible();
-      await expect(
-        createWorkspaceFrame.getByRole('button', { name: 'Browse' }),
-      ).toBeVisible();
-      await expect(
-        createWorkspaceFrame.getByRole('button', { name: 'Create' }),
-      ).toBeVisible();
+    await dismissVkWelcomeIfPresent(createWorkspaceFrame);
+    await createWorkspaceFrame
+      .getByRole('button', { name: 'Create' })
+      .click();
+    await expect(
+      createWorkspaceFrame.getByRole('heading', {
+        name: 'Create New Repository',
+      }),
+    ).toBeVisible();
+    await createWorkspaceFrame
+      .getByRole('textbox', { name: 'my-project' })
+      .fill(repoName);
+    await createWorkspaceFrame
+      .getByRole('textbox', { name: 'Current directory' })
+      .fill(sandboxRepoDir);
+    await createWorkspaceFrame
+      .getByRole('button', { name: 'Create Repository' })
+      .click();
+    await createWorkspaceFrame
+      .getByRole('option', { name: /main/ })
+      .click();
 
-      await dismissVkWelcomeIfPresent(createWorkspaceFrame);
-      await createWorkspaceFrame
-        .getByRole('button', { name: 'Create' })
-        .click();
-      await expect(
-        createWorkspaceFrame.getByRole('heading', {
-          name: 'Create New Repository',
-        }),
-      ).toBeVisible();
-      await createWorkspaceFrame
-        .getByRole('textbox', { name: 'my-project' })
-        .fill(repoName);
-      await createWorkspaceFrame
-        .getByRole('textbox', { name: 'Current directory' })
-        .fill(sandboxRepoDir);
-      await createWorkspaceFrame
-        .getByRole('button', { name: 'Create Repository' })
-        .click();
-      await createWorkspaceFrame
-        .getByRole('option', { name: /main/ })
-        .click();
-
-      await expect(createWorkspaceFrame.getByText(repoName)).toBeVisible();
-      await createWorkspaceFrame
-        .getByRole('button', { name: 'Continue' })
-        .click();
-    }
+    await expect(createWorkspaceFrame.getByText(repoName)).toBeVisible();
+    await createWorkspaceFrame
+      .getByRole('button', { name: 'Continue' })
+      .click();
 
     await expect(
       createWorkspaceFrame.getByRole('heading', {
@@ -149,7 +142,9 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
     ).toBeVisible();
     await expect(
       createWorkspaceFrame.getByRole('button', {
-        name: expectedRepoButtonName,
+        name: new RegExp(
+          `^(${escapeRegex(repoName)} · main|\\d+ repositories selected)$`,
+        ),
       }),
     ).toBeVisible();
     await createWorkspaceFrame
@@ -165,10 +160,9 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
     );
     await expect(createWorkspaceFrame.locator('body')).toContainText(
       'QA mode execution completed successfully',
-      { timeout: 60_000 },
     );
     await expect(createWorkspaceFrame.locator('body')).toContainText(
-      /\d+ files? changed/,
+      'qa_output.txt',
     );
 
     await openCreatedCraftFromVd(page, promptTitle);
@@ -188,26 +182,22 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
     ).toBeVisible();
 
     await page.setViewportSize({ width: 390, height: 844 });
-    await closeSidebarIfOpen(page);
-    const voyageActionsMenu = await openVoyageActionsMenu(page);
-    const voyageActionMenuItems = ['New Craft', 'Open Craft', 'Switch Voyage'];
-    await expect
-      .poll(() =>
-        Promise.all(
-          voyageActionMenuItems.map((name) =>
-            voyageActionsMenu.getByRole('menuitem', { name }).isVisible(),
-          ),
-        ),
-      )
-      .toEqual([true, true, true]);
+    await page.getByRole('button', { name: 'Voyage actions' }).last().click();
+    await expect(
+      page.getByRole('menuitem', { name: 'New Craft' }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('menuitem', { name: 'Open Craft' }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('menuitem', { name: 'Switch Voyage' }),
+    ).toBeVisible();
 
-    await clickVoyageActionsMenuItem(page, 'New Craft');
+    await clickMenuItem(page, 'New Craft');
     await expectMobileNewCraftNavigationSettled(page);
     await expectCreateWorkspaceFrameUrl(page);
-    await clickVoyageActionsMenuItem(page, 'Open Craft');
-    await expect(
-      page.getByRole('heading', { name: 'Open VK Workspace' }),
-    ).toBeVisible();
+    await page.getByRole('button', { name: 'Voyage actions' }).last().click();
+    await clickMenuItem(page, 'Open Craft');
     await page
       .getByRole('textbox', { name: 'Search workspaces...' })
       .fill(promptTitle);
@@ -278,20 +268,19 @@ async function createVoyage(
 }
 
 async function ensureRepositorySelectionStep(
+  page: Page,
   createWorkspaceFrame: FrameLocator,
-): Promise<boolean> {
+) {
   const frameBody = createWorkspaceFrame.locator('body');
-  if (await isRepositorySelectionStep(createWorkspaceFrame)) {
-    return true;
-  }
-
   if (
     await frameBody
       .textContent()
-      .then((text) => Boolean(text?.includes('What would you like to work on?')))
+      .then((text) =>
+        Boolean(text?.includes('Which repositories would you like to work on?')),
+      )
       .catch(() => false)
   ) {
-    return false;
+    return;
   }
 
   const selectedRepoButton = createWorkspaceFrame
@@ -299,30 +288,13 @@ async function ensureRepositorySelectionStep(
     .filter({ hasText: /· main/ })
     .first();
   if (await selectedRepoButton.isVisible({ timeout: 15_000 }).catch(() => false)) {
-    await createWorkspaceFrame
-      .getByRole('button', { name: 'Loading...' })
-      .waitFor({ state: 'hidden', timeout: 30_000 })
-      .catch(() => undefined);
-    await selectedRepoButton.click();
-    return await frameBody
-      .textContent({ timeout: 10_000 })
-      .then((text) =>
-        Boolean(text?.includes('Which repositories would you like to work on?')),
-      )
-      .catch(() => false);
+    await selectedRepoButton.evaluate((button) =>
+      (button as HTMLButtonElement).click(),
+    );
+    await expect(frameBody).toContainText(
+      'Which repositories would you like to work on?',
+    );
   }
-
-  return false;
-}
-
-async function isRepositorySelectionStep(createWorkspaceFrame: FrameLocator) {
-  return createWorkspaceFrame
-    .locator('body')
-    .textContent()
-    .then((text) =>
-      Boolean(text?.includes('Which repositories would you like to work on?')),
-    )
-    .catch(() => false);
 }
 
 async function clearSelectedRepositories(createWorkspaceFrame: FrameLocator) {
@@ -353,49 +325,10 @@ async function closeSidebarOverlayIfPresent(page: Page) {
   }
 }
 
-async function closeSidebarIfOpen(page: Page) {
-  const closeButton = page.getByRole('button', { name: 'Close sidebar' });
-  if (await closeButton.isVisible().catch(() => false)) {
-    await closeButton.evaluate((button) => (button as HTMLButtonElement).click());
-  }
-}
-
-function getVisibleVoyageActionsTrigger(page: Page) {
-  return page
-    .getByRole('button', { name: 'Voyage actions' })
-    .filter({ visible: true });
-}
-
-async function openVoyageActionsMenu(page: Page) {
-  const trigger = getVisibleVoyageActionsTrigger(page).last();
-  await expect(trigger).toBeVisible();
-  await trigger.click();
-
-  const menu = page.getByRole('menu', { name: 'Voyage actions' });
-  await expect(menu).toBeVisible();
-  return menu;
-}
-
-async function clickVoyageActionsMenuItem(
-  page: Page,
-  name: 'New Craft' | 'Open Craft' | 'Switch Voyage',
-) {
-  let lastError: unknown;
-
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      await page.keyboard.press('Escape').catch(() => {});
-      const voyageActionsMenu = await openVoyageActionsMenu(page);
-      const menuItem = voyageActionsMenu.getByRole('menuitem', { name });
-      await expect(menuItem).toBeVisible({ timeout: 2_000 });
-      await menuItem.click({ timeout: 2_000 });
-      return;
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  throw lastError;
+async function clickMenuItem(page: Page, name: string) {
+  const menuItem = page.getByRole('menuitem', { name });
+  await expect(menuItem).toBeVisible();
+  await menuItem.click();
 }
 
 async function expectMobileNewCraftNavigationSettled(page: Page) {
@@ -425,19 +358,17 @@ async function clickLocatorInViewport(page: Page, locator: Locator) {
     }
   }
 
-  for (let index = 0; index < count; index += 1) {
-    const candidate = locator.nth(index);
-    if (await candidate.isVisible().catch(() => false)) {
-      await candidate.evaluate((element) =>
-        (element as HTMLButtonElement).click(),
-      );
-      return;
-    }
+  const firstMatch = locator.first();
+  await firstMatch.waitFor({ state: 'visible', timeout: 10_000 });
+  try {
+    await firstMatch.click({ timeout: 5_000 });
+  } catch {
+    // Mobile sidebars can leave a real, visible action just outside the
+    // viewport after Playwright scrolls, or under the sticky actions footer.
+    // The test needs the app action, not pointer-position fidelity, so fall
+    // back to the same DOM click strategy used by the seeded sandbox spec.
+    await firstMatch.evaluate((element) => (element as HTMLElement).click());
   }
-
-  await locator.first().evaluate((element) =>
-    (element as HTMLButtonElement).click(),
-  );
 }
 
 async function expectCreateWorkspaceFrameUrl(page: Page) {

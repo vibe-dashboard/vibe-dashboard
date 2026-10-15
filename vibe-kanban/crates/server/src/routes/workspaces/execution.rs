@@ -4,12 +4,14 @@ use axum::{
     Extension, Router,
     extract::{Path as AxumPath, Query, State},
     response::Json as ResponseJson,
-    routing::{get, post},
+    routing::{delete, get, post},
 };
 use db::models::{
     execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus},
     preview_identity::{RepoPreviewSlug, WorkspacePreviewToken},
-    preview_process_link::{CreatePreviewProcessLink, PreviewProcessLink},
+    preview_process_link::{
+        CreatePreviewProcessLink, PreviewProcessLink, PreviewProcessStatusSnapshot,
+    },
     preview_slot::{PreviewSlot, UpsertPreviewSlot},
     run_config::{RunConfig, UpsertRunConfig},
     run_config_audit_event::{CreateRunConfigAuditEvent, RunConfigAuditEvent},
@@ -61,6 +63,7 @@ pub struct WorkspaceRunConfigsResponse {
     pub run_configs: Vec<RunConfig>,
     pub preview_slots: Vec<PreviewSlot>,
     pub preview_url_parts: Vec<PreviewSlotUrlParts>,
+    pub preview_process_links: Vec<PreviewProcessLink>,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
@@ -87,11 +90,19 @@ pub struct PreviewSlotUrlResponse {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreviewSlotUrlQuery {
-    pub customer_slug: String,
+    #[serde(default)]
+    pub customer_slug: Option<String>,
     #[serde(default)]
     pub base_domain: Option<String>,
     #[serde(default)]
     pub url_scheme: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StopPreviewProcessRequest {
+    #[serde(default)]
+    pub preview_slot_id: Option<Uuid>,
 }
 
 fn repo_has_dev_server(repo: &db::models::repo::Repo) -> bool {
@@ -153,8 +164,16 @@ pub fn router() -> Router<DeploymentImpl> {
             post(start_run_config_by_id),
         )
         .route(
+            "/run-configs/{run_config_id}",
+            delete(delete_run_config_by_id),
+        )
+        .route(
             "/preview-slots",
             get(list_preview_slots).post(upsert_preview_slot),
+        )
+        .route(
+            "/preview-slots/{preview_slot_id}",
+            delete(delete_preview_slot_by_id),
         )
         .route(
             "/preview-slots/{preview_slot_id}/start",
@@ -163,6 +182,10 @@ pub fn router() -> Router<DeploymentImpl> {
         .route(
             "/preview-slots/{preview_slot_id}/url",
             get(preview_slot_url),
+        )
+        .route(
+            "/preview-processes/{execution_process_id}/stop",
+            post(stop_preview_process),
         )
         .route("/cleanup", post(run_cleanup_script))
         .route("/archive", post(run_archive_script))
@@ -177,6 +200,8 @@ pub async fn list_run_configs(
     let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
     let mut run_configs = Vec::new();
     let mut preview_slots = Vec::new();
+    let preview_process_links =
+        PreviewProcessLink::find_latest_by_workspace(pool, workspace.id).await?;
     let workspace_token = WorkspacePreviewToken::ensure(pool, workspace.id)
         .await?
         .token;
@@ -202,6 +227,7 @@ pub async fn list_run_configs(
             run_configs,
             preview_slots,
             preview_url_parts,
+            preview_process_links,
         },
     )))
 }
@@ -310,7 +336,8 @@ pub async fn preview_slot_url(
     Query(query): Query<PreviewSlotUrlQuery>,
 ) -> Result<ResponseJson<ApiResponse<PreviewSlotUrlResponse>>, ApiError> {
     debug_assert_eq!(workspace_id, workspace.id);
-    validate_slug("customer slug", &query.customer_slug, 16)?;
+    let customer_slug = preview_url_customer_slug(query.customer_slug)?;
+    validate_slug("customer slug", &customer_slug, 16)?;
     let pool = &deployment.db().pool;
     let slot = PreviewSlot::find_by_id(pool, preview_slot_id)
         .await?
@@ -323,13 +350,7 @@ pub async fn preview_slot_url(
     let repo_slug = RepoPreviewSlug::ensure(pool, slot.repo_id, &repo_name)
         .await?
         .slug;
-    let base_domain = query
-        .base_domain
-        .as_deref()
-        .unwrap_or("vibedashboard.dev")
-        .trim()
-        .trim_start_matches('.')
-        .to_ascii_lowercase();
+    let base_domain = preview_url_base_domain(query.base_domain)?;
     let url_scheme = query
         .url_scheme
         .as_deref()
@@ -342,19 +363,58 @@ pub async fn preview_slot_url(
             "Preview URL scheme must be http or https".to_string(),
         ));
     }
-    let host = format!(
-        "{}-{}-{}-{}.{}",
-        workspace_token, repo_slug, slot.slot_slug, query.customer_slug, base_domain
+    let host = build_preview_hostname(
+        &slot.slot_slug,
+        &repo_slug,
+        &workspace_token,
+        &customer_slug,
+        &base_domain,
     );
     Ok(ResponseJson(ApiResponse::success(PreviewSlotUrlResponse {
         preview_slot_id: slot.id,
         workspace_token,
         repo_slug,
         slot_slug: slot.slot_slug,
-        customer_slug: query.customer_slug,
+        customer_slug,
         url: format!("{url_scheme}://{host}/"),
         host,
     })))
+}
+
+fn preview_url_customer_slug(query_customer_slug: Option<String>) -> Result<String, ApiError> {
+    query_customer_slug
+        .or_else(|| std::env::var("PREVIEW_URL_DEFAULT_CUSTOMER").ok())
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            ApiError::BadRequest(
+                "Preview URL customer is required when PREVIEW_URL_DEFAULT_CUSTOMER is not configured."
+                    .to_string(),
+            )
+        })
+}
+
+fn preview_url_base_domain(query_base_domain: Option<String>) -> Result<String, ApiError> {
+    query_base_domain
+        .or_else(|| std::env::var("PREVIEW_URL_PUBLIC_BASE_DOMAIN").ok())
+        .map(|value| value.trim().trim_start_matches('.').to_ascii_lowercase())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            ApiError::BadRequest(
+                "Preview URL base domain is required when PREVIEW_URL_PUBLIC_BASE_DOMAIN is not configured."
+                    .to_string(),
+            )
+        })
+}
+
+fn build_preview_hostname(
+    slot_slug: &str,
+    repo_slug: &str,
+    workspace_token: &str,
+    customer_slug: &str,
+    base_domain: &str,
+) -> String {
+    format!("{slot_slug}-{repo_slug}-{workspace_token}-{customer_slug}.{base_domain}")
 }
 
 #[axum::debug_handler]
@@ -372,6 +432,66 @@ pub async fn start_run_config_by_id(
 }
 
 #[axum::debug_handler]
+pub async fn delete_run_config_by_id(
+    Extension(workspace): Extension<Workspace>,
+    State(deployment): State<DeploymentImpl>,
+    AxumPath((workspace_id, run_config_id)): AxumPath<(Uuid, Uuid)>,
+) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    debug_assert_eq!(workspace_id, workspace.id);
+    let pool = &deployment.db().pool;
+    let run_config = RunConfig::find_by_id(pool, run_config_id)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("Run config not found".to_string()))?;
+    validate_workspace_repo(&deployment, workspace.id, run_config.repo_id).await?;
+    let linked_slots = PreviewSlot::find_by_run_config_id(pool, run_config_id).await?;
+    if !linked_slots.is_empty() {
+        return Err(ApiError::BadRequest(
+            "Delete linked preview slots before deleting this run config.".to_string(),
+        ));
+    }
+    RunConfig::delete(pool, run_config_id).await?;
+    write_run_config_audit(
+        &deployment,
+        Some(workspace.id),
+        Some(run_config.repo_id),
+        Some(run_config.id),
+        None,
+        None,
+        "run_config.delete",
+        None,
+    )
+    .await?;
+    Ok(ResponseJson(ApiResponse::success(())))
+}
+
+#[axum::debug_handler]
+pub async fn delete_preview_slot_by_id(
+    Extension(workspace): Extension<Workspace>,
+    State(deployment): State<DeploymentImpl>,
+    AxumPath((workspace_id, preview_slot_id)): AxumPath<(Uuid, Uuid)>,
+) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    debug_assert_eq!(workspace_id, workspace.id);
+    let pool = &deployment.db().pool;
+    let slot = PreviewSlot::find_by_id(pool, preview_slot_id)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("Preview slot not found".to_string()))?;
+    validate_workspace_repo(&deployment, workspace.id, slot.repo_id).await?;
+    PreviewSlot::delete(pool, preview_slot_id).await?;
+    write_run_config_audit(
+        &deployment,
+        Some(workspace.id),
+        Some(slot.repo_id),
+        Some(slot.run_config_id),
+        Some(slot.id),
+        None,
+        "preview_slot.delete",
+        None,
+    )
+    .await?;
+    Ok(ResponseJson(ApiResponse::success(())))
+}
+
+#[axum::debug_handler]
 pub async fn start_preview_slot_by_id(
     Extension(workspace): Extension<Workspace>,
     State(deployment): State<DeploymentImpl>,
@@ -386,6 +506,53 @@ pub async fn start_preview_slot_by_id(
         .ok_or_else(|| ApiError::BadRequest("Run config not found".to_string()))?;
     let response = start_run_config(&deployment, &workspace, &run_config, Some(&slot)).await?;
     Ok(ResponseJson(ApiResponse::success(response)))
+}
+
+#[axum::debug_handler]
+pub async fn stop_preview_process(
+    Extension(workspace): Extension<Workspace>,
+    State(deployment): State<DeploymentImpl>,
+    AxumPath((workspace_id, execution_process_id)): AxumPath<(Uuid, Uuid)>,
+    payload: Option<ResponseJson<StopPreviewProcessRequest>>,
+) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    debug_assert_eq!(workspace_id, workspace.id);
+    let preview_slot_id = payload.and_then(|ResponseJson(payload)| payload.preview_slot_id);
+    let pool = &deployment.db().pool;
+    let link = PreviewProcessLink::find_active_by_workspace_process(
+        pool,
+        workspace.id,
+        execution_process_id,
+        preview_slot_id,
+    )
+    .await?
+    .ok_or_else(|| ApiError::BadRequest("Preview process link not found".to_string()))?;
+    let execution_process = ExecutionProcess::find_by_id(pool, execution_process_id)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("Execution process not found".to_string()))?;
+
+    deployment
+        .container()
+        .stop_execution(&execution_process, ExecutionProcessStatus::Killed)
+        .await?;
+    PreviewProcessLink::mark_ended_for_process(
+        pool,
+        execution_process_id,
+        PreviewProcessStatusSnapshot::Stopped,
+    )
+    .await?;
+    write_run_config_audit(
+        &deployment,
+        Some(workspace.id),
+        Some(link.repo_id),
+        Some(link.run_config_id),
+        link.preview_slot_id,
+        Some(execution_process_id),
+        "preview_process.stop",
+        None,
+    )
+    .await?;
+
+    Ok(ResponseJson(ApiResponse::success(())))
 }
 
 #[axum::debug_handler]
@@ -900,10 +1067,31 @@ pub async fn run_archive_script(
 
 #[cfg(test)]
 mod tests {
-    use axum::{Router, body::Body, extract::Path as AxumPath, routing::get};
+    use axum::{
+        Router,
+        body::Body,
+        extract::Path as AxumPath,
+        routing::{get, post},
+    };
     use http::Request;
     use tower::ServiceExt;
     use uuid::Uuid;
+
+    use super::build_preview_hostname;
+
+    #[test]
+    fn preview_hostname_uses_slot_repo_workspace_customer_order() {
+        assert_eq!(
+            build_preview_hostname(
+                "web",
+                "vibekanban",
+                "0123456789abcdef",
+                "mickmister",
+                "vibedashboard.dev",
+            ),
+            "web-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev"
+        );
+    }
 
     #[tokio::test]
     async fn nested_run_config_route_path_extracts_workspace_and_run_config_ids() {
@@ -955,6 +1143,37 @@ mod tests {
                 Request::builder()
                     .uri(format!(
                         "/workspaces/{workspace_id}/execution/preview-slots/{preview_slot_id}/url"
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), http::StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn nested_preview_process_stop_route_path_extracts_workspace_and_process_ids() {
+        let workspace_id = Uuid::new_v4();
+        let process_id = Uuid::new_v4();
+        let execution_router = Router::new().route(
+            "/preview-processes/{execution_process_id}/stop",
+            post(
+                |AxumPath((workspace_id, process_id)): AxumPath<(Uuid, Uuid)>| async move {
+                    format!("{workspace_id}:{process_id}")
+                },
+            ),
+        );
+        let workspace_router = Router::new().nest("/execution", execution_router);
+        let app = Router::new().nest("/workspaces/{id}", workspace_router);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/workspaces/{workspace_id}/execution/preview-processes/{process_id}/stop"
                     ))
                     .body(Body::empty())
                     .unwrap(),
