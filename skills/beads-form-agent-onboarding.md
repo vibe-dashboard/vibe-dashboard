@@ -2,6 +2,12 @@
 
 Use BeadsForm when you need structured answers from a human before proceeding. Prefer bead-backed forms for real workflow.
 
+## Human-readable workspace context
+
+Never present a workspace ID, branch name, bead ID, or generated form URL as the primary human label by itself. When a readable workspace name is known, pair it with every exact identifier you communicate to a human or another agent. Commands and URLs still need exact IDs; surrounding prose and Markdown link text should lead with readable names, for example `Workspace: BeadsForm authoring polish (<workspace-id>)`, `Bead: Configurable Next Instruction prompts (beads-web-p1zl)`, and `[Implementation questions — BeadsForm authoring polish](<generated-url>)`.
+
+Use the existing `vibe-agent sessions list --json` output for `workspace_name` and `workspace_id` (or its non-JSON `Name` line), `VK_WORKSPACE_BRANCH` for the exact branch, and `bd show <bead-id> --json` for the bead title. If no readable workspace name is available, explicitly say **Workspace name unavailable**, then provide the exact ID with known repo/path and branch context. Never invent a display name from an opaque ID.
+
 ## 1. Draft standard form JSON in a workspace-local file
 
 Write standard BeadsForm JSON. Use the standard DSL, not raw HTML. The default bead-backed workflow is **file plus pipe**: write the DSL to a repo/workspace-local ignored file, review it, then pipe it into the CLI with `cat ... | beads-form attach --stdin`. This avoids shell escaping mistakes with Markdown, code fences, quotes, and long choice explanations.
@@ -148,7 +154,7 @@ Persisted bead metadata stores standard DSL-only form definitions in `metadata.b
 
 In the VD Docker/dev runtime, `beads-form` should be available on `PATH` globally and should work from any bead repo directory.
 
-The command prints URLs. Provide the remote one to the user, and use explicit markdown link syntax when doing so.
+The command prints URLs. Provide the remote one to the user with explicit Markdown link syntax whose text includes the form title and readable workspace name when known; do not use the raw URL or workspace ID as the primary label.
 
 ## 3. Collaborate on one canonical form
 
@@ -161,8 +167,8 @@ the human in one flow and usually avoids needing a separate aggregate URL.
 
 1. Create or choose the bead that owns the decision.
 2. Create and attach a standard form with a stable, memorable `id`.
-3. Share the form id, bead id, and repo dir with teammates who should add
-   questions.
+3. Share the readable workspace name and bead title with teammates, followed by
+   the exact form id, bead id, branch, and repo dir needed to add questions.
 4. Tell question adders to append dedicated questions instead of creating
    separate forms unless there is a specific reason to keep responses separate.
 5. When delegating to a question adder, include a short prompt that points them
@@ -172,10 +178,12 @@ Example creator handoff:
 
 ```text
 Canonical form:
+- workspace: Release readiness (<workspace-id>)
+- branch: feature/release-readiness — Release readiness
 - repo dir: /path/to/repo
-- bead: beads-web-123
+- bead: Release readiness decisions (beads-web-123)
 - form: release_readiness
-- URL: https://jamtools.dev/dashboard/forms?dir=...&bead=beads-web-123&form=release_readiness
+- URL: [Release readiness form — Release readiness](https://jamtools.dev/dashboard/forms?dir=...&bead=beads-web-123&form=release_readiness)
 
 Please append any review concerns as focused questions with:
 beads-form append-questions --dir /path/to/repo --bead beads-web-123 --form release_readiness --stdin

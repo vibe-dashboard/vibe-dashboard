@@ -22,6 +22,19 @@ Omit `type` (or use `type: 'questionnaire'`) for ordinary decisions, intake, and
 
 If the response includes `"allow_code_file_changes": false`, agents must keep code/file operations read-only. Discussion, analysis, planning, and non-code metadata operations can continue.
 
+## Human-readable workspace context
+
+Never present a workspace ID, branch name, bead ID, or generated form URL as the primary human label by itself. When the readable workspace name is known, include it whenever you communicate those exact identifiers to a human or another agent. Keep IDs in commands and URLs where exact identity matters, but pair them with readable context, for example:
+
+```text
+Workspace: BeadsForm authoring polish (8299d785-6908-4b32-8dc3-1f0cecc4c2ee)
+Branch: vk/8299-beads-web-show-m — BeadsForm authoring polish
+Bead: Configurable BeadsForm Next Instruction prompts (beads-web-p1zl)
+Form: [Implementation questions — BeadsForm authoring polish](https://example.test/dashboard/forms?workspace=8299d785-6908-4b32-8dc3-1f0cecc4c2ee&bead=beads-web-p1zl&form=implementation_questions)
+```
+
+In an active VK workspace, use `vibe-agent sessions list --json` and read its `workspace_name` alongside `workspace_id`; the non-JSON command prints the same readable `Name`. Use `VK_WORKSPACE_BRANCH` for the exact branch when available, and use `bd show <bead-id> --json` for the bead title. If `workspace_name` is null or absent, say **Workspace name unavailable** and provide the exact workspace ID plus the known repo/path and branch context. Do not fabricate a name from an opaque ID.
+
 ## Import
 
 ```ts
@@ -175,10 +188,10 @@ Use folder mode for low-friction testing before attaching forms to beads.
    }
    ```
 
-3. Give the human a preview URL:
+3. Give the human a preview URL using descriptive Markdown link text with the form title and readable workspace name when known:
 
    ```text
-   https://jamtools.dev/dashboard/forms/preview?folder=<urlencoded absolute folder path>
+   [Planning review — BeadsForm authoring polish](https://jamtools.dev/dashboard/forms/preview?folder=<urlencoded absolute folder path>)
    ```
 
    In this repo, the easiest local way to run the folder preview is:
@@ -287,7 +300,7 @@ Bead-backed storage is the primary workflow for real agent/user handoff. Folder 
 
    `show-question` accepts `--question <question-id>` or `--index <one-based-index>`. `update-question` replaces only that question, keeps responses and content/attachment blocks, strips generated `html`/`controls`, and rejects stale edits when `--base-hash` no longer matches. If the new form supersedes an older pending form, run `beads-form invalidate --bead <bead-id> --form <old-form-id> --reason "Superseded by <new-form-id>" --dir <repo-dir>`; invalidation marks the old form stale without deleting historical submitted responses, removes it from the default pending feed, and makes its URL non-answerable.
 
-3. Give the human the printed `/dashboard/forms?...` URL.
+3. Give the human the printed `/dashboard/forms?...` URL as a Markdown link labeled with the form title and readable workspace name. If the name is unavailable, state that and pair the link with exact repo/branch context rather than inventing a name.
 
 4. If another agent needs to contribute to the same canonical form, append focused standard DSL questions instead of creating an uncoordinated duplicate form:
 
