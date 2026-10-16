@@ -12,6 +12,8 @@ It manages repositories and worktrees; it does **not** claim cloud workspace iso
 [Self-host](#self-host-in-60-seconds) · [Explore the workflow](#from-request-to-reviewed-change) · [Documentation](#documentation) · [Support](#support)
 
 <!-- SCREENSHOT: hero-issue-to-review | mixed status | 1440x900 | issue, active agent, structured decision, preview, review | redact repository/account data -->
+![Placeholder for the Vibe Dashboard issue-to-review workflow](https://picsum.photos/seed/vd-hero-issue-review/1440/900?grayscale&blur=2)
+
 > **Hero media placeholder:** an issue becomes agent work, a structured decision returns to
 > the agent, and the resulting change enters review.
 
@@ -75,6 +77,8 @@ guarded messaging, callbacks, workspace creation, and preview control available 
 CLI setup. **PR link pending.**
 
 <!-- SCREENSHOT: multi-agent-workspace | available + in progress | 1440x900 | two sessions, workspace task, handoff state | do not imply cloud isolation -->
+![Placeholder for two agent sessions in one workspace](https://picsum.photos/seed/vd-multi-agent-workspace/1440/900?grayscale&blur=2)
+
 > **Media placeholder:** two sessions working from one repository workspace.
 
 ## Bring work into the dashboard
@@ -90,6 +94,8 @@ workspace and agent executing it.
 - Chrome-assisted feedback capture — **PR link pending**
 
 <!-- SCREENSHOT: work-intake | in progress | 1440x900 | source issue, workspace, assigned agent | public seed data -->
+![Placeholder for external work entering Vibe Dashboard](https://picsum.photos/seed/vd-work-intake/1440/900?grayscale&blur=2)
+
 > **Media placeholder:** an external issue opening as assigned workspace work.
 
 ## Turn agent questions into decisions
@@ -104,6 +110,8 @@ Core forms and attachments are available. Routing selected context to a specific
 progress. **PR link pending.**
 
 <!-- SCREENSHOT: structured-decisions | available + in progress | 1440x900 | request, form, normalized handoff | sample values only -->
+![Placeholder for a structured agent decision form](https://picsum.photos/seed/vd-structured-decisions/1440/900?grayscale&blur=2)
+
 > **Media placeholder:** a decision form beside its originating agent session.
 
 ## Preview, review, and take over
@@ -118,6 +126,8 @@ Browser VS Code is available. Diff and feedback surfaces are in progress. Previe
 experimental. **Diff-review PR link pending.**
 
 <!-- SCREENSHOT: preview-review | mixed status | 1440x900 | preview, diff feedback, browser VS Code | label each surface status -->
+![Placeholder for preview, diff, and review](https://picsum.photos/seed/vd-preview-review/1440/900?grayscale&blur=2)
+
 > **Media placeholder:** the running change, its diff, and feedback returning to the agent.
 
 ## Keep context between agent turns
@@ -132,6 +142,8 @@ Agent summaries in commit messages are in progress and **optional** because git 
 durable and shared.
 
 <!-- SCREENSHOT: durable-agent-context | mixed status | 1440x900 | task, callback, timeline/outline | separate branch captures if needed -->
+![Placeholder for durable task and callback context](https://picsum.photos/seed/vd-durable-context/1440/900?grayscale&blur=2)
+
 > **Media placeholder:** durable tasks and callback state, with developing navigation shown separately.
 
 ## Prepare safer development environments
@@ -146,6 +158,8 @@ durable and shared.
 These are development direction, not security guarantees. Inactivity/auto-sleep is omitted.
 
 <!-- SCREENSHOT: safe-environment | in progress | 1440x900 | sample variable, tool environment, private URL | never capture credentials -->
+![Placeholder for safe environment configuration](https://picsum.photos/seed/vd-safe-environment/1440/900?grayscale&blur=2)
+
 > **Media placeholder:** safe sample configuration leading to a private preview.
 
 ## Reach the workspace where you work
@@ -157,6 +171,8 @@ configuration is in progress. Managed hosting is waitlist-only. This README does
 native mobile application.
 
 <!-- SCREENSHOT: responsive-browser-access | available + in progress | desktop + phone browser | same real workspace -->
+![Placeholder for desktop and phone browser access](https://picsum.photos/seed/vd-responsive-browser/1440/900?grayscale&blur=2)
+
 > **Media placeholder:** the same workspace in desktop and phone browsers.
 
 ## Development index
