@@ -5,7 +5,7 @@ describe('BeadsForm optimistic submit source', () => {
   it('locks and copies direct bead-backed submissions before persistence returns', async () => {
     const source = await readFile(new URL('./module.tsx', import.meta.url), 'utf8');
     const directStart = source.indexOf('const optimisticSubmissionId = submissionIdRef.current ??= createSubmissionId();');
-    const directLock = source.indexOf('preserveSubmittedFormDom(formHostRef.current, values', directStart);
+    const directLock = source.lastIndexOf('preserveSubmittedFormDom(formHostRef.current, values', directStart);
     const directResult = source.indexOf('setSubmitResult({', directStart);
     const directCopy = source.indexOf('void copySubmittedResultHandoff(navigator.clipboard, handoffFormat, values, handoffMetadata).then(setClipboardResult);', directStart);
     const directPersist = source.indexOf('actions.submitBeadForm({', directStart);
