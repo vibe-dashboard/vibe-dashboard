@@ -82,7 +82,7 @@ function targetOwnsHorizontalArrows(target: Element): boolean {
   const editable = target.closest<HTMLElement>('[contenteditable]');
   if (editable && editable.getAttribute('contenteditable')?.toLowerCase() !== 'false') return true;
 
-  if (target.closest('textarea, audio, video')) return true;
+  if (target.closest('textarea, select, audio, video')) return true;
   const input = target.closest<HTMLInputElement>('input');
   if (input && ARROW_OWNING_INPUT_TYPES.has(input.type.toLowerCase())) return true;
 
