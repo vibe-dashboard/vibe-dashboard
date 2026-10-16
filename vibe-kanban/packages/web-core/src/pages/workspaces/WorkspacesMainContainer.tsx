@@ -45,6 +45,7 @@ function ChatBoxWithDiffStats({
   onScrollToBottom,
   onScrollToUserMessage,
   getActiveTurnPatchKey,
+  disableViewCode,
 }: {
   session: Session | undefined;
   workspaceId: string | undefined;
@@ -59,6 +60,7 @@ function ChatBoxWithDiffStats({
   onScrollToBottom: (behavior?: 'auto' | 'smooth') => void;
   onScrollToUserMessage: (patchKey: string) => void;
   getActiveTurnPatchKey: () => string | null;
+  disableViewCode: boolean;
 }) {
   const diffStats = useDiffStats();
 
@@ -87,7 +89,7 @@ function ChatBoxWithDiffStats({
       chatViewMode={chatViewMode}
       chatViewModeSelector={chatViewModeSelector}
       workspacePreview={workspacePreview}
-      disableViewCode={false}
+      disableViewCode={disableViewCode}
       showOpenWorkspaceButton={false}
       onScrollToPreviousMessage={onScrollToPreviousMessage}
       onScrollToBottom={onScrollToBottom}
@@ -115,6 +117,8 @@ interface WorkspacesMainContainerProps {
   chatViewMode?: ChatViewMode;
   chatViewModeSelector?: ReactNode;
   workspacePreview?: ReactNode;
+  showContextBar?: boolean;
+  disableViewCode?: boolean;
 }
 
 export const WorkspacesMainContainer = forwardRef<
@@ -135,6 +139,8 @@ export const WorkspacesMainContainer = forwardRef<
     chatViewMode = 'full',
     chatViewModeSelector,
     workspacePreview,
+    showContextBar = true,
+    disableViewCode = false,
   },
   ref
 ) {
@@ -261,11 +267,12 @@ export const WorkspacesMainContainer = forwardRef<
       onScrollToBottom={handleScrollToBottom}
       onScrollToUserMessage={handleScrollToUserMessage}
       getActiveTurnPatchKey={handleGetActiveTurnPatchKey}
+      disableViewCode={disableViewCode}
     />
   );
 
   const contextBarContent =
-    workspaceWithSession && chatViewMode === 'full' ? (
+    showContextBar && workspaceWithSession && chatViewMode === 'full' ? (
       <ContextBarContainer containerRef={containerRef} />
     ) : null;
 

@@ -44,7 +44,10 @@ import type {
 } from '@/shared/lib/routes/appNavigation';
 import { resolveLabel, type ActionDefinition } from '@/shared/types/actions';
 import { WorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
-import { useWorkspaceDiffStore } from '@/shared/stores/useWorkspaceDiffStore';
+import {
+  WorkspaceDiffStoreProvider,
+  useWorkspaceDiffStoreApi,
+} from '@/shared/stores/useWorkspaceDiffStore';
 import '@/i18n/config';
 import {
   getBrowserStorage,
@@ -228,6 +231,7 @@ function WorkspaceDiffBridge({
   enabled: boolean;
 }) {
   const { diffs } = useDiffStream(workspaceId, enabled, { statsOnly: true });
+  const diffStore = useWorkspaceDiffStoreApi();
 
   useEffect(() => {
     const diffStats = {
@@ -238,7 +242,7 @@ function WorkspaceDiffBridge({
         0
       ),
     };
-    useWorkspaceDiffStore.getState().setWorkspaceDiffData({
+    diffStore.getState().setWorkspaceDiffData({
       diffs,
       diffPaths: new Set(
         diffs.map((diff) => diff.newPath || diff.oldPath || '').filter(Boolean)
@@ -253,13 +257,13 @@ function WorkspaceDiffBridge({
       getFilesWithGitHubComments: () => [],
       getFirstCommentLineForFile: () => null,
     });
-  }, [diffs]);
+  }, [diffStore, diffs]);
 
   useEffect(
     () => () => {
-      useWorkspaceDiffStore.getState().clearWorkspaceDiffData();
+      diffStore.getState().clearWorkspaceDiffData();
     },
-    []
+    [diffStore]
   );
 
   return null;
@@ -425,14 +429,16 @@ function InlineWorkspaceChat({
   );
 
   return (
-    <InlineWorkspaceProvider workspaceId={workspaceId} surfaceId={surfaceId}>
-      <InlineWorkspaceChatContent
-        refHolder={workspaceContextRef}
-        chatViewMode={effectiveChatViewMode}
-        chatViewModeSelector={chatViewModeSelector}
-        workspacePreview={workspacePreview}
-      />
-    </InlineWorkspaceProvider>
+    <WorkspaceDiffStoreProvider>
+      <InlineWorkspaceProvider workspaceId={workspaceId} surfaceId={surfaceId}>
+        <InlineWorkspaceChatContent
+          refHolder={workspaceContextRef}
+          chatViewMode={effectiveChatViewMode}
+          chatViewModeSelector={chatViewModeSelector}
+          workspacePreview={workspacePreview}
+        />
+      </InlineWorkspaceProvider>
+    </WorkspaceDiffStoreProvider>
   );
 }
 
@@ -467,6 +473,8 @@ function InlineWorkspaceChatContent({
       chatViewMode={chatViewMode}
       chatViewModeSelector={chatViewModeSelector}
       workspacePreview={workspacePreview}
+      showContextBar={false}
+      disableViewCode
     />
   );
 }

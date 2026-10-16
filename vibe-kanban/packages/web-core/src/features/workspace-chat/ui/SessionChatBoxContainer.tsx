@@ -53,7 +53,6 @@ import {
   RIGHT_MAIN_PANEL_MODES,
 } from '@/shared/stores/useUiPreferencesStore';
 import { useInspectModeStore } from '../model/store/useInspectModeStore';
-import { useActionVisibilityContext } from '@/shared/hooks/useActionVisibilityContext';
 import { PrCommentsDialog } from '@/shared/dialogs/tasks/PrCommentsDialog';
 import type { NormalizedComment } from '@vibe/ui/components/pr-comment-node';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
@@ -200,7 +199,6 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
   const appNavigation = useAppNavigation();
 
-  const actionCtx = useActionVisibilityContext();
   const { rightMainPanelMode, setRightMainPanelMode } =
     useWorkspacePanelState(workspaceId);
 
@@ -329,6 +327,16 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
   // Branch status for edit retry and conflict detection
   const { data: branchStatus } = useBranchStatus(workspaceId);
+  const hasOpenPullRequest = useMemo(
+    () =>
+      branchStatus?.some((repo) =>
+        repo.merges?.some(
+          (merge) =>
+            merge.type === 'pr' && merge.pr_info.status === 'open'
+        )
+      ) ?? false,
+    [branchStatus]
+  );
 
   // Derive conflict state from branch status
   const hasConflicts = useMemo(() => {
@@ -1088,7 +1096,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
         items: toolbarActionItems,
       }}
       onPrCommentClick={
-        actionCtx.hasOpenPR ? handleInsertPrComments : undefined
+        hasOpenPullRequest ? handleInsertPrComments : undefined
       }
       stats={{
         filesChanged,

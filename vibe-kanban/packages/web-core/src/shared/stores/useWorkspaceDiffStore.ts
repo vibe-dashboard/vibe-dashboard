@@ -1,4 +1,12 @@
-import { create } from 'zustand';
+import {
+  createContext,
+  createElement,
+  useContext,
+  useRef,
+  type ReactNode,
+} from 'react';
+import { create, useStore } from 'zustand';
+import { createStore, type StoreApi } from 'zustand/vanilla';
 import type { Diff, DiffStats, UnifiedPrComment } from 'shared/types';
 import type { NormalizedGitHubComment } from '@/shared/hooks/useWorkspaceContext';
 
@@ -43,7 +51,7 @@ interface WorkspaceDiffData {
   getFirstCommentLineForFile: (filePath: string) => number | null;
 }
 
-interface WorkspaceDiffState extends WorkspaceDiffData {
+export interface WorkspaceDiffState extends WorkspaceDiffData {
   /** Batch-update all diff data fields. Called by WorkspaceProvider. */
   setWorkspaceDiffData: (data: WorkspaceDiffData) => void;
   /** Reset to defaults. Called on workspace switch / unmount. */
@@ -68,44 +76,94 @@ const DEFAULT_DATA: WorkspaceDiffData = {
 // Store
 // ---------------------------------------------------------------------------
 
-export const useWorkspaceDiffStore = create<WorkspaceDiffState>()((set) => ({
-  ...DEFAULT_DATA,
+function createWorkspaceDiffState(
+  set: StoreApi<WorkspaceDiffState>['setState'],
+  initialData?: Partial<WorkspaceDiffData>
+): WorkspaceDiffState {
+  return {
+    ...DEFAULT_DATA,
+    ...initialData,
+    setWorkspaceDiffData: (data) => set(data),
+    clearWorkspaceDiffData: () => set(DEFAULT_DATA),
+  };
+}
 
-  setWorkspaceDiffData: (data) => set(data),
+export function createWorkspaceDiffStore(
+  initialData?: Partial<WorkspaceDiffData>
+): StoreApi<WorkspaceDiffState> {
+  return createStore<WorkspaceDiffState>()((set) =>
+    createWorkspaceDiffState(set, initialData)
+  );
+}
 
-  clearWorkspaceDiffData: () => set(DEFAULT_DATA),
-}));
+// Standalone VK keeps its historical process-wide store. Embedded surfaces
+// install a provider below so every mounted Agent owns its diff lifecycle.
+export const useWorkspaceDiffStore = create<WorkspaceDiffState>()((set) =>
+  createWorkspaceDiffState(set)
+);
+
+const WorkspaceDiffStoreContext =
+  createContext<StoreApi<WorkspaceDiffState> | null>(null);
+
+export function WorkspaceDiffStoreProvider({
+  children,
+  store,
+}: {
+  children: ReactNode;
+  store?: StoreApi<WorkspaceDiffState>;
+}) {
+  const storeRef = useRef<StoreApi<WorkspaceDiffState> | null>(null);
+  if (!storeRef.current) storeRef.current = createWorkspaceDiffStore();
+
+  return createElement(
+    WorkspaceDiffStoreContext.Provider,
+    { value: store ?? storeRef.current },
+    children
+  );
+}
+
+export function useWorkspaceDiffStoreApi(): StoreApi<WorkspaceDiffState> {
+  return useContext(WorkspaceDiffStoreContext) ?? useWorkspaceDiffStore;
+}
+
+function useWorkspaceDiffSelector<T>(
+  selector: (state: WorkspaceDiffState) => T
+): T {
+  return useStore(useWorkspaceDiffStoreApi(), selector);
+}
 
 // ---------------------------------------------------------------------------
 // Atomic selectors — each subscribes to a single field to minimise rerenders
 // ---------------------------------------------------------------------------
 
-export const useDiffs = () => useWorkspaceDiffStore((s) => s.diffs);
+export const useDiffs = () => useWorkspaceDiffSelector((s) => s.diffs);
 
-export const useDiffPaths = () => useWorkspaceDiffStore((s) => s.diffPaths);
+export const useDiffPaths = () =>
+  useWorkspaceDiffSelector((s) => s.diffPaths);
 
-export const useDiffStats = () => useWorkspaceDiffStore((s) => s.diffStats);
+export const useDiffStats = () =>
+  useWorkspaceDiffSelector((s) => s.diffStats);
 
 export const useStoreDiffGitHubComments = () =>
-  useWorkspaceDiffStore((s) => s.gitHubComments);
+  useWorkspaceDiffSelector((s) => s.gitHubComments);
 
 export const useIsGitHubCommentsLoading = () =>
-  useWorkspaceDiffStore((s) => s.isGitHubCommentsLoading);
+  useWorkspaceDiffSelector((s) => s.isGitHubCommentsLoading);
 
 export const useShowGitHubComments = () =>
-  useWorkspaceDiffStore((s) => s.showGitHubComments);
+  useWorkspaceDiffSelector((s) => s.showGitHubComments);
 
 export const useSetShowGitHubComments = () =>
-  useWorkspaceDiffStore((s) => s.setShowGitHubComments);
+  useWorkspaceDiffSelector((s) => s.setShowGitHubComments);
 
 export const useGetGitHubCommentsForFile = () =>
-  useWorkspaceDiffStore((s) => s.getGitHubCommentsForFile);
+  useWorkspaceDiffSelector((s) => s.getGitHubCommentsForFile);
 
 export const useGetGitHubCommentCountForFile = () =>
-  useWorkspaceDiffStore((s) => s.getGitHubCommentCountForFile);
+  useWorkspaceDiffSelector((s) => s.getGitHubCommentCountForFile);
 
 export const useGetFilesWithGitHubComments = () =>
-  useWorkspaceDiffStore((s) => s.getFilesWithGitHubComments);
+  useWorkspaceDiffSelector((s) => s.getFilesWithGitHubComments);
 
 export const useGetFirstCommentLineForFile = () =>
-  useWorkspaceDiffStore((s) => s.getFirstCommentLineForFile);
+  useWorkspaceDiffSelector((s) => s.getFirstCommentLineForFile);
