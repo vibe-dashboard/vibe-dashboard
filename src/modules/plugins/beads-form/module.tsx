@@ -2095,6 +2095,7 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
           </>
         )}
       </header>
+      {selectedForm ? <BeadsFormHandoffFormatControl format={handoffFormat} onChange={setHandoffFormat} /> : null}
 
       {!selected ? (
         <section>
@@ -2158,6 +2159,7 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
             submittedAt: submitResult.submittedAt,
             submittedBy: submitResult.submittedBy,
           }}
+          handoffFormat={handoffFormat}
           warnings={submitResult.warnings}
           onEdit={handleEditBeadResponse}
         >
