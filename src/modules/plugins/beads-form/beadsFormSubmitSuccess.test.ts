@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  copySubmittedBatchResultHandoff,
+  copySubmittedResultHandoff,
   copySubmittedResultHandoffXml,
   submittedBatchResultHandoffXml,
   normalizedSubmittedResultJson,
@@ -14,6 +16,40 @@ describe('BeadsForm submit success helpers', () => {
       decision: { approve: true },
       notes: 'Ship it',
     }, null, 2));
+  });
+
+  it('copies normalized response-only JSON without XML metadata', async () => {
+    const writeText = vi.fn<Clipboard['writeText']>(async () => undefined);
+    const values = { answer: 'Markdown **source**', choices: { yes: true, no: false } };
+
+    const result = await copySubmittedResultHandoff({ writeText }, 'json', values, {
+      beadId: 'bead-ignored',
+      formId: 'form-ignored',
+    });
+
+    expect(result.text).toBe(JSON.stringify(values, null, 2));
+    expect(result.text).not.toContain('bead-ignored');
+    expect(writeText).toHaveBeenCalledWith(result.text);
+  });
+
+  it('uses structured batch JSON because source identifiers are required for routing', async () => {
+    const writeText = vi.fn<Clipboard['writeText']>(async () => undefined);
+    const input = {
+      batchId: 'batch-1',
+      nextInstruction: 'Continue once',
+      forms: [{ beadId: 'bead-a', formId: 'form-a', values: { answer: 'yes' } }],
+    };
+
+    const result = await copySubmittedBatchResultHandoff({ writeText }, 'json', input);
+
+    expect(JSON.parse(result.text)).toEqual(input);
+    expect(result.text).not.toContain('<beadsFormBatchSubmission>');
+  });
+
+  it('uses format-specific manual fallback text', async () => {
+    const result = await copySubmittedResultHandoff(undefined, 'json', { answer: 'saved' });
+    expect(result.status).toBe('unavailable');
+    expect(result.warning).toContain('manual JSON handoff field');
   });
 
   it('formats markdown-friendly XML with metadata, choice booleans, notes, and additional notes', () => {
