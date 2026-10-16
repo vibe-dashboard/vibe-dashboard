@@ -244,6 +244,8 @@ export interface PreviewSlotUrlResponse extends PreviewSlotUrlParts {
   customerSlug: string;
   host: string;
   url: string;
+}
+
 export interface RegisterRepoBody {
   path: string;
   display_name?: string | null;
@@ -313,6 +315,8 @@ export class VibeKanbanServerClient {
 
   getWorkspace(workspaceId: string): Promise<Workspace> {
     return this.get(`/workspaces/${encodeURIComponent(workspaceId)}`);
+  }
+
   getRepos(): Promise<Repo[]> {
     return this.get('/repos');
   }
