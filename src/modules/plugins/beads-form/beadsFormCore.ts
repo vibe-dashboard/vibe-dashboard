@@ -546,7 +546,7 @@ export function buildPrettySummary(form: Pick<BeadsFormDefinition, 'title'>, val
 
 export function buildAgentResultMessage(args: {
   beadId: string;
-  form: Pick<BeadsFormDefinition, 'id' | 'title'>;
+  form: Pick<BeadsFormDefinition, 'id' | 'type' | 'title'>;
   values: JsonObject;
   submittedAt?: string;
   submittedBy?: string;
@@ -558,6 +558,7 @@ export function buildAgentResultMessage(args: {
     beadsFormSubmissionXml({
       beadId: args.beadId,
       formId: args.form.id,
+      formType: resolveBeadsFormType(args.form),
       ...(args.submittedAt ? { submittedAt: args.submittedAt } : {}),
       ...(args.submittedBy ? { submittedBy: args.submittedBy } : {}),
       values: args.values,

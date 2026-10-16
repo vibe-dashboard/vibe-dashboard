@@ -86,6 +86,7 @@ import {
 import { registerBeadsFormMediaRoutes } from './beads-form-media-routes';
 import { BEADS_FORM_NOTIFICATION_TIMEOUT_MS, VibeKanbanServerClient } from '../../../server/vk-client';
 // @platform end
+import { AggregateBeadsFormTypeCue, BeadsFormTypeBadge } from './beadsFormType';
 
 type PreviewBeadsForm = BeadsFormDefinition & {
   sourceFile: string;
@@ -629,11 +630,6 @@ function BeadsFormSelectedChrome({
   );
 }
 
-function BeadsFormTypeBadge({ form }: { form: Pick<BeadsFormDefinition, 'type'> }) {
-  const type = resolveBeadsFormType(form);
-  return <span className={`beads-form-type beads-form-type--${type}`}>{type === 'code-review' ? 'Code review' : 'Questionnaire'}</span>;
-}
-
 function BeadsFormPreviewRoute({ actions }: { actions: {
   loadPreviewForms: (input: LoadPreviewFormsInput) => MaybeNestedPromise<LoadPreviewFormsResult>;
   submitPreviewForm: (input: SubmitPreviewFormInput) => MaybeNestedPromise<SubmitPreviewFormResult>;
@@ -1094,6 +1090,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft, regis
   const draftSaveQueueRef = useRef<BeadsFormDraftSaveQueue | null>(null);
   const wizardPositionRef = useRef<BeadsFormWizardPosition | undefined>(item.draft?.position);
   const form = item.form;
+  const compiledFormMounted = Boolean(form && status.status !== 'success');
   const domPrefix = useMemo(() => aggregateFormDomPrefix(item.ref), [item.ref]);
   const html = useMemo(() => (
     form ? wizardSafeFormHtml(
@@ -1366,7 +1363,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft, regis
       <header className="beadsform-page-chrome beadsform-page-chrome--compact">
         <div>
           <p className="beadsform-eyebrow">{item.ref.beadId} / {item.ref.formId}</p>
-          {form ? <BeadsFormTypeBadge form={form} /> : null}
+          <AggregateBeadsFormTypeCue form={form} compiledFormMounted={compiledFormMounted} />
           <details className="beadsform-context-details">
             <summary>Bead context</summary>
             <div className="beadsform-context-details-body">

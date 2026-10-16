@@ -587,7 +587,7 @@ describe('BeadsForm core', () => {
   it('builds copyable agent result text', () => {
     const text = buildAgentResultMessage({
       beadId: 'beads-web-biu',
-      form: { id: 'mvp', title: 'MVP Questions' },
+      form: { id: 'mvp', type: 'code-review', title: 'MVP Questions' },
       values: { render_mvp: ['direct_sanitized_html'], decision: { approve: true, defer: false } },
       submittedAt: '2026-06-29T00:00:00.000Z',
       submittedBy: 'reviewer',
@@ -596,10 +596,18 @@ describe('BeadsForm core', () => {
     expect(text).toContain('BeadsForm XML handoff:');
     expect(text).toContain('<beadId>beads-web-biu</beadId>');
     expect(text).toContain('<formId>mvp</formId>');
+    expect(text).toContain('<formType>code-review</formType>');
     expect(text).toContain('<submittedAt>2026-06-29T00:00:00.000Z</submittedAt>');
     expect(text).toContain('<submittedBy>reviewer</submittedBy>');
     expect(text).toContain('<choice id="approve" selected="true" />');
     expect(text).toContain('Remove that label after processing');
+
+    const defaultTypeText = buildAgentResultMessage({
+      beadId: 'beads-web-default',
+      form: { id: 'questions', title: 'Questions' },
+      values: { answer: 'yes' },
+    });
+    expect(defaultTypeText).toContain('<formType>questionnaire</formType>');
   });
 
   it('validates submitted fields against a controls manifest', () => {

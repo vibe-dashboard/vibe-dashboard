@@ -103,10 +103,10 @@ describe('BeadsForm pending queue UI source', () => {
   it('labels typed forms across direct, pending, aggregate, and batch browsing', async () => {
     const source = await readFile(new URL('./module.tsx', import.meta.url), 'utf8');
 
-    expect(source).toContain('function BeadsFormTypeBadge');
+    expect(source).toContain("from './beadsFormType'");
     expect(source).toContain('<BeadsFormTypeBadge form={entry.form} />');
     expect(source).toContain('<BeadsFormTypeBadge form={form} />');
-    expect(source).toContain('<BeadsFormTypeBadge form={item.form} />');
+    expect(source).toContain('<AggregateBeadsFormTypeCue form={form} compiledFormMounted={compiledFormMounted} />');
     expect(source).toContain('formType: resolveBeadsFormType(snapshot.form)');
     expect(source).toContain('formType: resolveBeadsFormType(');
   });
