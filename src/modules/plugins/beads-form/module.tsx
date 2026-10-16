@@ -1656,6 +1656,7 @@ function BeadsFormAggregateRoute({ actions }: { actions: {
               submitBeadForm={actions.submitBeadForm}
               saveBeadFormDraft={actions.saveBeadFormDraft}
               registerBatchItem={registerBatchItem}
+              handoffFormat={handoffFormat}
             />
           ))}
           <div className="beadsform-batch-submit-panel" aria-live="polite">
@@ -1682,17 +1683,17 @@ function BeadsFormAggregateRoute({ actions }: { actions: {
               <button type="button" disabled={batchStatus.status === 'submitting'} onClick={() => void handleBatchSubmit(true)}>Submit batch and allow code/file changes</button>
               <button type="button" disabled={batchStatus.status === 'submitting'} onClick={() => void handleBatchSubmit(false)}>Submit batch and avoid code/file changes</button>
             </div>
-            {batchStatus.status === 'submitting' ? <p>Submitting batch and copying combined XML handoff…</p> : null}
+            {batchStatus.status === 'submitting' ? <p>Submitting batch and copying combined {handoffFormat.toUpperCase()} handoff…</p> : null}
             {batchStatus.status === 'success' || batchStatus.status === 'partial' ? (
               <div className={batchStatus.status === 'partial' ? 'beadsform-warning' : 'beadsform-submit-result'} role="status">
                 <h3>{batchStatus.status === 'success' ? 'Batch submitted' : 'Batch partially submitted'}</h3>
-                <p>{batchStatus.successes.length} source form{batchStatus.successes.length === 1 ? '' : 's'} saved. {batchStatus.failures.length > 0 ? `${batchStatus.failures.length} source form${batchStatus.failures.length === 1 ? '' : 's'} still need attention; do not resubmit saved forms with a new URL.` : 'Combined XML handoff is ready.'}</p>
-                {batchStatus.clipboard.status === 'copied' ? <p>Copied combined BeadsForm XML handoff to your clipboard.</p> : null}
+                <p>{batchStatus.successes.length} source form{batchStatus.successes.length === 1 ? '' : 's'} saved. {batchStatus.failures.length > 0 ? `${batchStatus.failures.length} source form${batchStatus.failures.length === 1 ? '' : 's'} still need attention; do not resubmit saved forms with a new URL.` : `Combined ${handoffFormat.toUpperCase()} handoff is ready.`}</p>
+                {batchStatus.clipboard.status === 'copied' ? <p>Copied combined BeadsForm {handoffFormat.toUpperCase()} handoff to your clipboard.</p> : null}
                 {batchStatus.clipboard.warning ? <p>{batchStatus.clipboard.warning}</p> : null}
                 {batchStatus.failures.length > 0 ? (
                   <ul>{batchStatus.failures.map((failure) => <li key={`${failure.key}:${failure.message}`}>{failure.ref.beadId}/{failure.ref.formId}: {failure.message}</li>)}</ul>
                 ) : null}
-                <h4>Combined BeadsForm XML handoff</h4>
+                <h4>Combined BeadsForm {handoffFormat.toUpperCase()} handoff</h4>
                 <textarea readOnly rows={Math.min(24, Math.max(8, batchStatus.clipboard.text.split('\n').length + 1))} value={batchStatus.clipboard.text} />
               </div>
             ) : null}
@@ -1713,6 +1714,7 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
   submitBeadForm: (input: SubmitFormInput) => MaybeNestedPromise<SubmitFormResult>;
   saveBeadFormDraft: (input: SaveFormDraftInput) => MaybeNestedPromise<SaveFormDraftResult>;
 }; pendingQueueSentinel: PendingQueueSentinel }) {
+  const [handoffFormat, setHandoffFormat] = useBeadsFormHandoffFormat();
   const [params] = useSearchParams();
   const workspaceId = params.get('workspace') ?? '';
   const dir = params.get('dir') ?? '';
@@ -1989,7 +1991,7 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
       formId: loaded.selected.selectedForm.id,
       formType: resolveBeadsFormType(loaded.selected.selectedForm),
     };
-    setClipboardResult(pendingSubmittedResultHandoffCopy(values, handoffMetadata));
+    setClipboardResult(pendingSubmittedResultHandoff(handoffFormat, values, handoffMetadata));
     setSubmitResult({
       beadId,
       formId: loaded.selected.selectedForm.id,
@@ -2002,7 +2004,7 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
       reviewLabel: 'needs-agent-review',
       warnings: [],
     });
-    void copySubmittedResultHandoffXml(navigator.clipboard, values, handoffMetadata).then(setClipboardResult);
+    void copySubmittedResultHandoff(navigator.clipboard, handoffFormat, values, handoffMetadata).then(setClipboardResult);
     try {
       const result = await (await actions.submitBeadForm({
         dir: loaded.selected.beadRepoDir,
