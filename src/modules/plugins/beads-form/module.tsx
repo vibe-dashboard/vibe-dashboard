@@ -43,14 +43,19 @@ import { initializeCompactMoreInfo, refreshCompactMoreInfoState } from './beadsF
 import { initializeMarkdownTextareaEditors, refreshMarkdownTextareaEditors } from './beadsFormMarkdownEditor';
 import { preserveSubmittedFormDom } from './beadsFormSubmissionUi';
 import {
-  copySubmittedResultHandoffXml,
-  copySubmittedBatchResultHandoffXml,
-  pendingSubmittedBatchResultHandoffCopy,
-  pendingSubmittedResultHandoffCopy,
-  submittedBatchResultHandoffXml,
-  submittedResultHandoffXml,
+  copySubmittedResultHandoff,
+  copySubmittedBatchResultHandoff,
+  pendingSubmittedBatchResultHandoff,
+  pendingSubmittedResultHandoff,
+  submittedBatchResultHandoff,
+  submittedResultHandoff,
   type ClipboardCopyResult,
 } from './beadsFormSubmitSuccess';
+import {
+  readBeadsFormHandoffFormat,
+  writeBeadsFormHandoffFormat,
+  type BeadsFormHandoffFormat,
+} from './beadsFormHandoffPreference';
 import type { BeadsFormSubmissionHandoffMetadata } from './beadsFormSubmissionHandoff';
 import {
   aggregateFormDomPrefix,
@@ -528,11 +533,38 @@ function SubmittingOverlay() {
   );
 }
 
+function useBeadsFormHandoffFormat(): [BeadsFormHandoffFormat, (format: BeadsFormHandoffFormat) => void] {
+  const [format, setFormat] = useState<BeadsFormHandoffFormat>(() => (
+    readBeadsFormHandoffFormat(typeof window === 'undefined' ? undefined : window.localStorage)
+  ));
+  const update = React.useCallback((next: BeadsFormHandoffFormat) => {
+    setFormat(next);
+    writeBeadsFormHandoffFormat(typeof window === 'undefined' ? undefined : window.localStorage, next);
+  }, []);
+  return [format, update];
+}
+
+function BeadsFormHandoffFormatControl({ format, onChange }: {
+  format: BeadsFormHandoffFormat;
+  onChange: (format: BeadsFormHandoffFormat) => void;
+}) {
+  return (
+    <label className="beadsform-handoff-format">
+      Copy format
+      <select value={format} onChange={(event) => onChange(event.target.value as BeadsFormHandoffFormat)}>
+        <option value="xml">XML</option>
+        <option value="json">JSON</option>
+      </select>
+    </label>
+  );
+}
+
 function SubmitSuccessSummary({
   title,
   clipboardResult,
   values,
   handoffMetadata,
+  handoffFormat,
   warnings,
   onEdit,
   children,
@@ -541,22 +573,24 @@ function SubmitSuccessSummary({
   clipboardResult?: ClipboardCopyResult | null;
   values: JsonObject;
   handoffMetadata?: BeadsFormSubmissionHandoffMetadata;
+  handoffFormat: BeadsFormHandoffFormat;
   warnings: string[];
   onEdit: () => void;
   children?: React.ReactNode;
 }) {
-  const manualCopyText = clipboardResult?.text ?? submittedResultHandoffXml(values, handoffMetadata);
+  const formatLabel = handoffFormat.toUpperCase();
+  const manualCopyText = clipboardResult?.text ?? submittedResultHandoff(handoffFormat, values, handoffMetadata);
   return (
     <section className="beadsform-submit-result" aria-live="polite">
       <h2>{title}</h2>
       <p>Your BeadsForm response is submitted and the form is locked to the submitted answers.</p>
       {clipboardResult?.status === 'copied' ? (
-        <p>Copied BeadsForm XML handoff to your clipboard.</p>
+        <p>Copied BeadsForm {formatLabel} handoff to your clipboard.</p>
       ) : !clipboardResult || clipboardResult.status === 'pending' ? (
-        <p>Copying BeadsForm XML handoff…</p>
+        <p>Copying BeadsForm {formatLabel} handoff…</p>
       ) : (
         <div className="beadsform-warning" role="status">
-          <p>{clipboardResult?.warning ?? 'Clipboard copy is unavailable. Use the manual XML handoff field below.'}</p>
+          <p>{clipboardResult?.warning ?? `Clipboard copy is unavailable. Use the manual ${formatLabel} handoff field below.`}</p>
         </div>
       )}
       {warnings.length > 0 ? (
@@ -567,7 +601,7 @@ function SubmitSuccessSummary({
       ) : null}
       {children}
       <button type="button" onClick={onEdit}>Edit response</button>
-      <h3>BeadsForm XML handoff</h3>
+      <h3>BeadsForm {formatLabel} handoff</h3>
       <textarea readOnly rows={Math.min(20, Math.max(6, manualCopyText.split('\n').length + 1))} value={manualCopyText} />
     </section>
   );
@@ -634,6 +668,7 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
   loadPreviewForms: (input: LoadPreviewFormsInput) => MaybeNestedPromise<LoadPreviewFormsResult>;
   submitPreviewForm: (input: SubmitPreviewFormInput) => MaybeNestedPromise<SubmitPreviewFormResult>;
 } }) {
+  const [handoffFormat, setHandoffFormat] = useBeadsFormHandoffFormat();
   const [params] = useSearchParams();
   const folder = params.get('folder') ?? '';
   const formId = normalizeBeadsFormQueryId(params.get('form'));
@@ -788,14 +823,14 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
       singleQuestionMode: loaded.selectedForm.format === 'standard',
     });
     const handoffMetadata = { formId: loaded.selectedForm.id, formType: resolveBeadsFormType(loaded.selectedForm) };
-    setClipboardResult(pendingSubmittedResultHandoffCopy(values, handoffMetadata));
+    setClipboardResult(pendingSubmittedResultHandoff(handoffFormat, values, handoffMetadata));
     setSubmitResult({
       formId: loaded.selectedForm.id,
       values,
       submittedAt: '',
       warnings: [],
     });
-    void copySubmittedResultHandoffXml(navigator.clipboard, values, handoffMetadata).then(setClipboardResult);
+    void copySubmittedResultHandoff(navigator.clipboard, handoffFormat, values, handoffMetadata).then(setClipboardResult);
     try {
       const result = await (await actions.submitPreviewForm({
         folder: loaded.folder,
@@ -834,9 +869,10 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
       {!loaded?.selectedForm ? <header>
         <p className="beadsform-eyebrow">Forms preview</p>
         <h1>Folder forms</h1>
-        <p>Load forms from a local folder, submit them without touching beads, and copy the XML handoff only.</p>
+        <p>Load forms from a local folder and submit them without touching beads.</p>
       </header> : null}
       {error ? <p role="alert" className="beadsform-error">{error}</p> : null}
+      <BeadsFormHandoffFormatControl format={handoffFormat} onChange={setHandoffFormat} />
       {loaded && !loaded.selectedForm ? (
         <section>
           <h2>Forms in <code>{loaded.folder}</code></h2>
@@ -884,6 +920,7 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
             formType: loaded?.selectedForm ? resolveBeadsFormType(loaded.selectedForm) : undefined,
             submittedAt: submitResult.submittedAt,
           }}
+          handoffFormat={handoffFormat}
           warnings={submitResult.warnings}
           onEdit={handleEditResponse}
         >
@@ -1072,11 +1109,12 @@ function BeadsFormPendingQueue({ actions, parentDir, pendingQueueSentinel }: {
   );
 }
 
-function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft, registerBatchItem }: {
+function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft, registerBatchItem, handoffFormat }: {
   item: AggregateBeadsFormItem;
   submitBeadForm: (input: SubmitFormInput) => MaybeNestedPromise<SubmitFormResult>;
   saveBeadFormDraft: (input: SaveFormDraftInput) => MaybeNestedPromise<SaveFormDraftResult>;
   registerBatchItem?: (key: string, controller: AggregateBatchController | null) => void;
+  handoffFormat: BeadsFormHandoffFormat;
 }) {
   const [status, setStatus] = useState<AggregateSubmitStatus>({ status: 'idle' });
   const [submittedLocked, setSubmittedLocked] = useState(false);
@@ -1298,7 +1336,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft, regis
       formId: form.id,
       formType: resolveBeadsFormType(form),
     };
-    const pendingCopy = pendingSubmittedResultHandoffCopy(values, handoffMetadata);
+    const pendingCopy = pendingSubmittedResultHandoff(handoffFormat, values, handoffMetadata);
     setStatus({
       status: 'success',
       values,
@@ -1308,7 +1346,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft, regis
       clipboardStatus: pendingCopy.status,
       clipboardText: pendingCopy.text,
     });
-    void copySubmittedResultHandoffXml(navigator.clipboard, values, handoffMetadata).then((copyResult) => {
+    void copySubmittedResultHandoff(navigator.clipboard, handoffFormat, values, handoffMetadata).then((copyResult) => {
       setStatus((current) => {
         if (current.status !== 'success') return current;
         return {
@@ -1338,7 +1376,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft, regis
         submittedBy: result.submittedBy,
         warnings: result.warnings,
         clipboardStatus: current.status === 'success' ? current.clipboardStatus : 'pending',
-        clipboardText: current.status === 'success' ? current.clipboardText : pendingSubmittedResultHandoffCopy(result.values, {
+        clipboardText: current.status === 'success' ? current.clipboardText : pendingSubmittedResultHandoff(handoffFormat, result.values, {
           beadId: item.ref.beadId,
           formId: form.id,
           submittedAt: result.submittedAt,
@@ -1412,6 +1450,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft, regis
             submittedAt: status.submittedAt,
             submittedBy: status.submittedBy,
           }}
+          handoffFormat={handoffFormat}
           warnings={status.warnings}
           onEdit={handleEditResponse}
         />
@@ -1427,6 +1466,7 @@ function BeadsFormAggregateRoute({ actions }: { actions: {
   submitBeadForm: (input: SubmitFormInput) => MaybeNestedPromise<SubmitFormResult>;
   saveBeadFormDraft: (input: SaveFormDraftInput) => MaybeNestedPromise<SaveFormDraftResult>;
 } }) {
+  const [handoffFormat, setHandoffFormat] = useBeadsFormHandoffFormat();
   const [params] = useSearchParams();
   const [loaded, setLoaded] = useState<LoadAggregateFormsResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1527,13 +1567,13 @@ function BeadsFormAggregateRoute({ actions }: { actions: {
         values: snapshot.values,
       })),
     };
-    const pendingCopy = pendingSubmittedBatchResultHandoffCopy(optimisticXmlInput);
+    const pendingCopy = pendingSubmittedBatchResultHandoff(handoffFormat, optimisticXmlInput);
     setBatchStatus({ status: 'submitting', clipboard: pendingCopy });
     batchSubmitInFlightRef.current = true;
     for (const snapshot of snapshots) {
       batchControllersRef.current.get(snapshot.key)?.lock(snapshot.values);
     }
-    void copySubmittedBatchResultHandoffXml(navigator.clipboard, optimisticXmlInput).then((copyResult) => {
+    void copySubmittedBatchResultHandoff(navigator.clipboard, handoffFormat, optimisticXmlInput).then((copyResult) => {
       setBatchStatus((current) => (
         current.status === 'submitting'
           ? { ...current, clipboard: copyResult }
@@ -1584,7 +1624,7 @@ function BeadsFormAggregateRoute({ actions }: { actions: {
     };
     setBatchStatus((current) => ({
       status: failures.length > 0 ? 'partial' : 'success',
-      clipboard: current.status === 'submitting' ? { ...current.clipboard, text: submittedBatchResultHandoffXml(persistedXmlInput) } : pendingSubmittedBatchResultHandoffCopy(persistedXmlInput),
+      clipboard: current.status === 'submitting' ? { ...current.clipboard, text: submittedBatchResultHandoff(handoffFormat, persistedXmlInput) } : pendingSubmittedBatchResultHandoff(handoffFormat, persistedXmlInput),
       successes,
       failures,
     }));
@@ -1598,6 +1638,7 @@ function BeadsFormAggregateRoute({ actions }: { actions: {
         <h1>Aggregate BeadsForm review</h1>
         <p>Answer several bead-backed forms from one page. Each section submits back to its source bead/form independently, so partial failures are visible per source form.</p>
       </header>
+      <BeadsFormHandoffFormatControl format={handoffFormat} onChange={setHandoffFormat} />
       {error ? <p role="alert" className="beadsform-error">{error}</p> : null}
       {!loaded && !error ? (
         <BeadsFormLoadingCard
