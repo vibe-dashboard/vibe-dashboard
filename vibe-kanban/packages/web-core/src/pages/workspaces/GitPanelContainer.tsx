@@ -12,6 +12,7 @@ import { GitPanel, type RepoInfo } from '@vibe/ui/components/GitPanel';
 import { Actions } from '@/shared/actions';
 import type { RepoAction } from '@vibe/ui/components/RepoCard';
 import type { Workspace, RepoWithTargetBranch, Merge } from 'shared/types';
+import { getWorkspaceBranchPanelState } from '@/shared/lib/workspaceBranchDisplay';
 
 export interface GitPanelContainerProps {
   selectedWorkspace: Workspace | undefined;
@@ -47,11 +48,27 @@ export function GitPanelContainer({
     };
   }, [selectedWorkspace?.id, activeWorkspaces, archivedWorkspaces]);
 
+  const branchPanelState = useMemo(
+    () => getWorkspaceBranchPanelState(selectedWorkspace, repos),
+    [selectedWorkspace, repos]
+  );
+
   const handleBranchNameChange = useCallback(
     (newName: string) => {
+      if (!branchPanelState.canRename) {
+        ConfirmDialog.show({
+          title: 'Branch rename unavailable',
+          message:
+            branchPanelState.helpText ||
+            'Branch rename is unavailable for this workspace.',
+          confirmText: 'OK',
+          showCancelButton: false,
+        });
+        return;
+      }
       renameBranch.mutate(newName);
     },
-    [renameBranch]
+    [branchPanelState.canRename, branchPanelState.helpText, renameBranch]
   );
 
   // Transform repos to RepoInfo format (moved from WorkspacesLayout)
@@ -263,7 +280,9 @@ export function GitPanelContainer({
     <GitPanel
       repos={repoInfosWithPushButton}
       repoSelectedActions={repoActions}
-      workingBranchName={selectedWorkspace?.branch ?? ''}
+      workingBranchName={branchPanelState.label}
+      workingBranchEditable={branchPanelState.canRename}
+      workingBranchHelp={branchPanelState.helpText}
       onWorkingBranchNameChange={handleBranchNameChange}
       onActionsClick={handleActionsClick}
       onRepoActionChange={setRepoAction}

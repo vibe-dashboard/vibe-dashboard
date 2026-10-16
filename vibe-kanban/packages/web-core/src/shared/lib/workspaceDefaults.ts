@@ -3,7 +3,12 @@ import type { Workspace } from 'shared/remote-types';
 import { getValidProjectRepoDefaults } from '@/shared/hooks/useProjectRepoDefaults';
 
 export interface WorkspaceDefaults {
-  preferredRepos: Array<{ repo_id: string; target_branch: string | null }>;
+  preferredRepos: Array<{
+    repo_id: string;
+    target_branch: string | null;
+    create_branch?: boolean;
+    checkout_branch?: string | null;
+  }>;
 }
 
 /**
@@ -32,6 +37,8 @@ export async function getWorkspaceDefaults(
           preferredRepos: scratchDefaults.map((r) => ({
             repo_id: r.repo_id,
             target_branch: r.target_branch,
+            create_branch: true,
+            checkout_branch: null,
           })),
         };
       }
@@ -62,6 +69,8 @@ export async function getWorkspaceDefaults(
           preferredRepos: repos.map((r) => ({
             repo_id: r.id,
             target_branch: r.target_branch,
+            create_branch: true,
+            checkout_branch: null,
           })),
         };
       } catch (err) {
@@ -96,6 +105,8 @@ export async function getWorkspaceDefaults(
       preferredRepos: repos.map((r) => ({
         repo_id: r.id,
         target_branch: r.target_branch,
+        create_branch: true,
+        checkout_branch: null,
       })),
     };
   } catch (err) {

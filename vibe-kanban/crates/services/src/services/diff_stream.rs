@@ -82,7 +82,7 @@ pub async fn compute_diff_stats_with_report(
         let base_commit_result = tokio::task::spawn_blocking({
             let git = git.clone();
             let repo_path = repo_path.clone();
-            let workspace_branch = workspace.branch.clone();
+            let workspace_branch = repo_with_branch.branch_name(&workspace.branch).to_string();
             let target_branch = repo_with_branch.target_branch.clone();
             move || git.get_base_commit(&repo_path, &workspace_branch, &target_branch)
         })

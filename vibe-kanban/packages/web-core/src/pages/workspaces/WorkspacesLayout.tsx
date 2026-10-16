@@ -49,7 +49,6 @@ import {
   RIGHT_MAIN_PANEL_MODES,
 } from '@/shared/stores/useUiPreferencesStore';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
-import { getWorkspacePanelId } from './workspacePanelId';
 
 const WORKSPACES_GUIDE_ID = 'workspaces-guide';
 
@@ -121,10 +120,11 @@ export function WorkspacesLayout() {
   const chatViewMode = useUiPreferencesStore((s) => s.chatViewMode);
   const setChatViewMode = useUiPreferencesStore((s) => s.setChatViewMode);
   const mainContainerRef = useRef<WorkspacesMainContainerHandle>(null);
-  const panelWorkspaceId = getWorkspacePanelId(workspaceId, isCreateMode);
   const hasWorkspaceRoute = !!workspaceId;
   const hasZenContext = isCreateMode || hasWorkspaceRoute;
   const effectiveChatViewMode = hasZenContext ? chatViewMode : 'full';
+  const isDesktopZenMode =
+    !isMobile && effectiveChatViewMode !== 'full' && hasZenContext;
 
   const handleScrollToBottom = useCallback(
     (behavior: 'auto' | 'smooth' = 'smooth') => {
@@ -148,14 +148,7 @@ export function WorkspacesLayout() {
     rightMainPanelMode,
     setLeftSidebarVisible,
     setLeftMainPanelVisible,
-  } = useWorkspacePanelState(panelWorkspaceId);
-  // A requested right panel temporarily takes precedence over the saved chat
-  // focus mode. Closing it restores the user's preferred chat layout.
-  const isDesktopZenMode =
-    !isMobile &&
-    effectiveChatViewMode !== 'full' &&
-    hasZenContext &&
-    rightMainPanelMode === null;
+  } = useWorkspacePanelState(isCreateMode ? undefined : workspaceId);
 
   const {
     config,
@@ -236,17 +229,12 @@ export function WorkspacesLayout() {
   );
 
   // ── Mobile layout ──────────────────────────────────────────────────
-  // Most mobile tabs stay mounted while hidden to preserve WebSocket
-  // connections and scroll positions across tab switches. The Changes tab is
-  // intentionally mounted only while active because rendering diffs starts
-  // expensive worker/highlighter work even when CSS-hidden.
+  // Uses `hidden` CSS class (NOT conditional rendering) to preserve
+  // WebSocket connections and scroll positions across tab switches.
   if (isMobile) {
     const mobileContent = (
-      <ReviewProvider workspaceId={panelWorkspaceId}>
-        <ChangesViewProvider
-          key={panelWorkspaceId ?? 'no-workspace'}
-          workspaceId={panelWorkspaceId}
-        >
+      <ReviewProvider workspaceId={selectedWorkspace?.id}>
+        <ChangesViewProvider>
           <div className="flex flex-col h-full min-h-0">
             {/* Workspaces tab */}
             <div
@@ -295,10 +283,10 @@ export function WorkspacesLayout() {
                 mobileTab !== 'changes' && 'hidden'
               )}
             >
-              {mobileTab === 'changes' && panelWorkspaceId && (
+              {selectedWorkspace?.id && (
                 <ChangesPanelContainer
                   className=""
-                  workspaceId={panelWorkspaceId}
+                  workspaceId={selectedWorkspace.id}
                 />
               )}
             </div>
@@ -413,11 +401,8 @@ export function WorkspacesLayout() {
   ) : undefined;
 
   const mainContent = (
-    <ReviewProvider workspaceId={panelWorkspaceId}>
-      <ChangesViewProvider
-        key={panelWorkspaceId ?? 'no-workspace'}
-        workspaceId={panelWorkspaceId}
-      >
+    <ReviewProvider workspaceId={selectedWorkspace?.id}>
+      <ChangesViewProvider>
         <div className="flex h-full">
           <Group
             orientation="horizontal"
@@ -471,10 +456,10 @@ export function WorkspacesLayout() {
                 className="min-w-0 h-full overflow-hidden"
               >
                 {rightMainPanelMode === RIGHT_MAIN_PANEL_MODES.CHANGES &&
-                  panelWorkspaceId && (
+                  selectedWorkspace?.id && (
                     <ChangesPanelContainer
                       className=""
-                      workspaceId={panelWorkspaceId}
+                      workspaceId={selectedWorkspace.id}
                     />
                   )}
                 {rightMainPanelMode === RIGHT_MAIN_PANEL_MODES.LOGS && (

@@ -145,6 +145,8 @@ impl McpServer {
             .map(|r| WorkspaceRepoInput {
                 repo_id: r.repo_id,
                 target_branch: r.branch,
+                create_branch: true,
+                checkout_branch: None,
             })
             .collect();
 
@@ -178,6 +180,7 @@ impl McpServer {
 
         let create_and_start_payload = CreateAndStartWorkspaceRequest {
             name: Some(name.clone()),
+            branch_name: None,
             repos: workspace_repos,
             linked_issue,
             executor_config: ExecutorConfig {

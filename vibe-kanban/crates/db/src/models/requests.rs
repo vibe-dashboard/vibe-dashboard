@@ -5,6 +5,10 @@ use uuid::Uuid;
 
 use super::{execution_process::ExecutionProcess, workspace::Workspace};
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ContainerQuery {
     #[serde(rename = "ref")]
@@ -15,24 +19,17 @@ pub struct ContainerQuery {
 pub struct WorkspaceRepoInput {
     pub repo_id: Uuid,
     pub target_branch: String,
+    #[serde(default = "default_true")]
+    pub create_branch: bool,
+    /// Existing local branch to check out when `create_branch` is false.
+    /// `target_branch` remains the separate base branch for diffs, merges, and PRs.
+    #[ts(optional, type = "string | null")]
+    pub checkout_branch: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
 pub struct CreateWorkspaceApiRequest {
     pub name: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, TS)]
-pub struct CreateOnlyWorkspaceRequest {
-    pub name: Option<String>,
-    pub repos: Vec<WorkspaceRepoInput>,
-    pub linked_issue: Option<LinkedIssueInfo>,
-    pub attachment_ids: Option<Vec<Uuid>>,
-}
-
-#[derive(Debug, Serialize, Deserialize, TS)]
-pub struct CreateOnlyWorkspaceResponse {
-    pub workspace: Workspace,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
@@ -44,6 +41,10 @@ pub struct LinkedIssueInfo {
 #[derive(Debug, Serialize, Deserialize, TS)]
 pub struct CreateAndStartWorkspaceRequest {
     pub name: Option<String>,
+    /// Exact git branch name to create for create-branch workspace repositories.
+    /// When omitted, VK derives the branch from the workspace id/name.
+    #[ts(optional, type = "string | null")]
+    pub branch_name: Option<String>,
     pub repos: Vec<WorkspaceRepoInput>,
     pub linked_issue: Option<LinkedIssueInfo>,
     pub executor_config: ExecutorConfig,

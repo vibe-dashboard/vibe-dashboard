@@ -53,7 +53,7 @@ use services::services::{
     remote_client::RemoteClient,
     remote_sync,
 };
-use tokio::{process::Command, sync::RwLock, task::JoinHandle, time::timeout};
+use tokio::{sync::RwLock, task::JoinHandle};
 use tokio_util::io::ReaderStream;
 use tracing::Instrument;
 use utils::{
@@ -67,99 +67,6 @@ use workspace_manager::{RepoWorkspaceInput, WorkspaceError, WorkspaceManager};
 use crate::{command, copy};
 
 const WORKSPACE_TOUCH_DEBOUNCE: Duration = Duration::from_mins(2);
-const WORKSPACE_SETUP_CONFIG_FILE: &str = "workspace-setup.toml";
-const DEFAULT_WORKSPACE_SETUP_TIMEOUT_SECONDS: u64 = 120;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct WorkspaceSetupConfig {
-    enabled: bool,
-    required: bool,
-    command: String,
-    timeout: Duration,
-}
-
-fn vk_settings_directory() -> PathBuf {
-    std::env::var_os("VK_SETTINGS_DIRECTORY")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/var/lib/vd/vk-config"))
-}
-
-async fn read_workspace_setup_config() -> Result<Option<WorkspaceSetupConfig>, ContainerError> {
-    let config_path = vk_settings_directory().join(WORKSPACE_SETUP_CONFIG_FILE);
-    let content = match tokio::fs::read_to_string(&config_path).await {
-        Ok(content) => content,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error.into()),
-    };
-
-    parse_workspace_setup_config(&content).map(Some)
-}
-
-fn parse_workspace_setup_config(content: &str) -> Result<WorkspaceSetupConfig, ContainerError> {
-    let enabled = parse_bool_key(content, "enabled").unwrap_or(true);
-    let required = parse_bool_key(content, "required").unwrap_or(true);
-    let timeout_seconds = parse_u64_key(content, "timeout_seconds")
-        .unwrap_or(DEFAULT_WORKSPACE_SETUP_TIMEOUT_SECONDS);
-    let command = parse_string_key(content, "command").ok_or_else(|| {
-        ContainerError::Other(anyhow!(
-            "{WORKSPACE_SETUP_CONFIG_FILE} requires a command string"
-        ))
-    })?;
-
-    Ok(WorkspaceSetupConfig {
-        enabled,
-        required,
-        command,
-        timeout: Duration::from_secs(timeout_seconds),
-    })
-}
-
-fn trusted_setup_command_path(
-    settings_dir: &Path,
-    command: &str,
-) -> Result<PathBuf, ContainerError> {
-    let command_path = Path::new(command);
-    if command_path.is_absolute()
-        || command_path.components().any(|part| {
-            !matches!(
-                part,
-                std::path::Component::Normal(_) | std::path::Component::CurDir
-            )
-        })
-    {
-        return Err(ContainerError::Other(anyhow!(
-            "workspace setup command must be relative to VK_SETTINGS_DIRECTORY"
-        )));
-    }
-
-    Ok(settings_dir.join(command_path))
-}
-
-fn parse_bool_key(content: &str, key: &str) -> Option<bool> {
-    parse_scalar_key(content, key).and_then(|value| match value {
-        "true" => Some(true),
-        "false" => Some(false),
-        _ => None,
-    })
-}
-
-fn parse_u64_key(content: &str, key: &str) -> Option<u64> {
-    parse_scalar_key(content, key).and_then(|value| value.parse().ok())
-}
-
-fn parse_string_key(content: &str, key: &str) -> Option<String> {
-    let value = parse_scalar_key(content, key)?;
-    let stripped = value.strip_prefix('"')?.strip_suffix('"')?;
-    Some(stripped.to_string())
-}
-
-fn parse_scalar_key<'a>(content: &'a str, key: &str) -> Option<&'a str> {
-    content.lines().find_map(|line| {
-        let line = line.split('#').next()?.trim();
-        let (left, right) = line.split_once('=')?;
-        (left.trim() == key).then_some(right.trim())
-    })
-}
 
 #[derive(Clone)]
 pub struct LocalContainerService {
@@ -255,6 +162,56 @@ impl LocalContainerService {
                 branch,
                 repo_name
             )),
+            WorkspaceError::DirectCheckoutBranchRequired { repo_name } => {
+                ContainerError::Other(anyhow!(
+                    "Direct checkout mode requires an existing local branch in repository '{}'",
+                    repo_name
+                ))
+            }
+            WorkspaceError::DirectCheckoutBranchNotLocal { repo_name, branch } => {
+                ContainerError::Other(anyhow!(
+                    "Direct checkout branch '{}' in repository '{}' must be a local branch",
+                    branch,
+                    repo_name
+                ))
+            }
+            WorkspaceError::DirectCheckoutBranchAlreadyCheckedOut {
+                repo_name,
+                branch,
+                path,
+            } => ContainerError::Other(anyhow!(
+                "Direct checkout branch '{}' in repository '{}' is already checked out at {}",
+                branch,
+                repo_name,
+                path.display()
+            )),
+            WorkspaceError::DirectCheckoutBranchMatchesTarget { repo_name } => {
+                ContainerError::Other(anyhow!(
+                    "Direct checkout branch and target/base branch must be different for repository '{}'",
+                    repo_name
+                ))
+            }
+            WorkspaceError::InvalidWorkspaceBranchName { branch } => ContainerError::Other(anyhow!(
+                "Workspace branch name '{}' is not a valid git branch name",
+                branch
+            )),
+            WorkspaceError::WorkspaceBranchAlreadyExists { repo_name, branch } => {
+                ContainerError::Other(anyhow!(
+                    "Workspace branch '{}' already exists in repository '{}'",
+                    branch,
+                    repo_name
+                ))
+            }
+            WorkspaceError::WorkspaceBranchAlreadyCheckedOut {
+                repo_name,
+                branch,
+                path,
+            } => ContainerError::Other(anyhow!(
+                "Workspace branch '{}' in repository '{}' is already checked out at {}",
+                branch,
+                repo_name,
+                path.display()
+            )),
             WorkspaceError::PartialCreation(msg) => ContainerError::Other(anyhow!(msg)),
         }
     }
@@ -273,22 +230,25 @@ impl LocalContainerService {
 
         let repositories =
             WorkspaceRepo::find_repos_for_workspace(&self.db.pool, workspace_id).await?;
-        let target_branches: HashMap<_, _> = workspace_repos
-            .iter()
-            .map(|wr| (wr.repo_id, wr.target_branch.clone()))
-            .collect();
+        let workspace_repos_by_id: HashMap<_, _> =
+            workspace_repos.iter().map(|wr| (wr.repo_id, wr)).collect();
 
         let workspace_inputs: Vec<RepoWorkspaceInput> = repositories
             .iter()
             .map(|repo| {
-                let target_branch = target_branches.get(&repo.id).cloned().ok_or_else(|| {
+                let workspace_repo = workspace_repos_by_id.get(&repo.id).ok_or_else(|| {
                     ContainerError::Other(anyhow!(
                         "Missing target branch mapping for repo {} in workspace {}",
                         repo.id,
                         workspace_id
                     ))
                 })?;
-                Ok(RepoWorkspaceInput::new(repo.clone(), target_branch))
+                Ok(RepoWorkspaceInput::new(
+                    repo.clone(),
+                    workspace_repo.target_branch.clone(),
+                    workspace_repo.create_branch,
+                    workspace_repo.checkout_branch.clone(),
+                ))
             })
             .collect::<Result<_, ContainerError>>()?;
 
@@ -1165,11 +1125,15 @@ impl LocalContainerService {
                 }
             }
 
-            let content = if import_lines.is_empty() {
-                String::new()
-            } else {
-                import_lines.join("\n") + "\n"
-            };
+            if import_lines.is_empty() {
+                tracing::trace!(
+                    "No repos have {}, skipping workspace config creation",
+                    config_file
+                );
+                continue;
+            }
+
+            let content = import_lines.join("\n") + "\n";
             if let Err(e) = tokio::fs::write(&workspace_config_path, &content).await {
                 tracing::warn!(
                     "Failed to create workspace config file {}: {}",
@@ -1184,96 +1148,6 @@ impl LocalContainerService {
                 config_file,
                 import_lines.len()
             );
-        }
-
-        Ok(())
-    }
-
-    async fn run_workspace_setup_command(
-        workspace_dir: &Path,
-        workspace: &Workspace,
-        workspace_inputs: &[RepoWorkspaceInput],
-    ) -> Result<(), ContainerError> {
-        let Some(config) = read_workspace_setup_config().await? else {
-            return Ok(());
-        };
-
-        if !config.enabled {
-            return Ok(());
-        }
-
-        let settings_dir = vk_settings_directory();
-        let command_path = trusted_setup_command_path(&settings_dir, &config.command)?;
-        let repos_json = serde_json::to_string(
-            &workspace_inputs
-                .iter()
-                .map(|input| {
-                    json!({
-                        "id": input.repo.id,
-                        "name": input.repo.name,
-                        "displayName": input.repo.display_name,
-                        "path": input.repo.path.to_string_lossy(),
-                        "targetBranch": input.target_branch,
-                    })
-                })
-                .collect::<Vec<_>>(),
-        )
-        .map_err(|error| ContainerError::Other(anyhow!(error)))?;
-
-        tracing::info!(
-            workspace_id = %workspace.id,
-            command = %command_path.display(),
-            "Running generic workspace setup command"
-        );
-
-        let child = Command::new(&command_path)
-            .current_dir(workspace_dir)
-            .env("VK_WORKSPACE_ID", workspace.id.to_string())
-            .env("VK_WORKSPACE_DIR", workspace_dir)
-            .env("VK_WORKSPACE_REPOS_JSON", repos_json)
-            .env("VK_SETTINGS_DIRECTORY", &settings_dir)
-            .kill_on_drop(true)
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()?;
-
-        let output = match timeout(config.timeout, child.wait_with_output()).await {
-            Ok(result) => result?,
-            Err(_) => {
-                let message = format!(
-                    "Workspace setup command timed out after {}s: {}",
-                    config.timeout.as_secs(),
-                    command_path.display()
-                );
-                if config.required {
-                    return Err(ContainerError::Other(anyhow!(message)));
-                }
-                tracing::warn!("{message}");
-                return Ok(());
-            }
-        };
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if !stdout.trim().is_empty() {
-            tracing::info!(workspace_id = %workspace.id, stdout = %stdout, "Workspace setup stdout");
-        }
-        if !stderr.trim().is_empty() {
-            tracing::warn!(workspace_id = %workspace.id, stderr = %stderr, "Workspace setup stderr");
-        }
-
-        if !output.status.success() {
-            let message = format!(
-                "Workspace setup command failed with status {}: {}\nstdout:\n{}\nstderr:\n{}",
-                output.status,
-                command_path.display(),
-                stdout,
-                stderr
-            );
-            if config.required {
-                return Err(ContainerError::Other(anyhow!(message)));
-            }
-            tracing::warn!("{message}");
         }
 
         Ok(())
@@ -1502,20 +1376,6 @@ impl ContainerService for LocalContainerService {
             .to_string())
     }
 
-    async fn run_workspace_setup(&self, workspace: &Workspace) -> Result<(), ContainerError> {
-        let (_, workspace_inputs) = self.workspace_repo_inputs(workspace.id).await?;
-        let workspace_dir = if let Some(container_ref) = &workspace.container_ref {
-            PathBuf::from(container_ref)
-        } else {
-            let label = workspace.name.as_deref().unwrap_or("workspace");
-            let workspace_dir_name =
-                LocalContainerService::dir_name_from_workspace(&workspace.id, label);
-            WorkspaceManager::get_workspace_base_dir().join(&workspace_dir_name)
-        };
-
-        Self::run_workspace_setup_command(&workspace_dir, workspace, &workspace_inputs).await
-    }
-
     async fn delete(&self, workspace: &Workspace) -> Result<(), ContainerError> {
         self.try_stop(workspace, true).await;
         self.cleanup_workspace(workspace).await;
@@ -1537,9 +1397,6 @@ impl ContainerService for LocalContainerService {
                 LocalContainerService::dir_name_from_workspace(&workspace.id, label);
             WorkspaceManager::get_workspace_base_dir().join(&workspace_dir_name)
         };
-        let should_run_workspace_setup = workspace.container_ref.is_none()
-            || workspace.worktree_deleted
-            || !workspace_dir.exists();
 
         WorkspaceManager::ensure_workspace_exists(
             &workspace_dir,
@@ -1567,9 +1424,6 @@ impl ContainerService for LocalContainerService {
             .await?;
 
         Self::create_workspace_config_files(&workspace_dir, &repositories).await?;
-        if should_run_workspace_setup {
-            Self::run_workspace_setup_command(&workspace_dir, workspace, &workspace_inputs).await?;
-        }
 
         Ok(workspace_dir.to_string_lossy().to_string())
     }
@@ -1664,7 +1518,6 @@ impl ContainerService for LocalContainerService {
 
         // Always inject workspace/session context
         env.insert("VK_WORKSPACE_ID", workspace.id.to_string());
-        env.insert("VK_WORKSPACE_BRANCH", &workspace.branch);
         env.insert("VK_SESSION_ID", execution_process.session_id.to_string());
 
         // Create the child and stream, add to execution tracker with timeout
@@ -1792,10 +1645,8 @@ impl ContainerService for LocalContainerService {
     {
         let workspace_repos =
             WorkspaceRepo::find_by_workspace_id(&self.db.pool, workspace.id).await?;
-        let target_branches: HashMap<_, _> = workspace_repos
-            .iter()
-            .map(|wr| (wr.repo_id, wr.target_branch.clone()))
-            .collect();
+        let workspace_repos_by_id: HashMap<_, _> =
+            workspace_repos.iter().map(|wr| (wr.repo_id, wr)).collect();
 
         let repositories =
             WorkspaceRepo::find_repos_for_workspace(&self.db.pool, workspace.id).await?;
@@ -1808,15 +1659,16 @@ impl ContainerService for LocalContainerService {
 
         for repo in repositories {
             let worktree_path = workspace_root.join(&repo.name);
-            let branch = &workspace.branch;
-
-            let Some(target_branch) = target_branches.get(&repo.id) else {
+            let Some(workspace_repo) = workspace_repos_by_id.get(&repo.id) else {
                 tracing::warn!(
-                    "Skipping diff stream for repo {}: no target branch configured",
+                    "Skipping diff stream for repo {}: no workspace repo configured",
                     repo.name
                 );
                 continue;
             };
+
+            let branch = workspace_repo.branch_name(&workspace.branch);
+            let target_branch = &workspace_repo.target_branch;
 
             let base_commit = match self
                 .git()
@@ -1859,7 +1711,7 @@ impl ContainerService for LocalContainerService {
                     workspace_id = %workspace.id,
                     stats_only,
                     repo_count,
-                    target_branch_count = target_branches.len(),
+                    target_branch_count = workspace_repos_by_id.len(),
                     created_stream_count = 0,
                     rss_mb = utils::process_diag::bytes_to_mb(snapshot.rss_bytes),
                     vm_size_mb = utils::process_diag::bytes_to_mb(snapshot.virtual_bytes),
@@ -1879,7 +1731,7 @@ impl ContainerService for LocalContainerService {
                 workspace_id = %workspace.id,
                 stats_only,
                 repo_count,
-                target_branch_count = target_branches.len(),
+                target_branch_count = workspace_repos_by_id.len(),
                 created_stream_count = streams.len(),
                 rss_mb = utils::process_diag::bytes_to_mb(snapshot.rss_bytes),
                 vm_size_mb = utils::process_diag::bytes_to_mb(snapshot.virtual_bytes),

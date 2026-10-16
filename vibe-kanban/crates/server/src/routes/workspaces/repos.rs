@@ -65,6 +65,8 @@ pub async fn add_workspace_repo(
     let repo_input = WorkspaceRepoInput {
         repo_id: payload.repo_id,
         target_branch: payload.target_branch,
+        create_branch: true,
+        checkout_branch: None,
     };
 
     let workspace_repo = managed_workspace
@@ -72,24 +74,14 @@ pub async fn add_workspace_repo(
         .await
         .map_err(ApiError::from)?;
 
-    let workspace_prepare_result = match deployment
+    if let Err(err) = deployment
         .container()
         .ensure_container_exists(&managed_workspace.workspace)
         .await
     {
-        Ok(_) => {
-            deployment
-                .container()
-                .run_workspace_setup(&managed_workspace.workspace)
-                .await
-        }
-        Err(err) => Err(err),
-    };
-
-    if let Err(err) = workspace_prepare_result {
         if let Err(rollback_err) = WorkspaceRepo::delete_by_id(pool, workspace_repo.id).await {
             tracing::error!(
-                "Failed to roll back workspace repo {} after workspace prepare failure for workspace {}: {}",
+                "Failed to roll back workspace repo {} after container ensure failure for workspace {}: {}",
                 workspace_repo.id,
                 managed_workspace.workspace.id,
                 rollback_err

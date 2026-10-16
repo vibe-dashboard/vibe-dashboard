@@ -48,11 +48,11 @@ score: bigint, };
 
 export type SearchMatchType = "FileName" | "DirectoryName" | "FullPath";
 
-export type WorkspaceRepo = { id: string, workspace_id: string, repo_id: string, target_branch: string, created_at: Date, updated_at: Date, };
+export type WorkspaceRepo = { id: string, workspace_id: string, repo_id: string, target_branch: string, create_branch: boolean, checkout_branch?: string | null, created_at: Date, updated_at: Date, };
 
-export type CreateWorkspaceRepo = { repo_id: string, target_branch: string, };
+export type CreateWorkspaceRepo = { repo_id: string, target_branch: string, create_branch: boolean, checkout_branch?: string | null, };
 
-export type RepoWithTargetBranch = { target_branch: string, id: string, path: string, name: string, display_name: string, setup_script: string | null, cleanup_script: string | null, archive_script: string | null, copy_files: string | null, parallel_setup_script: boolean, dev_server_script: string | null, dev_server_scripts: Array<RepoDevServerScript>, default_target_branch: string | null, default_working_dir: string | null, created_at: Date, updated_at: Date, };
+export type RepoWithTargetBranch = { target_branch: string, create_branch: boolean, checkout_branch?: string | null, id: string, path: string, name: string, display_name: string, setup_script: string | null, cleanup_script: string | null, archive_script: string | null, copy_files: string | null, parallel_setup_script: boolean, dev_server_script: string | null, dev_server_scripts: Array<RepoDevServerScript>, default_target_branch: string | null, default_working_dir: string | null, created_at: Date, updated_at: Date, };
 
 export type Tag = { id: string, tag_name: string, content: string, created_at: string, updated_at: string, };
 
@@ -68,7 +68,7 @@ export type DraftWorkspaceAttachment = { id: string, file_path: string, original
 
 export type DraftWorkspaceLinkedIssue = { issue_id: string, simple_id: string, title: string, remote_project_id: string, };
 
-export type DraftWorkspaceRepo = { repo_id: string, target_branch: string, };
+export type DraftWorkspaceRepo = { repo_id: string, target_branch: string, create_branch: boolean, checkout_branch?: string | null, };
 
 export type DraftIssueData = { title: string, description: string | null, status_id: string,
 /**
@@ -414,7 +414,12 @@ export type AttachmentResponse = { id: string, file_path: string, original_name:
 
 export type AttachmentMetadata = { exists: boolean, file_name: string | null, path: string | null, size_bytes: bigint | null, format: string | null, proxy_url: string | null, };
 
-export type WorkspaceRepoInput = { repo_id: string, target_branch: string, };
+export type WorkspaceRepoInput = { repo_id: string, target_branch: string, create_branch: boolean,
+/**
+ * Existing local branch to check out when `create_branch` is false.
+ * `target_branch` remains the separate base branch for diffs, merges, and PRs.
+ */
+checkout_branch?: string | null, };
 
 export type RunAgentSetupRequest = { executor_profile_id: ExecutorProfileId, };
 
@@ -452,7 +457,12 @@ export type GetPrCommentsError = { "type": "no_pr_attached" } | { "type": "cli_n
 
 export type GetPrCommentsQuery = { repo_id: string, };
 
-export type CreateAndStartWorkspaceRequest = { name: string | null, repos: Array<WorkspaceRepoInput>, linked_issue: LinkedIssueInfo | null, executor_config: ExecutorConfig, prompt: string, attachment_ids: Array<string> | null, };
+export type CreateAndStartWorkspaceRequest = { name: string | null,
+/**
+ * Exact git branch name to create for create-branch workspace repositories.
+ * When omitted, VK derives the branch from the workspace id/name.
+ */
+branch_name?: string | null, repos: Array<WorkspaceRepoInput>, linked_issue: LinkedIssueInfo | null, executor_config: ExecutorConfig, prompt: string, attachment_ids: Array<string> | null, };
 
 export type CreateAndStartWorkspaceResponse = { workspace: Workspace, execution_process: ExecutionProcess, };
 
@@ -864,14 +874,6 @@ providers: Array<ModelProvider>,
  * Available models
  */
 models: Array<ModelInfo>,
-/**
- * Optional display ordering for model identifiers.
- *
- * Entries match either a plain model id (for single-provider selectors) or
- * `provider_id/model_id` (for provider-scoped selectors). Unlisted models
- * remain selectable and are sorted by the UI's default fallback.
- */
-model_order?: Array<string>,
 /**
  * Global default model (format: provider_id/model_id)
  */
