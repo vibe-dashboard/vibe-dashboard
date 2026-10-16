@@ -12,9 +12,25 @@ import {
   buildTextareaQuestion,
   compileBeadsForm,
   defineBeadsForm,
+  resolveBeadsFormType,
 } from '../src/index';
 
 describe('@vibe-dashboard/beads-form', () => {
+  it('defaults to questionnaire and compiles the only additional code-review type', () => {
+    const questionnaire = defineBeadsForm({
+      id: 'questions', goal: 'Answer questions.', title: 'Questions', questions: [],
+    });
+    const codeReview = defineBeadsForm({
+      type: 'code-review', id: 'review', goal: 'Review code.', title: 'Code review', questions: [],
+    });
+
+    expect(resolveBeadsFormType(questionnaire)).toBe('questionnaire');
+    expect(resolveBeadsFormType(codeReview)).toBe('code-review');
+    expect(compileBeadsForm(questionnaire).html).toContain('>Questionnaire</span>');
+    expect(compileBeadsForm(codeReview).html).toContain('>Code review</span>');
+    expect(() => compileBeadsForm({ ...questionnaire, type: 'unknown' } as never)).toThrow('Unsupported BeadsForm type "unknown"');
+  });
+
   it('compiles standard choice questions into accessible form HTML and controls', () => {
     const form = defineBeadsForm({
       id: 'planning_review',

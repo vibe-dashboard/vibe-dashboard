@@ -13,6 +13,7 @@ describe('BeadsForm creating-session notifications', () => {
     const message = buildBeadsFormSessionNotification({
       form: {
         format: 'standard',
+        type: 'code-review',
         id: 'review',
         goal: 'Review the plan.',
         title: 'Review',
@@ -38,6 +39,7 @@ describe('BeadsForm creating-session notifications', () => {
       next_instruction: '## Next\n\nImplement follow-up & report.',
       allow_code_file_changes: false,
     }, null, 2));
+    expect(message).not.toContain('code-review');
     expect(JSON.parse(message)).toEqual({
       comment: '# Approved',
       next_instruction: '## Next\n\nImplement follow-up & report.',

@@ -100,6 +100,17 @@ describe('BeadsForm pending queue UI source', () => {
     expect(source).not.toContain('workspaceId}</p>');
   });
 
+  it('labels typed forms across direct, pending, aggregate, and batch browsing', async () => {
+    const source = await readFile(new URL('./module.tsx', import.meta.url), 'utf8');
+
+    expect(source).toContain('function BeadsFormTypeBadge');
+    expect(source).toContain('<BeadsFormTypeBadge form={entry.form} />');
+    expect(source).toContain('<BeadsFormTypeBadge form={form} />');
+    expect(source).toContain('<BeadsFormTypeBadge form={item.form} />');
+    expect(source).toContain('formType: resolveBeadsFormType(snapshot.form)');
+    expect(source).toContain('formType: resolveBeadsFormType(');
+  });
+
   it('blocks invalidated selected and aggregate forms instead of rendering answerable forms', async () => {
     const source = await readFile(new URL('./module.tsx', import.meta.url), 'utf8');
     expect(source).toContain('InvalidatedBeadsFormNotice');

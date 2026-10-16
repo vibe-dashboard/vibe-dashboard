@@ -772,11 +772,11 @@ describe('BeadsClient', () => {
       if (options.cwd === workspaceAStore && args[1] === 'list') {
         if (args.includes('beadFormsSummary')) return { stdout: JSON.stringify([
           { id: 'summary_done', title: 'Summary done', metadata: { beadFormsSummary: { hasForms: true, hasPendingAnswer: false, pendingResponseCount: 0, formIds: ['summary_done_form'], pendingFormIds: [] }, beadForms: { forms: [storedForm('summary_done_form', 'Done')] } } },
-          { id: 'task-pending', title: 'Pending bead', metadata: { beadFormsSummary: { hasForms: true, hasPendingAnswer: true, pendingResponseCount: 1, formIds: ['review'], pendingFormIds: ['review'] }, beadForms: { forms: [storedForm('review', 'Review')] } } },
+          { id: 'task-pending', title: 'Pending bead', metadata: { beadFormsSummary: { hasForms: true, hasPendingAnswer: true, pendingResponseCount: 1, formIds: ['review'], pendingFormIds: ['review'] }, beadForms: { forms: [storedForm('review', 'Review', { type: 'code-review' })] } } },
           { id: 'invalid', title: 'Invalid bead', metadata: { beadFormsSummary: { hasForms: true, hasPendingAnswer: true, pendingResponseCount: 1, formIds: ['invalid_form'], pendingFormIds: ['invalid_form'] }, beadForms: { forms: [storedForm('invalid_form', 'Invalid', { invalidatedAt: '2026-09-25T00:00:00.000Z', invalidatedBy: 'agent' })] } } },
         ]), stderr: '' };
         return { stdout: args.includes('beadForms') ? JSON.stringify([
-          { id: 'task-pending', title: 'Pending bead', metadata: { beadForms: { forms: [storedForm('review', 'Review')] } } },
+          { id: 'task-pending', title: 'Pending bead', metadata: { beadForms: { forms: [storedForm('review', 'Review', { type: 'code-review' })] } } },
           { id: 'done', title: 'Done bead', metadata: { beadForms: { forms: [storedForm('done_form', 'Done', { responses: [{ submittedAt: 'now', submittedBy: 'user', values: {} }] })] } } },
           { id: 'closed', title: 'Closed bead', status: 'closed', metadata: { beadForms: { forms: [storedForm('closed_form', 'Closed')] } } },
         ]) : '[]', stderr: '' };
@@ -796,7 +796,7 @@ describe('BeadsClient', () => {
         repoDir: workspaceAStore,
         repoName: 'workspace-a',
         bead: { id: 'task-pending', title: 'Pending bead' },
-        form: { id: 'review', title: 'Review', responseCount: 0 },
+        form: { id: 'review', type: 'code-review', title: 'Review', responseCount: 0 },
       }]);
       expect(result.skipped).toEqual([{ repoDir: join(workspaceBRoot, '.beads'), reason: 'workspace beads store not initialized' }]);
       expect(result.updateStrategy.mode).toBe('explicit-refresh');

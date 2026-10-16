@@ -5,10 +5,12 @@ import {
   NEXT_INSTRUCTION_FIELD,
   NEXT_INSTRUCTION_MAX_CHARS,
   isBeadsFormInvalidated,
+  resolveBeadsFormType,
   stripGeneratedBeadsFormFields,
   type BeadsFormControl,
   type ChoicesQuestion,
   type StandardBeadsForm,
+  type BeadsFormType,
   type StoredBeadsForm,
 } from '../../../../packages/beads-form/src/index.ts';
 import {
@@ -21,6 +23,8 @@ import { beadsFormSubmissionXml } from './beadsFormSubmissionHandoff.ts';
 export { ALLOW_CODE_FILE_CHANGES_FIELD };
 export { NEXT_INSTRUCTION_FIELD, NEXT_INSTRUCTION_MAX_CHARS };
 export { isBeadsFormInvalidated };
+export { resolveBeadsFormType };
+export type { BeadsFormType };
 export {
   assertMetadataWithinIssueJsonGuard,
   BEAD_ISSUE_METADATA_JSON_MAX_BYTES,
@@ -58,6 +62,7 @@ export type BeadsFormDraft = {
 
 export type BeadsFormDefinition = {
   id: string;
+  type?: BeadsFormType;
   goal: string;
   title: string;
   description?: string;

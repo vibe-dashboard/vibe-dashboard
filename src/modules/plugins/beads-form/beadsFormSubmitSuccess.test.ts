@@ -27,6 +27,7 @@ describe('BeadsForm submit success helpers', () => {
     }, {
       beadId: 'beads-web-9iu',
       formId: 'markdown_handoff',
+      formType: 'code-review',
       submittedAt: '2026-08-24T00:00:00.000Z',
       submittedBy: 'human & agent',
     });
@@ -34,6 +35,7 @@ describe('BeadsForm submit success helpers', () => {
     expect(text).toContain('<beadsFormSubmission>');
     expect(text).toContain('<beadId>beads-web-9iu</beadId>');
     expect(text).toContain('<formId>markdown_handoff</formId>');
+    expect(text).toContain('<formType>code-review</formType>');
     expect(text).toContain('<submittedAt>2026-08-24T00:00:00.000Z</submittedAt>');
     expect(text).toContain('<submittedBy>human &amp; agent</submittedBy>');
     expect(text).toContain('<choiceGroup id="decision">');
@@ -70,6 +72,7 @@ describe('BeadsForm submit success helpers', () => {
         dir: '/repo-a',
         beadId: 'beads-web-a',
         formId: 'form_a',
+        formType: 'code-review',
         title: 'Form A',
         submittedAt: '2026-09-25T00:00:00.000Z',
         submittedBy: 'human',
@@ -87,6 +90,7 @@ describe('BeadsForm submit success helpers', () => {
     expect(text).toContain('<formCount>2</formCount>');
     expect(text).toContain('<nextInstruction scope="batch" type="markdown">\n\n## Next');
     expect(text).toContain('<form beadId="beads-web-a" formId="form_a" dir="/repo-a">');
+    expect(text).toContain('<formType>code-review</formType>');
     expect(text).toContain('<title>Form A</title>');
     expect(text).toContain('Use &lt;safe&gt; XML &amp; Markdown.');
     expect(text).toContain('<choiceGroup id="choices">');

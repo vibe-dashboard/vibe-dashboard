@@ -137,8 +137,12 @@ export type BeadsFormContentBlock =
   | AttachmentListBlock
   | CodeSnippetRefBlock;
 
+export type BeadsFormType = 'questionnaire' | 'code-review';
+
 export type StandardBeadsForm = {
   format: 'standard';
+  /** Omit for the standard questionnaire workflow. */
+  type?: BeadsFormType;
   id: string;
   /** Short Markdown phrase describing what the form is trying to get from the human. */
   goal: string;
@@ -377,9 +381,16 @@ export function defineBeadsForm(input: Omit<StandardBeadsForm, 'format'>): Stand
   return { ...input, format: 'standard' };
 }
 
+export function resolveBeadsFormType(form: { type?: unknown }): BeadsFormType {
+  if (form.type === undefined || form.type === 'questionnaire') return 'questionnaire';
+  if (form.type === 'code-review') return 'code-review';
+  throw new Error(`Unsupported BeadsForm type "${String(form.type)}"; expected questionnaire or code-review.`);
+}
+
 export function compileBeadsForm(form: StandardBeadsForm): CompiledBeadsForm {
   assertIdentifier(form.id, 'form.id');
   if (!form.goal?.trim()) throw new Error('form.goal is required');
+  const formType = resolveBeadsFormType(form);
   const controls: BeadsFormControl[] = [];
   const description = form.description ? compileFormDescription(form.description) : '';
   const submitActions = compileSubmitActions(form.allowCodeFileChanges, controls);
@@ -388,6 +399,7 @@ export function compileBeadsForm(form: StandardBeadsForm): CompiledBeadsForm {
   const html = [
     '<form>',
     '<header>',
+    `<span class="beads-form-type beads-form-type--${formType}">${formType === 'code-review' ? 'Code review' : 'Questionnaire'}</span>`,
     `<h2>${renderInlineMarkdown(form.title)}</h2>`,
     `<p class="beads-form-goal"><strong>Goal:</strong> ${renderInlineMarkdown(form.goal)}</p>`,
     description,

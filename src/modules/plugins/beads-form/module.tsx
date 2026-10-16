@@ -12,6 +12,7 @@ import {
   isBeadsFormInvalidated,
   normalizeFormData,
   normalizeSubmittedValues,
+  resolveBeadsFormType,
   sanitizeBeadsFormHtml,
   validateSubmittedValues,
   withDeclaredCodeFileChangeIntent,
@@ -628,6 +629,11 @@ function BeadsFormSelectedChrome({
   );
 }
 
+function BeadsFormTypeBadge({ form }: { form: Pick<BeadsFormDefinition, 'type'> }) {
+  const type = resolveBeadsFormType(form);
+  return <span className={`beads-form-type beads-form-type--${type}`}>{type === 'code-review' ? 'Code review' : 'Questionnaire'}</span>;
+}
+
 function BeadsFormPreviewRoute({ actions }: { actions: {
   loadPreviewForms: (input: LoadPreviewFormsInput) => MaybeNestedPromise<LoadPreviewFormsResult>;
   submitPreviewForm: (input: SubmitPreviewFormInput) => MaybeNestedPromise<SubmitPreviewFormResult>;
@@ -785,7 +791,7 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
       lock: true,
       singleQuestionMode: loaded.selectedForm.format === 'standard',
     });
-    const handoffMetadata = { formId: loaded.selectedForm.id };
+    const handoffMetadata = { formId: loaded.selectedForm.id, formType: resolveBeadsFormType(loaded.selectedForm) };
     setClipboardResult(pendingSubmittedResultHandoffCopy(values, handoffMetadata));
     setSubmitResult({
       formId: loaded.selectedForm.id,
@@ -843,6 +849,7 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
               {loaded.forms.map((form) => (
                 <li key={`${form.sourceFile}:${form.id}`}>
                   <a href={previewFormUrl({ folder: loaded.folder, formId: form.id })}>{form.title}</a>
+                  {' '}<BeadsFormTypeBadge form={form} />
                   <p><code>{form.sourceFile}</code></p>
                 </li>
               ))}
@@ -876,7 +883,11 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
           title="Preview response submitted"
           clipboardResult={clipboardResult}
           values={submitResult.values}
-          handoffMetadata={{ formId: submitResult.formId, submittedAt: submitResult.submittedAt }}
+          handoffMetadata={{
+            formId: submitResult.formId,
+            formType: loaded?.selectedForm ? resolveBeadsFormType(loaded.selectedForm) : undefined,
+            submittedAt: submitResult.submittedAt,
+          }}
           warnings={submitResult.warnings}
           onEdit={handleEditResponse}
         >
@@ -1025,6 +1036,7 @@ function BeadsFormPendingQueue({ actions, parentDir, pendingQueueSentinel }: {
                         <h2 className="beadsform-pending-title">
                           <a href={formViewUrl({ workspaceId: entry.workspaceId, beadId: entry.bead.id, formId: entry.form.id })}>{entry.form.title}</a>
                         </h2>
+                        <BeadsFormTypeBadge form={entry.form} />
                         {entry.form.description ? <p className="beadsform-pending-description">{entry.form.description}</p> : null}
                         <dl className="beadsform-pending-meta" aria-label={`Context for ${entry.form.title}`}>
                           <div>
@@ -1287,6 +1299,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft, regis
     const handoffMetadata = {
       beadId: item.ref.beadId,
       formId: form.id,
+      formType: resolveBeadsFormType(form),
     };
     const pendingCopy = pendingSubmittedResultHandoffCopy(values, handoffMetadata);
     setStatus({
@@ -1353,6 +1366,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft, regis
       <header className="beadsform-page-chrome beadsform-page-chrome--compact">
         <div>
           <p className="beadsform-eyebrow">{item.ref.beadId} / {item.ref.formId}</p>
+          {form ? <BeadsFormTypeBadge form={form} /> : null}
           <details className="beadsform-context-details">
             <summary>Bead context</summary>
             <div className="beadsform-context-details-body">
@@ -1397,6 +1411,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft, regis
           handoffMetadata={{
             beadId: item.ref.beadId,
             formId: item.ref.formId,
+            formType: form ? resolveBeadsFormType(form) : undefined,
             submittedAt: status.submittedAt,
             submittedBy: status.submittedBy,
           }}
@@ -1510,6 +1525,7 @@ function BeadsFormAggregateRoute({ actions }: { actions: {
         dir: snapshot.dir,
         beadId: snapshot.ref.beadId,
         formId: snapshot.ref.formId,
+        formType: resolveBeadsFormType(snapshot.form),
         title: snapshot.form.title,
         values: snapshot.values,
       })),
@@ -1561,6 +1577,7 @@ function BeadsFormAggregateRoute({ actions }: { actions: {
           dir: snapshot.dir,
           beadId: snapshot.ref.beadId,
           formId: snapshot.ref.formId,
+          formType: resolveBeadsFormType(snapshot.form),
           title: snapshot.form.title,
           submittedAt: result?.submittedAt,
           submittedBy: result?.submittedBy,
@@ -1607,7 +1624,13 @@ function BeadsFormAggregateRoute({ actions }: { actions: {
             <h3>Submit selected forms together</h3>
             <p>This batch handoff includes {loaded.items.length} source form{loaded.items.length === 1 ? '' : 's'} and persists each source response idempotently. Invalidated or unavailable forms block the batch until removed.</p>
             <ul>
-              {loaded.items.map((item) => <li key={item.key}>{item.ref.beadId} / {item.ref.formId}{item.error ? ' — blocked' : ''}</li>)}
+              {loaded.items.map((item) => (
+                <li key={item.key}>
+                  {item.ref.beadId} / {item.ref.formId}{' '}
+                  {item.form ? <BeadsFormTypeBadge form={item.form} /> : null}
+                  {item.error ? ' — blocked' : ''}
+                </li>
+              ))}
             </ul>
             <label htmlFor="beadsform_batch_next_instruction">Batch Next Instruction <span className="beads-form-optional">(optional)</span></label>
             <textarea
@@ -1926,6 +1949,7 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
     const handoffMetadata = {
       beadId,
       formId: loaded.selected.selectedForm.id,
+      formType: resolveBeadsFormType(loaded.selected.selectedForm),
     };
     setClipboardResult(pendingSubmittedResultHandoffCopy(values, handoffMetadata));
     setSubmitResult({
@@ -2073,6 +2097,7 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
             {forms.map((form) => (
               <li key={form.id}>
                 <a href={formViewUrl({ workspaceId, dir: selected.beadRepoDir, beadId, formId: form.id, includeOtherWorkspaces })}>{form.title}</a>
+                {' '}<BeadsFormTypeBadge form={form} />
                 {isBeadsFormInvalidated(form) ? <p>This form was invalidated and is not answerable.</p> : null}
                 {form.description ? <p>{form.description}</p> : null}
               </li>
@@ -2089,6 +2114,7 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
           handoffMetadata={{
             beadId,
             formId: submitResult.formId,
+            formType: resolveBeadsFormType(selectedForm),
             submittedAt: submitResult.submittedAt,
             submittedBy: submitResult.submittedBy,
           }}

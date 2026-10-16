@@ -1,6 +1,9 @@
+import type { BeadsFormType } from '../../../../packages/beads-form/src/index.ts';
+
 export type BeadsFormSubmissionHandoffMetadata = {
   beadId?: string;
   formId?: string;
+  formType?: BeadsFormType;
   submittedAt?: string;
   submittedBy?: string;
 };
@@ -95,6 +98,7 @@ function metadataEntries(input: BeadsFormSubmissionHandoffInput): [string, strin
   const entries: [string, string][] = [];
   if (input.beadId) entries.push(['beadId', input.beadId]);
   if (input.formId) entries.push(['formId', input.formId]);
+  if (input.formType) entries.push(['formType', input.formType]);
   if (input.submittedAt) entries.push(['submittedAt', input.submittedAt]);
   if (input.submittedBy) entries.push(['submittedBy', input.submittedBy]);
   return entries;

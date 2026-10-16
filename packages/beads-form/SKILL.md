@@ -11,6 +11,10 @@ Use this skill when an agent needs to ask a human structured questions through a
 
 Use the standard JSON/helper format from `@vibe-dashboard/beads-form`. Do not hand-write raw HTML; bead-backed and preview flows support standard DSL forms only.
 
+## Form type
+
+Omit `type` (or use `type: 'questionnaire'`) for ordinary decisions, intake, and planning questions. Use `type: 'code-review'` only when the form's purpose is to collect findings about a code change. The type labels the form for routing and browsing; it never changes answer values. Unknown types are rejected before bead metadata is written.
+
 ## Agent roles
 
 - **Form-making agent:** writes or updates form definitions using the helpers below.
@@ -40,6 +44,7 @@ import {
 
 ```ts
 const form = defineBeadsForm({
+  type: 'questionnaire', // Optional. The only other supported value is 'code-review'.
   id: 'planning_review',
   goal: 'Decide how to unblock the implementation plan.',
   title: 'Planning Review',

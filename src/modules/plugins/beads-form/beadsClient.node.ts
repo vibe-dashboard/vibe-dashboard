@@ -146,7 +146,7 @@ export type PendingBeadsFormEntry = {
   repoDir: string;
   repoName: string;
   bead: Pick<BeadLike, 'id' | 'title' | 'description' | 'createdAt' | 'updatedAt'>;
-  form: Pick<BeadsFormDefinition, 'id' | 'title' | 'description'> & { responseCount: number };
+  form: Pick<BeadsFormDefinition, 'id' | 'type' | 'title' | 'description'> & { responseCount: number };
 };
 
 export type PendingBeadsFormQueueResult = {
@@ -344,6 +344,7 @@ export class BeadsClient {
         },
         form: {
           id: form.id,
+          ...(form.type ? { type: form.type } : {}),
           title: form.title,
           ...(form.description ? { description: form.description } : {}),
           responseCount: form.responses?.length ?? 0,

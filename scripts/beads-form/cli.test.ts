@@ -72,6 +72,29 @@ function mutableQuestion(question: unknown) {
 }
 
 describe('beads-form CLI helpers', () => {
+  it('round-trips code-review form type and rejects unknown types before metadata mutation', () => {
+    const codeReview = parseFormsJsonForAttach(JSON.stringify({ ...standardForm, type: 'code-review' }))[0]!;
+    const attached = attachFormsToMetadata({ untouched: true }, [codeReview]);
+    const stored = (attached.beadForms as any).forms[0];
+
+    expect(stored.type).toBe('code-review');
+    expect(buildShowResult({ bead: { id: 'bd-1' }, form: codeReview }).form.type).toBe('code-review');
+    const updated = updateQuestionInMetadata(attached, 'review', {
+      questionId: 'decision',
+      replacement: mutableQuestion(standardForm.questions[0]),
+    });
+    expect((updated.metadata.beadForms as any).forms[0].type).toBe('code-review');
+    const appended = appendQuestionsToMetadata(attached, 'review', {
+      operation: 'append_questions',
+      questions: [{ type: 'textarea', id: 'follow_up', title: 'Follow up', description: 'Add a follow-up finding.' }],
+    });
+    expect((appended.metadata.beadForms as any).forms[0].type).toBe('code-review');
+
+    const original = { untouched: true };
+    expect(() => attachFormsToMetadata(original, [{ ...codeReview, type: 'unknown' } as never])).toThrow('Unsupported BeadsForm type "unknown"');
+    expect(original).toEqual({ untouched: true });
+  });
+
   it('documents canonical structured choice tradeoffs instead of putting pros and cons in descriptions', async () => {
     const onboarding = await readFile(new URL('../../skills/beads-form-agent-onboarding.md', import.meta.url), 'utf8');
     const skill = await readFile(new URL('../../packages/beads-form/SKILL.md', import.meta.url), 'utf8');
@@ -86,6 +109,8 @@ describe('beads-form CLI helpers', () => {
     expect(`${onboarding}\n${skill}`).toContain('beads-form show-question');
     expect(`${onboarding}\n${skill}`).toContain('beads-form update-question');
     expect(skill).toContain('### Embedding Markdown, media, files, and code');
+    expect(skill).toContain("type: 'code-review'");
+    expect(skill).toContain('never changes answer values');
     expect(skill).toContain("buildMarkdownAttachment({ ref: 'docs/decision.md' })");
     expect(skill).toContain('Bead-backed forms should use repo-relative refs');
     expect(skill).toContain('Legacy `attachment://...` refs are compatibility-only');
@@ -115,6 +140,8 @@ describe('beads-form CLI helpers', () => {
     expect(stdout).toContain('beads-form attach');
     expect(stdout).toContain('beads-form pending --parent-dir <all-repos-dir>');
     expect(stdout).toContain('Embedding refs:');
+    expect(stdout).toContain('Form types:');
+    expect(stdout).toContain('Use "code-review" only for code-review findings.');
     expect(stdout).toContain('Prefer repo-relative refs such as docs/decision.md');
     expect(stdout).toContain('Legacy attachment:// refs are compatibility-only');
     expect(stdout).not.toContain('live under .beads/attachments');

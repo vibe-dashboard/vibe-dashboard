@@ -11,8 +11,10 @@ import { promisify } from 'node:util';
 import {
   compileBeadsForm,
   isBeadsFormInvalidated,
+  resolveBeadsFormType,
   stripGeneratedBeadsFormFields,
   type StandardBeadsForm,
+  type BeadsFormType,
   type StoredBeadsForm,
 } from '../../packages/beads-form/src/index.ts';
 import {
@@ -47,6 +49,7 @@ export type BeadsFormResponse = {
 
 export type BeadsFormDefinition = {
   id: string;
+  type?: BeadsFormType;
   goal: string;
   title: string;
   description?: string;
@@ -161,6 +164,7 @@ export type AttachResult = {
   beadId: string;
   forms: Array<{
     id: string;
+    type: BeadsFormType;
     title: string;
     /** Backward-compatible primary URL. Uses workspace URL when workspaceId is known, otherwise dir URL. */
     url: string;
@@ -173,6 +177,7 @@ export type AttachResult = {
   }>;
   validUnfilledForms: Array<{
     id: string;
+    type: BeadsFormType;
     title: string;
     url: string;
     urls: {
@@ -263,6 +268,7 @@ export type ShowResult = {
 
 export type ShowForm = {
   id: string;
+  type: BeadsFormType;
   goal: string;
   title: string;
   description?: string;
@@ -841,6 +847,7 @@ export async function attachBeadsForms(input: {
       });
       return {
         id: form.id,
+        type: resolveBeadsFormType(form),
         title: form.title,
         url: urls.workspace ?? urls.dir,
         urls,
@@ -858,6 +865,7 @@ export async function attachBeadsForms(input: {
       });
       return {
         id: form.id,
+        type: resolveBeadsFormType(form),
         title: form.title,
         url: urls.workspace ?? urls.dir,
         urls,
@@ -1434,6 +1442,7 @@ export function buildShowResult(input: {
   const form = input.form;
   const showForm: ShowForm = {
     id: form.id,
+    type: resolveBeadsFormType(form),
     goal: form.goal,
     title: form.title,
     ...(form.description ? { description: form.description } : {}),
@@ -1587,6 +1596,9 @@ Attach metadata stamps:
 
 Embedding refs:
   Bead-backed forms store refs only. Prefer repo-relative refs such as docs/decision.md, screenshots/a.png, videos/demo.webm, reports/output.log, plus code-snippet path/commit/line metadata. Hosted http(s) media is allowed where supported. Legacy attachment:// refs are compatibility-only; do not use .beads/attachments for new authoring. Traversal, absolute paths, nested/unsafe schemes, symlink escapes, and unsupported extensions are rejected.
+
+Form types:
+  Omit type (or use "questionnaire") for ordinary forms. Use "code-review" only for code-review findings. Unknown types are rejected before metadata mutation.
 
 Default show output is JSON and includes all responses.`);
 }
