@@ -35,6 +35,8 @@ describe('BeadsForm styles', () => {
 
     expect(css).toMatch(/\.beadsform-root \.beads-form-next-instruction\s*\{[^}]*flex-basis:\s*100%[^}]*display:\s*grid/s);
     expect(css).toMatch(/\.beadsform-root \.beads-form-next-instruction textarea\s*\{[^}]*min-height:\s*5\.5rem[^}]*resize:\s*vertical/s);
+    expect(css).toMatch(/\.beadsform-root \.beads-form-next-instruction-presets\s*\{[^}]*flex-wrap:\s*wrap[^}]*min-width:\s*0/s);
+    expect(css).toMatch(/\.beadsform-root \.beads-form-next-instruction-preset\s*\{[^}]*max-width:\s*100%[^}]*overflow-wrap:\s*anywhere/s);
     expect(css).toMatch(/\.beadsform-root \.beads-form-optional\s*\{[^}]*font-weight:\s*500/s);
   });
 

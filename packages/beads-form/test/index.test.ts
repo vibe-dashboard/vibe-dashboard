@@ -3,6 +3,7 @@ import {
   ALLOW_CODE_FILE_CHANGES_FIELD,
   NEXT_INSTRUCTION_FIELD,
   NEXT_INSTRUCTION_MAX_CHARS,
+  DEFAULT_NEXT_INSTRUCTION_PRESETS,
   buildAttachmentList,
   buildBeadsFormMetadata,
   buildChoicesQuestion,
@@ -16,6 +17,35 @@ import {
 } from '../src/index';
 
 describe('@vibe-dashboard/beads-form', () => {
+  it('compiles default and custom Next Instruction presets without adding answer controls', () => {
+    const base = defineBeadsForm({ id: 'next', goal: 'Choose next work.', title: 'Next', questions: [] });
+    const defaultCompiled = compileBeadsForm(base);
+    expect(defaultCompiled.html).toContain(DEFAULT_NEXT_INSTRUCTION_PRESETS[0]!.value);
+    expect(defaultCompiled.controls.filter((control) => control.name === NEXT_INSTRUCTION_FIELD)).toHaveLength(1);
+
+    const custom = compileBeadsForm({
+      ...base,
+      nextInstructionPresets: [{ label: 'Investigate first', value: 'Investigate the remaining unknowns before editing.' }],
+    });
+    expect(custom.html).toContain('>Investigate first</button>');
+    expect(custom.html).toContain('value="Investigate the remaining unknowns before editing."');
+    expect(custom.html).not.toContain(DEFAULT_NEXT_INSTRUCTION_PRESETS[0]!.value);
+    expect(compileBeadsForm({ ...base, nextInstructionPresets: [] }).html).not.toContain('beads-form-next-instruction-presets');
+  });
+
+  it('strictly rejects invalid Next Instruction preset configuration', () => {
+    const base = defineBeadsForm({ id: 'next', goal: 'Choose next work.', title: 'Next', questions: [] });
+    for (const nextInstructionPresets of [
+      'invalid',
+      [{ label: '', value: 'Work' }],
+      [{ label: 'Work', value: '' }],
+      [{ label: 'Work', value: 'Do work', extra: true }],
+      Array.from({ length: 9 }, (_, index) => ({ label: `Choice ${index}`, value: `Work ${index}` })),
+    ]) {
+      expect(() => compileBeadsForm({ ...base, nextInstructionPresets } as never)).toThrow('nextInstructionPresets');
+    }
+  });
+
   it('defaults to questionnaire and compiles the only additional code-review type', () => {
     const questionnaire = defineBeadsForm({
       id: 'questions', goal: 'Answer questions.', title: 'Questions', questions: [],

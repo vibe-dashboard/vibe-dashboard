@@ -139,6 +139,19 @@ export type BeadsFormContentBlock =
 
 export type BeadsFormType = 'questionnaire' | 'code-review';
 
+export type BeadsFormNextInstructionPreset = {
+  label: string;
+  value: string;
+};
+
+export const DEFAULT_NEXT_INSTRUCTION_PRESETS: readonly BeadsFormNextInstructionPreset[] = [{
+  label: 'Discuss additional unknowns',
+  value: 'Create another form to discuss additional unknowns in detail',
+}];
+
+const NEXT_INSTRUCTION_PRESET_MAX_COUNT = 8;
+const NEXT_INSTRUCTION_PRESET_LABEL_MAX_CHARS = 80;
+
 export type StandardBeadsForm = {
   format: 'standard';
   /** Omit for the standard questionnaire workflow. */
@@ -162,6 +175,8 @@ export type StandardBeadsForm = {
     description?: string;
     defaultChecked?: boolean;
   };
+  /** Quick-fill choices for the one canonical Next Instruction textarea. Omit for the plugin default. */
+  nextInstructionPresets?: BeadsFormNextInstructionPreset[];
   content?: BeadsFormContentBlock[];
   questions: BeadsFormQuestion[];
   /** Marks a stale/superseded form as no longer answerable without deleting its historical responses. */
@@ -393,7 +408,7 @@ export function compileBeadsForm(form: StandardBeadsForm): CompiledBeadsForm {
   const formType = resolveBeadsFormType(form);
   const controls: BeadsFormControl[] = [];
   const description = form.description ? compileFormDescription(form.description) : '';
-  const submitActions = compileSubmitActions(form.allowCodeFileChanges, controls);
+  const submitActions = compileSubmitActions(form.allowCodeFileChanges, form.nextInstructionPresets, controls);
   const contentBlocks = (form.content ?? []).map(compileContentBlock);
   const sections = form.questions.map((question) => compileQuestion(question, controls));
   const html = [
@@ -486,6 +501,7 @@ export function buildBeadsFormsSummary(forms: readonly Pick<StoredBeadsForm, 'id
 
 function compileSubmitActions(
   config: StandardBeadsForm['allowCodeFileChanges'],
+  presetConfig: StandardBeadsForm['nextInstructionPresets'],
   controls: BeadsFormControl[],
 ): string {
   controls.push({
@@ -493,7 +509,7 @@ function compileSubmitActions(
     name: NEXT_INSTRUCTION_FIELD,
     type: 'textarea',
   });
-  const nextInstruction = compileNextInstructionPrompt();
+  const nextInstruction = compileNextInstructionPrompt(resolveNextInstructionPresets(presetConfig));
   if (config === false) {
     return [
       '<div class="beads-form-submit-actions" role="group" aria-label="Submit intent">',
@@ -522,14 +538,44 @@ function compileSubmitActions(
   ].join('');
 }
 
-function compileNextInstructionPrompt(): string {
+function compileNextInstructionPrompt(presets: readonly BeadsFormNextInstructionPreset[]): string {
+  const presetControls = presets.length === 0 ? '' : [
+    '<div class="beads-form-next-instruction-presets" role="group" aria-label="Next Instruction presets">',
+    '<span>Quick choices</span>',
+    ...presets.map((preset) => `<button type="button" class="beads-form-next-instruction-preset" value="${escapeHtml(preset.value)}">${escapeHtml(preset.label)}</button>`),
+    '</div>',
+  ].join('');
   return [
     '<div class="beads-form-next-instruction">',
     `<label for="${NEXT_INSTRUCTION_FIELD}">Next Instruction <span class="beads-form-optional">(optional)</span></label>`,
     `<p id="${NEXT_INSTRUCTION_FIELD}_help">Tell the agent what work to carry out after processing these answers. This is separate from Additional Notes.</p>`,
+    presetControls,
     `<textarea id="${NEXT_INSTRUCTION_FIELD}" name="${NEXT_INSTRUCTION_FIELD}" rows="3" maxlength="${NEXT_INSTRUCTION_MAX_CHARS}" aria-describedby="${NEXT_INSTRUCTION_FIELD}_help" placeholder="Optional Markdown instruction for what should happen next"></textarea>`,
     '</div>',
   ].join('');
+}
+
+function resolveNextInstructionPresets(value: unknown): readonly BeadsFormNextInstructionPreset[] {
+  if (value === undefined) return DEFAULT_NEXT_INSTRUCTION_PRESETS;
+  if (!Array.isArray(value)) throw new Error('form.nextInstructionPresets must be an array');
+  if (value.length > NEXT_INSTRUCTION_PRESET_MAX_COUNT) {
+    throw new Error(`form.nextInstructionPresets supports at most ${NEXT_INSTRUCTION_PRESET_MAX_COUNT} presets`);
+  }
+  const labels = new Set<string>();
+  return value.map((preset, index) => {
+    if (typeof preset !== 'object' || preset === null || Array.isArray(preset) || Object.keys(preset).some((key) => key !== 'label' && key !== 'value')) {
+      throw new Error(`form.nextInstructionPresets[${index}] must contain only label and value`);
+    }
+    if (typeof preset.label !== 'string' || !preset.label.trim() || preset.label.length > NEXT_INSTRUCTION_PRESET_LABEL_MAX_CHARS) {
+      throw new Error(`form.nextInstructionPresets[${index}].label must be 1-${NEXT_INSTRUCTION_PRESET_LABEL_MAX_CHARS} characters`);
+    }
+    if (typeof preset.value !== 'string' || !preset.value.trim() || preset.value.length > NEXT_INSTRUCTION_MAX_CHARS) {
+      throw new Error(`form.nextInstructionPresets[${index}].value must be 1-${NEXT_INSTRUCTION_MAX_CHARS} characters`);
+    }
+    if (labels.has(preset.label)) throw new Error(`form.nextInstructionPresets contains duplicate label "${preset.label}"`);
+    labels.add(preset.label);
+    return { label: preset.label, value: preset.value };
+  });
 }
 
 function compileContentBlock(block: BeadsFormContentBlock): string {

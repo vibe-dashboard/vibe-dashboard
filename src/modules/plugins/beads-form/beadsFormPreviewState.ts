@@ -132,6 +132,9 @@ export function setFormFieldsReadOnly(form: HTMLFormElement, readOnly: boolean):
     }
     element.disabled = readOnly;
   }
+  for (const preset of form.querySelectorAll<HTMLButtonElement>('.beads-form-next-instruction-preset')) {
+    preset.disabled = readOnly;
+  }
 }
 
 export function stripCompiledFormHeader(html: string): string {

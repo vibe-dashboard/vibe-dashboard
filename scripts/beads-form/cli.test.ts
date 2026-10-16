@@ -95,6 +95,27 @@ describe('beads-form CLI helpers', () => {
     expect(original).toEqual({ untouched: true });
   });
 
+  it('preserves Next Instruction presets through show and question mutations', () => {
+    const presets = [{ label: 'Discuss unknowns', value: 'Create another form to discuss additional unknowns in detail' }];
+    const form = parseFormsJsonForAttach(JSON.stringify({ ...standardForm, nextInstructionPresets: presets }))[0]!;
+    const attached = attachFormsToMetadata({}, [form]);
+    expect(buildShowResult({ bead: { id: 'bd-1' }, form }).form.nextInstructionPresets).toEqual(presets);
+
+    const updated = updateQuestionInMetadata(attached, 'review', {
+      questionId: 'decision',
+      replacement: mutableQuestion(standardForm.questions[0]),
+    });
+    expect((updated.metadata.beadForms as any).forms[0].nextInstructionPresets).toEqual(presets);
+
+    const appended = appendQuestionsToMetadata(attached, 'review', {
+      operation: 'append_questions',
+      questions: [{ type: 'textarea', id: 'follow_up', title: 'Follow up', description: 'Add a follow-up finding.' }],
+    });
+    expect((appended.metadata.beadForms as any).forms[0].nextInstructionPresets).toEqual(presets);
+    expect((appended.metadata.beadForms as any).forms[0]).not.toHaveProperty('html');
+    expect((appended.metadata.beadForms as any).forms[0]).not.toHaveProperty('controls');
+  });
+
   it('documents canonical structured choice tradeoffs instead of putting pros and cons in descriptions', async () => {
     const onboarding = await readFile(new URL('../../skills/beads-form-agent-onboarding.md', import.meta.url), 'utf8');
     const skill = await readFile(new URL('../../packages/beads-form/SKILL.md', import.meta.url), 'utf8');
@@ -125,6 +146,8 @@ describe('beads-form CLI helpers', () => {
     expect(attachments).toContain('public query');
     expect(skill).toContain('sends only the normalized response JSON object');
     expect(skill).toContain('followed by non-empty `SITE_ORIGIN`');
+    expect(skill).toContain('`nextInstructionPresets` accepts up to eight');
+    expect(skill).toContain('future plugin-settings registry');
     expect(onboarding).toContain('only the normalized response JSON object');
     expect(`${onboarding}\n${skill}`).not.toContain('sends the canonical lean form DSL, normalized response, and XML handoff');
   });
@@ -143,6 +166,7 @@ describe('beads-form CLI helpers', () => {
     expect(stdout).toContain('Embedding refs:');
     expect(stdout).toContain('Form types:');
     expect(stdout).toContain('2. SITE_ORIGIN');
+    expect(stdout).toContain('Next Instruction presets:');
     expect(stdout).toContain('Use "code-review" only for code-review findings.');
     expect(stdout).toContain('Prefer repo-relative refs such as docs/decision.md');
     expect(stdout).toContain('Legacy attachment:// refs are compatibility-only');
@@ -335,13 +359,15 @@ describe('beads-form CLI helpers', () => {
   });
 
   it('preserves only standard semantic fields when normalizing attach input', () => {
-    const [form] = parseFormsJsonForAttach(JSON.stringify(standardForm));
+    const presets = [{ label: 'Discuss unknowns', value: 'Create another form to discuss additional unknowns in detail' }];
+    const [form] = parseFormsJsonForAttach(JSON.stringify({ ...standardForm, nextInstructionPresets: presets }));
     expect(form).toMatchObject({
       format: 'standard',
       id: 'review',
       goal: standardForm.goal,
       questions: standardForm.questions,
       content: standardForm.content,
+      nextInstructionPresets: presets,
     });
     expect(form).not.toHaveProperty('html');
     expect(form).not.toHaveProperty('controls');
@@ -355,6 +381,15 @@ describe('beads-form CLI helpers', () => {
     expect(stripped).not.toHaveProperty('html');
     expect(stripped).not.toHaveProperty('controls');
     expect(stripped).not.toHaveProperty('sourceMessages');
+  });
+
+  it('rejects invalid Next Instruction presets before attach metadata mutation', () => {
+    const metadata = { untouched: true };
+    expect(() => attachFormsToMetadata(metadata, [{
+      ...standardForm,
+      nextInstructionPresets: [{ label: '', value: 'Do work' }],
+    } as never])).toThrow('nextInstructionPresets');
+    expect(metadata).toEqual({ untouched: true });
   });
 
   it('rejects duplicate input ids, duplicate bead ids, invalid JSON, and unsafe refs without mutation', () => {

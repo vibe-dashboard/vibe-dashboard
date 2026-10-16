@@ -490,6 +490,27 @@ textarea {
   resize: vertical;
 }
 
+.beadsform-root .beads-form-next-instruction-presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.beadsform-root .beads-form-next-instruction-presets > span {
+  color: #a1a1aa;
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+
+.beadsform-root .beads-form-next-instruction-preset {
+  max-width: 100%;
+  padding: 0.38rem 0.6rem;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
 .beadsform-root .beads-form-optional {
   color: #a1a1aa;
   font-weight: 500;

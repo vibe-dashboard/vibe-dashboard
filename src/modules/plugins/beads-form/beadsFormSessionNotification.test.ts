@@ -17,6 +17,7 @@ describe('BeadsForm creating-session notifications', () => {
         id: 'review',
         goal: 'Review the plan.',
         title: 'Review',
+        nextInstructionPresets: [{ label: 'Discuss unknowns', value: 'Create another form to discuss additional unknowns in detail' }],
         questions: [{
           type: 'textarea',
           id: 'comment',
@@ -40,6 +41,7 @@ describe('BeadsForm creating-session notifications', () => {
       allow_code_file_changes: false,
     }, null, 2));
     expect(message).not.toContain('code-review');
+    expect(message).not.toContain('Discuss unknowns');
     expect(JSON.parse(message)).toEqual({
       comment: '# Approved',
       next_instruction: '## Next\n\nImplement follow-up & report.',

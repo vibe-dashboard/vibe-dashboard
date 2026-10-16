@@ -67,6 +67,7 @@ export type BeadsFormDefinition = {
   title: string;
   description?: string;
   version?: number;
+  nextInstructionPresets?: StandardBeadsForm['nextInstructionPresets'];
   html: string;
   controls?: BeadsFormControl[];
   responses?: BeadsFormResponse[];

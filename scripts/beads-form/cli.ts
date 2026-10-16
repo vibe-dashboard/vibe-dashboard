@@ -54,6 +54,7 @@ export type BeadsFormDefinition = {
   title: string;
   description?: string;
   version?: number;
+  nextInstructionPresets?: StandardBeadsForm['nextInstructionPresets'];
   responses?: BeadsFormResponse[];
   format: 'standard';
   questions: StandardBeadsForm['questions'];
@@ -273,6 +274,7 @@ export type ShowForm = {
   title: string;
   description?: string;
   version?: number;
+  nextInstructionPresets?: StandardBeadsForm['nextInstructionPresets'];
   format?: BeadsFormDefinition['format'];
   content?: BeadsFormDefinition['content'];
   questions?: BeadsFormDefinition['questions'];
@@ -1448,6 +1450,7 @@ export function buildShowResult(input: {
     title: form.title,
     ...(form.description ? { description: form.description } : {}),
     ...(form.version !== undefined ? { version: form.version } : {}),
+    ...(form.nextInstructionPresets !== undefined ? { nextInstructionPresets: form.nextInstructionPresets } : {}),
     ...(form.format ? { format: form.format } : {}),
     ...(form.content ? { content: form.content } : {}),
     ...(form.questions ? { questions: form.questions } : {}),
@@ -1601,6 +1604,9 @@ Embedding refs:
 
 Form types:
   Omit type (or use "questionnaire") for ordinary forms. Use "code-review" only for code-review findings. Unknown types are rejected before metadata mutation.
+
+Next Instruction presets:
+  Standard DSL may include up to eight nextInstructionPresets entries shaped as {"label":"...","value":"..."}. They fill the one editable next_instruction answer; preset metadata is never submitted separately.
 
 Default show output is JSON and includes all responses.`);
 }

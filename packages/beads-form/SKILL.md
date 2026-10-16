@@ -49,6 +49,10 @@ const form = defineBeadsForm({
   goal: 'Decide how to unblock the implementation plan.',
   title: 'Planning Review',
   description: 'Questions to unblock the **implementation plan**.',
+  // Optional quick-fill buttons for the one submitted next_instruction value.
+  nextInstructionPresets: [
+    { label: 'Discuss unknowns', value: 'Create another form to discuss additional unknowns in detail' },
+  ],
   // Optional. Shown and checked by default if omitted.
   allowCodeFileChanges: {
     allowLabel: 'Submit and allow code/file changes',
@@ -109,6 +113,8 @@ const form = defineBeadsForm({
 
 const metadataPatch = buildBeadsFormMetadata([form]);
 ```
+
+`nextInstructionPresets` accepts up to eight `{ label, value }` entries. Selecting one replaces the final Next Instruction textarea, which remains editable; only that textarea's `next_instruction` value is drafted and submitted. Omit the field to use the plugin-local default, **Create another form to discuss additional unknowns in detail**. Use `[]` to show no presets. A future plugin-settings registry may provide defaults; this DSL field deliberately does not depend on such a registry.
 
 ## Conventions
 
