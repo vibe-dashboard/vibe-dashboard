@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createServer } from 'node:net';
-import { BEADS_FORM_DISABLE_HMR_ENV, buildBeadsFormPreviewDevEnv, shouldDisableBeadsFormHmr } from '../../src/lib/beadsFormDevServer.ts';
+import { BEADS_FORM_DISABLE_HMR_ENV, buildBeadsFormPreviewDevEnv, shouldDisableBeadsFormHmr } from '../../src/modules/plugins/beads-form/node.ts';
 
 export type PreviewOptions = {
   formsDir?: string;

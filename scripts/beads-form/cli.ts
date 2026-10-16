@@ -1,6 +1,7 @@
 /// <reference types="node" />
 
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
@@ -9,13 +10,34 @@ import { promisify } from 'node:util';
 
 import {
   compileBeadsForm,
-  type BeadsFormControl,
+  isBeadsFormInvalidated,
+  resolveBeadsFormType,
+  stripGeneratedBeadsFormFields,
   type StandardBeadsForm,
+  type BeadsFormType,
+  type StoredBeadsForm,
 } from '../../packages/beads-form/src/index.ts';
+import {
+  assertMetadataWithinIssueJsonGuard,
+  normalizeBeadsFormAttachmentRef,
+  type BeadsFormAttachmentRefUsage,
+  type PendingBeadsFormQueueResult,
+} from '../../src/modules/plugins/beads-form/node.ts';
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_CONFIG_DIR_NAME = 'vibe-dashboard';
 const DEFAULT_CONFIG_FILE_NAME = 'beads-form.json';
+const FORBIDDEN_APPEND_QUESTION_FIELDS = new Set([
+  'html',
+  'controls',
+  'sourceMessages',
+  'responses',
+  'format',
+  'goal',
+  'content',
+  'allowCodeFileChanges',
+  'nextInstructionPresets',
+]);
 
 export type JsonObject = Record<string, unknown>;
 
@@ -28,16 +50,19 @@ export type BeadsFormResponse = {
 
 export type BeadsFormDefinition = {
   id: string;
+  type?: BeadsFormType;
+  goal: string;
   title: string;
   description?: string;
   version?: number;
-  html: string;
-  controls?: BeadsFormControl[];
+  nextInstructionPresets?: StandardBeadsForm['nextInstructionPresets'];
   responses?: BeadsFormResponse[];
-  sourceMessages?: Array<{ source?: string; submittedAt?: string; text: string }>;
-  format?: 'standard';
-  questions?: StandardBeadsForm['questions'];
+  format: 'standard';
+  questions: StandardBeadsForm['questions'];
   content?: StandardBeadsForm['content'];
+  invalidatedAt?: string;
+  invalidatedBy?: string;
+  invalidatedReason?: string;
 };
 
 export type BeadsFormsSummary = {
@@ -46,6 +71,10 @@ export type BeadsFormsSummary = {
   pendingResponseCount: number;
   formIds: string[];
   pendingFormIds: string[];
+};
+
+type BeadFormResponsesMetadata = {
+  responsesByFormId: Record<string, BeadsFormResponse[]>;
 };
 
 export type BeadLike = {
@@ -65,7 +94,12 @@ type CliOptions = { _: string[] } & Record<string, string | boolean | string[] |
 
 export type BeadsFormCliCommand =
   | { command: 'attach'; options: AttachOptions }
+  | { command: 'append-questions'; options: AppendQuestionsOptions }
+  | { command: 'show-question'; options: QuestionSelectorOptions }
+  | { command: 'update-question'; options: UpdateQuestionOptions }
+  | { command: 'invalidate'; options: InvalidateOptions }
   | { command: 'show'; options: ShowOptions }
+  | { command: 'pending'; options: PendingOptions }
   | { command: 'help'; options: CliOptions };
 
 export type AttachOptions = {
@@ -79,17 +113,60 @@ export type AttachOptions = {
   sessionId?: string;
 };
 
+export type AppendQuestionsOptions = {
+  dir: string;
+  beadId: string;
+  formId: string;
+  file?: string;
+  json?: string;
+  stdin?: boolean;
+  origin?: string;
+  workspaceId?: string;
+  afterQuestionId?: string;
+  baseHash?: string;
+};
+
+export type QuestionSelectorOptions = {
+  dir: string;
+  beadId: string;
+  formId: string;
+  questionId?: string;
+  questionIndex?: number;
+};
+
+export type UpdateQuestionOptions = QuestionSelectorOptions & {
+  file?: string;
+  json?: string;
+  stdin?: boolean;
+  origin?: string;
+  workspaceId?: string;
+  baseHash?: string;
+};
+
 export type ShowOptions = {
   dir: string;
   beadId: string;
   formId?: string;
-  includeHtml?: boolean;
+};
+
+export type InvalidateOptions = {
+  dir: string;
+  beadId: string;
+  formId: string;
+  reason?: string;
+};
+
+export type PendingOptions = {
+  parentDir: string;
+  limit: number;
+  origin?: string;
 };
 
 export type AttachResult = {
   beadId: string;
   forms: Array<{
     id: string;
+    type: BeadsFormType;
     title: string;
     /** Backward-compatible primary URL. Uses workspace URL when workspaceId is known, otherwise dir URL. */
     url: string;
@@ -98,7 +175,87 @@ export type AttachResult = {
       dir: string;
       workspace?: string;
     };
+    authoringNextSteps: AuthoringNextSteps;
   }>;
+  validUnfilledForms: Array<{
+    id: string;
+    type: BeadsFormType;
+    title: string;
+    url: string;
+    urls: {
+      dir: string;
+      workspace?: string;
+    };
+  }>;
+  metadata: JsonObject;
+};
+
+export type AuthoringNextSteps = {
+  message: string;
+  commands: {
+    showFirstQuestion: string;
+    updateQuestionFromFile: string;
+  };
+};
+
+export type AppendQuestionsPatch = {
+  operation: 'append_questions';
+  questions: StandardBeadsForm['questions'];
+  afterQuestionId?: string;
+};
+
+type BeadsFormQuestionDefinition = StandardBeadsForm['questions'][number];
+
+export type AppendQuestionsResult = {
+  beadId: string;
+  formId: string;
+  appendedQuestionIds: string[];
+  formHashBefore: string;
+  formHashAfter: string;
+  url: string;
+  urls: {
+    dir: string;
+    workspace?: string;
+  };
+  metadata: JsonObject;
+};
+
+export type ShowQuestionResult = {
+  beadId: string;
+  formId: string;
+  formHash: string;
+  questionId: string;
+  /** One-based question index for CLI ergonomics. */
+  questionIndex: number;
+  questionHash: string;
+  question: BeadsFormQuestionDefinition;
+};
+
+export type UpdateQuestionResult = {
+  beadId: string;
+  formId: string;
+  questionId: string;
+  /** One-based question index for CLI ergonomics. */
+  questionIndex: number;
+  formHashBefore: string;
+  formHashAfter: string;
+  questionHashBefore: string;
+  questionHashAfter: string;
+  url: string;
+  urls: {
+    dir: string;
+    workspace?: string;
+  };
+  metadata: JsonObject;
+};
+
+export type InvalidateResult = {
+  beadId: string;
+  formId: string;
+  changed: boolean;
+  invalidatedAt: string;
+  invalidatedBy: string;
+  invalidatedReason?: string;
   metadata: JsonObject;
 };
 
@@ -113,24 +270,61 @@ export type ShowResult = {
 
 export type ShowForm = {
   id: string;
+  type: BeadsFormType;
+  goal: string;
   title: string;
   description?: string;
   version?: number;
+  nextInstructionPresets?: StandardBeadsForm['nextInstructionPresets'];
   format?: BeadsFormDefinition['format'];
   content?: BeadsFormDefinition['content'];
   questions?: BeadsFormDefinition['questions'];
-  html?: string;
-  controls?: BeadsFormControl[];
+  invalidatedAt?: string;
+  invalidatedBy?: string;
+  invalidatedReason?: string;
 };
 
 export type ShowMediaRef = {
-  galleryId: string;
-  itemId: string;
-  type: 'image' | 'video';
-  src: string;
+  galleryId?: string;
+  blockId?: string;
+  itemId?: string;
+  type: 'image' | 'video' | 'markdown' | 'file' | 'code-snippet';
+  src?: string;
+  ref?: string;
   poster?: string;
   caption?: string;
   alt?: string;
+  path?: string;
+  commit?: string;
+  startLine?: number;
+  endLine?: number;
+};
+
+export type PendingFormsCliResult = {
+  parentDir: string;
+  repoLimit: number;
+  reposScanned: number;
+  pendingCount: number;
+  entries: Array<{
+    repo: {
+      name: string;
+      path: string;
+    };
+    bead: {
+      id: string;
+      title?: string;
+      description?: string;
+    };
+    form: {
+      id: string;
+      title: string;
+      description?: string;
+      responseCount: number;
+    };
+    url: string;
+  }>;
+  skipped: Array<{ repoDir: string; reason: string }>;
+  updateStrategy: PendingBeadsFormQueueResult['updateStrategy'];
 };
 
 export function parseBeadsFormCliArgs(argv: string[]): BeadsFormCliCommand {
@@ -139,10 +333,40 @@ export function parseBeadsFormCliArgs(argv: string[]): BeadsFormCliCommand {
   if (command === 'attach') {
     return { command, options: normalizeAttachOptions(options) };
   }
+  if (command === 'append-questions') {
+    return { command, options: normalizeAppendQuestionsOptions(options) };
+  }
+  if (command === 'show-question') {
+    return { command, options: normalizeQuestionSelectorOptions(options, 'show-question') };
+  }
+  if (command === 'update-question') {
+    return { command, options: normalizeUpdateQuestionOptions(options) };
+  }
+  if (command === 'invalidate') {
+    return { command, options: normalizeInvalidateOptions(options) };
+  }
   if (command === 'show') {
     return { command, options: normalizeShowOptions(options) };
   }
+  if (command === 'pending') {
+    return { command, options: normalizePendingOptions(options) };
+  }
   return { command: 'help', options };
+}
+
+function normalizeInvalidateOptions(options: CliOptions): InvalidateOptions {
+  const beadId = stringOption(options, 'bead') ?? stringOption(options, 'bead-id') ?? options._[0];
+  const formId = stringOption(options, 'form') ?? stringOption(options, 'form-id') ?? options._[1];
+  if (!beadId || !formId) {
+    throw new Error('Usage: npm run beads-form -- invalidate --bead <bead-id> --form <form-id> [--reason text] [--dir repo]');
+  }
+  const reason = stringOption(options, 'reason');
+  return {
+    dir: resolve(stringOption(options, 'dir') ?? process.cwd()),
+    beadId,
+    formId,
+    ...(reason ? { reason } : {}),
+  };
 }
 
 function parseOptions(argv: string[]): CliOptions {
@@ -152,10 +376,6 @@ function parseOptions(argv: string[]): CliOptions {
     if (!arg) continue;
     if (arg === '--stdin') {
       options.stdin = true;
-      continue;
-    }
-    if (arg === '--include-html') {
-      options.includeHtml = true;
       continue;
     }
     if (arg.startsWith('--')) {
@@ -202,14 +422,105 @@ function normalizeAttachOptions(options: CliOptions): AttachOptions {
   };
 }
 
+function normalizeAppendQuestionsOptions(options: CliOptions): AppendQuestionsOptions {
+  const beadId = stringOption(options, 'bead') ?? stringOption(options, 'bead-id') ?? options._[0];
+  const formId = stringOption(options, 'form') ?? stringOption(options, 'form-id') ?? options._[1];
+  if (!beadId || !formId) {
+    throw new Error('Usage: npm run beads-form -- append-questions --bead <bead-id> --form <form-id> (--file questions.json | --json raw-json | --stdin)');
+  }
+  const file = stringOption(options, 'file');
+  const json = stringOption(options, 'json');
+  const stdin = options.stdin === true;
+  const inputCount = [file, json, stdin ? 'stdin' : undefined].filter(Boolean).length;
+  if (inputCount !== 1) throw new Error('append-questions requires exactly one of --file, --json, or --stdin');
+  const origin = resolveBeadsFormOrigin({ explicitOrigin: stringOption(options, 'origin') });
+  const workspaceId = stringOption(options, 'workspace') ?? stringEnv(process.env, 'VK_WORKSPACE_ID');
+  return {
+    dir: resolve(stringOption(options, 'dir') ?? process.cwd()),
+    beadId,
+    formId,
+    ...(file ? { file } : {}),
+    ...(json ? { json } : {}),
+    ...(stdin ? { stdin: true } : {}),
+    ...(origin ? { origin } : {}),
+    ...(workspaceId ? { workspaceId } : {}),
+    ...(stringOption(options, 'after-question') ? { afterQuestionId: stringOption(options, 'after-question') } : {}),
+    ...(stringOption(options, 'after-question-id') ? { afterQuestionId: stringOption(options, 'after-question-id') } : {}),
+    ...(stringOption(options, 'base-hash') ? { baseHash: stringOption(options, 'base-hash') } : {}),
+  };
+}
+
+function normalizeQuestionSelectorOptions(options: CliOptions, commandName: string): QuestionSelectorOptions {
+  const beadId = stringOption(options, 'bead') ?? stringOption(options, 'bead-id') ?? options._[0];
+  const formId = stringOption(options, 'form') ?? stringOption(options, 'form-id') ?? options._[1];
+  if (!beadId || !formId) {
+    throw new Error(`Usage: npm run beads-form -- ${commandName} --bead <bead-id> --form <form-id> (--question <question-id> | --index <one-based-index>)`);
+  }
+  const questionId = stringOption(options, 'question') ?? stringOption(options, 'question-id');
+  const rawIndex = stringOption(options, 'index') ?? stringOption(options, 'question-index');
+  if ((questionId ? 1 : 0) + (rawIndex ? 1 : 0) !== 1) {
+    throw new Error(`${commandName} requires exactly one of --question <question-id> or --index <one-based-index>`);
+  }
+  if (rawIndex && !/^[1-9]\d*$/.test(rawIndex)) {
+    throw new Error(`${commandName} --index must be a one-based positive integer`);
+  }
+  const parsedQuestionIndex = rawIndex ? Number.parseInt(rawIndex, 10) : undefined;
+  if (rawIndex && !Number.isSafeInteger(parsedQuestionIndex)) {
+    throw new Error(`${commandName} --index must be a one-based positive integer`);
+  }
+  return {
+    dir: resolve(stringOption(options, 'dir') ?? process.cwd()),
+    beadId,
+    formId,
+    ...(questionId ? { questionId } : {}),
+    ...(parsedQuestionIndex ? { questionIndex: parsedQuestionIndex } : {}),
+  };
+}
+
+function normalizeUpdateQuestionOptions(options: CliOptions): UpdateQuestionOptions {
+  const selector = normalizeQuestionSelectorOptions(options, 'update-question');
+  const file = stringOption(options, 'file');
+  const json = stringOption(options, 'json');
+  const stdin = options.stdin === true;
+  const inputCount = [file, json, stdin ? 'stdin' : undefined].filter(Boolean).length;
+  if (inputCount !== 1) throw new Error('update-question requires exactly one of --file, --json, or --stdin');
+  const origin = resolveBeadsFormOrigin({ explicitOrigin: stringOption(options, 'origin') });
+  const workspaceId = stringOption(options, 'workspace') ?? stringEnv(process.env, 'VK_WORKSPACE_ID');
+  return {
+    ...selector,
+    ...(file ? { file } : {}),
+    ...(json ? { json } : {}),
+    ...(stdin ? { stdin: true } : {}),
+    ...(origin ? { origin } : {}),
+    ...(workspaceId ? { workspaceId } : {}),
+    ...(stringOption(options, 'base-hash') ? { baseHash: stringOption(options, 'base-hash') } : {}),
+  };
+}
+
 function normalizeShowOptions(options: CliOptions): ShowOptions {
   const beadId = stringOption(options, 'bead') ?? stringOption(options, 'bead-id') ?? options._[0];
-  if (!beadId) throw new Error('Usage: npm run beads-form -- show --bead <bead-id> [--form <form-id>] [--include-html]');
+  if (options.includeHtml === true || options['include-html'] === true) {
+    throw new Error('beads-form show no longer supports --include-html; BeadsForms are stored as standard DSL only.');
+  }
+  if (!beadId) throw new Error('Usage: npm run beads-form -- show --bead <bead-id> [--form <form-id>]');
   return {
     dir: resolve(stringOption(options, 'dir') ?? process.cwd()),
     beadId,
     ...(stringOption(options, 'form') ? { formId: stringOption(options, 'form') } : {}),
-    includeHtml: options.includeHtml === true,
+  };
+}
+
+function normalizePendingOptions(options: CliOptions): PendingOptions {
+  const parentDir = stringOption(options, 'parent-dir') ?? stringOption(options, 'parentDir');
+  if (!parentDir) throw new Error('Usage: npm run beads-form -- pending --parent-dir <all-repos-dir> [--limit 80] [--origin origin]');
+  const limitText = stringOption(options, 'limit');
+  const limit = limitText ? Number.parseInt(limitText, 10) : 80;
+  if (!Number.isFinite(limit) || limit < 1) throw new Error(`Invalid pending --limit: ${limitText}`);
+  const origin = resolveBeadsFormOrigin({ explicitOrigin: stringOption(options, 'origin') });
+  return {
+    parentDir: resolve(parentDir),
+    limit,
+    ...(origin ? { origin } : {}),
   };
 }
 
@@ -225,6 +536,7 @@ export function resolveBeadsFormOrigin(input: {
 } = {}): string | undefined {
   const env = input.env ?? process.env;
   const candidate = input.explicitOrigin
+    ?? stringEnv(env, 'SITE_ORIGIN')
     ?? stringEnv(env, 'BEADS_FORM_ORIGIN')
     ?? stringEnv(env, 'VD_BEADS_FORM_ORIGIN')
     ?? readOriginConfig(input.configPath ?? defaultOriginConfigPath(env));
@@ -262,10 +574,22 @@ function normalizeOrigin(origin: string): string {
 }
 
 export async function readAttachInput(options: AttachOptions, stdin = process.stdin): Promise<string> {
+  return readJsonInput(options, stdin);
+}
+
+export async function readAppendQuestionsInput(options: AppendQuestionsOptions, stdin = process.stdin): Promise<string> {
+  return readJsonInput(options, stdin);
+}
+
+export async function readUpdateQuestionInput(options: UpdateQuestionOptions, stdin = process.stdin): Promise<string> {
+  return readJsonInput(options, stdin);
+}
+
+async function readJsonInput(options: Pick<AttachOptions, 'file' | 'json' | 'stdin'>, stdin = process.stdin): Promise<string> {
   if (options.file) return readFile(resolve(options.file), 'utf8');
   if (options.json) return options.json;
   if (options.stdin) return readStream(stdin);
-  throw new Error('attach requires --file, --json, or --stdin');
+  throw new Error('requires --file, --json, or --stdin');
 }
 
 function readStream(stream: NodeJS.ReadableStream): Promise<string> {
@@ -303,12 +627,17 @@ function normalizeSingleFormForAttach(value: unknown): BeadsFormDefinition {
 }
 
 function normalizeForm(value: unknown): BeadsFormDefinition | undefined {
-  if (isHtmlForm(value)) return value;
+  if (isHtmlForm(value) && !isStandardForm(value)) {
+    throw new Error('Raw HTML BeadsForms are no longer supported; express the form with the standard BeadsForm DSL.');
+  }
   if (!isStandardForm(value)) return undefined;
-  return compileBeadsForm(value);
+  compileBeadsForm(value);
+  const form = stripGeneratedBeadsFormFields(value);
+  assertSafeBeadBackedAttachmentRefs(form);
+  return form;
 }
 
-function isHtmlForm(value: unknown): value is BeadsFormDefinition {
+function isHtmlForm(value: unknown): value is JsonObject & { id: string; title: string; html: string } {
   return isObject(value)
     && typeof value.id === 'string'
     && value.id.trim().length > 0
@@ -323,9 +652,29 @@ function isStandardForm(value: unknown): value is StandardBeadsForm {
     && value.format === 'standard'
     && typeof value.id === 'string'
     && value.id.trim().length > 0
+    && typeof value.goal === 'string'
+    && value.goal.trim().length > 0
     && typeof value.title === 'string'
     && value.title.trim().length > 0
     && Array.isArray(value.questions);
+}
+
+function isStoredStandardFormLike(value: unknown): value is StoredBeadsForm {
+  return isObject(value)
+    && value.format === 'standard'
+    && typeof value.id === 'string'
+    && value.id.trim().length > 0
+    && typeof value.title === 'string'
+    && value.title.trim().length > 0
+    && Array.isArray(value.questions);
+}
+
+function withLegacyFallbackGoal(form: StoredBeadsForm): StoredBeadsForm {
+  if (typeof form.goal === 'string' && form.goal.trim().length > 0) return form;
+  return {
+    ...form,
+    goal: `Answer ${form.title}.`,
+  };
 }
 
 export function parseFormsJsonForAttach(text: string): BeadsFormDefinition[] {
@@ -337,8 +686,119 @@ export function parseFormsJsonForAttach(text: string): BeadsFormDefinition[] {
   }
   const forms = formsFromJsonForAttach(parsed);
   assertUniqueFormIds(forms);
-  for (const form of forms) assertNoLocalBeadBackedMediaRefs(form);
   return forms;
+}
+
+export function parseQuestionsJsonForAppend(text: string): AppendQuestionsPatch {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const patch = questionsPatchFromJson(parsed);
+  assertUniqueQuestionIds(patch.questions);
+  assertNoGeneratedFormFields(parsed);
+  assertNoForbiddenAppendQuestionFields(patch.questions);
+  return patch;
+}
+
+export function parseQuestionJsonForUpdate(text: string): BeadsFormQuestionDefinition {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const question = questionFromJsonForUpdate(parsed);
+  assertNoGeneratedFormFields(parsed);
+  assertNoForbiddenAppendQuestionFields(question, 'question');
+  return question;
+}
+
+function questionFromJsonForUpdate(parsed: unknown): BeadsFormQuestionDefinition {
+  if (isQuestionLike(parsed)) return parsed as BeadsFormQuestionDefinition;
+  if (!isObject(parsed)) throw new Error('update-question input must be one standard DSL question or an object with question');
+  if (parsed.operation !== undefined && parsed.operation !== 'update_question') {
+    throw new Error(`Unsupported update-question operation: ${String(parsed.operation)}`);
+  }
+  if ('format' in parsed || ('id' in parsed && 'title' in parsed && 'questions' in parsed)) {
+    throw new Error('update-question accepts one standard DSL question, not a full BeadsForm definition');
+  }
+  if (!isQuestionLike(parsed.question)) {
+    throw new Error('update-question input must include one standard DSL question');
+  }
+  return parsed.question as BeadsFormQuestionDefinition;
+}
+
+function isQuestionLike(value: unknown): boolean {
+  return isObject(value)
+    && (value.type === 'choices' || value.type === 'text' || value.type === 'textarea')
+    && typeof value.id === 'string'
+    && value.id.trim().length > 0
+    && typeof value.title === 'string'
+    && value.title.trim().length > 0
+    && typeof value.description === 'string'
+    && value.description.trim().length > 0;
+}
+
+function questionsPatchFromJson(parsed: unknown): AppendQuestionsPatch {
+  if (Array.isArray(parsed)) {
+    return normalizeAppendQuestionsPatch({ operation: 'append_questions', questions: parsed });
+  }
+  if (!isObject(parsed)) throw new Error('append-questions input must be a question array or an object with questions[]');
+  if (parsed.operation !== undefined && parsed.operation !== 'append_questions') {
+    throw new Error(`Unsupported append-questions operation: ${String(parsed.operation)}`);
+  }
+  if ('format' in parsed || ('id' in parsed && 'title' in parsed)) {
+    throw new Error('append-questions accepts questions only, not full BeadsForm definitions');
+  }
+  return normalizeAppendQuestionsPatch(parsed);
+}
+
+function normalizeAppendQuestionsPatch(value: JsonObject): AppendQuestionsPatch {
+  if (!Array.isArray(value.questions)) throw new Error('append-questions input must include a non-empty questions[] array');
+  if (value.questions.length === 0) throw new Error('append-questions requires at least one question');
+  const questions = value.questions as StandardBeadsForm['questions'];
+  const patch: AppendQuestionsPatch = {
+    operation: 'append_questions',
+    questions,
+  };
+  if (typeof value.afterQuestionId === 'string' && value.afterQuestionId.trim()) {
+    patch.afterQuestionId = value.afterQuestionId.trim();
+  }
+  return patch;
+}
+
+function assertUniqueQuestionIds(questions: StandardBeadsForm['questions']): void {
+  const seen = new Set<string>();
+  for (const question of questions) {
+    if (!isObject(question) || typeof question.id !== 'string' || !question.id.trim()) {
+      throw new Error('append-questions input contains a question without an id');
+    }
+    if (seen.has(question.id)) throw new Error(`Duplicate question id in append input: ${question.id}`);
+    seen.add(question.id);
+  }
+}
+
+function assertNoGeneratedFormFields(parsed: unknown): void {
+  if (isObject(parsed) && ('html' in parsed || 'controls' in parsed)) {
+    throw new Error('append-questions accepts standard DSL questions only, not generated html/controls');
+  }
+}
+
+function assertNoForbiddenAppendQuestionFields(value: unknown, path = 'questions'): void {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertNoForbiddenAppendQuestionFields(item, `${path}[${index}]`));
+    return;
+  }
+  if (!isObject(value)) return;
+  for (const key of Object.keys(value)) {
+    if (FORBIDDEN_APPEND_QUESTION_FIELDS.has(key)) {
+      throw new Error(`append-questions input contains forbidden form/generated field "${key}" at ${path}`);
+    }
+    assertNoForbiddenAppendQuestionFields(value[key], `${path}.${key}`);
+  }
 }
 
 function assertUniqueFormIds(forms: BeadsFormDefinition[]): void {
@@ -349,45 +809,22 @@ function assertUniqueFormIds(forms: BeadsFormDefinition[]): void {
   }
 }
 
-function assertNoLocalBeadBackedMediaRefs(form: BeadsFormDefinition): void {
+function assertSafeBeadBackedAttachmentRefs(form: BeadsFormDefinition): void {
   for (const ref of collectMediaRefs(form)) {
-    for (const [field, value] of Object.entries({ src: ref.src, poster: ref.poster })) {
+    for (const [field, value] of Object.entries({ src: ref.src, ref: ref.ref, poster: ref.poster })) {
       if (typeof value !== 'string' || !value) continue;
-      if (isLocalMediaRef(value)) {
-        throw new Error(`Form ${form.id} uses local media ${field} "${value}"; bead-backed media only supports non-local refs for now`);
+      const usage: BeadsFormAttachmentRefUsage = field === 'poster'
+        ? 'image'
+        : ref.type === 'code-snippet'
+          ? 'file'
+          : ref.type;
+      try {
+        normalizeBeadsFormAttachmentRef(value, usage);
+      } catch (error) {
+        throw new Error(`Form ${form.id} uses unsafe attachment ${field} "${value}"; ${error instanceof Error ? error.message : String(error)}`);
       }
     }
   }
-
-  for (const ref of collectHtmlMediaRefs(form.html)) {
-    if (isLocalMediaRef(ref.value)) {
-      throw new Error(`Form ${form.id} uses local media ${ref.attr} "${ref.value}" in stored HTML; bead-backed media only supports non-local refs for now`);
-    }
-  }
-}
-
-export function collectHtmlMediaRefs(html: string): Array<{ tag: string; attr: 'src' | 'poster'; value: string }> {
-  const refs: Array<{ tag: string; attr: 'src' | 'poster'; value: string }> = [];
-  const mediaTagPattern = /<(img|video|source|track|audio)\b[^>]*>/gi;
-  for (const tagMatch of html.matchAll(mediaTagPattern)) {
-    const tag = tagMatch[1]!.toLowerCase();
-    const tagText = tagMatch[0];
-    const attrPattern = /\b(src|poster)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi;
-    for (const attrMatch of tagText.matchAll(attrPattern)) {
-      refs.push({
-        tag,
-        attr: attrMatch[1]!.toLowerCase() as 'src' | 'poster',
-        value: attrMatch[2] ?? attrMatch[3] ?? attrMatch[4] ?? '',
-      });
-    }
-  }
-  return refs;
-}
-
-function isLocalMediaRef(value: string): boolean {
-  const lower = value.trim().toLowerCase();
-  if (!lower) return false;
-  return !(lower.startsWith('https://') || lower.startsWith('http://') || lower.startsWith('attachment://'));
 }
 
 export async function attachBeadsForms(input: {
@@ -402,6 +839,24 @@ export async function attachBeadsForms(input: {
     sessionId: input.options.sessionId,
   });
   await updateMetadata({ execFile: exec, dir: input.options.dir, beadId: input.options.beadId, metadata });
+  const validUnfilledForms = getFormsFromMetadata(metadata)
+    .filter((form) => !isBeadsFormInvalidated(form) && (form.responses?.length ?? 0) === 0)
+    .map((form) => {
+      const urls = buildFillOutUrls({
+        dir: input.options.dir,
+        beadId: input.options.beadId,
+        formId: form.id,
+        origin: input.options.origin,
+        workspaceId: input.options.workspaceId,
+      });
+      return {
+        id: form.id,
+        type: resolveBeadsFormType(form),
+        title: form.title,
+        url: urls.workspace ?? urls.dir,
+        urls,
+      };
+    });
   return {
     beadId: input.options.beadId,
     forms: input.forms.map((form) => {
@@ -414,12 +869,35 @@ export async function attachBeadsForms(input: {
       });
       return {
         id: form.id,
+        type: resolveBeadsFormType(form),
         title: form.title,
         url: urls.workspace ?? urls.dir,
         urls,
+        authoringNextSteps: buildAuthoringNextSteps({
+          dir: input.options.dir,
+          beadId: input.options.beadId,
+          form,
+        }),
       };
     }),
+    validUnfilledForms,
     metadata,
+  };
+}
+
+function buildAuthoringNextSteps(input: {
+  dir: string;
+  beadId: string;
+  form: BeadsFormDefinition;
+}): AuthoringNextSteps {
+  const questionFile = `.vk-mocked-sandbox/beads-form-authoring/${input.form.id}-question.json`;
+  const common = `--dir ${shQuote(input.dir)} --bead ${shQuote(input.beadId)} --form ${shQuote(input.form.id)}`;
+  return {
+    message: 'Review and refine questions before sharing this BeadsForm; invalidate any previous forms that are no longer relevant.',
+    commands: {
+      showFirstQuestion: `beads-form show-question ${common} --index 1`,
+      updateQuestionFromFile: `cat ${shQuote(questionFile)} | beads-form update-question ${common} --question <question-id> --base-hash ${shQuote(buildFormDefinitionHash(input.form))} --stdin`,
+    },
   };
 }
 
@@ -428,26 +906,351 @@ export function attachFormsToMetadata(
   forms: BeadsFormDefinition[],
   options: { workspaceId?: string; sessionId?: string } = {},
 ): JsonObject {
+  for (const form of forms) compileBeadsForm(form as StoredBeadsForm);
   const next: JsonObject = isObject(metadata) ? structuredClone(metadata) as JsonObject : {};
   const beadForms = isObject(next.beadForms) ? next.beadForms : { forms: [] };
-  const existingForms = Array.isArray(beadForms.forms) ? [...beadForms.forms] : [];
+  const existingForms = getFormsFromMetadata(next);
   const existingIds = new Set(existingForms
-    .filter((form): form is JsonObject => isObject(form) && typeof form.id === 'string')
-    .map((form) => form.id as string));
+    .map((form) => form.id));
   for (const form of forms) {
     if (existingIds.has(form.id)) throw new Error(`Form id already exists on bead: ${form.id}`);
   }
-  next.beadForms = { ...beadForms, forms: [...existingForms, ...forms] };
+  const allForms = [...existingForms, ...forms];
+  const storedForms = allForms.map(stripResponsesFromForm);
+  next.beadForms = { ...beadForms, forms: storedForms };
+  writeSplitResponses(next, allForms);
   next.beadFormsSummary = buildBeadsFormsSummary(getFormsFromMetadata(next));
   stampStringMetadata(next, 'VK_WORKSPACE_ID', options.workspaceId);
   stampStringMetadata(next, 'VK_SESSION_ID', options.sessionId);
   return next;
 }
 
+export async function appendQuestionsToBeadsForm(input: {
+  options: AppendQuestionsOptions;
+  patch: AppendQuestionsPatch;
+  execFile?: ExecFileLike;
+}): Promise<AppendQuestionsResult> {
+  const exec = input.execFile ?? defaultExecFile;
+  const bead = await readBead({ execFile: exec, dir: input.options.dir, beadId: input.options.beadId });
+  const mutation = appendQuestionsToMetadata(bead.metadata, input.options.formId, {
+    ...input.patch,
+    afterQuestionId: input.options.afterQuestionId ?? input.patch.afterQuestionId,
+  }, {
+    baseHash: input.options.baseHash,
+  });
+  await updateMetadata({ execFile: exec, dir: input.options.dir, beadId: input.options.beadId, metadata: mutation.metadata });
+  const urls = buildFillOutUrls({
+    dir: input.options.dir,
+    beadId: input.options.beadId,
+    formId: input.options.formId,
+    origin: input.options.origin,
+    workspaceId: input.options.workspaceId,
+  });
+  return {
+    beadId: input.options.beadId,
+    formId: input.options.formId,
+    appendedQuestionIds: input.patch.questions.map((question) => question.id),
+    formHashBefore: mutation.formHashBefore,
+    formHashAfter: mutation.formHashAfter,
+    url: urls.workspace ?? urls.dir,
+    urls,
+    metadata: mutation.metadata,
+  };
+}
+
+export function appendQuestionsToMetadata(
+  metadata: unknown,
+  formId: string,
+  patch: AppendQuestionsPatch,
+  options: { baseHash?: string } = {},
+): { metadata: JsonObject; formHashBefore: string; formHashAfter: string } {
+  const next: JsonObject = isObject(metadata) ? structuredClone(metadata) as JsonObject : {};
+  const beadForms = isObject(next.beadForms) ? next.beadForms : undefined;
+  if (!beadForms || !Array.isArray(beadForms.forms)) throw new Error('No canonical beadForms.forms[] metadata found on bead');
+
+  const forms = getFormsFromMetadata(next);
+  const formIndex = forms.findIndex((candidate) => candidate.id === formId);
+  if (formIndex < 0) throw new Error(`Form not found: ${formId}`);
+  const form = forms[formIndex]!;
+  if (isBeadsFormInvalidated(form)) throw new Error(`Form ${formId} is invalidated and cannot be changed.`);
+  const formHashBefore = buildFormDefinitionHash(form);
+  if (options.baseHash && options.baseHash !== formHashBefore) {
+    throw new Error(`Form ${formId} changed since base hash ${options.baseHash}; current hash is ${formHashBefore}`);
+  }
+
+  assertUniqueQuestionIds(patch.questions);
+  assertNoForbiddenAppendQuestionFields(patch.questions);
+  const existingQuestionIds = new Set(form.questions.map((question) => question.id));
+  for (const question of patch.questions) {
+    if (existingQuestionIds.has(question.id)) throw new Error(`Question id already exists on form ${formId}: ${question.id}`);
+  }
+
+  const insertionIndex = patch.afterQuestionId
+    ? form.questions.findIndex((question) => question.id === patch.afterQuestionId)
+    : form.questions.length - 1;
+  if (patch.afterQuestionId && insertionIndex < 0) {
+    throw new Error(`afterQuestionId not found on form ${formId}: ${patch.afterQuestionId}`);
+  }
+  const insertAt = patch.afterQuestionId ? insertionIndex + 1 : form.questions.length;
+  const questions = [
+    ...form.questions.slice(0, insertAt),
+    ...patch.questions,
+    ...form.questions.slice(insertAt),
+  ] as StandardBeadsForm['questions'];
+  const updatedForm = stripGeneratedBeadsFormFields({
+    ...form,
+    questions,
+  } as StoredBeadsForm);
+  compileBeadsForm(updatedForm);
+
+  forms[formIndex] = updatedForm;
+  const storedForms = forms.map(stripResponsesFromForm);
+  next.beadForms = { ...beadForms, forms: storedForms };
+  writeSplitResponses(next, forms);
+  next.beadFormsSummary = buildBeadsFormsSummary(getFormsFromMetadata(next));
+  return {
+    metadata: next,
+    formHashBefore,
+    formHashAfter: buildFormDefinitionHash(updatedForm),
+  };
+}
+
+export async function showBeadsFormQuestion(input: {
+  options: QuestionSelectorOptions;
+  execFile?: ExecFileLike;
+}): Promise<ShowQuestionResult> {
+  const bead = await readBead({ execFile: input.execFile ?? defaultExecFile, dir: input.options.dir, beadId: input.options.beadId });
+  const form = selectFormForShow(getFormsFromMetadata(bead.metadata), input.options.formId);
+  return buildShowQuestionResult(input.options.beadId, form, input.options);
+}
+
+export async function updateBeadsFormQuestion(input: {
+  options: UpdateQuestionOptions;
+  replacement: BeadsFormQuestionDefinition;
+  execFile?: ExecFileLike;
+}): Promise<UpdateQuestionResult> {
+  const exec = input.execFile ?? defaultExecFile;
+  const bead = await readBead({ execFile: exec, dir: input.options.dir, beadId: input.options.beadId });
+  const mutation = updateQuestionInMetadata(bead.metadata, input.options.formId, {
+    questionId: input.options.questionId,
+    questionIndex: input.options.questionIndex,
+    replacement: input.replacement,
+    baseHash: input.options.baseHash,
+  });
+  await updateMetadata({ execFile: exec, dir: input.options.dir, beadId: input.options.beadId, metadata: mutation.metadata });
+  const urls = buildFillOutUrls({
+    dir: input.options.dir,
+    beadId: input.options.beadId,
+    formId: input.options.formId,
+    origin: input.options.origin,
+    workspaceId: input.options.workspaceId,
+  });
+  return {
+    beadId: input.options.beadId,
+    formId: input.options.formId,
+    questionId: mutation.questionId,
+    questionIndex: mutation.questionIndex,
+    formHashBefore: mutation.formHashBefore,
+    formHashAfter: mutation.formHashAfter,
+    questionHashBefore: mutation.questionHashBefore,
+    questionHashAfter: mutation.questionHashAfter,
+    url: urls.workspace ?? urls.dir,
+    urls,
+    metadata: mutation.metadata,
+  };
+}
+
+export function updateQuestionInMetadata(
+  metadata: unknown,
+  formId: string,
+  patch: {
+    questionId?: string;
+    questionIndex?: number;
+    replacement: BeadsFormQuestionDefinition;
+    baseHash?: string;
+  },
+): {
+  metadata: JsonObject;
+  questionId: string;
+  questionIndex: number;
+  formHashBefore: string;
+  formHashAfter: string;
+  questionHashBefore: string;
+  questionHashAfter: string;
+} {
+  const next: JsonObject = isObject(metadata) ? structuredClone(metadata) as JsonObject : {};
+  const beadForms = isObject(next.beadForms) ? next.beadForms : undefined;
+  if (!beadForms || !Array.isArray(beadForms.forms)) throw new Error('No canonical beadForms.forms[] metadata found on bead');
+
+  assertNoForbiddenAppendQuestionFields(patch.replacement, 'question');
+  const forms = getFormsFromMetadata(next);
+  const formIndex = forms.findIndex((candidate) => candidate.id === formId);
+  if (formIndex < 0) throw new Error(`Form not found: ${formId}`);
+  const form = forms[formIndex]!;
+  if (isBeadsFormInvalidated(form)) throw new Error(`Form ${formId} is invalidated and cannot be changed.`);
+  const formHashBefore = buildFormDefinitionHash(form);
+  if (patch.baseHash && patch.baseHash !== formHashBefore) {
+    throw new Error(`Form ${formId} changed since base hash ${patch.baseHash}; current hash is ${formHashBefore}`);
+  }
+
+  const selected = selectQuestion(form, patch);
+  if (patch.replacement.id !== selected.question.id) {
+    throw new Error(`update-question cannot change question id from ${selected.question.id} to ${patch.replacement.id}`);
+  }
+  const questions = form.questions.map((question, index) => (
+    index === selected.zeroBasedIndex ? patch.replacement : question
+  )) as StandardBeadsForm['questions'];
+  const updatedForm = stripGeneratedBeadsFormFields({
+    ...form,
+    questions,
+  } as StoredBeadsForm);
+  compileBeadsForm(updatedForm);
+
+  forms[formIndex] = updatedForm;
+  const storedForms = forms.map(stripResponsesFromForm);
+  next.beadForms = { ...beadForms, forms: storedForms };
+  writeSplitResponses(next, forms);
+  next.beadFormsSummary = buildBeadsFormsSummary(getFormsFromMetadata(next));
+  return {
+    metadata: next,
+    questionId: selected.question.id,
+    questionIndex: selected.zeroBasedIndex + 1,
+    formHashBefore,
+    formHashAfter: buildFormDefinitionHash(updatedForm),
+    questionHashBefore: buildQuestionDefinitionHash(selected.question),
+    questionHashAfter: buildQuestionDefinitionHash(patch.replacement),
+  };
+}
+
+export async function invalidateBeadsForm(input: {
+  options: InvalidateOptions;
+  execFile?: ExecFileLike;
+  now?: () => Date;
+  actor?: string;
+}): Promise<InvalidateResult> {
+  const exec = input.execFile ?? defaultExecFile;
+  const bead = await readBead({ execFile: exec, dir: input.options.dir, beadId: input.options.beadId });
+  const mutation = invalidateFormInMetadata(bead.metadata, input.options.formId, {
+    reason: input.options.reason,
+    actor: input.actor ?? defaultActor(),
+    now: input.now ?? (() => new Date()),
+  });
+  if (mutation.changed) {
+    await updateMetadata({ execFile: exec, dir: input.options.dir, beadId: input.options.beadId, metadata: mutation.metadata });
+  }
+  return {
+    beadId: input.options.beadId,
+    formId: input.options.formId,
+    changed: mutation.changed,
+    invalidatedAt: mutation.form.invalidatedAt!,
+    invalidatedBy: mutation.form.invalidatedBy!,
+    ...(mutation.form.invalidatedReason ? { invalidatedReason: mutation.form.invalidatedReason } : {}),
+    metadata: mutation.metadata,
+  };
+}
+
+export function invalidateFormInMetadata(
+  metadata: unknown,
+  formId: string,
+  options: { reason?: string; actor: string; now: () => Date },
+): { metadata: JsonObject; form: BeadsFormDefinition; changed: boolean } {
+  const next: JsonObject = isObject(metadata) ? structuredClone(metadata) as JsonObject : {};
+  const beadForms = isObject(next.beadForms) ? next.beadForms : undefined;
+  if (!beadForms || !Array.isArray(beadForms.forms)) throw new Error('No canonical beadForms.forms[] metadata found on bead');
+
+  const forms = getFormsFromMetadata(next);
+  const formIndex = forms.findIndex((candidate) => candidate.id === formId);
+  if (formIndex < 0) throw new Error(`Form not found: ${formId}`);
+  const form = forms[formIndex]!;
+  if (isBeadsFormInvalidated(form)) {
+    return { metadata: next, form, changed: false };
+  }
+
+  const reason = options.reason?.trim();
+  const invalidated = stripGeneratedBeadsFormFields({
+    ...form,
+    invalidatedAt: options.now().toISOString(),
+    invalidatedBy: options.actor.trim() || 'agent',
+    ...(reason ? { invalidatedReason: reason } : {}),
+  } as StoredBeadsForm) as BeadsFormDefinition;
+  forms[formIndex] = invalidated;
+  next.beadForms = { ...beadForms, forms: forms.map(stripResponsesFromForm) };
+  writeSplitResponses(next, forms);
+  next.beadFormsSummary = buildBeadsFormsSummary(getFormsFromMetadata(next));
+  return { metadata: next, form: invalidated, changed: true };
+}
+
+export function buildFormDefinitionHash(form: BeadsFormDefinition): string {
+  const { responses: _responses, ...definition } = stripGeneratedBeadsFormFields(form as StoredBeadsForm) as BeadsFormDefinition;
+  return createHash('sha256').update(stableStringify(definition)).digest('hex');
+}
+
+export function buildQuestionDefinitionHash(question: BeadsFormQuestionDefinition): string {
+  return createHash('sha256').update(stableStringify(question)).digest('hex');
+}
+
+function normalizeStoredForm(value: unknown): BeadsFormDefinition {
+  if (isHtmlForm(value) && !isStoredStandardFormLike(value)) {
+    throw new Error('Raw HTML BeadsForms are no longer supported; express the form with the standard BeadsForm DSL.');
+  }
+  if (!isStoredStandardFormLike(value)) {
+    throw new Error('Cannot update bead metadata because beadForms.forms[] contains a non-standard BeadsForm');
+  }
+  const stored = stripGeneratedBeadsFormFields(withLegacyFallbackGoal(value));
+  compileBeadsForm(stored);
+  assertSafeBeadBackedAttachmentRefs(stored);
+  return stored;
+}
+
+function isBeadsFormResponse(value: unknown): value is BeadsFormResponse {
+  return isObject(value)
+    && typeof value.submittedBy === 'string'
+    && typeof value.submittedAt === 'string'
+    && isObject(value.values);
+}
+
+function getSplitResponsesByFormId(metadata: JsonObject): Map<string, BeadsFormResponse[]> {
+  const responsesByFormId = new Map<string, BeadsFormResponse[]>();
+  const namespace = metadata.beadFormResponses;
+  if (!isObject(namespace) || !isObject(namespace.responsesByFormId)) return responsesByFormId;
+  for (const [formId, responses] of Object.entries(namespace.responsesByFormId)) {
+    if (Array.isArray(responses) && responses.every(isBeadsFormResponse)) {
+      responsesByFormId.set(formId, responses);
+    }
+  }
+  return responsesByFormId;
+}
+
+function applySplitResponses(metadata: JsonObject, forms: BeadsFormDefinition[]): BeadsFormDefinition[] {
+  const splitResponses = getSplitResponsesByFormId(metadata);
+  return forms.map((form) => {
+    const responses = splitResponses.get(form.id) ?? form.responses;
+    if (!responses) return form;
+    return { ...form, responses };
+  });
+}
+
+function stripResponsesFromForm(form: BeadsFormDefinition): StoredBeadsForm {
+  const { responses: _responses, ...stored } = stripGeneratedBeadsFormFields(form as StoredBeadsForm) as BeadsFormDefinition;
+  return stored as StoredBeadsForm;
+}
+
+function writeSplitResponses(next: JsonObject, forms: BeadsFormDefinition[]): void {
+  const responsesByFormId: BeadFormResponsesMetadata['responsesByFormId'] = {};
+  for (const form of forms) {
+    if ((form.responses?.length ?? 0) > 0) responsesByFormId[form.id] = form.responses!;
+  }
+  if (Object.keys(responsesByFormId).length > 0) {
+    next.beadFormResponses = { responsesByFormId };
+  } else {
+    delete next.beadFormResponses;
+  }
+}
+
 export function buildBeadsFormsSummary(forms: readonly BeadsFormDefinition[]): BeadsFormsSummary {
   const formIds = forms.map((form) => form.id);
   const pendingFormIds = forms
-    .filter((form) => (form.responses?.length ?? 0) === 0)
+    .filter((form) => !isBeadsFormInvalidated(form) && (form.responses?.length ?? 0) === 0)
     .map((form) => form.id);
   return {
     hasForms: formIds.length > 0,
@@ -456,6 +1259,10 @@ export function buildBeadsFormsSummary(forms: readonly BeadsFormDefinition[]): B
     formIds,
     pendingFormIds,
   };
+}
+
+function defaultActor(): string {
+  return process.env.USER?.trim() || process.env.USERNAME?.trim() || 'agent';
 }
 
 function stampStringMetadata(metadata: JsonObject, key: string, value: string | undefined): void {
@@ -473,9 +1280,8 @@ export function buildFillOutUrl(args: {
   const params = new URLSearchParams();
   if (args.workspaceId) {
     params.set('workspace', args.workspaceId);
-  } else {
-    params.set('dir', resolve(args.dir));
   }
+  params.set('dir', resolve(args.dir));
   params.set('bead', args.beadId);
   params.set('form', args.formId);
   const path = `/dashboard/forms?${params.toString()}`;
@@ -535,6 +1341,7 @@ async function updateMetadata(input: {
   beadId: string;
   metadata: JsonObject;
 }): Promise<void> {
+  assertMetadataWithinIssueJsonGuard(input.metadata);
   const tempDir = await mkdtemp(join(tmpdir(), 'beadsform-cli-'));
   const metadataPath = join(tempDir, 'metadata.json');
   try {
@@ -554,17 +1361,18 @@ function getFormsFromMetadata(metadata: unknown): BeadsFormDefinition[] {
   const current = formsAt(metadata, 'beadForms');
   const legacy = formsAt(metadata, 'beadsWeb');
   const seen = new Set<string>();
-  return [...current, ...legacy].filter((form) => {
+  const forms = [...current, ...legacy].filter((form) => {
     if (seen.has(form.id)) return false;
     seen.add(form.id);
     return true;
   });
+  return applySplitResponses(metadata, forms);
 }
 
 function formsAt(metadata: JsonObject, key: string): BeadsFormDefinition[] {
   const namespace = metadata[key];
   if (!isObject(namespace) || !Array.isArray(namespace.forms)) return [];
-  return namespace.forms.map(normalizeForm).filter((form): form is BeadsFormDefinition => !!form);
+  return namespace.forms.map(normalizeStoredForm);
 }
 
 export async function showBeadsForm(input: {
@@ -578,7 +1386,7 @@ export async function showBeadsForm(input: {
   });
   const forms = getFormsFromMetadata(bead.metadata);
   const form = selectFormForShow(forms, input.options.formId);
-  return buildShowResult({ bead, form, includeHtml: input.options.includeHtml ?? false });
+  return buildShowResult({ bead, form });
 }
 
 export function selectFormForShow(forms: BeadsFormDefinition[], formId?: string): BeadsFormDefinition {
@@ -592,25 +1400,65 @@ export function selectFormForShow(forms: BeadsFormDefinition[], formId?: string)
   throw new Error(`Multiple forms attached; pass --form. Available forms: ${forms.map((form) => form.id).join(', ')}`);
 }
 
+function buildShowQuestionResult(
+  beadId: string,
+  form: BeadsFormDefinition,
+  selector: Pick<QuestionSelectorOptions, 'questionId' | 'questionIndex'>,
+): ShowQuestionResult {
+  const selected = selectQuestion(form, selector);
+  return {
+    beadId,
+    formId: form.id,
+    formHash: buildFormDefinitionHash(form),
+    questionId: selected.question.id,
+    questionIndex: selected.zeroBasedIndex + 1,
+    questionHash: buildQuestionDefinitionHash(selected.question),
+    question: selected.question,
+  };
+}
+
+function selectQuestion(
+  form: BeadsFormDefinition,
+  selector: Pick<QuestionSelectorOptions, 'questionId' | 'questionIndex'>,
+): { question: BeadsFormQuestionDefinition; zeroBasedIndex: number } {
+  if ((selector.questionId ? 1 : 0) + (selector.questionIndex !== undefined ? 1 : 0) !== 1) {
+    throw new Error('Question selection requires exactly one of questionId or questionIndex');
+  }
+  if (selector.questionId) {
+    const zeroBasedIndex = form.questions.findIndex((question) => question.id === selector.questionId);
+    if (zeroBasedIndex < 0) throw new Error(`Question not found on form ${form.id}: ${selector.questionId}`);
+    return { question: form.questions[zeroBasedIndex]!, zeroBasedIndex };
+  }
+  const questionIndex = selector.questionIndex;
+  if (!Number.isInteger(questionIndex) || questionIndex! < 1) {
+    throw new Error('Question index must be a one-based positive integer');
+  }
+  const zeroBasedIndex = questionIndex! - 1;
+  const question = form.questions[zeroBasedIndex];
+  if (!question) throw new Error(`Question index out of range on form ${form.id}: ${questionIndex}`);
+  return { question, zeroBasedIndex };
+}
+
 export function buildShowResult(input: {
   bead: BeadLike;
   form: BeadsFormDefinition;
-  includeHtml?: boolean;
 }): ShowResult {
   const form = input.form;
   const showForm: ShowForm = {
     id: form.id,
+    type: resolveBeadsFormType(form),
+    goal: form.goal,
     title: form.title,
     ...(form.description ? { description: form.description } : {}),
     ...(form.version !== undefined ? { version: form.version } : {}),
+    ...(form.nextInstructionPresets !== undefined ? { nextInstructionPresets: form.nextInstructionPresets } : {}),
     ...(form.format ? { format: form.format } : {}),
     ...(form.content ? { content: form.content } : {}),
     ...(form.questions ? { questions: form.questions } : {}),
+    ...(form.invalidatedAt ? { invalidatedAt: form.invalidatedAt } : {}),
+    ...(form.invalidatedBy ? { invalidatedBy: form.invalidatedBy } : {}),
+    ...(form.invalidatedReason ? { invalidatedReason: form.invalidatedReason } : {}),
   };
-  if (input.includeHtml) {
-    showForm.html = form.html;
-    showForm.controls = form.controls ?? [];
-  }
   const responses = form.responses ?? [];
   return {
     bead: {
@@ -626,19 +1474,82 @@ export function buildShowResult(input: {
   };
 }
 
+export async function scanPendingBeadsForms(input: {
+  options: PendingOptions;
+  execFile?: ExecFileLike;
+}): Promise<PendingFormsCliResult> {
+  const { BeadsClient } = await import('../../src/modules/plugins/beads-form/node.ts');
+  const client = new BeadsClient(input.execFile ? { execFile: input.execFile } : {});
+  const queue = await client.listPendingBeadsFormQueue({
+    beadsDirectory: input.options.parentDir,
+    repoLimit: input.options.limit,
+  });
+  const entries = queue.entries.map((entry) => ({
+    repo: {
+      name: entry.repoName,
+      path: entry.repoDir,
+    },
+    bead: entry.bead,
+    form: entry.form,
+    url: buildFillOutUrl({
+      dir: entry.repoDir,
+      beadId: entry.bead.id,
+      formId: entry.form.id,
+      origin: input.options.origin,
+    }),
+  }));
+  return {
+    parentDir: queue.reposRoot,
+    repoLimit: queue.repoLimit,
+    reposScanned: queue.reposScanned,
+    pendingCount: entries.length,
+    entries,
+    skipped: queue.skipped,
+    updateStrategy: queue.updateStrategy,
+  };
+}
+
 export function collectMediaRefs(form: Pick<BeadsFormDefinition, 'content'>): ShowMediaRef[] {
   const refs: ShowMediaRef[] = [];
   for (const block of form.content ?? []) {
-    if (block.type !== 'media-gallery') continue;
-    for (const item of block.items) {
+    if (block.type === 'media-gallery') {
+      for (const item of block.items) {
+        refs.push({
+          galleryId: block.id,
+          itemId: item.id,
+          type: item.type,
+          src: item.src,
+          ...(item.poster ? { poster: item.poster } : {}),
+          ...(item.caption ? { caption: item.caption } : {}),
+          ...(item.alt ? { alt: item.alt } : {}),
+        });
+      }
+    }
+    if (block.type === 'markdown-attachment') {
       refs.push({
-        galleryId: block.id,
-        itemId: item.id,
-        type: item.type,
-        src: item.src,
-        ...(item.poster ? { poster: item.poster } : {}),
-        ...(item.caption ? { caption: item.caption } : {}),
-        ...(item.alt ? { alt: item.alt } : {}),
+        blockId: block.id,
+        type: 'markdown',
+        ref: block.ref,
+      });
+    }
+    if (block.type === 'attachments') {
+      for (const item of block.items) {
+        refs.push({
+          blockId: block.id,
+          itemId: item.id,
+          type: item.mediaType ?? 'file',
+          ref: item.ref,
+        });
+      }
+    }
+    if (block.type === 'code-snippet') {
+      refs.push({
+        blockId: block.id,
+        type: 'code-snippet',
+        path: block.path,
+        commit: block.commit,
+        startLine: block.startLine,
+        ...(block.endLine ? { endLine: block.endLine } : {}),
       });
     }
   }
@@ -649,22 +1560,54 @@ function isObject(value: unknown): value is JsonObject {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  if (isObject(value)) {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function shQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
 function printHelp(): void {
   console.log(`Usage:
   beads-form attach --bead <id> (--file form.json | --json raw-json | --stdin) [--dir repo] [--origin origin] [--workspace id] [--session id]
-  beads-form show --bead <id> [--form form-id] [--dir repo] [--include-html]
+  beads-form append-questions --bead <id> --form <form-id> (--file questions.json | --json raw-json | --stdin) [--dir repo] [--after-question id] [--base-hash sha256] [--origin origin] [--workspace id]
+  beads-form show-question --bead <id> --form <form-id> (--question question-id | --index one-based-index) [--dir repo]
+  beads-form update-question --bead <id> --form <form-id> (--question question-id | --index one-based-index) (--file question.json | --json raw-json | --stdin) [--dir repo] [--base-hash sha256] [--origin origin] [--workspace id]
+  beads-form invalidate --bead <id> --form <form-id> [--reason text] [--dir repo]
+  beads-form show --bead <id> [--form form-id] [--dir repo]
+  beads-form pending --parent-dir <all-repos-dir> [--limit 80] [--origin origin]
 
 Also supported:
   npm run beads-form -- attach --bead <id> (--file form.json | --json raw-json | --stdin) [--dir repo] [--origin origin] [--workspace id] [--session id]
-  npm run beads-form -- show --bead <id> [--form form-id] [--dir repo] [--include-html]
+  npm run beads-form -- append-questions --bead <id> --form <form-id> (--file questions.json | --json raw-json | --stdin) [--dir repo] [--after-question id] [--base-hash sha256] [--origin origin] [--workspace id]
+  npm run beads-form -- show-question --bead <id> --form <form-id> (--question question-id | --index one-based-index) [--dir repo]
+  npm run beads-form -- update-question --bead <id> --form <form-id> (--question question-id | --index one-based-index) (--file question.json | --json raw-json | --stdin) [--dir repo] [--base-hash sha256] [--origin origin] [--workspace id]
+  npm run beads-form -- invalidate --bead <id> --form <form-id> [--reason text] [--dir repo]
+  npm run beads-form -- show --bead <id> [--form form-id] [--dir repo]
+  npm run beads-form -- pending --parent-dir <all-repos-dir> [--limit 80] [--origin origin]
 
 Attach origin precedence:
   1. explicit --origin
-  2. BEADS_FORM_ORIGIN or VD_BEADS_FORM_ORIGIN
-  3. ${DEFAULT_CONFIG_FILE_NAME} with {"origin":"https://example.test"} under XDG_CONFIG_HOME/${DEFAULT_CONFIG_DIR_NAME}/
+  2. SITE_ORIGIN
+  3. BEADS_FORM_ORIGIN or VD_BEADS_FORM_ORIGIN
+  4. ${DEFAULT_CONFIG_FILE_NAME} with {"origin":"https://example.test"} under XDG_CONFIG_HOME/${DEFAULT_CONFIG_DIR_NAME}/
 
 Attach metadata stamps:
   VK_WORKSPACE_ID from --workspace or env, and VK_SESSION_ID from --session or env, when non-empty.
+
+Embedding refs:
+  Bead-backed forms store refs only. Prefer repo-relative refs such as docs/decision.md, screenshots/a.png, videos/demo.webm, reports/output.log, plus code-snippet path/commit/line metadata. Hosted http(s) media is allowed where supported. Legacy attachment:// refs are compatibility-only; do not use .beads/attachments for new authoring. Traversal, absolute paths, nested/unsafe schemes, symlink escapes, and unsupported extensions are rejected.
+
+Form types:
+  Omit type (or use "questionnaire") for ordinary forms. Use "code-review" only for code-review findings. Unknown types are rejected before metadata mutation.
+
+Next Instruction presets:
+  Standard DSL may include up to eight nextInstructionPresets entries shaped as {"label":"...","value":"..."}. They fill the one editable next_instruction answer; preset metadata is never submitted separately.
 
 Default show output is JSON and includes all responses.`);
 }
@@ -680,6 +1623,40 @@ async function main(): Promise<void> {
     const text = await readAttachInput(command.options);
     const forms = parseFormsJsonForAttach(text);
     const result = await attachBeadsForms({ options: command.options, forms });
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (command.command === 'append-questions') {
+    const text = await readAppendQuestionsInput(command.options);
+    const patch = parseQuestionsJsonForAppend(text);
+    const result = await appendQuestionsToBeadsForm({ options: command.options, patch });
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (command.command === 'show-question') {
+    const result = await showBeadsFormQuestion({ options: command.options });
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (command.command === 'update-question') {
+    const text = await readUpdateQuestionInput(command.options);
+    const replacement = parseQuestionJsonForUpdate(text);
+    const result = await updateBeadsFormQuestion({ options: command.options, replacement });
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (command.command === 'pending') {
+    const result = await scanPendingBeadsForms({ options: command.options });
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (command.command === 'invalidate') {
+    const result = await invalidateBeadsForm({ options: command.options });
     console.log(JSON.stringify(result, null, 2));
     return;
   }

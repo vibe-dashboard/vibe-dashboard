@@ -9,23 +9,43 @@ Use this skill when an agent needs to ask a human structured questions through a
 
 ## Core rule
 
-Prefer the standard JSON/helper format from `@vibe-dashboard/beads-form`. Do not hand-write raw HTML unless the standard format cannot express the form.
+Use the standard JSON/helper format from `@vibe-dashboard/beads-form`. Do not hand-write raw HTML; bead-backed and preview flows support standard DSL forms only.
+
+## Form type
+
+Omit `type` (or use `type: 'questionnaire'`) for ordinary decisions, intake, and planning questions. Use `type: 'code-review'` only when the form's purpose is to collect findings about a code change. The type labels the form for routing and browsing; it never changes answer values. Unknown types are rejected before bead metadata is written.
 
 ## Agent roles
 
 - **Form-making agent:** writes or updates form definitions using the helpers below.
-- **Orchestrating agent:** gives the human a preview or bead-backed URL, reads the normalized JSON response, and follows its constraints.
+- **Orchestrating agent:** gives the human a preview or bead-backed URL, reads the copied BeadsForm handoff (XML by default, JSON when the user selects it), and follows its constraints. Bead storage and internal normalization remain structured JSON.
 
 If the response includes `"allow_code_file_changes": false`, agents must keep code/file operations read-only. Discussion, analysis, planning, and non-code metadata operations can continue.
+
+## Human-readable workspace context
+
+Never present a workspace ID, branch name, bead ID, or generated form URL as the primary human label by itself. When the readable workspace name is known, include it whenever you communicate those exact identifiers to a human or another agent. Keep IDs in commands and URLs where exact identity matters, but pair them with readable context, for example:
+
+```text
+Workspace: BeadsForm authoring polish (8299d785-6908-4b32-8dc3-1f0cecc4c2ee)
+Branch: vk/8299-beads-web-show-m — BeadsForm authoring polish
+Bead: Configurable BeadsForm Next Instruction prompts (beads-web-p1zl)
+Form: [Implementation questions — BeadsForm authoring polish](https://example.test/dashboard/forms?workspace=8299d785-6908-4b32-8dc3-1f0cecc4c2ee&bead=beads-web-p1zl&form=implementation_questions)
+```
+
+In an active VK workspace, use `vibe-agent sessions list --json` and read its `workspace_name` alongside `workspace_id`; the non-JSON command prints the same readable `Name`. Use `VK_WORKSPACE_BRANCH` for the exact branch when available, and use `bd show <bead-id> --json` for the bead title. If `workspace_name` is null or absent, say **Workspace name unavailable** and provide the exact workspace ID plus the known repo/path and branch context. Do not fabricate a name from an opaque ID.
 
 ## Import
 
 ```ts
 import {
   ALLOW_CODE_FILE_CHANGES_FIELD,
+  buildAttachmentList,
   buildBeadsFormMetadata,
   buildChoicesQuestion,
+  buildCodeSnippetRef,
   buildMediaGallery,
+  buildMarkdownAttachment,
   buildTextQuestion,
   buildTextareaQuestion,
   compileBeadsForm,
@@ -37,9 +57,15 @@ import {
 
 ```ts
 const form = defineBeadsForm({
+  type: 'questionnaire', // Optional. The only other supported value is 'code-review'.
   id: 'planning_review',
+  goal: 'Decide how to unblock the implementation plan.',
   title: 'Planning Review',
-  description: 'Questions to unblock the implementation plan.',
+  description: 'Questions to unblock the **implementation plan**.',
+  // Optional quick-fill buttons for the one submitted next_instruction value.
+  nextInstructionPresets: [
+    { label: 'Discuss unknowns', value: 'Create another form to discuss additional unknowns in detail' },
+  ],
   // Optional. Shown and checked by default if omitted.
   allowCodeFileChanges: {
     allowLabel: 'Submit and allow code/file changes',
@@ -52,9 +78,24 @@ const form = defineBeadsForm({
       title: 'Candidate screenshots',
       description: 'Compare local screenshots before answering.',
       items: [
-        { id: 'candidate_a', type: 'image', src: 'attachments/candidate-a.png', alt: 'Candidate A screenshot', caption: 'Candidate A' },
-        { id: 'candidate_b', type: 'video', src: 'attachment://candidate-b.webm', poster: 'attachments/candidate-b.png', caption: 'Candidate B recording' },
+        { id: 'candidate_a', type: 'image', src: 'screenshots/candidate-a.png', alt: 'Candidate A screenshot', caption: 'Candidate A' },
+        { id: 'candidate_b', type: 'video', src: 'videos/candidate-b.webm', poster: 'screenshots/candidate-b.png', caption: 'Candidate B recording' },
       ],
+    }),
+    buildMarkdownAttachment({
+      id: 'decision_doc',
+      title: 'Decision doc',
+      ref: 'docs/decision.md',
+      label: 'decision.md',
+    }),
+    buildCodeSnippetRef({
+      id: 'callsite',
+      title: 'Relevant callsite',
+      path: 'src/modules/plugins/beads-form/beadsFormCore.ts',
+      commit: 'abc1234',
+      startLine: 10,
+      endLine: 18,
+      url: 'https://example.test/repo/blob/abc1234/src/modules/plugins/beads-form/beadsFormCore.ts#L10-L18',
     }),
   ],
   questions: [
@@ -67,6 +108,10 @@ const form = defineBeadsForm({
           id: 'forms_tab',
           label: 'Open in a Forms tab',
           is_recommended_reason: 'This keeps form filling close to the craft context without splitting attention.',
+          prosAndCons: {
+            pros: ['Keeps the decision next to the **agent context**.'],
+            cons: ['Uses more horizontal space in a split view.'],
+          },
         },
         { id: 'direct_route', label: 'Support a direct dashboard URL' },
       ],
@@ -82,22 +127,37 @@ const form = defineBeadsForm({
 const metadataPatch = buildBeadsFormMetadata([form]);
 ```
 
+`nextInstructionPresets` accepts up to eight `{ label, value }` entries. Selecting one replaces the final Next Instruction textarea, which remains editable; only that textarea's `next_instruction` value is drafted and submitted. Omit the field to use the plugin-local default, **Create another form to discuss additional unknowns in detail**. Use `[]` to show no presets. A future plugin-settings registry may provide defaults; this DSL field deliberately does not depend on such a registry.
+
 ## Conventions
 
 - Every question needs a `title` and a context-rich `description`.
-- Choice questions are always rendered as checkboxes so humans can select more than one answer. Do not add single-select/radio configuration; single-select semantics need a separate future DSL addition.
+- Every standard form needs a concise top-level `goal`: one short sentence describing what the form is trying to get from the human.
+- Form `title` and `description` are authored as safe Markdown. Use Markdown for emphasis, `code`, links, and enough context to make the form self-contained; raw HTML is escaped. Long form descriptions are truncated behind a Show more affordance.
+- Treat the form as the source of truth for the thinking behind the discussion. If other agents or reviewers already provided pros, cons, risks, recommended fixes, or tradeoffs, include that substance in the form instead of forcing the human to reconstruct it from conversation history.
+- When a review agent provides blockers, concerns, or non-blocking suggestions, create a dedicated question for each coherent review item. Do not paste one huge unorganized review blob. Preserve exact wording, pros/cons, suggested fixes, and tradeoffs where practical; explicitly call out when an item is non-blocking.
+- There is no automatic review-message extraction tool yet. Use `vibe-agent full_summary` and manually copy the important review/implementation text into dedicated form questions.
+- Preserve exact prior wording for pros/cons and recommendation rationales when practical, especially for decision choices. Prefer copying known good phrasing into `description` or `is_recommended_reason` over paraphrasing away nuance.
+- Lean toward "explain more" rather than excessive brevity. The form should make the user informed about the in-depth assumptions, forks in the road, and consequences of each option.
+- Choice questions always render checkboxes; the DSL has no radio question type. For tangential either/or subsets inside a larger checkbox question, use `choiceGroups`. Both `atMostOne` and `exactlyOne` groups visibly say “Select only one.” Checking an option unchecks its siblings. `exactlyOne` starts with no answer and requires the human to click one; add explicit choices such as `none_of_the_above`, `no_preference`, or `other` when those are valid answers. Keep unrelated supplemental choices ungrouped so they remain normal multiple checkboxes.
 - Per-choice textareas and per-question textareas are always included. Do not add note-inclusion flags.
 - Standard forms include two submit actions by default: one that sets `allow_code_file_changes` to `true`, and one that sets it to `false`. If the normalized response has this field as `false`, do not edit code or files.
-- Use `content: [buildMediaGallery(...)]` for local screenshot/video review blocks. Prefer folder-relative refs like `attachments/candidate-a.png` or attachment-style refs like `attachment://candidate-b.webm`.
+- Use `content` blocks for ref-backed rich context. `buildMediaGallery(...)` covers image/video refs, `buildMarkdownAttachment(...)` covers Markdown-file refs, `buildAttachmentList(...)` covers arbitrary artifacts, and `buildCodeSnippetRef(...)` covers repo source permalinks with path/commit/line metadata. Bead-backed forms should use repo-relative refs such as `docs/decision.md`, `screenshots/candidate-a.png`, and `videos/demo.webm`; folder preview uses refs relative to the preview folder. Legacy `attachment://...` refs are compatibility-only and should not be used for new forms.
 - Use stable lowercase ids with letters, numbers, `_`, or `-`; start ids with a letter.
 - Choice ids become submitted values.
 - Question ids become submitted field names.
-- The renderer generates accessible HTML and the validation `controls[]` manifest.
+- The renderer generates accessible HTML and the validation controls manifest at runtime. Persisted bead metadata stores the standard DSL only; generated `html`, generated `controls`, raw/custom HTML forms, and source-message blobs are not stored.
+- Bead-backed storage uses split metadata for resilience: `metadata.beadForms.forms[]` stores lean form definitions without `responses`, while `metadata.beadFormResponses.responsesByFormId[formId]` stores response arrays. Read/show/submit paths join the two at runtime, and mutations compact older inline responses into the split response field.
 - Add `is_recommended_reason: "..."` to choices the agent recommends; the UI emphasizes those options and renders the reason. Do not use a reason-less boolean recommendation marker.
+- For meaningful tradeoffs, add the single canonical `prosAndCons: { pros?: string[]; cons?: string[] }` object to a choice. Each non-empty string supports the same safe Markdown subset as descriptions. Keep entries concise and specific; omit the object or use empty arrays when there are no useful tradeoffs. Do not invent parallel `pros`/`cons` fields at choice level.
+- Choice metadata has distinct meanings: a checked box is the human's answer; `is_recommended_reason` is advice with a rationale; `assumedTrue: true` documents an author baseline/non-decision assumption but never checks the box or becomes an answer; and `choiceGroups` constrain actual clicks. The UI labels assumptions “Assumed true” and recommendations “Recommended” separately. Legacy `defaultValue: true` and `choiceGroups[].defaultChoiceId` are accepted as deprecated assumption aliases for stored forms, but they no longer precheck choices. New forms should use `assumedTrue` and explicit None/Other choices instead.
 - Descriptions support safe Markdown such as `**bold**`, `*emphasis*`, `` `code` ``, and safe links. Raw HTML in descriptions is escaped.
+- Textarea answers are plain Markdown source. The dashboard adds a compact preview control for easier authoring, but submitted/draft/restored values remain the raw Markdown text, never generated preview HTML.
 - Standard choice questions normalize as per-option booleans, for example
   `"preview_flow_result": { "loaded_successfully": true, "json_copy_worked": false }`.
-- Empty optional text fields, including empty `*_more_info` fields, are omitted from copied JSON.
+- Submitted success screens copy/display a BeadsForm XML handoff by default so Markdown-heavy answers remain readable in plain text. The XML is derived from normalized values: choice maps become `<choiceGroup>` / `<choice selected="true|false" />`, text and Markdown answers become `<answer type="markdown">`, per-choice/per-question notes become `<note>`, and global Additional Notes become `<additionalNotes>`. XML text is escaped, not raw HTML.
+- The user can choose JSON from the form page's **Copy format** control. The plugin-local, versioned browser preference defaults safely to XML when storage is missing, blocked, or invalid. A single-form JSON handoff is exactly the normalized response object: it does not add form metadata and does not affect persisted responses, drafts, or creator-session notifications. Combined batch JSON contains an ordered `responses` array of normalized response objects plus non-empty batch-level `next_instruction`; it omits routing identifiers and all other submission or descriptive metadata.
+- Empty optional text fields, including empty `*_more_info` fields, are omitted before handoff output is generated.
 
 ## Folder preview workflow
 
@@ -106,7 +166,7 @@ Use folder mode for low-friction testing before attaching forms to beads.
 1. Create a folder for form JSON files, for example:
 
    ```sh
-   mkdir -p /tmp/beads-form-preview
+   mkdir -p "$PWD/.vk-mocked-sandbox/beads-form-preview"
    ```
 
 2. Write one standard form per `.json` file. You can either generate JSON from a TypeScript script that imports these helpers, or write the standard JSON shape directly:
@@ -115,8 +175,9 @@ Use folder mode for low-friction testing before attaching forms to beads.
    {
      "format": "standard",
      "id": "planning_review",
+     "goal": "Decide how to unblock the implementation plan.",
      "title": "Planning Review",
-     "description": "Questions to unblock the implementation plan.",
+     "description": "Questions to unblock the **implementation plan**.",
      "questions": [
        {
          "type": "textarea",
@@ -128,37 +189,62 @@ Use folder mode for low-friction testing before attaching forms to beads.
    }
    ```
 
-3. Give the human a preview URL:
+3. Give the human a preview URL using descriptive Markdown link text with the form title and readable workspace name when known:
 
    ```text
-   https://jamtools.dev/dashboard/forms/preview?folder=<urlencoded absolute folder path>
+   [Planning review — BeadsForm authoring polish](https://jamtools.dev/dashboard/forms/preview?folder=<urlencoded absolute folder path>)
    ```
 
    In this repo, the easiest local way to run the folder preview is:
 
    ```sh
-   npm run dev:beads-form-preview -- --folder /tmp/beads-form-preview
+   BEADS_FORM_PENDING_CACHE_DIR="$PWD/.vk-mocked-sandbox/beads-form-pending-cache" \
+   BEADS_FORM_PENDING_WARM_ON_STARTUP=0 \
+   npm run dev:beads-form-preview -- --folder "$PWD/.vk-mocked-sandbox/beads-form-preview"
    ```
 
-   The command validates the folder, starts the existing Springboard/Vite dev server, and prints the exact preview URL with the folder path encoded. It sets `BEADS_FORM_DISABLE_HMR=1` by default so Vite does not push HMR/full-reload updates into an open form; manual browser refresh still loads the latest code. Set `BEADS_FORM_DISABLE_HMR=0` only when you want normal dev-server auto-reload behavior.
+   The command validates the folder, starts the existing Springboard/Vite dev server, and prints the exact preview URL with the folder path encoded. `npm run dev` first bootstraps missing preview dependencies with `pnpm install --frozen-lockfile` when `node_modules/.bin/vite` is absent or pnpm state is stale, then skips install work on warm checkouts. It sets `BEADS_FORM_DISABLE_HMR=1` by default so Vite does not push HMR/full-reload updates into an open form; manual browser refresh still loads the latest code. Set `BEADS_FORM_DISABLE_HMR=0` only when you want normal dev-server auto-reload behavior.
    To force a port, set `BEADS_FORM_PREVIEW_PORT=<port>`.
 
-4. The preview page lists all `.json` forms in the folder. Submitting a form copies normalized JSON only to the clipboard and displays it on screen. It does not update beads.
+4. The preview page lists all `.json` forms in the folder. Submitting a form copies the selected XML (default) or JSON handoff to the clipboard and displays it on screen. It does not update beads.
 
-5. The orchestrating agent should paste/read that JSON exactly. If `allow_code_file_changes` is `false`, keep code/file operations read-only.
+5. The orchestrating agent should paste/read that handoff exactly. If `allow_code_file_changes` is `false`, keep code/file operations read-only.
 
-### Media galleries in folder preview
+### Embedding Markdown, media, files, and code
 
-Media galleries render local image/video references through the preview server. Keep media files inside the same preview folder as the JSON, usually under an `attachments/` subfolder.
+BeadsForm embedding is ref-only. Never paste Markdown file contents, screenshots,
+videos, or arbitrary file bytes into bead metadata. Put files in the repo working
+tree or in a server-authorized explicit staging folder for preview/authoring,
+then reference them by path.
 
-Allowed preview refs:
+Supported content blocks:
 
-- `attachments/screenshot-a.png`
-- `./attachments/screenshot-a.png`
-- `attachment://screenshot-a.png`
-- `attachments/demo.webm`
+- `buildMarkdownAttachment({ ref: 'docs/decision.md' })` for Markdown files.
+- `buildMediaGallery(...)` with image refs such as `screenshots/a.png`, video
+  refs such as `videos/demo.webm`, optional posters, and hosted `https://...`
+  media when appropriate.
+- `buildAttachmentList(...)` for arbitrary Markdown/text/JSON/image/video files.
+- `buildCodeSnippetRef(...)` for source permalinks with repo-relative `path`, a
+  concrete commit hash, and line numbers.
 
-Avoid arbitrary external embeds. The preview sanitizer/route is intentionally scoped to local/folder-relative media and common image/video extensions.
+Safe refs:
+
+- `docs/decision.md`
+- `./docs/decision.md`
+- `screenshots/screenshot-a.png`
+- `videos/demo.webm`
+- `https://example.test/hosted.png`
+
+Unsafe refs are rejected or ignored: absolute paths, `../` traversal, backslash
+paths, nested schemes such as `attachment://https://...`, `javascript:`/`data:`
+URLs, symlinks that resolve outside the allowed root, and unsupported extensions
+such as `.exe`. Runtime serving resolves bead-backed refs only under the repo
+cwd/working tree, or under an explicit staging root only when trusted
+server-side configuration/callers authorize that root; public URLs cannot choose
+arbitrary staging roots. Folder preview resolves refs under the declared preview
+folder. Legacy `attachment://...` still resolves from
+`.beads/attachments` for old forms only; do not recommend or create new
+`.beads/attachments`-first forms.
 
 For a copyable best-of-N Storybook screenshot comparison fixture, see:
 
@@ -170,10 +256,13 @@ packages/beads-form/examples/storybook-best-of-n-gallery.json
 
 Bead-backed storage is the primary workflow for real agent/user handoff. Folder preview is only a prototyping escape hatch.
 
-1. Write or generate standard BeadsForm JSON. The attach command accepts a direct form object, an array of forms, `{ "forms": [...] }`, or `{ "beadForms": { "forms": [...] } }`.
+1. Write or generate standard BeadsForm JSON in a repo-local ignored file, then inspect it before attaching. Prefer `.vk-mocked-sandbox/beads-form-authoring/<form-id>.json` and pipe it into the CLI with `cat ... | beads-form attach --stdin`; this avoids shell escaping bugs with Markdown examples, code fences, quotes, complete choice explanations, and `prosAndCons`. The attach command accepts a direct form object, an array of forms, `{ "forms": [...] }`, or `{ "beadForms": { "forms": [...] } }`.
 2. Attach it to the bead from the repo that owns the bead:
 
    ```sh
+   mkdir -p .vk-mocked-sandbox/beads-form-authoring
+   # Write/review .vk-mocked-sandbox/beads-form-authoring/form.json first.
+   cat .vk-mocked-sandbox/beads-form-authoring/form.json | beads-form attach --bead <bead-id> --stdin
    beads-form attach --bead <bead-id> --file form.json
    beads-form attach --bead <bead-id> --stdin < form.json
    beads-form attach --bead <bead-id> --json '{"format":"standard",...}'
@@ -185,39 +274,104 @@ Bead-backed storage is the primary workflow for real agent/user handoff. Folder 
 
    `npm run beads-form -- ...` remains supported, but VD Docker/dev runtimes install a stable `beads-form` command on `PATH` next to `vibe-agent`/`vk`. The global wrapper points at the seeded VD checkout with an absolute script path and preserves the caller's current working directory, so default `--dir` behavior still works from arbitrary bead repo directories.
 
-   Use `--dir <repo>` when not running from the bead repo, `--origin <origin>` to print full URLs, `--workspace <workspace-id>` when `VK_WORKSPACE_ID` is unavailable, and `--session <session-id>` when `VK_SESSION_ID` is unavailable. `beads-form attach` stamps non-empty workspace/session values into bead metadata as `VK_WORKSPACE_ID` and `VK_SESSION_ID` so Forms can resolve workspace/session context even if the `bd` wrapper is bypassed. It also maintains `metadata.beadFormsSummary` with `hasForms`, `hasPendingAnswer`, `pendingResponseCount`, `formIds`, and `pendingFormIds` so workspace and pending queue pages can find form-bearing beads without bulk-loading every bead. Explicit `--origin` has highest precedence. To avoid repeatedly passing it, set `BEADS_FORM_ORIGIN`/`VD_BEADS_FORM_ORIGIN`, or seed `${XDG_CONFIG_HOME:-~/.config}/vibe-dashboard/beads-form.json` with:
+   Use `--dir <repo>` when not running from the bead repo, `--origin <origin>` to print full URLs, `--workspace <workspace-id>` when `VK_WORKSPACE_ID` is unavailable, and `--session <session-id>` when `VK_SESSION_ID` is unavailable. `beads-form attach` stamps non-empty workspace/session values into bead metadata as `VK_WORKSPACE_ID` and `VK_SESSION_ID` so Forms can resolve workspace/session context even if the `bd` wrapper is bypassed. It stores definitions in `metadata.beadForms.forms[]`, stores responses separately in `metadata.beadFormResponses.responsesByFormId`, and maintains `metadata.beadFormsSummary` with `hasForms`, `hasPendingAnswer`, `pendingResponseCount`, `formIds`, and `pendingFormIds` so workspace and pending queue pages can find form-bearing beads without bulk-loading every bead. Explicit `--origin` has highest precedence, followed by non-empty `SITE_ORIGIN`. When neither is set, the existing `BEADS_FORM_ORIGIN`/`VD_BEADS_FORM_ORIGIN` and `${XDG_CONFIG_HOME:-~/.config}/vibe-dashboard/beads-form.json` fallbacks remain available:
 
    ```json
    { "origin": "https://your-vd-origin.example" }
    ```
 
-   Do not hardcode `jamtools.dev`; use the active deployment origin. Duplicate form ids on the bead are errors by default. Local folder-relative media refs are rejected in bead-backed attach; keep local media in folder preview until bead-backed media policy is designed.
+   Do not hardcode `jamtools.dev`; use the active deployment origin. Duplicate form ids on the bead are errors by default. Bead-backed attach accepts safe repo-relative Markdown/image/video/file refs and stores only the refs; it rejects traversal, absolute paths, unsafe schemes, and unsupported extensions.
 
-3. Give the human the printed `/dashboard/forms?...` URL.
+   After attach, read the JSON `authoringNextSteps` in the CLI output before sharing the URL. Use it to refine ambiguous questions one at a time:
 
-4. After submission, read handoff output with the read-only show command:
+   ```sh
+   beads-form show-question --bead <bead-id> --form <form-id> --index 1 --dir <repo-dir> \
+     > .vk-mocked-sandbox/beads-form-authoring/question-1.show.json
+
+   # Copy the "question" object from that output, improve Markdown/examples/choices,
+   # and save it as .vk-mocked-sandbox/beads-form-authoring/question-1.refined.json.
+   cat .vk-mocked-sandbox/beads-form-authoring/question-1.refined.json | beads-form update-question \
+     --bead <bead-id> \
+     --form <form-id> \
+     --question <question-id> \
+     --base-hash <formHash-from-show-question> \
+     --dir <repo-dir> \
+     --stdin
+   ```
+
+   `show-question` accepts `--question <question-id>` or `--index <one-based-index>`. `update-question` replaces only that question, keeps responses and content/attachment blocks, strips generated `html`/`controls`, and rejects stale edits when `--base-hash` no longer matches. If the new form supersedes an older pending form, run `beads-form invalidate --bead <bead-id> --form <old-form-id> --reason "Superseded by <new-form-id>" --dir <repo-dir>`; invalidation marks the old form stale without deleting historical submitted responses, removes it from the default pending feed, and makes its URL non-answerable.
+
+3. Give the human the printed `/dashboard/forms?...` URL as a Markdown link labeled with the form title and readable workspace name. If the name is unavailable, state that and pair the link with exact repo/branch context rather than inventing a name.
+
+4. If another agent needs to contribute to the same canonical form, append focused standard DSL questions instead of creating an uncoordinated duplicate form:
+
+   ```sh
+   beads-form append-questions --bead <bead-id> --form <form-id> --stdin <<'JSON'
+   {
+     "operation": "append_questions",
+     "questions": [
+       {
+         "type": "choices",
+         "id": "review_blocker_resolution",
+         "title": "How should we handle the reviewer blocker?",
+         "description": "Explain the exact blocker and tradeoffs here so the form stays self-contained.",
+         "choices": [
+           { "id": "fix_now", "label": "Fix now", "description": "Address before merging." },
+           { "id": "split_followup", "label": "Split follow-up", "description": "Only use if the blocker is not merge-critical." }
+         ]
+       }
+     ]
+   }
+   JSON
+   ```
+
+   Accepted append input shapes are a direct question array, `{ "questions": [...] }`, or `{ "operation": "append_questions", "questions": [...] }`. Use `--after-question <question-id>` to insert after a specific existing question and `--base-hash <hash>` when coordinating with another agent to fail fast if the form definition changed. The command rejects full forms, raw/custom HTML, generated `html`/`controls`, duplicate question ids, and unknown operations. It preserves existing responses, but older responses naturally will not contain answers for newly appended questions.
+
+5. After submission, read handoff output with the read-only show command:
 
    ```sh
    beads-form show --bead <bead-id>
    beads-form show --bead <bead-id> --form <form-id>
-   beads-form show --bead <bead-id> --include-html
-
    npm run beads-form -- show --bead <bead-id>
    npm run beads-form -- show --bead <bead-id> --form <form-id>
-   npm run beads-form -- show --bead <bead-id> --include-html
    ```
 
-   `show` prints JSON by default, includes all responses, auto-selects the form if the bead has exactly one form, includes semantic questions/descriptions and media refs as text, and omits compiled HTML unless `--include-html` is passed. If there are no responses yet, it still prints the questions and `noResponses: true`.
+   `show` prints JSON by default, includes all responses, auto-selects the form if the bead has exactly one form, and includes semantic questions/descriptions and media refs as text. It does not output generated HTML/controls because bead metadata stores standard DSL only. If there are no responses yet, it still prints the questions and `noResponses: true`.
 
 Bead-backed storage remains preferred for real workflow state and durable responses. Folder preview is for prototyping and quick review loops.
 
+## Aggregate review URLs
+
+When several agents create separate bead-backed forms and the human should review them from one artifact, build an aggregate URL with repeated direct refs:
+
+```text
+/dashboard/forms/aggregate?dir=/repo-a&bead=repo-a-123&form=review_a&dir=/repo-b&bead=repo-b-456&form=review_b
+```
+
+The route loads each direct `dir`/`bead`/`form` ref independently, renders one grouped section per source form, and can either submit sections one at a time or submit the visible set together from the batch handoff panel. Batch submit still persists each source response to its original bead/form with a stable per-source `submissionId`, so retries do not create duplicate responses and each source creator receives only that source form’s normal notification. The combined clipboard handoff uses XML by default; selected JSON contains only the ordered normalized responses and optional batch-level Next Instruction, without source identifiers. Invalidated or unavailable source forms block the batch until removed; successful source forms stay locked while failed sources can be corrected and retried. This keeps the normal per-form response model and avoids collisions when different forms reuse the same question ids. Use each section’s “Open alone” link when a user should focus on one source form.
+
+Aggregate URL params must be ordered as exact repeated `dir`, then `bead`, then `form` triplets. Do not group all `dir` params first or append unrelated query params to the aggregate URL; malformed ordering is rejected so refs cannot be silently misaligned.
+
 ## Pending form queue
 
-Open `/dashboard/forms` without query parameters to view the pending Bead-backed form queue. The queue scans a bounded set of first-level repos under `~/repos` using read-only `bd` commands, prefers the `beadFormsSummary` pending-answer index, falls back to legacy `beadForms` metadata when needed, lists forms with no responses, and provides direct fill-out links. Use the Refresh button after attaching forms or after a human submits. See `packages/beads-form/PENDING_QUEUE.md` for realtime/update tradeoffs and safety limits.
+Open `/dashboard/forms` without query parameters to view the pending Bead-backed form queue. The queue scans a bounded set of first-level repos under `~/repos` by default; set `BEADS_FORM_PENDING_PARENT_DIR=/path/to/all-repos` on the VD server to change the default. Results are cached in memory and persisted under `${XDG_CACHE_HOME:-~/.cache}/vibe-dashboard/beads-form-pending` so stale cached data can be served immediately after a stable-server restart while a fresh read runs in the background. Preview/dev runs should override this with a stable gitignored repo-local directory such as `BEADS_FORM_PENDING_CACHE_DIR="$PWD/.vk-mocked-sandbox/beads-form-pending-cache"` and set `BEADS_FORM_PENDING_WARM_ON_STARTUP=0`. The scanner first filters to immediate child repos with a local `.beads` folder, then runs read-only `bd` commands at most five repos at a time. It only queries the `beadFormsSummary` pending-answer index for this page; attach/submit should keep that summary current. Production can warm the configured parent dir on startup; Vite/dev does not scan every repo on each restart unless explicitly opted in with `BEADS_FORM_PENDING_WARM_ON_STARTUP=1`. See `packages/beads-form/PENDING_QUEUE.md` for realtime/update tradeoffs and safety limits.
 
-## Escape hatch
+When a bead-backed form submit succeeds inside VD, VD invalidates its BeadsForm read cache and touches a lightweight Springboard pending queue sentinel. The `/dashboard/forms` page observes that sentinel, keeps current/cached pending results visible, and refreshes fresh pending data in the background. External CLI attach/update commands run outside the VD process and cannot reliably update that in-memory sentinel; external changes are repaired by the XDG disk cache plus the pending page's background fresh refresh when the page is opened or reloaded.
 
-If the standard helpers are not expressive enough, generate raw HTML only as a fallback. Keep the same naming conventions and provide a complete `controls[]` manifest, because submissions are validated by HTML `name`.
+Attach also records the creating `VK_SESSION_ID` when available. After VD has persisted a bead-backed response, it best-effort sends only the normalized response JSON object to that exact creating session. The notification contains no form definitions, identifiers, XML, prior responses, or explanatory prose. Missing or invalid session metadata retains the `needs-agent-review` label fallback. If notification fails, the response remains saved, the success view warns the user not to submit again, and VD attempts the same label fallback. Folder-preview submissions are local preview data and never notify an agent session; each aggregate section follows its own source bead's session metadata.
+
+VD gives every direct or aggregate submit a stable UUID `submissionId`, persists it with the response, and reuses it when an RPC is retried after a lost result. Within one VD server process, the complete read/dedupe/write/notification sequence is serialized per canonical repo and bead, so same-ID retries notify once and concurrent different answers cannot overwrite each other; unrelated beads remain concurrent. Completed results are replayed from a timer-free, bounded in-process cache (currently 512 entries for 15 minutes), including the original notification/fallback warnings; defensive copies prevent callers from mutating cached results. Persisted response IDs remain the durable cross-reload dedupe baseline, but warning replay is intentionally limited to that cache lifetime and server process. Every VD bead-backed submit action uses this client path. The lock and replay cache are process-local: external CLI mutations or multiple VD server processes require the underlying bead store's normal coordination and should not be treated as covered by this in-memory queue.
+
+Agents can inspect the same pending queue from a shell with JSON output:
+
+```sh
+beads-form pending --parent-dir ~/repos
+beads-form pending --parent-dir ~/repos --limit 80 --origin https://your-vd-origin.example
+
+npm run beads-form -- pending --parent-dir ~/repos
+```
+
+The command scans only first-level child directories, prefilters to repos with a local `.beads` folder, uses read-only `bd list --json --all --limit 0 --has-metadata-key beadFormsSummary`, avoids bulk `bd show`, and prints direct `/dashboard/forms?dir=...&bead=...&form=...` links. Use `--origin` or `SITE_ORIGIN` when a full URL is needed; legacy `BEADS_FORM_ORIGIN`/`VD_BEADS_FORM_ORIGIN` remain fallbacks.
 
 ## Shared preview server maintenance
 
@@ -234,8 +388,9 @@ Defaults:
 - Stable checkout: `/var/tmp/beadsform-preview-stable/vibe-kanban-vscode-web`
 - Branch: `vk/8299-beads-web-show-m`
 - tmux session: `beadsform-shared-preview-55123`
-- Preview folder: `/tmp/beads-form-preview`
+- Preview folder: `<checkout>/.vk-mocked-sandbox/beads-form-preview`
 - Parent-dir queue: `/var/tmp/vibe-kanban/worktrees`
-- Log: `/tmp/beadsform-shared-preview-55123.log`
+- Log: `<checkout>/.vk-mocked-sandbox/logs/beadsform-shared-preview-55123.log`
+- Pending cache: `<checkout>/.vk-mocked-sandbox/beads-form-pending-cache`, with startup warming disabled
 
-The command stops the tmux session, syncs the stable checkout to `origin/<branch>`, runs `pnpm install --frozen-lockfile`, and starts `npm run dev:beads-form-preview` with browser auto-reload disabled. Use `--print-only` to show the planned commands without changing the running server. Do not use or delete the stable checkout for review worktrees.
+The command stops the tmux session, syncs the stable checkout to `origin/<branch>`, runs `pnpm install --frozen-lockfile`, and starts `npm run dev:beads-form-preview` with browser auto-reload disabled. The underlying `npm run dev` also has a clean-checkout bootstrap guard for preview run configs such as `web-vd-only`/`vdweb`; if a run config starts the repo without a prior install, logs show the missing/stale dependency reason before the same frozen pnpm install runs. Use `--print-only` to show the planned commands without changing the running server. Do not use or delete the stable checkout for review worktrees.
