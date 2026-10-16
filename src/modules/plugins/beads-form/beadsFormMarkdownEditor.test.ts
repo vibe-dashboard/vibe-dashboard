@@ -24,11 +24,15 @@ const value = a < b && b > c;
     initializeMarkdownTextareaEditors(document.body);
 
     const textarea = document.querySelector<HTMLTextAreaElement>('textarea[name="plan"]')!;
+    const frame = document.querySelector<HTMLElement>('.beadsform-markdown-editor')!;
     const toolbar = document.querySelector<HTMLElement>('.beadsform-markdown-editor-toolbar')!;
     const previewButton = toolbar.querySelector<HTMLButtonElement>('[data-beadsform-markdown-action="preview"]')!;
     const preview = document.querySelector<HTMLElement>('.beadsform-markdown-preview')!;
 
     expect(toolbar.getAttribute('role')).toBe('group');
+    expect(frame.children[0]).toBe(textarea);
+    expect(frame.children[1]).toBe(toolbar);
+    expect(frame.children[2]).toBe(preview);
     expect(toolbar.getAttribute('aria-label')).toBe('Markdown editor controls for Plan');
     expect(toolbar.textContent).not.toContain('Write Markdown');
     expect(toolbar.textContent).not.toContain('Preview');
@@ -51,6 +55,7 @@ const value = a < b && b > c;
     expect(preview.innerHTML).toContain('&lt;script&gt;alert(1)&lt;/script&gt; &amp; text');
     expect(preview.innerHTML).not.toContain('<script>');
     expect(textarea.classList.contains('beadsform-markdown-source-hidden')).toBe(true);
+    expect(textarea.hidden).toBe(false);
     expect(previewButton.classList.contains('is-active')).toBe(true);
     expect(previewButton.getAttribute('aria-label')).toBe('Hide Markdown preview for Plan');
     expect(previewButton.getAttribute('title')).toBe('Hide Markdown preview for Plan');
@@ -96,13 +101,16 @@ const value = a < b && b > c;
     initializeMarkdownTextareaEditors(document.body);
 
     const toolbar = document.querySelector<HTMLElement>('.beadsform-markdown-editor-toolbar')!;
+    const frame = document.querySelector<HTMLElement>('.beadsform-markdown-editor')!;
     expect(toolbar.hidden).toBe(true);
+    expect(frame.hidden).toBe(true);
 
     const textarea = document.querySelector<HTMLTextAreaElement>('textarea[name="choice_more_info"]')!;
     textarea.hidden = false;
     refreshMarkdownTextareaEditors(document.body);
 
     expect(toolbar.hidden).toBe(false);
+    expect(frame.hidden).toBe(false);
   });
 
   it('keeps preview-mode Markdown source available to review and direct submit flows', () => {

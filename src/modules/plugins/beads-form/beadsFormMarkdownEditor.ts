@@ -1,4 +1,5 @@
 type MarkdownEditorElements = {
+  frame: HTMLElement;
   toolbar: HTMLElement;
   preview: HTMLElement;
   previewButton: HTMLButtonElement;
@@ -12,7 +13,8 @@ export function initializeMarkdownTextareaEditors(host: ParentNode): void {
     if (textarea.dataset[TEXTAREA_MARKDOWN_EDITOR_DATASET] === 'true') continue;
     textarea.dataset[TEXTAREA_MARKDOWN_EDITOR_DATASET] = 'true';
     const elements = createEditorElements(textarea);
-    textarea.after(elements.toolbar, elements.preview);
+    textarea.replaceWith(elements.frame);
+    elements.frame.append(textarea, elements.toolbar, elements.preview);
     syncEditorHiddenState(textarea, elements);
     textarea.addEventListener('input', () => {
       renderPreview(textarea, elements.preview);
@@ -45,6 +47,8 @@ export function refreshMarkdownTextareaEditors(host: ParentNode): void {
 
 function createEditorElements(textarea: HTMLTextAreaElement): MarkdownEditorElements {
   const label = textareaLabel(textarea);
+  const frame = document.createElement('div');
+  frame.className = 'beadsform-markdown-editor';
   const toolbar = document.createElement('div');
   toolbar.className = 'beadsform-markdown-editor-toolbar';
   toolbar.setAttribute('role', 'group');
@@ -68,17 +72,19 @@ function createEditorElements(textarea: HTMLTextAreaElement): MarkdownEditorElem
   preview.hidden = true;
   renderPreview(textarea, preview);
 
-  return { toolbar, preview, previewButton };
+  return { frame, toolbar, preview, previewButton };
 }
 
 function editorElementsForTextarea(textarea: HTMLTextAreaElement): MarkdownEditorElements | undefined {
+  const frame = textarea.parentElement;
+  if (!frame?.classList.contains('beadsform-markdown-editor')) return undefined;
   const toolbar = textarea.nextElementSibling;
   const preview = toolbar?.nextElementSibling;
   if (!(toolbar instanceof HTMLElement) || !toolbar.classList.contains('beadsform-markdown-editor-toolbar')) return undefined;
   if (!(preview instanceof HTMLElement) || !preview.classList.contains('beadsform-markdown-preview')) return undefined;
   const previewButton = toolbar.querySelector<HTMLButtonElement>('[data-beadsform-markdown-action="preview"]');
   if (!previewButton) return undefined;
-  return { toolbar, preview, previewButton };
+  return { frame, toolbar, preview, previewButton };
 }
 
 function setPreviewMode(textarea: HTMLTextAreaElement, elements: MarkdownEditorElements, previewMode: boolean): void {
@@ -95,6 +101,7 @@ function setPreviewMode(textarea: HTMLTextAreaElement, elements: MarkdownEditorE
 
 function syncEditorHiddenState(textarea: HTMLTextAreaElement, elements: MarkdownEditorElements): void {
   const hidden = textarea.hidden;
+  elements.frame.hidden = hidden;
   elements.toolbar.hidden = hidden;
   if (hidden) {
     textarea.classList.remove(SOURCE_HIDDEN_CLASS);

@@ -362,14 +362,32 @@ textarea {
 }
 
 .beadsform-root textarea.beadsform-markdown-source-hidden {
+  visibility: hidden;
+}
+
+.beadsform-root .beadsform-markdown-editor {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.beadsform-root .beadsform-markdown-editor[hidden] {
   display: none;
 }
 
+.beadsform-root .beadsform-markdown-editor > textarea {
+  display: block;
+  box-sizing: border-box;
+  padding-right: 3.75rem;
+}
+
 .beadsform-root .beadsform-markdown-editor-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  margin: 0.35rem 0 0.55rem;
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 2;
+  margin: 0;
 }
 
 .beadsform-root .beadsform-markdown-editor-toolbar[hidden] {
@@ -386,6 +404,7 @@ textarea {
   border-radius: 999px;
   padding: 0;
   color: #a1a1aa;
+  opacity: 0.78;
 }
 
 .beadsform-root .beadsform-markdown-preview-toggle svg {
@@ -397,14 +416,17 @@ textarea {
   border-color: #60a5fa;
   background: #1e3a8a;
   color: #f8fafc;
+  opacity: 1;
 }
 
 .beadsform-root .beadsform-markdown-preview {
-  min-height: 8rem;
+  position: absolute;
+  inset: 0;
+  overflow: auto;
   border: 1px solid #3f3f46;
-  border-radius: 0.75rem;
+  border-radius: 0.5rem;
   background: #111113;
-  padding: 0.85rem;
+  padding: 0.85rem 3.75rem 0.85rem 0.85rem;
 }
 
 .beadsform-root .beadsform-markdown-preview[hidden] {
