@@ -898,6 +898,39 @@ describe('beads-form CLI helpers', () => {
     expect(metadata).toEqual({ untouched: true, beadForms: { forms: [storedReviewForm] } });
   });
 
+  it('rejects nested form-level Next Instruction presets in append and update without mutation', () => {
+    const metadata = { untouched: true, beadForms: { forms: [storedReviewForm] } };
+    const malformedNestedPresets = [{ label: 42, value: null }];
+    const appendQuestion = {
+      type: 'choices',
+      id: 'follow_up',
+      title: 'Follow up',
+      description: 'Choose a follow-up.',
+      choices: [{
+        id: 'discuss',
+        label: 'Discuss',
+        nextInstructionPresets: malformedNestedPresets,
+      }],
+    } as never;
+    const replacement = {
+      ...mutableQuestion(standardForm.questions[0]),
+      choices: [{
+        ...mutableQuestion(standardForm.questions[0].choices[0]),
+        context: { nextInstructionPresets: malformedNestedPresets },
+      }],
+    } as never;
+
+    expect(() => appendQuestionsToMetadata(metadata, 'review', {
+      operation: 'append_questions',
+      questions: [appendQuestion],
+    })).toThrow('forbidden form/generated field "nextInstructionPresets"');
+    expect(() => updateQuestionInMetadata(metadata, 'review', {
+      questionId: 'decision',
+      replacement,
+    })).toThrow('forbidden form/generated field "nextInstructionPresets"');
+    expect(metadata).toEqual({ untouched: true, beadForms: { forms: [storedReviewForm] } });
+  });
+
   it('updates bead metadata for append-questions and returns hashes plus fill-out URLs', async () => {
     const calls: string[][] = [];
     const exec = vi.fn<ExecFileLike>(async (_file, args) => {

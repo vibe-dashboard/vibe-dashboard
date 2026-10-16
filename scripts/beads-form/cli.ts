@@ -36,6 +36,7 @@ const FORBIDDEN_APPEND_QUESTION_FIELDS = new Set([
   'goal',
   'content',
   'allowCodeFileChanges',
+  'nextInstructionPresets',
 ]);
 
 export type JsonObject = Record<string, unknown>;
