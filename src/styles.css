@@ -1092,6 +1092,39 @@ textarea {
     max-width: none;
   }
 
+  .beadsform-root .beadsform-single-question-controls--top {
+    display: none;
+  }
+
+  .beadsform-root .beadsform-single-question-controls--bottom {
+    position: fixed;
+    right: 1rem;
+    bottom: 0;
+    left: 1rem;
+    z-index: 4;
+    box-sizing: border-box;
+    width: auto;
+    max-width: calc(100% - 2rem);
+    margin: 0;
+    padding: 0.75rem 0 calc(0.75rem + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid #3f3f46;
+    background: #09090b;
+  }
+
+  .beadsform-root .beadsform-single-question-controls--bottom button {
+    min-height: 44px;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .beadsform-root .beadsform-aggregate-card .beadsform-single-question-controls--bottom {
+    position: sticky;
+    right: auto;
+    left: auto;
+    width: 100%;
+    max-width: 100%;
+  }
+
   .beadsform-root .beadsform-single-question-notes {
     width: 100%;
     margin-bottom: 1rem;

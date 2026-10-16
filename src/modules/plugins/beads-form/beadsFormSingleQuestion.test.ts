@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { initializeCompactMoreInfo } from './beadsFormMoreInfo';
-import { initializeSingleQuestionMode, prehideInactiveSingleQuestionItems } from './beadsFormSingleQuestion';
+import {
+  initializeSingleQuestionMode,
+  prehideInactiveSingleQuestionItems,
+  shouldNavigateWizardWithArrow,
+} from './beadsFormSingleQuestion';
 
 describe('BeadsForm single-question mode', () => {
   beforeEach(() => {
@@ -196,6 +200,161 @@ describe('BeadsForm single-question mode', () => {
     expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 3 of 3');
     expect(topNext.hidden).toBe(false);
     expect(bottomNext.hidden).toBe(false);
+  });
+
+  it('navigates with horizontal arrows from non-text controls and the page body', () => {
+    document.body.innerHTML = `
+      <div id="host">
+        <form>
+          <fieldset><legend>First</legend><input name="pick" type="checkbox"></fieldset>
+          <fieldset><legend>Second</legend><select name="choice"><option>One</option></select></fieldset>
+          <fieldset><legend>Third</legend><button type="button">Action</button></fieldset>
+        </form>
+      </div>
+    `;
+    initializeSingleQuestionMode(document.querySelector('#host')!);
+
+    const checkbox = document.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    const checkboxArrow = new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true });
+    checkbox.dispatchEvent(checkboxArrow);
+    expect(checkboxArrow.defaultPrevented).toBe(true);
+    expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 2 of 3');
+
+    const select = document.querySelector<HTMLSelectElement>('select')!;
+    select.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+    expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 3 of 3');
+
+    const action = document.querySelector<HTMLButtonElement>('.beadsform-single-question-item:not([hidden]) button')!;
+    action.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }));
+    expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 2 of 3');
+
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }));
+    expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 1 of 3');
+  });
+
+  it.each([
+    ['text input', '<input type="text">', 'input'],
+    ['number input', '<input type="number">', 'input'],
+    ['date input', '<input type="date">', 'input'],
+    ['file input', '<input type="file">', 'input'],
+    ['time input', '<input type="time">', 'input'],
+    ['range input', '<input type="range">', 'input'],
+    ['radio input', '<input type="radio">', 'input'],
+    ['textarea', '<textarea></textarea>', 'textarea'],
+    ['contenteditable descendant', '<div contenteditable="true"><span>edit</span></div>', 'span'],
+    ['ARIA textbox descendant', '<div role="textbox" tabindex="0"><span role="presentation">edit</span></div>', '[role="presentation"]'],
+    ['ARIA combobox', '<div role="combobox" tabindex="0"></div>', '[role="combobox"]'],
+    ['ARIA slider', '<div role="slider" tabindex="0"></div>', '[role="slider"]'],
+    ['Markdown preview interaction', '<div class="beadsform-markdown-editor"><button type="button">Preview</button></div>', 'button'],
+  ])('preserves native horizontal-arrow behavior for %s', (_label, control, selector) => {
+    document.body.innerHTML = `
+      <form>
+        <fieldset><legend>First</legend>${control}</fieldset>
+        <fieldset><legend>Second</legend><input type="checkbox"></fieldset>
+      </form>
+    `;
+    const form = document.querySelector('form')!;
+    const target = document.querySelector<HTMLElement>(selector)!;
+    const event = new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true });
+
+    expect(shouldNavigateWizardWithArrow(event, form)).toBe(false);
+  });
+
+  it('ignores handled, modified, composing, non-horizontal, and out-of-wizard key events', () => {
+    document.body.innerHTML = `
+      <form id="wizard"><fieldset><legend>First</legend><input type="checkbox"></fieldset></form>
+      <button id="outside">Outside</button>
+    `;
+    const form = document.querySelector<HTMLFormElement>('#wizard')!;
+    const checkbox = form.querySelector<HTMLInputElement>('input')!;
+    const cases = [
+      new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true, ctrlKey: true }),
+      new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true, altKey: true }),
+      new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true, shiftKey: true }),
+      new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true, metaKey: true }),
+      new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true, isComposing: true }),
+      new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }),
+    ];
+    for (const event of cases) {
+      checkbox.dispatchEvent(event);
+      expect(shouldNavigateWizardWithArrow(event, form)).toBe(false);
+    }
+    const prevented = new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true });
+    prevented.preventDefault();
+    expect(shouldNavigateWizardWithArrow(prevented, form)).toBe(false);
+
+    const outside = document.querySelector<HTMLButtonElement>('#outside')!;
+    const outsideEvent = new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true });
+    outside.dispatchEvent(outsideEvent);
+    expect(shouldNavigateWizardWithArrow(outsideEvent, form)).toBe(false);
+  });
+
+  it('keeps aggregate keyboard navigation scoped to the focused wizard', () => {
+    document.body.innerHTML = `
+      <div id="first"><form><fieldset><legend>A1</legend><input type="checkbox"></fieldset><fieldset><legend>A2</legend></fieldset></form></div>
+      <div id="second"><form><fieldset><legend>B1</legend><input type="checkbox"></fieldset><fieldset><legend>B2</legend></fieldset></form></div>
+    `;
+    const cleanups = [
+      initializeSingleQuestionMode(document.querySelector('#first')!, { urlState: false }),
+      initializeSingleQuestionMode(document.querySelector('#second')!, { urlState: false }),
+    ];
+
+    document.querySelector<HTMLInputElement>('#second input')!
+      .dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+
+    expect(document.querySelector('#first .beadsform-single-question-progress')?.textContent).toBe('Question 1 of 2');
+    expect(document.querySelector('#second .beadsform-single-question-progress')?.textContent).toBe('Question 2 of 2');
+
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+    expect(document.querySelector('#first .beadsform-single-question-progress')?.textContent).toBe('Question 1 of 2');
+    expect(document.querySelector('#second .beadsform-single-question-progress')?.textContent).toBe('Question 2 of 2');
+    cleanups.forEach((cleanup) => cleanup());
+  });
+
+  it('routes keyboard navigation through validation, review, URL, and scroll behavior', () => {
+    window.history.pushState(null, '', '/dashboard/forms?dir=%2Frepo&bead=bd-1&form=review');
+    document.body.innerHTML = `
+      <div id="host">
+        <form>
+          <fieldset><legend>Required</legend><input name="required" type="checkbox" required></fieldset>
+          <fieldset><legend>Final</legend><button type="button">Final action</button></fieldset>
+          <div class="beads-form-submit-actions"><button type="submit">Submit</button></div>
+        </form>
+      </div>
+    `;
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    const scrollIntoView = vi.fn();
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    try {
+      initializeSingleQuestionMode(document.querySelector('#host')!);
+      const required = document.querySelector<HTMLInputElement>('input[name="required"]')!;
+      const reportValidity = vi.spyOn(required, 'reportValidity');
+
+      required.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+      expect(reportValidity).toHaveBeenCalled();
+      expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 1 of 2');
+
+      required.checked = true;
+      required.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+      expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 2 of 2');
+      expect(new URLSearchParams(window.location.search).get('formQuestion')).toBe('2');
+      expect(scrollIntoView).toHaveBeenCalled();
+      expect(document.querySelector<HTMLElement>('.beads-form-submit-actions')?.hidden).toBe(false);
+
+      document.querySelector<HTMLButtonElement>('.beadsform-single-question-item:not([hidden]) button')!
+        .dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+      expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Review answers');
+      expect(new URLSearchParams(window.location.search).get('formReview')).toBe('1');
+
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+      expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Review answers');
+
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }));
+      expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 2 of 2');
+      expect(new URLSearchParams(window.location.search).get('formQuestion')).toBe('2');
+    } finally {
+      HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+    }
   });
 
   it('can initialize wizard mode without writing aggregate card navigation to URL state', () => {

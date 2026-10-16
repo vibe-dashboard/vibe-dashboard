@@ -11,7 +11,87 @@ export type SingleQuestionWizardPosition = {
 
 const WIZARD_QUESTION_PARAM = 'formQuestion';
 const WIZARD_REVIEW_PARAM = 'formReview';
+const ARROW_NAVIGATION_KEYS = new Set(['ArrowLeft', 'ArrowRight']);
+const ARROW_OWNING_INPUT_TYPES = new Set([
+  'color',
+  'date',
+  'datetime-local',
+  'email',
+  'file',
+  'month',
+  'number',
+  'password',
+  'radio',
+  'range',
+  'search',
+  'tel',
+  'text',
+  'time',
+  'url',
+  'week',
+]);
+const ARROW_OWNING_ROLES = new Set([
+  'combobox',
+  'grid',
+  'gridcell',
+  'listbox',
+  'menu',
+  'menuitem',
+  'menuitemcheckbox',
+  'menuitemradio',
+  'option',
+  'radio',
+  'radiogroup',
+  'scrollbar',
+  'searchbox',
+  'slider',
+  'spinbutton',
+  'tab',
+  'tablist',
+  'textbox',
+  'tree',
+  'treeitem',
+]);
 let progressIdSequence = 0;
+
+export function shouldNavigateWizardWithArrow(event: KeyboardEvent, form: HTMLFormElement): boolean {
+  if (
+    !ARROW_NAVIGATION_KEYS.has(event.key)
+    || event.defaultPrevented
+    || event.altKey
+    || event.ctrlKey
+    || event.metaKey
+    || event.shiftKey
+    || event.isComposing
+  ) return false;
+
+  const target = event.target;
+  if (!(target instanceof Element)) return false;
+  if (target === form.ownerDocument.body || target === form.ownerDocument.documentElement) {
+    // ken: body-key routing scans visible form-scale DOM; add a registry only if pages exceed 100 simultaneous wizards.
+    const wizards = Array.from(form.ownerDocument.querySelectorAll<HTMLFormElement>('form[data-beadsform-single-question="true"]'));
+    return wizards.length === 1 && wizards[0] === form;
+  }
+  if (!form.contains(target)) return false;
+  return !targetOwnsHorizontalArrows(target);
+}
+
+function targetOwnsHorizontalArrows(target: Element): boolean {
+  if (target.closest('.beadsform-markdown-editor')) return true;
+
+  const editable = target.closest<HTMLElement>('[contenteditable]');
+  if (editable && editable.getAttribute('contenteditable')?.toLowerCase() !== 'false') return true;
+
+  if (target.closest('textarea, audio, video')) return true;
+  const input = target.closest<HTMLInputElement>('input');
+  if (input && ARROW_OWNING_INPUT_TYPES.has(input.type.toLowerCase())) return true;
+
+  for (let element: Element | null = target; element; element = element.parentElement) {
+    const roles = element.getAttribute('role')?.toLowerCase().split(/\s+/) ?? [];
+    if (roles.some((role) => ARROW_OWNING_ROLES.has(role))) return true;
+  }
+  return false;
+}
 
 export function prehideInactiveSingleQuestionItems(
   html: string,
@@ -277,6 +357,12 @@ export function initializeSingleQuestionMode(host: ParentNode, options: { urlSta
     render();
   }
 
+  function handleArrowNavigation(event: KeyboardEvent) {
+    if (!shouldNavigateWizardWithArrow(event, formElement)) return;
+    event.preventDefault();
+    goTo(activeIndex + (event.key === 'ArrowRight' ? 1 : -1));
+  }
+
   function renderReviewSummary() {
     reviewPanel.replaceChildren();
     const title = document.createElement('h3');
@@ -356,11 +442,13 @@ export function initializeSingleQuestionMode(host: ParentNode, options: { urlSta
     setNotesExpanded(masterNotes.hidden);
   });
   form.addEventListener('submit', handleSubmit, true);
+  form.ownerDocument.addEventListener('keydown', handleArrowNavigation);
   if (useUrlState) window.addEventListener('popstate', handlePopState);
   render();
 
   return () => {
     form.removeEventListener('submit', handleSubmit, true);
+    form.ownerDocument.removeEventListener('keydown', handleArrowNavigation);
     if (useUrlState) window.removeEventListener('popstate', handlePopState);
     choiceGroupsCleanup();
     nextInstructionPresetsCleanup();

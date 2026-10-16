@@ -64,6 +64,16 @@ describe('BeadsForm styles', () => {
     expect(css).not.toMatch(/\.beadsform-root \.beadsform-single-question-notes\s*\{[^}]*position:\s*sticky/s);
   });
 
+  it('uses one contained safe-area-aware sticky navigation footer on mobile only', async () => {
+    const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
+
+    expect(css).toMatch(/@media \(max-width:\s*640px\)[\s\S]*\.beadsform-root \.beadsform-single-question-controls--top\s*\{[^}]*display:\s*none/s);
+    expect(css).toMatch(/@media \(max-width:\s*640px\)[\s\S]*\.beadsform-root \.beadsform-single-question-controls--bottom\s*\{[^}]*position:\s*fixed[^}]*right:\s*1rem[^}]*bottom:\s*0[^}]*left:\s*1rem[^}]*max-width:\s*calc\(100% - 2rem\)[^}]*padding:\s*0\.75rem 0 calc\(0\.75rem \+ env\(safe-area-inset-bottom,\s*0px\)\)[^}]*background:\s*#09090b/s);
+    expect(css).toMatch(/@media \(max-width:\s*640px\)[\s\S]*\.beadsform-root \.beadsform-single-question-controls--bottom button\s*\{[^}]*min-height:\s*44px[^}]*min-width:\s*0[^}]*max-width:\s*100%/s);
+    expect(css).toMatch(/@media \(max-width:\s*640px\)[\s\S]*\.beadsform-root \.beadsform-aggregate-card \.beadsform-single-question-controls--bottom\s*\{[^}]*position:\s*sticky[^}]*width:\s*100%[^}]*max-width:\s*100%/s);
+    expect(css).not.toMatch(/^\.beadsform-root \.beadsform-single-question-controls--bottom\s*\{[^}]*position:\s*sticky/ms);
+  });
+
   it('styles compact more-info toggles and hidden note textareas', async () => {
     const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
 
