@@ -149,17 +149,28 @@ describe('beads-form CLI helpers', () => {
     expect(skill).toContain('`nextInstructionPresets` accepts up to eight');
     expect(skill).toContain('future plugin-settings registry');
     for (const doc of [skill, onboarding]) {
-      expect(doc).toContain('## Human-readable workspace context');
-      expect(doc).toContain('Never present a workspace ID, branch name, bead ID, or generated form URL as the primary human label by itself.');
-      expect(doc).toContain('vibe-agent sessions list --json');
-      expect(doc).toContain('workspace_name');
-      expect(doc).toContain('Workspace name unavailable');
-      expect(doc).toContain('bd show <bead-id> --json');
-      expect(doc).not.toContain('A workspace ID alone is sufficient context');
+      const prose = doc.replace(/\s+/g, ' ');
+
+      expect(doc).toMatch(/^## Human-readable workspace context$/im);
+      expect(prose).toMatch(/readable workspace name/i);
+      expect(prose).toMatch(/exact (?:IDs|identifiers).{0,100}(?:commands|URLs)|(?:commands|URLs).{0,100}exact (?:IDs|identifiers)/i);
+      expect(doc).toMatch(/vibe-agent sessions list --json/);
+      expect(doc).toMatch(/workspace_name/);
+      expect(doc).toMatch(/VK_WORKSPACE_BRANCH/);
+      expect(doc).toMatch(/bd show <bead-id> --json/);
+      expect(prose).toMatch(/workspace name unavailable/i);
+      expect(prose).toMatch(/(?:do not fabricate|never invent).{0,50}(?:workspace )?(?:display )?name/i);
+
+      const idOnlyContradictions = [
+        /workspace IDs? (?:alone|by (?:itself|themselves)) (?:is|are) (?:enough|sufficient|adequate)/i,
+        /(?:share|send|provide) (?:only|just) (?:the )?(?:workspace ID|bead ID|raw URL)/i,
+        /(?:use|display) (?:the )?(?:workspace ID|bead ID|raw URL) as (?:the )?(?:primary|human-readable) label/i,
+        /no (?:readable )?workspace name (?:is )?(?:needed|required|necessary)/i,
+      ];
+      for (const contradiction of idOnlyContradictions) {
+        expect(prose).not.toMatch(contradiction);
+      }
     }
-    expect(skill).not.toContain('Give the human the printed `/dashboard/forms?...` URL.');
-    expect(skill).toContain('Markdown link labeled with the form title and readable workspace name');
-    expect(onboarding).toContain('link syntax whose text includes the form title and readable workspace name');
     expect(onboarding).toContain('only the normalized response JSON object');
     expect(`${onboarding}\n${skill}`).not.toContain('sends the canonical lean form DSL, normalized response, and XML handoff');
   });
