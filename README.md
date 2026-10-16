@@ -1,166 +1,199 @@
 # Vibe Dashboard
 
-A coding agent dashboard built on top of https://github.com/BloopAI/vibe-kanban and https://github.com/coder/code-server
+**Move coding-agent work from issue to reviewed change—without managing a wall of terminals.**
 
-## Quick start
+Vibe Dashboard gives founders and small teams one browser workspace for assigning work,
+following agents, making structured decisions, previewing results, and taking over in VS Code.
+It manages repositories and worktrees; it does **not** claim cloud workspace isolation.
 
-1. Run `docker compose up`
-2. Open http://localhost:3001 in your browser
+> **Release status:** `main` moves quickly and is intended to remain usable. Version tags are
+> stable checkpoints. Managed hosting is currently waitlist-only.
 
-A docker container will run the following:
+[Self-host](#self-host-in-60-seconds) · [Explore the workflow](#from-request-to-reviewed-change) · [Documentation](#documentation) · [Support](#support)
 
-- `vibe-kanban`
-- `code-server`
-- `caddy` as the main UI entrypoint
+<!-- SCREENSHOT: hero-issue-to-review | mixed status | 1440x900 | issue, active agent, structured decision, preview, review | redact repository/account data -->
+> **Hero media placeholder:** an issue becomes agent work, a structured decision returns to
+> the agent, and the resulting change enters review.
 
-## Dynamic port forwarding
+## Self-host in 60 seconds
 
-Caddy forwards `port-<port>.*` subdomains to `localhost:<port>` inside the container:
-
-- `http://port-12345.localhost:3001`
-
-## Configuration
-
-### Local dev container (`docker-compose.yaml`)
-
-#### Optional auth
-
-| Variable | Default | Notes |
-| --- | --- | --- |
-| `CODE_PASSWORD` | empty | Optional. If set, `code-server` starts with password auth. If empty/unset, it starts with `--auth none`. |
-
-#### Image/version
-
-| Variable | Default | Notes |
-| --- | --- | --- |
-| `VKVD_IMAGE_VERSION` | `latest` | Fetches image from ghcr.io/vibe-dashboard/vk-vd:${VKVD_IMAGE_VERSION:-latest}. The compose file's pull policy is set to "always", so if you want to pin a specific version, use this arg. |
-
-#### Ports
-
-| Variable | Default | Notes |
-| --- | --- | --- |
-| `CADDY_PORT` | `3001` | Main Caddy entrypoint host port. |
-| `BACKEND_PORT` | `3007` | Backend service port inside the container. Not published directly by compose. |
-| `DASHBOARD_PORT` | `3005` | Dashboard service port inside the container. Not published directly by compose. |
-| `CODE_PORT` | `3008` | `code-server` service port inside the container. Not published directly by compose. |
-
-#### Optional auth/system
-
-| Variable | Default | Notes |
-| --- | --- | --- |
-| `SUDO_PASSWORD` | empty | Optional sudo password in the container. |
-
-#### Optional networking/integration
-
-| Variable | Default | Notes |
-| --- | --- | --- |
-| `ENABLE_TAILSCALE` | `false` | Enables Tailscale startup. |
-| `TAILSCALE_AUTHKEY` | empty | Tailscale auth key. |
-| `TAILSCALE_HOSTNAME` | `vkdev` | Tailscale node hostname. |
-| `VK_ALLOWED_ORIGINS` | empty | Optional backend CORS allowlist. |
-
-#### Optional Vibe Kanban performance tracing / SigNoz
-
-Tracing is disabled by default. To export Vibe Kanban performance spans from
-the container to self-hosted SigNoz, set `VK_PERF_TRACING=1` and point the
-sibling OpenTelemetry Collector at the SigNoz collector endpoint reachable from
-this Docker network:
+You need Docker with Compose, coding-agent credentials you are permitted to use, and a trusted
+machine—the current container can control the host Docker daemon.
 
 ```bash
-VK_PERF_TRACING=1
-# VK and spawned Codex/tool processes use this Compose-local collector by default.
-OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
-# Forward from the sibling collector to self-hosted SigNoz over OTLP/HTTP.
-# Use the OTLP HTTP base endpoint; do not include /v1/traces here.
-SIGNOZ_OTLP_HTTP_ENDPOINT=http://signoz-otel-collector:4318
-OTEL_SERVICE_NAME=vibe-kanban-backend
-OTEL_RESOURCE_ATTRIBUTES=service.version=local-compose
+git clone https://github.com/vibe-dashboard/vibe-dashboard.git
+cd vibe-dashboard
+docker compose up
 ```
 
-The `otel-collector` service listens internally on OTLP/HTTP `4318` and
-OTLP/gRPC `4317`, batches spans, and forwards them over OTLP/HTTP. Set
-`SIGNOZ_OTLP_HTTP_ENDPOINT` to the OTLP HTTP base endpoint, such as
-`http://host:4318`; the collector exporter appends signal paths like
-`/v1/traces`. In
-Docker/Coolify, `localhost` and `127.0.0.1` refer to the current container, not
-the SigNoz host/container, so use the SigNoz collector hostname or service URL
-reachable from the `code-vibe` and `otel-collector` containers.
+Open <http://localhost:3001>. A successful start shows the workspace UI. The default image is
+`ghcr.io/vibe-dashboard/vk-vd:latest`; pin `VKVD_IMAGE_VERSION=v0.1.0` once that release is
+published.
 
-Direct OTEL overrides still work: set `OTEL_EXPORTER_OTLP_ENDPOINT` or
-`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` to bypass the sibling collector. For SigNoz
-Cloud, `OTEL_EXPORTER_OTLP_HEADERS` may be needed for auth; it is usually
-unnecessary for a local/self-hosted collector.
-`VK_WS_POLL_TRACING=1` enables extra noisy WebSocket poll tracing and is not
-normally needed.
+> **Security boundary:** the current Compose configuration mounts the host Docker socket.
+> Self-host only on infrastructure you trust. Planned Sysbox work changes this boundary; this
+> note will change only after that work is merged and verified.
 
-#### Optional noVNC/Chromium sidecar
+See [Self-hosting and operations](docs/self-hosting.md) for authentication, ports, preview
+routing, persistent credentials, tracing, private networking, and browser sidecars.
 
-The browser sidecar is opt-in. Start it alongside the plugin with:
+## From request to reviewed change
 
-```bash
-COMPOSE_PROFILES=novnc ENABLE_NOVNC_PLUGIN=true docker compose up
-```
+1. Bring in work from a repository or external task.
+2. Give an agent a workspace and the context to act.
+3. Resolve nuanced questions in structured forms instead of long chat threads.
+4. Preview the result and inspect the diff.
+5. Return feedback to the agent or finish in browser VS Code.
 
-The noVNC UI and Chromium CDP ports are bound to localhost only. Chromium intentionally binds CDP to loopback inside the sidecar; the `novnc-cdp` bridge exposes it to the Compose network and localhost-published host port. Set `NOVNC_USER` and `NOVNC_PASSWORD` if you want browser UI auth.
+### Media tour
 
-Smoke-check CDP from the host and from `code-vibe`:
+Static placeholders come first. Finished GIFs will live beside their chapter instead of
+autoplaying in a grid.
 
-```bash
-curl -fsS http://127.0.0.1:${NOVNC_CDP_PORT:-9223}/json/version
-docker compose --profile novnc exec code-vibe curl -fsS http://novnc:9222/json/version
-```
+- [Run agents in one workspace](#run-agents-in-one-workspace)
+- [Bring work into the dashboard](#bring-work-into-the-dashboard)
+- [Turn agent questions into decisions](#turn-agent-questions-into-decisions)
+- [Preview, review, and take over](#preview-review-and-take-over)
+- [Keep context between agent turns](#keep-context-between-agent-turns)
+- [Prepare safer development environments](#prepare-safer-development-environments)
+- [Reach the workspace where you work](#reach-the-workspace-where-you-work)
 
-| Variable | Default | Notes |
+**Available** means usable from the current self-hosted baseline. **In progress** means working
+development exists but is not stable. **Experimental** means dogfoodable and subject to change.
+**Planned** means direction only.
+
+## Run agents in one workspace
+
+**Available · In progress**
+
+**Problem:** agents scatter work across terminal tabs. **Action:** start and follow Codex,
+Claude, or OpenCode sessions from a repository workspace. **Result:** the task, conversation,
+working tree, and next human action stay together.
+
+Agent-to-agent setup is still difficult. In-progress agent-control MCP work makes catch-up,
+guarded messaging, callbacks, workspace creation, and preview control available without manual
+CLI setup. **PR link pending.**
+
+<!-- SCREENSHOT: multi-agent-workspace | available + in progress | 1440x900 | two sessions, workspace task, handoff state | do not imply cloud isolation -->
+> **Media placeholder:** two sessions working from one repository workspace.
+
+## Bring work into the dashboard
+
+**In progress**
+
+**Problem:** requests lose context during handoff. **Action:** open a GitHub URL as a workspace
+or route an external issue into the dashboard. **Result:** the source remains connected to the
+workspace and agent executing it.
+
+- [Open GitHub URLs as workspaces — PR #38](https://github.com/vibe-dashboard/vibe-dashboard/pull/38)
+- Jira/Linear intake — **PR link pending**
+- Chrome-assisted feedback capture — **PR link pending**
+
+<!-- SCREENSHOT: work-intake | in progress | 1440x900 | source issue, workspace, assigned agent | public seed data -->
+> **Media placeholder:** an external issue opening as assigned workspace work.
+
+## Turn agent questions into decisions
+
+**Available · In progress**
+
+**Problem:** choices disappear inside long conversations. **Action:** create a BeadsForm,
+review options in the browser, attach context, and return a normalized answer. **Result:**
+decisions become scoped work items instead of prompt archaeology.
+
+Core forms and attachments are available. Routing selected context to a specific agent is in
+progress. **PR link pending.**
+
+<!-- SCREENSHOT: structured-decisions | available + in progress | 1440x900 | request, form, normalized handoff | sample values only -->
+> **Media placeholder:** a decision form beside its originating agent session.
+
+## Preview, review, and take over
+
+**Available · In progress · Experimental**
+
+**Problem:** review spans a terminal, Git diff, and dev server. **Action:** open browser VS
+Code, inspect the preview and diff, then return specific feedback. **Result:** the human stays
+in control without reconstructing the environment.
+
+Browser VS Code is available. Diff and feedback surfaces are in progress. Preview URLs are
+experimental. **Diff-review PR link pending.**
+
+<!-- SCREENSHOT: preview-review | mixed status | 1440x900 | preview, diff feedback, browser VS Code | label each surface status -->
+> **Media placeholder:** the running change, its diff, and feedback returning to the agent.
+
+## Keep context between agent turns
+
+**Available · In progress**
+
+**Problem:** durable task state outlives chat turns. **Action:** use workspace-native Beads and
+callbacks today; use the developing timeline and outline for longer work. **Result:** work stays
+attached to the workspace that owns it.
+
+Agent summaries in commit messages are in progress and **optional** because git history is
+durable and shared.
+
+<!-- SCREENSHOT: durable-agent-context | mixed status | 1440x900 | task, callback, timeline/outline | separate branch captures if needed -->
+> **Media placeholder:** durable tasks and callback state, with developing navigation shown separately.
+
+## Prepare safer development environments
+
+**In progress**
+
+- Vardash/Varlock environment values ([PR #48](https://github.com/vibe-dashboard/vibe-dashboard/pull/48); final `main` integration link pending)
+- persistent Nix tools — **PR link pending**
+- Sysbox runtime boundary ([PR #49](https://github.com/vibe-dashboard/vibe-dashboard/pull/49))
+- turnkey private Tailscale access — **PR link pending**
+
+These are development direction, not security guarantees. Inactivity/auto-sleep is omitted.
+
+<!-- SCREENSHOT: safe-environment | in progress | 1440x900 | sample variable, tool environment, private URL | never capture credentials -->
+> **Media placeholder:** safe sample configuration leading to a private preview.
+
+## Reach the workspace where you work
+
+**Available · In progress**
+
+The self-hosted dashboard works in a browser at desktop and narrow widths. Turnkey Tailscale
+configuration is in progress. Managed hosting is waitlist-only. This README does not claim a
+native mobile application.
+
+<!-- SCREENSHOT: responsive-browser-access | available + in progress | desktop + phone browser | same real workspace -->
+> **Media placeholder:** the same workspace in desktop and phone browsers.
+
+## Development index
+
+| Work | Status | Evidence |
 | --- | --- | --- |
-| `NOVNC_UI_PORT` | `3090` | Host localhost port for the noVNC web UI. |
-| `NOVNC_CDP_PORT` | `9223` | Host localhost port for Chromium DevTools Protocol. |
-| `NOVNC_USER` | empty | Optional noVNC UI username. |
-| `NOVNC_PASSWORD` | empty | Optional noVNC UI password. |
-| `NOVNC_IMAGE` | `lscr.io/linuxserver/chromium:latest` | Browser sidecar image. |
+| Timeline and conversation outline | In progress | PR link pending |
+| Optional agent summaries in commits | In progress | PR link pending |
+| Vardash/Varlock | In progress | [PR #48](https://github.com/vibe-dashboard/vibe-dashboard/pull/48) |
+| Persistent Nix tools | In progress | PR link pending |
+| Sysbox runtime | In progress | [PR #49](https://github.com/vibe-dashboard/vibe-dashboard/pull/49) |
+| Turnkey Tailscale access | In progress | PR link pending |
+| Voyage/DockView workspace grids | In progress | PR link pending |
 
+## Documentation
 
-## GitHub auth
+- [Self-hosting and operations](docs/self-hosting.md)
+- Integration guides — **placeholder: documentation hub pending**
+- Feature guides — **placeholder: documentation hub pending**
 
-Run `gh auth login` once after first starting the container. Git is pre-configured to use `gh` as the credential helper, so no additional setup is needed.
+## Support
 
-Credentials and other per-instance XDG settings persist in the `user-config`
-volume mounted at `/home/vkuser/.config`.
+- Bugs: [GitHub Issues](https://github.com/vibe-dashboard/vibe-dashboard/issues)
+- Product questions and community — **placeholder: destination pending**
 
-To set your Git identity (also persisted):
-
-```bash
-git config --global user.name "Your Name"
-git config --global user.email "you@example.com"
-```
-
-## Testing
-
-Run type checks and unit tests:
+## Contributing
 
 ```bash
 npm run check-types
 npm test
-```
-
-Run Playwright e2e tests:
-
-```bash
 npm run test:e2e:install
 npm run test:e2e
 ```
 
-If port `4173` is already in use locally, choose a different isolated e2e port:
+Push your branch to your remote to run the full GitHub Actions suite; local checks are not the
+entire release gate.
 
-```bash
-E2E_PORT=4273 npm run test:e2e
-```
+## License
 
-## Codex auth
-
-Codex caches credentials in `~/.codex/auth.json` when configured for file-based storage; this is persisted via the `codex-data` Docker volume mounted at `/home/vkuser/.codex`.
-
-## Docker-in-Docker support
-
-The container includes Docker CLI and mounts the host's Docker socket at `/var/run/docker.sock`. This allows agents to run docker commands and you to run Docker commands from within the VSCode environment.
-
-**Security note:** The mounted Docker socket gives this container the ability to create and manage containers on the host. Only use this environment in trusted contexts. Remove the docker socket volume in the compose file to disable this.
+Vibe Dashboard is distributed under the terms in [LICENSE](LICENSE).
