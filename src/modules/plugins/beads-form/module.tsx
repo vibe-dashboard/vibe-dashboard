@@ -578,7 +578,10 @@ function SubmitSuccessSummary({
   onEdit: () => void;
   children?: React.ReactNode;
 }) {
-  const formatLabel = handoffFormat.toUpperCase();
+  const displayedFormat = clipboardResult?.text
+    ? (clipboardResult.text.trimStart().startsWith('{') ? 'json' : 'xml')
+    : handoffFormat;
+  const formatLabel = displayedFormat.toUpperCase();
   const manualCopyText = clipboardResult?.text ?? submittedResultHandoff(handoffFormat, values, handoffMetadata);
   return (
     <section className="beadsform-submit-result" aria-live="polite">
@@ -1472,6 +1475,9 @@ function BeadsFormAggregateRoute({ actions }: { actions: {
   const [error, setError] = useState<string | null>(null);
   const [batchStatus, setBatchStatus] = useState<AggregateBatchStatus>({ status: 'idle' });
   const [batchNextInstruction, setBatchNextInstruction] = useState('');
+  const displayedBatchFormat = batchStatus.status !== 'idle' && batchStatus.clipboard.text
+    ? (batchStatus.clipboard.text.trimStart().startsWith('{') ? 'json' : 'xml')
+    : handoffFormat;
   const paramString = params.toString();
   const batchControllersRef = useRef(new Map<string, AggregateBatchController>());
   const batchSubmitInFlightRef = useRef(false);
@@ -1683,17 +1689,17 @@ function BeadsFormAggregateRoute({ actions }: { actions: {
               <button type="button" disabled={batchStatus.status === 'submitting'} onClick={() => void handleBatchSubmit(true)}>Submit batch and allow code/file changes</button>
               <button type="button" disabled={batchStatus.status === 'submitting'} onClick={() => void handleBatchSubmit(false)}>Submit batch and avoid code/file changes</button>
             </div>
-            {batchStatus.status === 'submitting' ? <p>Submitting batch and copying combined {handoffFormat.toUpperCase()} handoff…</p> : null}
+            {batchStatus.status === 'submitting' ? <p>Submitting batch and copying combined {displayedBatchFormat.toUpperCase()} handoff…</p> : null}
             {batchStatus.status === 'success' || batchStatus.status === 'partial' ? (
               <div className={batchStatus.status === 'partial' ? 'beadsform-warning' : 'beadsform-submit-result'} role="status">
                 <h3>{batchStatus.status === 'success' ? 'Batch submitted' : 'Batch partially submitted'}</h3>
-                <p>{batchStatus.successes.length} source form{batchStatus.successes.length === 1 ? '' : 's'} saved. {batchStatus.failures.length > 0 ? `${batchStatus.failures.length} source form${batchStatus.failures.length === 1 ? '' : 's'} still need attention; do not resubmit saved forms with a new URL.` : `Combined ${handoffFormat.toUpperCase()} handoff is ready.`}</p>
-                {batchStatus.clipboard.status === 'copied' ? <p>Copied combined BeadsForm {handoffFormat.toUpperCase()} handoff to your clipboard.</p> : null}
+                <p>{batchStatus.successes.length} source form{batchStatus.successes.length === 1 ? '' : 's'} saved. {batchStatus.failures.length > 0 ? `${batchStatus.failures.length} source form${batchStatus.failures.length === 1 ? '' : 's'} still need attention; do not resubmit saved forms with a new URL.` : `Combined ${displayedBatchFormat.toUpperCase()} handoff is ready.`}</p>
+                {batchStatus.clipboard.status === 'copied' ? <p>Copied combined BeadsForm {displayedBatchFormat.toUpperCase()} handoff to your clipboard.</p> : null}
                 {batchStatus.clipboard.warning ? <p>{batchStatus.clipboard.warning}</p> : null}
                 {batchStatus.failures.length > 0 ? (
                   <ul>{batchStatus.failures.map((failure) => <li key={`${failure.key}:${failure.message}`}>{failure.ref.beadId}/{failure.ref.formId}: {failure.message}</li>)}</ul>
                 ) : null}
-                <h4>Combined BeadsForm {handoffFormat.toUpperCase()} handoff</h4>
+                <h4>Combined BeadsForm {displayedBatchFormat.toUpperCase()} handoff</h4>
                 <textarea readOnly rows={Math.min(24, Math.max(8, batchStatus.clipboard.text.split('\n').length + 1))} value={batchStatus.clipboard.text} />
               </div>
             ) : null}
