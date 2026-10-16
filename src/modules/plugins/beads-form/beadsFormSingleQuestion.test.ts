@@ -207,7 +207,7 @@ describe('BeadsForm single-question mode', () => {
       <div id="host">
         <form>
           <fieldset><legend>First</legend><input name="pick" type="checkbox"></fieldset>
-          <fieldset><legend>Second</legend><select name="choice"><option>One</option></select></fieldset>
+          <fieldset><legend>Second</legend><button type="button">Continue</button></fieldset>
           <fieldset><legend>Third</legend><button type="button">Action</button></fieldset>
         </form>
       </div>
@@ -220,8 +220,8 @@ describe('BeadsForm single-question mode', () => {
     expect(checkboxArrow.defaultPrevented).toBe(true);
     expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 2 of 3');
 
-    const select = document.querySelector<HTMLSelectElement>('select')!;
-    select.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+    const continueButton = document.querySelector<HTMLButtonElement>('.beadsform-single-question-item:not([hidden]) button')!;
+    continueButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
     expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 3 of 3');
 
     const action = document.querySelector<HTMLButtonElement>('.beadsform-single-question-item:not([hidden]) button')!;
@@ -240,6 +240,7 @@ describe('BeadsForm single-question mode', () => {
     ['time input', '<input type="time">', 'input'],
     ['range input', '<input type="range">', 'input'],
     ['radio input', '<input type="radio">', 'input'],
+    ['select', '<select><option>One</option><option>Two</option></select>', 'select'],
     ['textarea', '<textarea></textarea>', 'textarea'],
     ['contenteditable descendant', '<div contenteditable="true"><span>edit</span></div>', 'span'],
     ['ARIA textbox descendant', '<div role="textbox" tabindex="0"><span role="presentation">edit</span></div>', '[role="presentation"]'],
@@ -256,8 +257,13 @@ describe('BeadsForm single-question mode', () => {
     const form = document.querySelector('form')!;
     const target = document.querySelector<HTMLElement>(selector)!;
     const event = new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true });
+    let shouldNavigate = true;
+    form.addEventListener('keydown', (keyboardEvent) => {
+      shouldNavigate = shouldNavigateWizardWithArrow(keyboardEvent, form);
+    });
+    target.dispatchEvent(event);
 
-    expect(shouldNavigateWizardWithArrow(event, form)).toBe(false);
+    expect(shouldNavigate).toBe(false);
   });
 
   it('ignores handled, modified, composing, non-horizontal, and out-of-wizard key events', () => {
