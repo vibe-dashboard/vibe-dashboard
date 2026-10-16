@@ -30,16 +30,62 @@ describe('BeadsForm submit success helpers', () => {
     expect(unavailable.warning).toContain('manual JSON handoff field');
   });
 
-  it('keeps routing metadata in combined JSON batch handoffs', async () => {
+  it('limits combined JSON to source routing ids, normalized values, and batch next_instruction', async () => {
     const input = {
       batchId: 'batch-1',
       nextInstruction: 'Continue once',
-      forms: [{ beadId: 'bead-a', formId: 'form-a', values: { answer: true } }],
+      submittedAt: '2026-10-16T00:00:00.000Z',
+      submittedBy: 'human',
+      forms: [{
+        beadId: 'bead-a',
+        formId: 'form-a',
+        formType: 'code-review' as const,
+        title: 'Review A',
+        dir: '/repo-a',
+        submittedAt: '2026-10-16T00:00:00.000Z',
+        submittedBy: 'human',
+        values: { answer: true },
+      }],
     };
-    expect(JSON.parse(submittedBatchResultHandoff('json', input))).toEqual(input);
+    const json = JSON.parse(submittedBatchResultHandoff('json', input));
+    expect(json).toEqual({
+      forms: [{ beadId: 'bead-a', formId: 'form-a', values: { answer: true } }],
+      next_instruction: 'Continue once',
+    });
+    expect(Object.keys(json)).toEqual(['forms', 'next_instruction']);
+    expect(Object.keys(json.forms[0])).toEqual(['beadId', 'formId', 'values']);
+    expect(JSON.stringify(json)).not.toMatch(/batchId|formType|title|submittedAt|submittedBy|dir|questions|html|xml/i);
     const result = await copySubmittedBatchResultHandoff(undefined, 'json', input);
     expect(result.format).toBe('json');
     expect(result.warning).toContain('manual JSON handoff field');
+  });
+
+  it('omits empty batch next_instruction and leaves metadata-rich XML unchanged', () => {
+    const input = {
+      batchId: 'batch-xml',
+      nextInstruction: '   ',
+      submittedAt: '2026-10-16T00:00:00.000Z',
+      submittedBy: 'human',
+      forms: [{
+        beadId: 'bead-a',
+        formId: 'form-a',
+        formType: 'code-review' as const,
+        title: 'Review A',
+        submittedAt: '2026-10-16T00:00:00.000Z',
+        submittedBy: 'human',
+        values: { answer: true },
+      }],
+    };
+
+    expect(JSON.parse(submittedBatchResultHandoff('json', input))).toEqual({
+      forms: [{ beadId: 'bead-a', formId: 'form-a', values: { answer: true } }],
+    });
+    const xml = submittedBatchResultHandoff('xml', input);
+    expect(xml).toBe(submittedBatchResultHandoffXml(input));
+    expect(xml).toContain('<batchId>batch-xml</batchId>');
+    expect(xml).toContain('<submittedAt>2026-10-16T00:00:00.000Z</submittedAt>');
+    expect(xml).toContain('<formType>code-review</formType>');
+    expect(xml).toContain('<title>Review A</title>');
   });
   it('keeps the normalized submitted response JSON available as a secondary/internal format', () => {
     expect(normalizedSubmittedResultJson({ decision: { approve: true }, notes: 'Ship it' })).toBe(JSON.stringify({
