@@ -34,7 +34,7 @@ published.
 > Self-host only on infrastructure you trust. Planned Sysbox work changes this boundary; this
 > note will change only after that work is merged and verified.
 
-See [Self-hosting and operations](docs/self-hosting.md) for authentication, ports, preview
+See [Self-hosting and operations](user-docs/self-hosting.md) for authentication, ports, preview
 routing, persistent credentials, tracing, private networking, and browser sidecars.
 
 ## From request to reviewed change
@@ -173,7 +173,7 @@ native mobile application.
 
 ## Documentation
 
-- [Self-hosting and operations](docs/self-hosting.md)
+- [Self-hosting and operations](user-docs/self-hosting.md)
 - Integration guides — **placeholder: documentation hub pending**
 - Feature guides — **placeholder: documentation hub pending**
 
