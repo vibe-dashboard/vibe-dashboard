@@ -18,7 +18,7 @@ Omit `type` (or use `type: 'questionnaire'`) for ordinary decisions, intake, and
 ## Agent roles
 
 - **Form-making agent:** writes or updates form definitions using the helpers below.
-- **Orchestrating agent:** gives the human a preview or bead-backed URL, reads the copied BeadsForm XML handoff, and follows its constraints. Bead storage and internal normalization remain structured JSON.
+- **Orchestrating agent:** gives the human a preview or bead-backed URL, reads the copied BeadsForm handoff (XML by default, JSON when the user selects it), and follows its constraints. Bead storage and internal normalization remain structured JSON.
 
 If the response includes `"allow_code_file_changes": false`, agents must keep code/file operations read-only. Discussion, analysis, planning, and non-code metadata operations can continue.
 
@@ -156,6 +156,7 @@ const metadataPatch = buildBeadsFormMetadata([form]);
 - Standard choice questions normalize as per-option booleans, for example
   `"preview_flow_result": { "loaded_successfully": true, "json_copy_worked": false }`.
 - Submitted success screens copy/display a BeadsForm XML handoff by default so Markdown-heavy answers remain readable in plain text. The XML is derived from normalized values: choice maps become `<choiceGroup>` / `<choice selected="true|false" />`, text and Markdown answers become `<answer type="markdown">`, per-choice/per-question notes become `<note>`, and global Additional Notes become `<additionalNotes>`. XML text is escaped, not raw HTML.
+- The user can choose JSON from the form page's **Copy format** control. The plugin-local, versioned browser preference defaults safely to XML when storage is missing, blocked, or invalid. A single-form JSON handoff is exactly the normalized response object: it does not add form metadata and does not affect persisted responses, drafts, or creator-session notifications. Combined batch JSON retains its batch and source form identifiers because the combined handoff needs them to route each response.
 - Empty optional text fields, including empty `*_more_info` fields, are omitted before handoff output is generated.
 
 ## Folder preview workflow
@@ -205,9 +206,9 @@ Use folder mode for low-friction testing before attaching forms to beads.
    The command validates the folder, starts the existing Springboard/Vite dev server, and prints the exact preview URL with the folder path encoded. `npm run dev` first bootstraps missing preview dependencies with `pnpm install --frozen-lockfile` when `node_modules/.bin/vite` is absent or pnpm state is stale, then skips install work on warm checkouts. It sets `BEADS_FORM_DISABLE_HMR=1` by default so Vite does not push HMR/full-reload updates into an open form; manual browser refresh still loads the latest code. Set `BEADS_FORM_DISABLE_HMR=0` only when you want normal dev-server auto-reload behavior.
    To force a port, set `BEADS_FORM_PREVIEW_PORT=<port>`.
 
-4. The preview page lists all `.json` forms in the folder. Submitting a form copies the BeadsForm XML handoff to the clipboard and displays it on screen. It does not update beads.
+4. The preview page lists all `.json` forms in the folder. Submitting a form copies the selected XML (default) or JSON handoff to the clipboard and displays it on screen. It does not update beads.
 
-5. The orchestrating agent should paste/read that XML handoff exactly. If `allow_code_file_changes` is `false`, keep code/file operations read-only.
+5. The orchestrating agent should paste/read that handoff exactly. If `allow_code_file_changes` is `false`, keep code/file operations read-only.
 
 ### Embedding Markdown, media, files, and code
 
@@ -347,7 +348,7 @@ When several agents create separate bead-backed forms and the human should revie
 /dashboard/forms/aggregate?dir=/repo-a&bead=repo-a-123&form=review_a&dir=/repo-b&bead=repo-b-456&form=review_b
 ```
 
-The route loads each direct `dir`/`bead`/`form` ref independently, renders one grouped section per source form, and can either submit sections one at a time or submit the visible set together from the batch handoff panel. Batch submit still persists each source response to its original bead/form with a stable per-source `submissionId`, so retries do not create duplicate responses and each source creator receives only that source form’s normal notification. The combined clipboard handoff is XML by default and wraps each source form with its bead/form identifiers plus one batch-level Next Instruction. Invalidated or unavailable source forms block the batch until removed; successful source forms stay locked while failed sources can be corrected and retried. This keeps the normal per-form response model and avoids collisions when different forms reuse the same question ids. Use each section’s “Open alone” link when a user should focus on one source form.
+The route loads each direct `dir`/`bead`/`form` ref independently, renders one grouped section per source form, and can either submit sections one at a time or submit the visible set together from the batch handoff panel. Batch submit still persists each source response to its original bead/form with a stable per-source `submissionId`, so retries do not create duplicate responses and each source creator receives only that source form’s normal notification. The combined clipboard handoff uses XML by default or the user's selected JSON format and retains each source form's bead/form identifiers plus one batch-level Next Instruction. Invalidated or unavailable source forms block the batch until removed; successful source forms stay locked while failed sources can be corrected and retried. This keeps the normal per-form response model and avoids collisions when different forms reuse the same question ids. Use each section’s “Open alone” link when a user should focus on one source form.
 
 Aggregate URL params must be ordered as exact repeated `dir`, then `bead`, then `form` triplets. Do not group all `dir` params first or append unrelated query params to the aggregate URL; malformed ordering is rejected so refs cannot be silently misaligned.
 

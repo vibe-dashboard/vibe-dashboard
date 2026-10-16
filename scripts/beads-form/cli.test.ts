@@ -148,6 +148,16 @@ describe('beads-form CLI helpers', () => {
     expect(skill).toContain('followed by non-empty `SITE_ORIGIN`');
     expect(skill).toContain('`nextInstructionPresets` accepts up to eight');
     expect(skill).toContain('future plugin-settings registry');
+    expect(skill).toContain('XML handoff by default');
+    expect(skill).toContain('single-form JSON handoff is exactly the normalized response object');
+    expect(skill).toContain('does not affect persisted responses, drafts, or creator-session notifications');
+    expect(onboarding).toContain('XML is the default');
+    expect(onboarding).toContain('Single-form JSON is exactly the normalized response object');
+    expect(skill).toContain('**Copy format** control');
+    expect(skill).toContain('defaults safely to XML');
+    expect(skill).toContain('single-form JSON handoff is exactly the normalized response object');
+    expect(skill).toContain('Combined batch JSON retains its batch and source form identifiers');
+    expect(onboarding).toContain('This browser preference does not alter internal bead storage or creator-session notifications');
     for (const doc of [skill, onboarding]) {
       const prose = doc.replace(/\s+/g, ' ');
 

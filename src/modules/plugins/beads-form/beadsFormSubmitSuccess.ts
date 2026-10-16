@@ -9,6 +9,7 @@ import {
 
 export type ClipboardCopyResult = {
   status: 'pending' | 'copied' | 'failed' | 'unavailable';
+  format: BeadsFormHandoffFormat;
   text: string;
   warning?: string;
 };
@@ -55,7 +56,7 @@ export function pendingSubmittedBatchResultHandoff(
   format: BeadsFormHandoffFormat,
   input: BeadsFormBatchSubmissionHandoffInput,
 ): ClipboardCopyResult {
-  return { status: 'pending', text: submittedBatchResultHandoff(format, input) };
+  return { status: 'pending', format, text: submittedBatchResultHandoff(format, input) };
 }
 
 export async function copySubmittedBatchResultHandoff(
@@ -64,12 +65,12 @@ export async function copySubmittedBatchResultHandoff(
   input: BeadsFormBatchSubmissionHandoffInput,
 ): Promise<ClipboardCopyResult> {
   const text = submittedBatchResultHandoff(format, input);
-  if (!clipboard) return { status: 'unavailable', text, warning: unavailableWarning(format) };
+  if (!clipboard) return { status: 'unavailable', format, text, warning: unavailableWarning(format) };
   try {
     await clipboard.writeText(text);
-    return { status: 'copied', text };
+    return { status: 'copied', format, text };
   } catch (error) {
-    return { status: 'failed', text, warning: failedWarning(format, error) };
+    return { status: 'failed', format, text, warning: failedWarning(format, error) };
   }
 }
 
@@ -78,7 +79,7 @@ export function pendingSubmittedResultHandoff(
   values: JsonObject,
   metadata: BeadsFormSubmissionHandoffMetadata = {},
 ): ClipboardCopyResult {
-  return { status: 'pending', text: submittedResultHandoff(format, values, metadata) };
+  return { status: 'pending', format, text: submittedResultHandoff(format, values, metadata) };
 }
 
 export async function copySubmittedResultHandoff(
@@ -88,54 +89,31 @@ export async function copySubmittedResultHandoff(
   metadata: BeadsFormSubmissionHandoffMetadata = {},
 ): Promise<ClipboardCopyResult> {
   const text = submittedResultHandoff(format, values, metadata);
-  if (!clipboard) return { status: 'unavailable', text, warning: unavailableWarning(format) };
+  if (!clipboard) return { status: 'unavailable', format, text, warning: unavailableWarning(format) };
   try {
     await clipboard.writeText(text);
-    return { status: 'copied', text };
+    return { status: 'copied', format, text };
   } catch (error) {
-    return { status: 'failed', text, warning: failedWarning(format, error) };
+    return { status: 'failed', format, text, warning: failedWarning(format, error) };
   }
 }
 
 export function pendingSubmittedBatchResultHandoffCopy(input: BeadsFormBatchSubmissionHandoffInput): ClipboardCopyResult {
-  return {
-    status: 'pending',
-    text: submittedBatchResultHandoffXml(input),
-  };
+  return pendingSubmittedBatchResultHandoff('xml', input);
 }
 
 export async function copySubmittedBatchResultHandoffXml(
   clipboard: Pick<Clipboard, 'writeText'> | undefined,
   input: BeadsFormBatchSubmissionHandoffInput,
 ): Promise<ClipboardCopyResult> {
-  const text = submittedBatchResultHandoffXml(input);
-  if (!clipboard) {
-    return {
-      status: 'unavailable',
-      text,
-      warning: 'Clipboard copy is unavailable. Use the manual XML handoff field below.',
-    };
-  }
-  try {
-    await clipboard.writeText(text);
-    return { status: 'copied', text };
-  } catch (error) {
-    return {
-      status: 'failed',
-      text,
-      warning: `Clipboard copy failed: ${error instanceof Error ? error.message : String(error)}. Use the manual XML handoff field below.`,
-    };
-  }
+  return copySubmittedBatchResultHandoff(clipboard, 'xml', input);
 }
 
 export function pendingSubmittedResultHandoffCopy(
   values: JsonObject,
   metadata: BeadsFormSubmissionHandoffMetadata = {},
 ): ClipboardCopyResult {
-  return {
-    status: 'pending',
-    text: submittedResultHandoffXml(values, metadata),
-  };
+  return pendingSubmittedResultHandoff('xml', values, metadata);
 }
 
 export async function copySubmittedResultHandoffXml(
@@ -143,23 +121,5 @@ export async function copySubmittedResultHandoffXml(
   values: JsonObject,
   metadata: BeadsFormSubmissionHandoffMetadata = {},
 ): Promise<ClipboardCopyResult> {
-  const text = submittedResultHandoffXml(values, metadata);
-  if (!clipboard) {
-    return {
-      status: 'unavailable',
-      text,
-      warning: 'Clipboard copy is unavailable. Use the manual XML handoff field below.',
-    };
-  }
-
-  try {
-    await clipboard.writeText(text);
-    return { status: 'copied', text };
-  } catch (error) {
-    return {
-      status: 'failed',
-      text,
-      warning: `Clipboard copy failed: ${error instanceof Error ? error.message : String(error)}. Use the manual XML handoff field below.`,
-    };
-  }
+  return copySubmittedResultHandoff(clipboard, 'xml', values, metadata);
 }

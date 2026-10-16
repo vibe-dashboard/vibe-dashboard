@@ -14,16 +14,16 @@ describe('BeadsForm pending queue UI source', () => {
     expect(source).toContain('Loading pending BeadsForms');
   });
 
-  it('uses a submitted success state with XML handoff copy fallback instead of showing the active form', async () => {
+  it('uses a submitted success state with selected-format handoff fallback instead of showing the active form', async () => {
     const source = await readFile(new URL('./module.tsx', import.meta.url), 'utf8');
 
-    expect(source).toContain('copySubmittedResultHandoffXml(navigator.clipboard, values, handoffMetadata)');
-    expect(source).toContain('pendingSubmittedResultHandoffCopy(values, handoffMetadata)');
+    expect(source).toContain('copySubmittedResultHandoff(navigator.clipboard, handoffFormat, values, handoffMetadata)');
+    expect(source).toContain('pendingSubmittedResultHandoff(handoffFormat, values, handoffMetadata)');
     expect(source).toContain('submittedAt: result.submittedAt');
     expect(source).toContain('submittedBy: result.submittedBy');
-    expect(source).toContain('Copying BeadsForm XML handoff…');
-    expect(source).toContain('BeadsForm XML handoff');
-    expect(source).toContain('Clipboard copy is unavailable. Use the manual XML handoff field below.');
+    expect(source).toContain('Copying BeadsForm {formatLabel} handoff…');
+    expect(source).toContain('BeadsForm {formatLabel} handoff');
+    expect(source).toContain('Use the manual ${formatLabel} handoff field below.');
     expect(source).toContain('loaded?.selectedForm && !submitResult');
     expect(source).toContain("form && status.status !== 'success'");
     expect(source).toContain('selectedForm && submitResult');
@@ -61,11 +61,11 @@ describe('BeadsForm pending queue UI source', () => {
   it('sets aggregate success before awaiting clipboard completion', async () => {
     const source = await readFile(new URL('./module.tsx', import.meta.url), 'utf8');
 
-    expect(source).not.toContain('await copySubmittedResultHandoffXml');
+    expect(source).not.toContain('await copySubmittedResultHandoff(');
     expect(source).toContain('clipboardStatus: pendingCopy.status');
     expect(source).toContain('submittedAt: status.submittedAt');
     expect(source).toContain('submittedBy: status.submittedBy');
-    expect(source).toContain('void copySubmittedResultHandoffXml(navigator.clipboard, values, handoffMetadata).then((copyResult) => {');
+    expect(source).toContain('void copySubmittedResultHandoff(navigator.clipboard, handoffFormat, values, handoffMetadata).then((copyResult) => {');
   });
 
   it('prefers direct selected-bead loading when URL has both workspace and dir', async () => {
@@ -119,14 +119,14 @@ describe('BeadsForm pending queue UI source', () => {
     expect(source).toContain('invalidatedBeadsFormMessage(form)');
   });
 
-  it('offers aggregate batch submit with combined XML handoff and invalid-source blocking', async () => {
+  it('offers aggregate batch submit with selected-format handoff and invalid-source blocking', async () => {
     const source = await readFile(new URL('./module.tsx', import.meta.url), 'utf8');
     expect(source).toContain('Submit selected forms together');
-    expect(source).toContain('copySubmittedBatchResultHandoffXml(navigator.clipboard, optimisticXmlInput)');
-    expect(source).toContain('pendingSubmittedBatchResultHandoffCopy(optimisticXmlInput)');
+    expect(source).toContain('copySubmittedBatchResultHandoff(navigator.clipboard, handoffFormat, optimisticHandoffInput)');
+    expect(source).toContain('pendingSubmittedBatchResultHandoff(handoffFormat, optimisticHandoffInput)');
     expect(source).toContain('batchSubmissionIdsRef.current');
     expect(source).toContain('Invalidated or unavailable forms block the batch');
-    expect(source).toContain('Combined BeadsForm XML handoff');
+    expect(source).toContain('Combined BeadsForm {displayedBatchFormat.toUpperCase()} handoff');
     expect(source).toContain('withDeclaredCodeFileChangeIntent(form, normalizeFormData(new FormData(element)), allowCodeFileChanges)');
     expect(source).not.toContain('[ALLOW_CODE_FILE_CHANGES_FIELD]: allowCodeFileChanges');
   });

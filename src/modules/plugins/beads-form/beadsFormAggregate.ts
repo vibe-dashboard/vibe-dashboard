@@ -14,6 +14,7 @@ export type AggregateSubmitStatus =
     submittedBy: string;
     warnings: string[];
     clipboardStatus: 'pending' | 'copied' | 'failed' | 'unavailable';
+    clipboardFormat: 'xml' | 'json';
     clipboardText: string;
     clipboardWarning?: string;
   }

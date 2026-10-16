@@ -253,12 +253,12 @@ before the human answers.
 
 Send the direct form URL and ask them to submit. After submission:
 
-- Read/process the copied BeadsForm XML handoff. It is the default human/agent handoff format so Markdown-heavy answers stay readable; internal bead storage still preserves structured normalized JSON.
+- Read/process the copied BeadsForm handoff. XML is the default so Markdown-heavy answers stay readable; users may explicitly select JSON. Single-form JSON is exactly the normalized response object. This browser preference does not alter internal bead storage or creator-session notifications.
 - For bead-backed forms with a valid creating `VK_SESSION_ID`, VD persists the response first and then best-effort notifies that exact session with only the normalized response JSON object—no form definitions, identifiers, XML, prior responses, or explanatory prose. Missing/invalid sessions and notification failures use `needs-agent-review` as the fallback; a notification warning means the answer is already saved and must not be submitted again. Folder previews never send session notifications, and aggregate sections route independently using each source bead's metadata.
 - Remove `needs-agent-review` from the bead after processing, if present.
 - When messaging another agent about the response, include:
   - the raw DSL JSON,
-  - the raw BeadsForm XML handoff,
+  - the raw BeadsForm XML handoff (or normalized response-only JSON when the user selected JSON),
   - `Please use 'vibe-agent full_summary' to catch up.`
 
 If multiple agents created separate forms and the user should answer them from one page, use the aggregate route with repeated direct refs:
@@ -267,7 +267,7 @@ If multiple agents created separate forms and the user should answer them from o
 /dashboard/forms/aggregate?dir=/repo-a&bead=repo-a-123&form=review_a&dir=/repo-b&bead=repo-b-456&form=review_b
 ```
 
-Each grouped section can submit independently back to its source bead/form, and the aggregate page also has a batch handoff panel for submitting the visible set together. Batch submit persists each source response to its original bead/form with a stable per-source `submissionId`, routes notifications per source creator exactly like individual aggregate submits, and copies one combined XML handoff containing each source bead/form id plus one batch-level Next Instruction. Invalidated or failed source forms block or partially fail the batch instead of being silently included.
+Each grouped section can submit independently back to its source bead/form, and the aggregate page also has a batch handoff panel for submitting the visible set together. Batch submit persists each source response to its original bead/form with a stable per-source `submissionId`, routes notifications per source creator exactly like individual aggregate submits, and copies one combined XML (default) or JSON handoff containing each source bead/form id plus one batch-level Next Instruction. Invalidated or failed source forms block or partially fail the batch instead of being silently included.
 
 Aggregate URL params must be ordered as exact repeated `dir`, then `bead`, then `form` triplets. Do not group all `dir` params first or add unrelated query params to aggregate URLs; malformed ordering is rejected so refs cannot be silently misaligned.
 

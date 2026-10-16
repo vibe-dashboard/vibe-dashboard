@@ -725,6 +725,25 @@ textarea {
   min-height: 0.1rem;
 }
 
+.beadsform-root .beadsform-handoff-format {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 0 0.75rem auto;
+  color: #d4d4d8;
+  font-size: 0.875rem;
+}
+
+.beadsform-root .beadsform-handoff-format select {
+  border: 1px solid #52525b;
+  border-radius: 0.5rem;
+  background: #18181b;
+  color: #f4f4f5;
+  padding: 0.35rem 1.75rem 0.35rem 0.55rem;
+}
+
 .beadsform-root .beadsform-pending-list {
   display: grid;
   gap: 0.65rem;

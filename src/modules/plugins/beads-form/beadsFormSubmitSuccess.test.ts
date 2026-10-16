@@ -8,48 +8,44 @@ import {
   normalizedSubmittedResultJson,
   pendingSubmittedResultHandoffCopy,
   submittedResultHandoffXml,
+  submittedBatchResultHandoff,
+  submittedResultHandoff,
 } from './beadsFormSubmitSuccess';
 
 describe('BeadsForm submit success helpers', () => {
+  it('defaults through XML helpers while JSON emits only normalized response values', () => {
+    const values = { answer: 'Markdown', choice: { yes: true, no: false } };
+    expect(submittedResultHandoff('xml', values, { beadId: 'bead-1' })).toContain('<beadId>bead-1</beadId>');
+    expect(submittedResultHandoff('json', values, { beadId: 'bead-1' })).toBe(JSON.stringify(values, null, 2));
+    expect(submittedResultHandoff('json', values, { beadId: 'bead-1' })).not.toContain('bead-1');
+  });
+
+  it('copies selected JSON immediately and reports a format-aware manual fallback', async () => {
+    const writeText = vi.fn<Clipboard['writeText']>(async () => undefined);
+    const copied = await copySubmittedResultHandoff({ writeText }, 'json', { answer: 'saved' }, { formId: 'ignored' });
+    expect(copied).toEqual({ status: 'copied', format: 'json', text: '{\n  "answer": "saved"\n}' });
+    expect(writeText).toHaveBeenCalledWith(copied.text);
+
+    const unavailable = await copySubmittedResultHandoff(undefined, 'json', { answer: 'saved' });
+    expect(unavailable.warning).toContain('manual JSON handoff field');
+  });
+
+  it('keeps routing metadata in combined JSON batch handoffs', async () => {
+    const input = {
+      batchId: 'batch-1',
+      nextInstruction: 'Continue once',
+      forms: [{ beadId: 'bead-a', formId: 'form-a', values: { answer: true } }],
+    };
+    expect(JSON.parse(submittedBatchResultHandoff('json', input))).toEqual(input);
+    const result = await copySubmittedBatchResultHandoff(undefined, 'json', input);
+    expect(result.format).toBe('json');
+    expect(result.warning).toContain('manual JSON handoff field');
+  });
   it('keeps the normalized submitted response JSON available as a secondary/internal format', () => {
     expect(normalizedSubmittedResultJson({ decision: { approve: true }, notes: 'Ship it' })).toBe(JSON.stringify({
       decision: { approve: true },
       notes: 'Ship it',
     }, null, 2));
-  });
-
-  it('copies normalized response-only JSON without XML metadata', async () => {
-    const writeText = vi.fn<Clipboard['writeText']>(async () => undefined);
-    const values = { answer: 'Markdown **source**', choices: { yes: true, no: false } };
-
-    const result = await copySubmittedResultHandoff({ writeText }, 'json', values, {
-      beadId: 'bead-ignored',
-      formId: 'form-ignored',
-    });
-
-    expect(result.text).toBe(JSON.stringify(values, null, 2));
-    expect(result.text).not.toContain('bead-ignored');
-    expect(writeText).toHaveBeenCalledWith(result.text);
-  });
-
-  it('uses structured batch JSON because source identifiers are required for routing', async () => {
-    const writeText = vi.fn<Clipboard['writeText']>(async () => undefined);
-    const input = {
-      batchId: 'batch-1',
-      nextInstruction: 'Continue once',
-      forms: [{ beadId: 'bead-a', formId: 'form-a', values: { answer: 'yes' } }],
-    };
-
-    const result = await copySubmittedBatchResultHandoff({ writeText }, 'json', input);
-
-    expect(JSON.parse(result.text)).toEqual(input);
-    expect(result.text).not.toContain('<beadsFormBatchSubmission>');
-  });
-
-  it('uses format-specific manual fallback text', async () => {
-    const result = await copySubmittedResultHandoff(undefined, 'json', { answer: 'saved' });
-    expect(result.status).toBe('unavailable');
-    expect(result.warning).toContain('manual JSON handoff field');
   });
 
   it('formats markdown-friendly XML with metadata, choice booleans, notes, and additional notes', () => {
@@ -160,6 +156,7 @@ describe('BeadsForm submit success helpers', () => {
   it('represents pending clipboard copy without a false failure warning', () => {
     expect(pendingSubmittedResultHandoffCopy({ answer: 'saved' })).toEqual({
       status: 'pending',
+      format: 'xml',
       text: '<beadsFormSubmission>\n  <answers>\n    <answer id="answer" type="markdown">\n\nsaved\n\n    </answer>\n  </answers>\n</beadsFormSubmission>',
     });
   });

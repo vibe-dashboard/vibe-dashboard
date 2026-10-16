@@ -56,6 +56,7 @@ import {
   writeBeadsFormHandoffFormat,
   type BeadsFormHandoffFormat,
 } from './beadsFormHandoffPreference';
+import { BeadsFormHandoffFormatControl } from './beadsFormHandoffFormatControl';
 import type { BeadsFormSubmissionHandoffMetadata } from './beadsFormSubmissionHandoff';
 import {
   aggregateFormDomPrefix,
@@ -533,30 +534,24 @@ function SubmittingOverlay() {
   );
 }
 
+function beadsFormBrowserStorage(): Storage | undefined {
+  if (typeof window === 'undefined') return undefined;
+  try {
+    return window.localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
 function useBeadsFormHandoffFormat(): [BeadsFormHandoffFormat, (format: BeadsFormHandoffFormat) => void] {
   const [format, setFormat] = useState<BeadsFormHandoffFormat>(() => (
-    readBeadsFormHandoffFormat(typeof window === 'undefined' ? undefined : window.localStorage)
+    readBeadsFormHandoffFormat(beadsFormBrowserStorage())
   ));
   const update = React.useCallback((next: BeadsFormHandoffFormat) => {
     setFormat(next);
-    writeBeadsFormHandoffFormat(typeof window === 'undefined' ? undefined : window.localStorage, next);
+    writeBeadsFormHandoffFormat(beadsFormBrowserStorage(), next);
   }, []);
   return [format, update];
-}
-
-function BeadsFormHandoffFormatControl({ format, onChange }: {
-  format: BeadsFormHandoffFormat;
-  onChange: (format: BeadsFormHandoffFormat) => void;
-}) {
-  return (
-    <label className="beadsform-handoff-format">
-      Copy format
-      <select value={format} onChange={(event) => onChange(event.target.value as BeadsFormHandoffFormat)}>
-        <option value="xml">XML</option>
-        <option value="json">JSON</option>
-      </select>
-    </label>
-  );
 }
 
 function SubmitSuccessSummary({
@@ -578,11 +573,9 @@ function SubmitSuccessSummary({
   onEdit: () => void;
   children?: React.ReactNode;
 }) {
-  const displayedFormat = clipboardResult?.text
-    ? (clipboardResult.text.trimStart().startsWith('{') ? 'json' : 'xml')
-    : handoffFormat;
+  const displayedFormat = clipboardResult?.format ?? handoffFormat;
   const formatLabel = displayedFormat.toUpperCase();
-  const manualCopyText = clipboardResult?.text ?? submittedResultHandoff(handoffFormat, values, handoffMetadata);
+  const manualCopyText = clipboardResult?.text ?? submittedResultHandoff(displayedFormat, values, handoffMetadata);
   return (
     <section className="beadsform-submit-result" aria-live="polite">
       <h2>{title}</h2>
@@ -1347,6 +1340,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft, regis
       submittedBy: '',
       warnings: [],
       clipboardStatus: pendingCopy.status,
+      clipboardFormat: pendingCopy.format,
       clipboardText: pendingCopy.text,
     });
     void copySubmittedResultHandoff(navigator.clipboard, handoffFormat, values, handoffMetadata).then((copyResult) => {
@@ -1355,6 +1349,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft, regis
         return {
           ...current,
           clipboardStatus: copyResult.status,
+          clipboardFormat: copyResult.format,
           clipboardText: copyResult.text,
           ...(copyResult.warning ? { clipboardWarning: copyResult.warning } : {}),
         };
@@ -1379,6 +1374,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft, regis
         submittedBy: result.submittedBy,
         warnings: result.warnings,
         clipboardStatus: current.status === 'success' ? current.clipboardStatus : 'pending',
+        clipboardFormat: current.status === 'success' ? current.clipboardFormat : handoffFormat,
         clipboardText: current.status === 'success' ? current.clipboardText : pendingSubmittedResultHandoff(handoffFormat, result.values, {
           beadId: item.ref.beadId,
           formId: form.id,
@@ -1442,6 +1438,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm, saveBeadFormDraft, regis
           title="Submitted this source form"
           clipboardResult={{
             status: status.clipboardStatus,
+            format: status.clipboardFormat,
             text: status.clipboardText,
             ...(status.clipboardWarning ? { warning: status.clipboardWarning } : {}),
           }}
@@ -1475,9 +1472,7 @@ function BeadsFormAggregateRoute({ actions }: { actions: {
   const [error, setError] = useState<string | null>(null);
   const [batchStatus, setBatchStatus] = useState<AggregateBatchStatus>({ status: 'idle' });
   const [batchNextInstruction, setBatchNextInstruction] = useState('');
-  const displayedBatchFormat = batchStatus.status !== 'idle' && batchStatus.clipboard.text
-    ? (batchStatus.clipboard.text.trimStart().startsWith('{') ? 'json' : 'xml')
-    : handoffFormat;
+  const displayedBatchFormat = batchStatus.status === 'idle' ? handoffFormat : batchStatus.clipboard.format;
   const paramString = params.toString();
   const batchControllersRef = useRef(new Map<string, AggregateBatchController>());
   const batchSubmitInFlightRef = useRef(false);
@@ -1533,7 +1528,7 @@ function BeadsFormAggregateRoute({ actions }: { actions: {
     if (blocked.length > 0) {
       setBatchStatus({
         status: 'partial',
-        clipboard: { status: 'unavailable', text: '', warning: 'Batch handoff is blocked until invalid or failed source forms are removed.' },
+        clipboard: { status: 'unavailable', format: handoffFormat, text: '', warning: 'Batch handoff is blocked until invalid or failed source forms are removed.' },
         successes: [],
         failures: blocked.map((item) => ({
           key: item.key,
@@ -1553,7 +1548,7 @@ function BeadsFormAggregateRoute({ actions }: { actions: {
     } catch (reason) {
       setBatchStatus({
         status: 'partial',
-        clipboard: { status: 'unavailable', text: '', warning: 'Complete required fields before submitting the batch.' },
+        clipboard: { status: 'unavailable', format: handoffFormat, text: '', warning: 'Complete required fields before submitting the batch.' },
         successes: [],
         failures: [{ key: 'validation', ref: loaded.items[0]?.ref ?? { dir: '', beadId: '', formId: '' }, message: reason instanceof Error ? reason.message : String(reason) }],
       });
@@ -1561,7 +1556,7 @@ function BeadsFormAggregateRoute({ actions }: { actions: {
     }
 
     const batchId = `batch-${createSubmissionId()}`;
-    const optimisticXmlInput = {
+    const optimisticHandoffInput = {
       batchId,
       nextInstruction: batchNextInstruction,
       forms: snapshots.map((snapshot) => ({
@@ -1573,13 +1568,13 @@ function BeadsFormAggregateRoute({ actions }: { actions: {
         values: snapshot.values,
       })),
     };
-    const pendingCopy = pendingSubmittedBatchResultHandoff(handoffFormat, optimisticXmlInput);
+    const pendingCopy = pendingSubmittedBatchResultHandoff(handoffFormat, optimisticHandoffInput);
     setBatchStatus({ status: 'submitting', clipboard: pendingCopy });
     batchSubmitInFlightRef.current = true;
     for (const snapshot of snapshots) {
       batchControllersRef.current.get(snapshot.key)?.lock(snapshot.values);
     }
-    void copySubmittedBatchResultHandoff(navigator.clipboard, handoffFormat, optimisticXmlInput).then((copyResult) => {
+    void copySubmittedBatchResultHandoff(navigator.clipboard, handoffFormat, optimisticHandoffInput).then((copyResult) => {
       setBatchStatus((current) => (
         current.status === 'submitting'
           ? { ...current, clipboard: copyResult }
@@ -1611,7 +1606,7 @@ function BeadsFormAggregateRoute({ actions }: { actions: {
         batchControllersRef.current.get(snapshot.key)?.markError(message);
       }
     }
-    const persistedXmlInput = {
+    const persistedHandoffInput = {
       batchId,
       nextInstruction: batchNextInstruction,
       forms: snapshots.map((snapshot) => {
@@ -1630,7 +1625,7 @@ function BeadsFormAggregateRoute({ actions }: { actions: {
     };
     setBatchStatus((current) => ({
       status: failures.length > 0 ? 'partial' : 'success',
-      clipboard: current.status === 'submitting' ? { ...current.clipboard, text: submittedBatchResultHandoff(handoffFormat, persistedXmlInput) } : pendingSubmittedBatchResultHandoff(handoffFormat, persistedXmlInput),
+      clipboard: current.status === 'submitting' ? { ...current.clipboard, text: submittedBatchResultHandoff(handoffFormat, persistedHandoffInput) } : pendingSubmittedBatchResultHandoff(handoffFormat, persistedHandoffInput),
       successes,
       failures,
     }));
