@@ -41,11 +41,17 @@ const value = a < b && b > c;
     expect(previewButton.getAttribute('aria-label')).toBe('Show Markdown preview for Plan');
     expect(previewButton.getAttribute('title')).toBe('Show Markdown preview for Plan');
     expect(previewButton.getAttribute('aria-pressed')).toBe('false');
+    expect(previewButton.getAttribute('aria-controls')).toBe('plan__markdown_preview');
+    expect(preview.id).toBe('plan__markdown_preview');
     expect(preview.getAttribute('role')).toBe('region');
     expect(preview.getAttribute('aria-label')).toBe('Markdown preview for Plan');
     expect(preview.hidden).toBe(true);
     expect(textarea.classList.contains('beadsform-markdown-source-hidden')).toBe(false);
 
+    previewButton.focus();
+    expect(document.activeElement).toBe(previewButton);
+    const frameBeforeToggle = frame;
+    const toolbarBeforeToggle = toolbar;
     previewButton.click();
 
     expect(preview.hidden).toBe(false);
@@ -60,6 +66,8 @@ const value = a < b && b > c;
     expect(previewButton.getAttribute('aria-label')).toBe('Hide Markdown preview for Plan');
     expect(previewButton.getAttribute('title')).toBe('Hide Markdown preview for Plan');
     expect(previewButton.getAttribute('aria-pressed')).toBe('true');
+    expect(document.querySelector('.beadsform-markdown-editor')).toBe(frameBeforeToggle);
+    expect(document.querySelector('.beadsform-markdown-editor-toolbar')).toBe(toolbarBeforeToggle);
     expect(formValuesFromDom(document.querySelector('form')!)).toEqual({
       plan: textarea.value,
     });
@@ -71,6 +79,7 @@ const value = a < b && b > c;
     expect(previewButton.classList.contains('is-active')).toBe(false);
     expect(previewButton.getAttribute('aria-label')).toBe('Show Markdown preview for Plan');
     expect(previewButton.getAttribute('aria-pressed')).toBe('false');
+    expect(document.activeElement).toBe(textarea);
   });
 
   it('refreshes preview content after draft or submitted values are restored', () => {

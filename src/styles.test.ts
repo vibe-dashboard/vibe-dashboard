@@ -79,8 +79,9 @@ describe('BeadsForm styles', () => {
     expect(css).toMatch(/\.beadsform-root \.beadsform-markdown-editor\s*\{[^}]*position:\s*relative[^}]*max-width:\s*100%[^}]*min-width:\s*0/s);
     expect(css).toMatch(/\.beadsform-root \.beadsform-markdown-editor > textarea\s*\{[^}]*box-sizing:\s*border-box[^}]*padding-right:\s*3\.75rem/s);
     expect(css).toMatch(/\.beadsform-root \.beadsform-markdown-editor-toolbar\s*\{[^}]*position:\s*absolute[^}]*top:\s*0\.5rem[^}]*right:\s*0\.5rem[^}]*z-index:\s*2/s);
-    expect(css).toMatch(/\.beadsform-root \.beadsform-markdown-preview-toggle\s*\{[^}]*display:\s*inline-flex[^}]*min-height:\s*2\.4rem[^}]*opacity:\s*0\.78/s);
+    expect(css).toMatch(/\.beadsform-root \.beadsform-markdown-preview-toggle\s*\{[^}]*display:\s*inline-flex[^}]*width:\s*2\.75rem[^}]*min-width:\s*2\.75rem[^}]*min-height:\s*2\.75rem[^}]*opacity:\s*0\.78/s);
     expect(css).toMatch(/\.beadsform-root \.beadsform-markdown-preview-toggle\.is-active\s*\{[^}]*border-color:\s*#60a5fa/s);
+    expect(css).toMatch(/\.beadsform-root \.beadsform-markdown-preview-toggle:focus-visible\s*\{[^}]*outline:\s*2px solid #93c5fd[^}]*outline-offset:\s*2px/s);
     expect(css).toMatch(/\.beadsform-root \.beadsform-markdown-preview\s*\{[^}]*position:\s*absolute[^}]*inset:\s*0[^}]*overflow:\s*auto[^}]*padding:\s*0\.85rem 3\.75rem 0\.85rem 0\.85rem/s);
   });
 

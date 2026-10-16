@@ -398,9 +398,9 @@ textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2.4rem;
-  min-width: 2.4rem;
-  min-height: 2.4rem;
+  width: 2.75rem;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
   border-radius: 999px;
   padding: 0;
   color: #a1a1aa;
@@ -417,6 +417,11 @@ textarea {
   background: #1e3a8a;
   color: #f8fafc;
   opacity: 1;
+}
+
+.beadsform-root .beadsform-markdown-preview-toggle:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
 }
 
 .beadsform-root .beadsform-markdown-preview {

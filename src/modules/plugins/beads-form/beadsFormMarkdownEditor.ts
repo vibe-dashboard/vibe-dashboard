@@ -67,6 +67,10 @@ function createEditorElements(textarea: HTMLTextAreaElement): MarkdownEditorElem
 
   const preview = document.createElement('div');
   preview.className = 'beadsform-markdown-preview beads-form-description';
+  if (textarea.id) {
+    preview.id = `${textarea.id}__markdown_preview`;
+    previewButton.setAttribute('aria-controls', preview.id);
+  }
   preview.setAttribute('role', 'region');
   preview.setAttribute('aria-label', `Markdown preview for ${label}`);
   preview.hidden = true;
