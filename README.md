@@ -1,6 +1,6 @@
 # Vibe Dashboard
 
-**Move coding-agent work from issue to reviewed change—without managing a wall of terminals.**
+**Break out of the terminal, and into your personal dashboard**
 
 Note: This readme is currently in-progress and under construction 10/16/26 :)
 
@@ -92,15 +92,13 @@ workspace and agent executing it.
 
 ## Turn agent questions into decisions
 
-**Available · In progress**
+**Available**
 
-**Problem:** choices disappear inside long conversations.
+**Problem:** Juggling multiple topics/decisions in the same chat can get cumbersome
 
-**Action:** create a BeadsForm,
-review options in the browser, attach context, and return a normalized answer.
+**Action:** Use BeadsForm to streamline answering questions and provide annotations
 
-**Result:**
-decisions become scoped work items instead of prompt archaeology.
+**Result:** Decisions are memorialized and easily discoverable by all agents involved with the task
 
 Core forms and attachments are available. Routing selected context to a specific agent is in
 progress. **PR link pending.**
