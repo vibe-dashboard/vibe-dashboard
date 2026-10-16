@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 describe('BeadsForm optimistic submit source', () => {
   it('locks and copies direct bead-backed submissions before persistence returns', async () => {
-    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+    const source = await readFile(new URL('./module.tsx', import.meta.url), 'utf8');
     const directStart = source.indexOf('const optimisticSubmissionId = submissionIdRef.current ??= createSubmissionId();');
     const directCopy = source.indexOf('void copySubmittedResultHandoffXml(navigator.clipboard, values, handoffMetadata).then(setClipboardResult);', directStart);
     const directPersist = source.indexOf('actions.submitBeadForm({', directStart);
@@ -16,7 +16,7 @@ describe('BeadsForm optimistic submit source', () => {
   });
 
   it('optimistically submits aggregate cards and rolls back editable values on failure', async () => {
-    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+    const source = await readFile(new URL('./module.tsx', import.meta.url), 'utf8');
     const aggregateStart = source.indexOf("setStatus({\n      status: 'success',\n      values,");
     const aggregatePersist = source.indexOf('submitBeadForm({', aggregateStart);
 
@@ -28,7 +28,7 @@ describe('BeadsForm optimistic submit source', () => {
   });
 
   it('optimistically submits folder preview without waiting for sidecar persistence', async () => {
-    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+    const source = await readFile(new URL('./module.tsx', import.meta.url), 'utf8');
     const previewStart = source.indexOf('setSubmitResult({\n      formId: loaded.selectedForm.id,');
     const previewPersist = source.indexOf('actions.submitPreviewForm({', previewStart);
 

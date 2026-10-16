@@ -10,7 +10,7 @@ import {
   type ChoicesQuestion,
   type StandardBeadsForm,
   type StoredBeadsForm,
-} from '../../packages/beads-form/src/index.ts';
+} from '../../../../packages/beads-form/src/index.ts';
 import {
   assertMetadataWithinIssueJsonGuard,
   BEAD_ISSUE_METADATA_JSON_MAX_BYTES,

@@ -20,7 +20,7 @@ import {
   type BeadsFormDraft,
   type BeadsFormWizardPosition,
   type JsonObject,
-} from '../lib/beadsFormCore';
+} from './beadsFormCore';
 import {
   applyValuesToForm,
   formValuesFromDom,
@@ -32,15 +32,15 @@ import {
   startPreviewEdit,
   writePreviewDraft,
   writePreviewSubmission,
-} from '../lib/beadsFormPreviewState';
-import { rewriteBeadBackedAttachmentRefs, rewriteFolderPreviewMediaRefs } from '../lib/beadsFormPreviewMedia';
-import { normalizeBeadsFormQueryId } from '../lib/beadsFormUrl';
-import { shouldHydrateRefreshedWorkspaceForms } from '../lib/beadsFormRefreshState';
-import { initializeSingleQuestionMode, prehideInactiveSingleQuestionItems } from '../lib/beadsFormSingleQuestion';
-import { BeadsFormDraftSaveQueue } from '../lib/beadsFormDraftSaveQueue';
-import { initializeCompactMoreInfo, refreshCompactMoreInfoState } from '../lib/beadsFormMoreInfo';
-import { initializeMarkdownTextareaEditors, refreshMarkdownTextareaEditors } from '../lib/beadsFormMarkdownEditor';
-import { preserveSubmittedFormDom } from '../lib/beadsFormSubmissionUi';
+} from './beadsFormPreviewState';
+import { rewriteBeadBackedAttachmentRefs, rewriteFolderPreviewMediaRefs } from './beadsFormPreviewMedia';
+import { normalizeBeadsFormQueryId } from './beadsFormUrl';
+import { shouldHydrateRefreshedWorkspaceForms } from './beadsFormRefreshState';
+import { initializeSingleQuestionMode, prehideInactiveSingleQuestionItems } from './beadsFormSingleQuestion';
+import { BeadsFormDraftSaveQueue } from './beadsFormDraftSaveQueue';
+import { initializeCompactMoreInfo, refreshCompactMoreInfoState } from './beadsFormMoreInfo';
+import { initializeMarkdownTextareaEditors, refreshMarkdownTextareaEditors } from './beadsFormMarkdownEditor';
+import { preserveSubmittedFormDom } from './beadsFormSubmissionUi';
 import {
   copySubmittedResultHandoffXml,
   copySubmittedBatchResultHandoffXml,
@@ -49,41 +49,41 @@ import {
   submittedBatchResultHandoffXml,
   submittedResultHandoffXml,
   type ClipboardCopyResult,
-} from '../lib/beadsFormSubmitSuccess';
-import type { BeadsFormSubmissionHandoffMetadata } from '../lib/beadsFormSubmissionHandoff';
+} from './beadsFormSubmitSuccess';
+import type { BeadsFormSubmissionHandoffMetadata } from './beadsFormSubmissionHandoff';
 import {
   aggregateFormDomPrefix,
   namespaceAggregateFormHtml,
   parseAggregateBeadsFormRefs,
   type AggregateBeadsFormRef,
   type AggregateSubmitStatus,
-} from '../lib/beadsFormAggregate';
+} from './beadsFormAggregate';
 import {
   BeadsFormReadCache,
   directBeadFormsCacheKey,
   pendingBeadsFormsCacheKey,
   workspaceBeadFormsCacheKey,
   type BeadsFormCacheMetadata,
-} from '../lib/beadsFormReadCache';
+} from './beadsFormReadCache';
 import {
   initialPendingQueueSentinel,
   shouldRefreshPendingQueueForSentinel,
   touchPendingQueueSentinel,
   type PendingQueueSentinel,
-} from '../lib/beadsFormPendingQueueSentinel';
+} from './beadsFormPendingQueueSentinel';
 
 // @platform "node"
 import { serverRegistry } from 'springboard/server/register';
-import { createNodeBeadsClient, getBeadsFormDraft, type ListWorkspaceBeadsResult, type PendingBeadsFormQueueResult } from '../lib/beadsClient.node';
-import { loadBeadsFormsFromFolder, tryAppendBeadsFormPreviewResponse } from '../lib/beadsFormFolder.node';
+import { createNodeBeadsClient, getBeadsFormDraft, type ListWorkspaceBeadsResult, type PendingBeadsFormQueueResult } from './beadsClient.node';
+import { loadBeadsFormsFromFolder, tryAppendBeadsFormPreviewResponse } from './beadsFormFolder.node';
 import {
   normalizePendingQueueInput,
   readPendingQueueDiskCache,
   shouldWarmPendingQueueOnStartup,
   writePendingQueueDiskCache,
-} from '../lib/beadsFormPendingQueueCache.node';
-import { registerBeadsFormMediaRoutes } from '../server/beads-form-media-routes';
-import { BEADS_FORM_NOTIFICATION_TIMEOUT_MS, VibeKanbanServerClient } from '../server/vk-client';
+} from './beadsFormPendingQueueCache.node';
+import { registerBeadsFormMediaRoutes } from './beads-form-media-routes';
+import { BEADS_FORM_NOTIFICATION_TIMEOUT_MS, VibeKanbanServerClient } from '../../../server/vk-client';
 // @platform end
 
 type PreviewBeadsForm = BeadsFormDefinition & {

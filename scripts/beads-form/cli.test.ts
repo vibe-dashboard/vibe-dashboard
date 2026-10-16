@@ -4,7 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { describe, expect, it, vi } from 'vitest';
-import { BEAD_ISSUE_METADATA_JSON_MAX_BYTES } from '../../src/lib/beadsFormCore';
+import {
+  BEAD_ISSUE_METADATA_JSON_MAX_BYTES,
+  type ExecFileLike,
+} from '../../src/modules/plugins/beads-form/node';
 import {
   appendQuestionsToBeadsForm,
   appendQuestionsToMetadata,
@@ -30,7 +33,6 @@ import {
   updateBeadsFormQuestion,
   updateQuestionInMetadata,
 } from './cli';
-import type { ExecFileLike } from '../../src/lib/beadsClient.node';
 
 const execFileAsync = promisify(execFileCallback);
 

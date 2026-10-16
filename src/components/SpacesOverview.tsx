@@ -10,7 +10,7 @@ import {
   type Repo,
   type RepoWithBranch,
 } from "../lib/vk-client";
-import { PENDING_BEADS_FORMS_LINK } from "../lib/beadsFormNavigation";
+import { PENDING_BEADS_FORMS_LINK } from "../modules/plugins/beads-form";
 
 export interface DashboardWorkspace {
   id: string;

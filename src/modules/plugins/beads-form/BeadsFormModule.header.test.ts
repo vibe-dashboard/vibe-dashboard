@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 describe('BeadsForm page header source', () => {
   it('keeps selected form title and description in the compiled form header only', async () => {
-    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+    const source = await readFile(new URL('./module.tsx', import.meta.url), 'utf8');
 
     expect(source).not.toContain('stripCompiledFormHeader');
     expect(source).toContain('className="beadsform-page-chrome beadsform-page-chrome--compact"');

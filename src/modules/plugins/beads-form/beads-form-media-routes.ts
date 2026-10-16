@@ -1,7 +1,7 @@
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
 import type { Hono } from 'hono';
-import { normalizeBeadsFormAttachmentRef, normalizeRepoRelativeAttachmentPath } from '../lib/beadsFormAttachmentRefs';
+import { normalizeBeadsFormAttachmentRef, normalizeRepoRelativeAttachmentPath } from './beadsFormAttachmentRefs';
 
 const MEDIA_TYPES: Record<string, string> = {
   '.gif': 'image/gif',

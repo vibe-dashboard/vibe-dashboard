@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 describe('BeadsForm edit response mode source', () => {
   it('reruns form restoration and single-question initialization after Edit response remounts the form', async () => {
-    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+    const source = await readFile(new URL('./module.tsx', import.meta.url), 'utf8');
 
     expect(source).toContain('const [editResponseVersion, setEditResponseVersion] = useState(0);');
     expect(source).toContain('setEditResponseVersion((version) => version + 1);');

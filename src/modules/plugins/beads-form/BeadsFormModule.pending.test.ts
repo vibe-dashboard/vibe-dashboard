@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 describe('BeadsForm pending queue UI source', () => {
   it('keeps default pending page focused on forms, not diagnostics or manual refresh chrome', async () => {
-    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+    const source = await readFile(new URL('./module.tsx', import.meta.url), 'utf8');
 
     expect(source).not.toContain('Use Refresh after agents attach new forms');
     expect(source).not.toContain('Update strategy');
@@ -15,7 +15,7 @@ describe('BeadsForm pending queue UI source', () => {
   });
 
   it('uses a submitted success state with XML handoff copy fallback instead of showing the active form', async () => {
-    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+    const source = await readFile(new URL('./module.tsx', import.meta.url), 'utf8');
 
     expect(source).toContain('copySubmittedResultHandoffXml(navigator.clipboard, values, handoffMetadata)');
     expect(source).toContain('pendingSubmittedResultHandoffCopy(values, handoffMetadata)');
@@ -31,7 +31,7 @@ describe('BeadsForm pending queue UI source', () => {
   });
 
   it('wires bead-backed submissions to exact-session follow-up while leaving folder preview local', async () => {
-    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+    const source = await readFile(new URL('./module.tsx', import.meta.url), 'utf8');
 
     expect(source).toContain('notifySession: (sessionId, message) => vkClient().sendFollowUp(sessionId, message, {');
     expect(source).toContain('timeoutMs: BEADS_FORM_NOTIFICATION_TIMEOUT_MS');
@@ -43,7 +43,7 @@ describe('BeadsForm pending queue UI source', () => {
   });
 
   it('initializes Markdown textarea previews through the shared selected-form paths', async () => {
-    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+    const source = await readFile(new URL('./module.tsx', import.meta.url), 'utf8');
 
     expect(source).toContain('initializeMarkdownTextareaEditors(host);');
     expect(source).toContain('refreshMarkdownTextareaEditors(host);');
@@ -52,14 +52,14 @@ describe('BeadsForm pending queue UI source', () => {
   });
 
   it('rewrites bead-backed attachment refs before sanitizing selected and aggregate forms', async () => {
-    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+    const source = await readFile(new URL('./module.tsx', import.meta.url), 'utf8');
 
     expect(source).toContain('rewriteBeadBackedAttachmentRefs(form.html, item.beadRepoDir ?? item.ref.dir)');
     expect(source).toContain('rewriteBeadBackedAttachmentRefs(loaded.selected.selectedForm.html, loaded.selected.beadRepoDir)');
   });
 
   it('sets aggregate success before awaiting clipboard completion', async () => {
-    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+    const source = await readFile(new URL('./module.tsx', import.meta.url), 'utf8');
 
     expect(source).not.toContain('await copySubmittedResultHandoffXml');
     expect(source).toContain('clipboardStatus: pendingCopy.status');
@@ -69,7 +69,7 @@ describe('BeadsForm pending queue UI source', () => {
   });
 
   it('prefers direct selected-bead loading when URL has both workspace and dir', async () => {
-    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+    const source = await readFile(new URL('./module.tsx', import.meta.url), 'utf8');
 
     expect(source).toContain('const shouldUseDirectSelectedLoad = !!dir && !!beadId;');
     expect(source).toContain('shouldUseDirectSelectedLoad\n          ? await directResult(actions.loadBeadForms)\n          : await (await actions.loadWorkspaceForms(workspaceInput))');
@@ -77,7 +77,7 @@ describe('BeadsForm pending queue UI source', () => {
   });
 
   it('uses a pending queue sentinel to refresh cached inbox results without blocking initial render', async () => {
-    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+    const source = await readFile(new URL('./module.tsx', import.meta.url), 'utf8');
 
     expect(source).toContain('pendingQueueSentinel: initialPendingQueueSentinel');
     expect(source).toContain('markPendingQueueDirtyForRepo(states.pendingQueueSentinel, input.dir)');
@@ -87,7 +87,7 @@ describe('BeadsForm pending queue UI source', () => {
   });
 
   it('renders pending Forms tab entries as compact semantic inbox rows', async () => {
-    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+    const source = await readFile(new URL('./module.tsx', import.meta.url), 'utf8');
 
     expect(source).toContain('aria-label="Pending BeadsForms inbox"');
     expect(source).toContain('className="beadsform-pending-card-main"');
@@ -101,7 +101,7 @@ describe('BeadsForm pending queue UI source', () => {
   });
 
   it('blocks invalidated selected and aggregate forms instead of rendering answerable forms', async () => {
-    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+    const source = await readFile(new URL('./module.tsx', import.meta.url), 'utf8');
     expect(source).toContain('InvalidatedBeadsFormNotice');
     expect(source).toContain('isBeadsFormInvalidated(selectedForm)');
     expect(source).toContain('isBeadsFormInvalidated(form)');
@@ -109,7 +109,7 @@ describe('BeadsForm pending queue UI source', () => {
   });
 
   it('offers aggregate batch submit with combined XML handoff and invalid-source blocking', async () => {
-    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+    const source = await readFile(new URL('./module.tsx', import.meta.url), 'utf8');
     expect(source).toContain('Submit selected forms together');
     expect(source).toContain('copySubmittedBatchResultHandoffXml(navigator.clipboard, optimisticXmlInput)');
     expect(source).toContain('pendingSubmittedBatchResultHandoffCopy(optimisticXmlInput)');

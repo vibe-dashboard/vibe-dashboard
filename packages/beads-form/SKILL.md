@@ -69,11 +69,11 @@ const form = defineBeadsForm({
     buildCodeSnippetRef({
       id: 'callsite',
       title: 'Relevant callsite',
-      path: 'src/lib/beadsFormCore.ts',
+      path: 'src/modules/plugins/beads-form/beadsFormCore.ts',
       commit: 'abc1234',
       startLine: 10,
       endLine: 18,
-      url: 'https://example.test/repo/blob/abc1234/src/lib/beadsFormCore.ts#L10-L18',
+      url: 'https://example.test/repo/blob/abc1234/src/modules/plugins/beads-form/beadsFormCore.ts#L10-L18',
     }),
   ],
   questions: [

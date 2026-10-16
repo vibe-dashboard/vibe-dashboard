@@ -16,7 +16,7 @@ import type {
 } from '../types';
 import type { SpaceTypeContribution } from '../modules/plugins/vibe-dashboard/types';
 import { TabContextMenu } from './TabContextMenu';
-import { PENDING_BEADS_FORMS_LINK } from '../lib/beadsFormNavigation';
+import { PENDING_BEADS_FORMS_LINK } from '../modules/plugins/beads-form';
 
 const INTERNAL_URL_PREFIX = 'internal://';
 

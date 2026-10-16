@@ -31,8 +31,8 @@ import {
   type JsonObject,
 } from './beadsFormCore.ts';
 import { buildBeadsFormSessionNotification, isValidBeadsFormSessionId } from './beadsFormSessionNotification.ts';
-import { KeyedAsyncQueue } from './keyedAsyncQueue.ts';
-import { BoundedReplayCache } from './boundedReplayCache.ts';
+import { KeyedAsyncQueue } from '../../../lib/keyedAsyncQueue.ts';
+import { BoundedReplayCache } from '../../../lib/boundedReplayCache.ts';
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_VD_BEADS_DIRECTORY = '/var/lib/vd/beads';
