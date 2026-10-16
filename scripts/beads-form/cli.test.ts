@@ -124,6 +124,7 @@ describe('beads-form CLI helpers', () => {
     expect(attachments).toContain('never inlines Markdown files');
     expect(attachments).toContain('public query');
     expect(skill).toContain('sends only the normalized response JSON object');
+    expect(skill).toContain('followed by non-empty `SITE_ORIGIN`');
     expect(onboarding).toContain('only the normalized response JSON object');
     expect(`${onboarding}\n${skill}`).not.toContain('sends the canonical lean form DSL, normalized response, and XML handoff');
   });
@@ -141,6 +142,7 @@ describe('beads-form CLI helpers', () => {
     expect(stdout).toContain('beads-form pending --parent-dir <all-repos-dir>');
     expect(stdout).toContain('Embedding refs:');
     expect(stdout).toContain('Form types:');
+    expect(stdout).toContain('2. SITE_ORIGIN');
     expect(stdout).toContain('Use "code-review" only for code-review findings.');
     expect(stdout).toContain('Prefer repo-relative refs such as docs/decision.md');
     expect(stdout).toContain('Legacy attachment:// refs are compatibility-only');
@@ -276,7 +278,7 @@ describe('beads-form CLI helpers', () => {
     }
   });
 
-  it('resolves attach origin from explicit flag, env, then config without hardcoded defaults', async () => {
+  it('resolves origin from explicit flag, SITE_ORIGIN, legacy env, then config', async () => {
     const configDir = join(tmpdir(), `beads-form-config-${process.pid}-${Date.now()}`);
     const configPath = join(configDir, 'beads-form.json');
     await mkdir(configDir, { recursive: true });
@@ -284,9 +286,17 @@ describe('beads-form CLI helpers', () => {
 
     expect(resolveBeadsFormOrigin({
       explicitOrigin: 'https://flag.example.test/path',
-      env: { BEADS_FORM_ORIGIN: 'https://env.example.test' },
+      env: { SITE_ORIGIN: 'https://site.example.test', BEADS_FORM_ORIGIN: 'https://env.example.test' },
       configPath,
     })).toBe('https://flag.example.test');
+    expect(resolveBeadsFormOrigin({
+      env: { SITE_ORIGIN: 'https://site.example.test/base', BEADS_FORM_ORIGIN: 'https://env.example.test' },
+      configPath,
+    })).toBe('https://site.example.test');
+    expect(resolveBeadsFormOrigin({
+      env: { SITE_ORIGIN: '   ', BEADS_FORM_ORIGIN: 'https://env.example.test/path' },
+      configPath,
+    })).toBe('https://env.example.test');
     expect(resolveBeadsFormOrigin({
       env: { BEADS_FORM_ORIGIN: 'https://env.example.test/path' },
       configPath,
@@ -294,6 +304,27 @@ describe('beads-form CLI helpers', () => {
     expect(resolveBeadsFormOrigin({ env: {}, configPath })).toBe('https://config.example.test');
     expect(resolveBeadsFormOrigin({ env: {}, configPath: join(configDir, 'missing.json') })).toBeUndefined();
     expect(() => resolveBeadsFormOrigin({ explicitOrigin: 'file:///tmp/forms' })).toThrow('Invalid BeadsForm origin protocol');
+    expect(() => resolveBeadsFormOrigin({ env: { SITE_ORIGIN: 'file:///tmp/forms' } })).toThrow('Invalid BeadsForm origin protocol');
+  });
+
+  it('applies SITE_ORIGIN to every URL-emitting CLI command unless --origin overrides it', () => {
+    vi.stubEnv('SITE_ORIGIN', 'https://site.example.test/base');
+    try {
+      const commands = [
+        ['attach', '--bead', 'bd-1', '--file', 'form.json'],
+        ['append-questions', '--bead', 'bd-1', '--form', 'review', '--file', 'questions.json'],
+        ['update-question', '--bead', 'bd-1', '--form', 'review', '--question', 'decision', '--file', 'question.json'],
+        ['pending', '--parent-dir', '/repos'],
+      ];
+      for (const argv of commands) {
+        expect(parseBeadsFormCliArgs(argv).options).toMatchObject({ origin: 'https://site.example.test' });
+      }
+      expect(parseBeadsFormCliArgs([
+        'attach', '--bead', 'bd-1', '--file', 'form.json', '--origin', 'https://flag.example.test/path',
+      ]).options).toMatchObject({ origin: 'https://flag.example.test' });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('accepts direct, array, forms wrapper, and metadata wrapper JSON input shapes', () => {
@@ -973,6 +1004,16 @@ describe('beads-form CLI helpers', () => {
     });
     expect(buildFillOutUrls({ dir: '/repo', beadId: 'bd-1', formId: 'review' })).toEqual({
       dir: '/dashboard/forms?dir=%2Frepo&bead=bd-1&form=review',
+    });
+    expect(buildFillOutUrls({
+      dir: '/repo with spaces',
+      beadId: 'bd/1',
+      formId: 'review & decide',
+      workspaceId: 'workspace/one',
+      origin: 'https://site.example.test',
+    })).toEqual({
+      workspace: 'https://site.example.test/dashboard/forms?workspace=workspace%2Fone&dir=%2Frepo+with+spaces&bead=bd%2F1&form=review+%26+decide',
+      dir: 'https://site.example.test/dashboard/forms?dir=%2Frepo+with+spaces&bead=bd%2F1&form=review+%26+decide',
     });
   });
 

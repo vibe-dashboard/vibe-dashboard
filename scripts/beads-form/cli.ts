@@ -533,6 +533,7 @@ export function resolveBeadsFormOrigin(input: {
 } = {}): string | undefined {
   const env = input.env ?? process.env;
   const candidate = input.explicitOrigin
+    ?? stringEnv(env, 'SITE_ORIGIN')
     ?? stringEnv(env, 'BEADS_FORM_ORIGIN')
     ?? stringEnv(env, 'VD_BEADS_FORM_ORIGIN')
     ?? readOriginConfig(input.configPath ?? defaultOriginConfigPath(env));
@@ -1588,8 +1589,9 @@ Also supported:
 
 Attach origin precedence:
   1. explicit --origin
-  2. BEADS_FORM_ORIGIN or VD_BEADS_FORM_ORIGIN
-  3. ${DEFAULT_CONFIG_FILE_NAME} with {"origin":"https://example.test"} under XDG_CONFIG_HOME/${DEFAULT_CONFIG_DIR_NAME}/
+  2. SITE_ORIGIN
+  3. BEADS_FORM_ORIGIN or VD_BEADS_FORM_ORIGIN
+  4. ${DEFAULT_CONFIG_FILE_NAME} with {"origin":"https://example.test"} under XDG_CONFIG_HOME/${DEFAULT_CONFIG_DIR_NAME}/
 
 Attach metadata stamps:
   VK_WORKSPACE_ID from --workspace or env, and VK_SESSION_ID from --session or env, when non-empty.

@@ -254,7 +254,7 @@ Bead-backed storage is the primary workflow for real agent/user handoff. Folder 
 
    `npm run beads-form -- ...` remains supported, but VD Docker/dev runtimes install a stable `beads-form` command on `PATH` next to `vibe-agent`/`vk`. The global wrapper points at the seeded VD checkout with an absolute script path and preserves the caller's current working directory, so default `--dir` behavior still works from arbitrary bead repo directories.
 
-   Use `--dir <repo>` when not running from the bead repo, `--origin <origin>` to print full URLs, `--workspace <workspace-id>` when `VK_WORKSPACE_ID` is unavailable, and `--session <session-id>` when `VK_SESSION_ID` is unavailable. `beads-form attach` stamps non-empty workspace/session values into bead metadata as `VK_WORKSPACE_ID` and `VK_SESSION_ID` so Forms can resolve workspace/session context even if the `bd` wrapper is bypassed. It stores definitions in `metadata.beadForms.forms[]`, stores responses separately in `metadata.beadFormResponses.responsesByFormId`, and maintains `metadata.beadFormsSummary` with `hasForms`, `hasPendingAnswer`, `pendingResponseCount`, `formIds`, and `pendingFormIds` so workspace and pending queue pages can find form-bearing beads without bulk-loading every bead. Explicit `--origin` has highest precedence. To avoid repeatedly passing it, set `BEADS_FORM_ORIGIN`/`VD_BEADS_FORM_ORIGIN`, or seed `${XDG_CONFIG_HOME:-~/.config}/vibe-dashboard/beads-form.json` with:
+   Use `--dir <repo>` when not running from the bead repo, `--origin <origin>` to print full URLs, `--workspace <workspace-id>` when `VK_WORKSPACE_ID` is unavailable, and `--session <session-id>` when `VK_SESSION_ID` is unavailable. `beads-form attach` stamps non-empty workspace/session values into bead metadata as `VK_WORKSPACE_ID` and `VK_SESSION_ID` so Forms can resolve workspace/session context even if the `bd` wrapper is bypassed. It stores definitions in `metadata.beadForms.forms[]`, stores responses separately in `metadata.beadFormResponses.responsesByFormId`, and maintains `metadata.beadFormsSummary` with `hasForms`, `hasPendingAnswer`, `pendingResponseCount`, `formIds`, and `pendingFormIds` so workspace and pending queue pages can find form-bearing beads without bulk-loading every bead. Explicit `--origin` has highest precedence, followed by non-empty `SITE_ORIGIN`. When neither is set, the existing `BEADS_FORM_ORIGIN`/`VD_BEADS_FORM_ORIGIN` and `${XDG_CONFIG_HOME:-~/.config}/vibe-dashboard/beads-form.json` fallbacks remain available:
 
    ```json
    { "origin": "https://your-vd-origin.example" }
@@ -351,7 +351,7 @@ beads-form pending --parent-dir ~/repos --limit 80 --origin https://your-vd-orig
 npm run beads-form -- pending --parent-dir ~/repos
 ```
 
-The command scans only first-level child directories, prefilters to repos with a local `.beads` folder, uses read-only `bd list --json --all --limit 0 --has-metadata-key beadFormsSummary`, avoids bulk `bd show`, and prints direct `/dashboard/forms?dir=...&bead=...&form=...` links. Use `--origin` or `BEADS_FORM_ORIGIN`/`VD_BEADS_FORM_ORIGIN` when a full URL is needed.
+The command scans only first-level child directories, prefilters to repos with a local `.beads` folder, uses read-only `bd list --json --all --limit 0 --has-metadata-key beadFormsSummary`, avoids bulk `bd show`, and prints direct `/dashboard/forms?dir=...&bead=...&form=...` links. Use `--origin` or `SITE_ORIGIN` when a full URL is needed; legacy `BEADS_FORM_ORIGIN`/`VD_BEADS_FORM_ORIGIN` remain fallbacks.
 
 ## Shared preview server maintenance
 
