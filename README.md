@@ -2,7 +2,7 @@
 
 **Move coding-agent work from issue to reviewed change—without managing a wall of terminals.**
 
-Note: This readme is currently in-progress and under construction :)
+Note: This readme is currently in-progress and under construction 10/16/26 :)
 
 Vibe Dashboard gives founders and small teams one browser workspace for assigning work,
 following agents, making structured decisions, previewing results, and taking over in VS Code.
