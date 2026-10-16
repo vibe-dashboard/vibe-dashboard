@@ -140,7 +140,7 @@ the sandbox harness.
 ### Suggested automated validation
 
 ```sh
-npm test -- src/lib/beadsFormSingleQuestion.test.ts src/lib/beadsFormSubmitSuccess.test.ts src/lib/beadsFormSubmissionUi.test.ts src/styles.test.ts src/modules/BeadsFormModule.pending.test.ts
+npm test -- src/modules/plugins/beads-form/beadsFormSingleQuestion.test.ts src/modules/plugins/beads-form/beadsFormSubmitSuccess.test.ts src/modules/plugins/beads-form/beadsFormSubmissionUi.test.ts src/styles.test.ts src/modules/plugins/beads-form/BeadsFormModule.pending.test.ts
 npm run check-types
 npm run build
 git diff --check
@@ -224,7 +224,7 @@ Use a form with:
 ### Suggested automated validation
 
 ```sh
-npm test -- src/lib/beadsFormSingleQuestion.test.ts src/lib/beadsFormRefreshState.test.ts src/lib/beadsFormSubmitSuccess.test.ts src/modules/BeadsFormModule.editResponse.test.ts src/styles.test.ts
+npm test -- src/modules/plugins/beads-form/beadsFormSingleQuestion.test.ts src/modules/plugins/beads-form/beadsFormRefreshState.test.ts src/modules/plugins/beads-form/beadsFormSubmitSuccess.test.ts src/modules/plugins/beads-form/BeadsFormModule.editResponse.test.ts src/styles.test.ts
 npm run check-types
 npm run build
 git diff --check
@@ -300,7 +300,7 @@ Use sandbox repos with:
 ### Suggested automated validation
 
 ```sh
-npm test -- src/lib/beadsClient.node.test.ts src/lib/beadsFormPendingQueueCache.node.test.ts src/lib/beadsFormPendingQueueSentinel.test.ts src/modules/BeadsFormModule.pending.test.ts scripts/beads-form/sandbox-repos.test.ts
+npm test -- src/modules/plugins/beads-form/beadsClient.node.test.ts src/modules/plugins/beads-form/beadsFormPendingQueueCache.node.test.ts src/modules/plugins/beads-form/beadsFormPendingQueueSentinel.test.ts src/modules/plugins/beads-form/BeadsFormModule.pending.test.ts scripts/beads-form/sandbox-repos.test.ts
 npm run check-types
 npm run build
 git diff --check
@@ -376,7 +376,7 @@ Use a bead-backed standard form with:
 ### Suggested automated validation
 
 ```sh
-npm test -- scripts/beads-form/cli.test.ts src/lib/beadsFormCore.test.ts src/lib/beadsClient.node.test.ts
+npm test -- scripts/beads-form/cli.test.ts src/modules/plugins/beads-form/beadsFormCore.test.ts src/modules/plugins/beads-form/beadsClient.node.test.ts
 npm run check-types
 npm run build
 git diff --check
@@ -458,7 +458,7 @@ Use forms with:
 
 ```sh
 pnpm --filter @vibe-dashboard/beads-form test
-npm test -- src/lib/beadsFormCore.test.ts src/lib/beadsFormPreviewMedia.test.ts src/server/beads-form-media-routes.test.ts scripts/beads-form/cli.test.ts
+npm test -- src/modules/plugins/beads-form/beadsFormCore.test.ts src/modules/plugins/beads-form/beadsFormPreviewMedia.test.ts src/modules/plugins/beads-form/beads-form-media-routes.test.ts scripts/beads-form/cli.test.ts
 npm run check-types
 npm run build
 git diff --check
@@ -524,7 +524,7 @@ Use one short form and one long form, each with:
 ### Suggested automated validation
 
 ```sh
-npm test -- src/lib/beadsFormSubmitSuccess.test.ts src/lib/beadsFormSingleQuestion.test.ts src/styles.test.ts src/modules/BeadsFormModule.pending.test.ts
+npm test -- src/modules/plugins/beads-form/beadsFormSubmitSuccess.test.ts src/modules/plugins/beads-form/beadsFormSingleQuestion.test.ts src/styles.test.ts src/modules/plugins/beads-form/BeadsFormModule.pending.test.ts
 npm run check-types
 npm run build
 git diff --check
@@ -662,7 +662,7 @@ Seed:
 ### Suggested automated validation
 
 ```sh
-npm test -- src/lib/beadsClient.node.test.ts src/lib/beadsFormCore.test.ts src/lib/beadsFormSubmitSuccess.test.ts src/lib/beadsFormRefreshState.test.ts
+npm test -- src/modules/plugins/beads-form/beadsClient.node.test.ts src/modules/plugins/beads-form/beadsFormCore.test.ts src/modules/plugins/beads-form/beadsFormSubmitSuccess.test.ts src/modules/plugins/beads-form/beadsFormRefreshState.test.ts
 npm run check-types
 npm run build
 git diff --check

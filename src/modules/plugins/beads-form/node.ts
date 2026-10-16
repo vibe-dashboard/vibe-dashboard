@@ -3,18 +3,18 @@ export {
   createNodeBeadsClient,
   type ExecFileLike,
   type PendingBeadsFormQueueResult,
-} from './beadsClient.node';
+} from './beadsClient.node.ts';
 export {
   assertMetadataWithinIssueJsonGuard,
   BEAD_ISSUE_METADATA_JSON_MAX_BYTES,
-} from './beadsFormMetadataGuard';
+} from './beadsFormMetadataGuard.ts';
 export {
   normalizeBeadsFormAttachmentRef,
   type BeadsFormAttachmentRefUsage,
-} from './beadsFormAttachmentRefs';
+} from './beadsFormAttachmentRefs.ts';
 export {
   BEADS_FORM_DISABLE_HMR_ENV,
   buildBeadsFormPreviewDevEnv,
   buildViteDevServerOptions,
   shouldDisableBeadsFormHmr,
-} from './beadsFormDevServer';
+} from './beadsFormDevServer.ts';

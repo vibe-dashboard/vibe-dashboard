@@ -17,10 +17,10 @@ describe('BeadsForm plugin layout', () => {
     expect(await exists(new URL('index.ts', pluginRoot))).toBe(true);
     expect(await exists(new URL('node.ts', pluginRoot))).toBe(true);
 
-    expect(await exists(new URL('../../../BeadsFormModule.tsx', pluginRoot))).toBe(false);
-    expect(await exists(new URL('../../../../lib/beadsFormCore.ts', pluginRoot))).toBe(false);
-    expect(await exists(new URL('../../../../lib/beadsClient.node.ts', pluginRoot))).toBe(false);
-    expect(await exists(new URL('../../../../server/beads-form-media-routes.ts', pluginRoot))).toBe(false);
+    expect(await exists(new URL('../../BeadsFormModule.tsx', pluginRoot))).toBe(false);
+    expect(await exists(new URL('../../../lib/beadsFormCore.ts', pluginRoot))).toBe(false);
+    expect(await exists(new URL('../../../lib/beadsClient.node.ts', pluginRoot))).toBe(false);
+    expect(await exists(new URL('../../../server/beads-form-media-routes.ts', pluginRoot))).toBe(false);
   });
 
   it('keeps browser and node public entry points narrow', async () => {
@@ -30,9 +30,9 @@ describe('BeadsForm plugin layout', () => {
 
     expect(browserEntry).toContain("from './beadsFormNavigation'");
     expect(browserEntry).not.toContain('.node');
-    expect(nodeEntry).toContain("from './beadsClient.node'");
-    expect(nodeEntry).toContain("from './beadsFormMetadataGuard'");
-    expect(nodeEntry).toContain("from './beadsFormAttachmentRefs'");
-    expect(nodeEntry).toContain("from './beadsFormDevServer'");
+    expect(nodeEntry).toContain("from './beadsClient.node.ts'");
+    expect(nodeEntry).toContain("from './beadsFormMetadataGuard.ts'");
+    expect(nodeEntry).toContain("from './beadsFormAttachmentRefs.ts'");
+    expect(nodeEntry).toContain("from './beadsFormDevServer.ts'");
   });
 });
