@@ -30,7 +30,7 @@ describe('BeadsForm submit success helpers', () => {
     expect(unavailable.warning).toContain('manual JSON handoff field');
   });
 
-  it('limits combined JSON to source routing ids, normalized values, and batch next_instruction', async () => {
+  it('limits combined JSON to ordered normalized responses and batch next_instruction', async () => {
     const input = {
       batchId: 'batch-1',
       nextInstruction: 'Continue once',
@@ -45,16 +45,20 @@ describe('BeadsForm submit success helpers', () => {
         submittedAt: '2026-10-16T00:00:00.000Z',
         submittedBy: 'human',
         values: { answer: true },
+      }, {
+        beadId: 'bead-b',
+        formId: 'form-b',
+        title: 'Review B',
+        values: { decision: 'second' },
       }],
     };
     const json = JSON.parse(submittedBatchResultHandoff('json', input));
     expect(json).toEqual({
-      forms: [{ beadId: 'bead-a', formId: 'form-a', values: { answer: true } }],
+      responses: [{ answer: true }, { decision: 'second' }],
       next_instruction: 'Continue once',
     });
-    expect(Object.keys(json)).toEqual(['forms', 'next_instruction']);
-    expect(Object.keys(json.forms[0])).toEqual(['beadId', 'formId', 'values']);
-    expect(JSON.stringify(json)).not.toMatch(/batchId|formType|title|submittedAt|submittedBy|dir|questions|html|xml/i);
+    expect(Object.keys(json)).toEqual(['responses', 'next_instruction']);
+    expect(JSON.stringify(json)).not.toMatch(/beadId|formId|batchId|formType|title|submittedAt|submittedBy|dir|questions|html|xml/i);
     const result = await copySubmittedBatchResultHandoff(undefined, 'json', input);
     expect(result.format).toBe('json');
     expect(result.warning).toContain('manual JSON handoff field');
@@ -78,7 +82,7 @@ describe('BeadsForm submit success helpers', () => {
     };
 
     expect(JSON.parse(submittedBatchResultHandoff('json', input))).toEqual({
-      forms: [{ beadId: 'bead-a', formId: 'form-a', values: { answer: true } }],
+      responses: [{ answer: true }],
     });
     const xml = submittedBatchResultHandoff('xml', input);
     expect(xml).toBe(submittedBatchResultHandoffXml(input));

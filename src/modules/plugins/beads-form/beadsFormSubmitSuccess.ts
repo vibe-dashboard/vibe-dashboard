@@ -42,18 +42,8 @@ export function submittedBatchResultHandoff(
   input: BeadsFormBatchSubmissionHandoffInput,
 ): string {
   if (format === 'xml') return submittedBatchResultHandoffXml(input);
-  const forms = input.forms.map((form) => {
-    if (!form.beadId || !form.formId) {
-      throw new Error('Batch JSON handoff requires beadId and formId for every source response.');
-    }
-    return {
-      beadId: form.beadId,
-      formId: form.formId,
-      values: form.values,
-    };
-  });
   return JSON.stringify({
-    forms,
+    responses: input.forms.map((form) => form.values),
     ...(input.nextInstruction?.trim() ? { next_instruction: input.nextInstruction } : {}),
   }, null, 2);
 }

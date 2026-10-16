@@ -156,8 +156,8 @@ describe('beads-form CLI helpers', () => {
     expect(skill).toContain('**Copy format** control');
     expect(skill).toContain('defaults safely to XML');
     expect(skill).toContain('single-form JSON handoff is exactly the normalized response object');
-    expect(skill).toContain("Combined batch JSON contains only each source's `beadId`, `formId`, and normalized `values`");
-    expect(skill).toContain('it omits all other submission and descriptive metadata');
+    expect(skill).toContain('Combined batch JSON contains an ordered `responses` array of normalized response objects');
+    expect(skill).toContain('it omits routing identifiers and all other submission or descriptive metadata');
     expect(onboarding).toContain('This browser preference does not alter internal bead storage or creator-session notifications');
     for (const doc of [skill, onboarding]) {
       const prose = doc.replace(/\s+/g, ' ');
