@@ -267,7 +267,7 @@ If multiple agents created separate forms and the user should answer them from o
 /dashboard/forms/aggregate?dir=/repo-a&bead=repo-a-123&form=review_a&dir=/repo-b&bead=repo-b-456&form=review_b
 ```
 
-Each grouped section can submit independently back to its source bead/form, and the aggregate page also has a batch handoff panel for submitting the visible set together. Batch submit persists each source response to its original bead/form with a stable per-source `submissionId` and routes notifications per source creator exactly like individual aggregate submits. Combined XML remains metadata-rich; selected JSON contains only an ordered `responses` array of normalized response objects and optional batch-level `next_instruction`, with no routing identifiers. Invalidated or failed source forms block or partially fail the batch instead of being silently included.
+Each grouped section can submit independently back to its source bead/form, and the aggregate page also has a batch handoff panel for submitting the visible set together. Batch submit persists each source response to its original bead/form with a stable per-source `submissionId` and routes notifications per source creator exactly like individual aggregate submits. Combined XML remains metadata-rich; selected JSON contains only each source's `beadId`, `formId`, and normalized `values`, plus optional batch-level `next_instruction`. Invalidated or failed source forms block or partially fail the batch instead of being silently included.
 
 Aggregate URL params must be ordered as exact repeated `dir`, then `bead`, then `form` triplets. Do not group all `dir` params first or add unrelated query params to aggregate URLs; malformed ordering is rejected so refs cannot be silently misaligned.
 
