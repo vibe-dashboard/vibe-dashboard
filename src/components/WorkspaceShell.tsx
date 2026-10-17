@@ -2355,6 +2355,11 @@ export function WorkspaceShell({
             }}
             onNavigateToTabGroup={handleNavigateToWorkspaceTabGroup}
             onOpenVKWorkspace={handleWorkspaceSearchAddToSpace}
+            onOpenCraft={() => {
+              setPendingOpenCraftSessionId(null);
+              setWorkspaceSearchMode("session-add");
+              setWorkspaceSearchOpen(true);
+            }}
           />
         )}
         {!isPendingOpenCraftActive && expandedSessionTabGroup && (

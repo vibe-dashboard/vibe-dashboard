@@ -42,6 +42,8 @@ interface IframePanelProps {
   onBeadFormSubmitted?: (formsTabId: string) => void | Promise<void>;
   onConfigurePreviewSlots?: () => void;
   onWorkspaceCreated?: (workspaceId: string) => void;
+  onOpenCraft?: () => void;
+  onRemoveCraft?: () => void;
 }
 
 /**
@@ -1024,6 +1026,8 @@ export function IframePanel({
   onBeadFormSubmitted,
   onConfigurePreviewSlots,
   onWorkspaceCreated,
+  onOpenCraft,
+  onRemoveCraft,
 }: IframePanelProps) {
   const activeTab = tabGroup.tabs.find(
     (t) => t.id === activeItemId
@@ -1142,6 +1146,8 @@ export function IframePanel({
           onUpdatePairRatios={onUpdatePairRatios}
           onConfigurePreviewSlots={onConfigurePreviewSlots}
           onWorkspaceCreated={onWorkspaceCreated}
+          onOpenCraft={onOpenCraft}
+          onRemoveCraft={onRemoveCraft}
         />
       ) : activeTab ? (
           <SingleTabView
@@ -1163,6 +1169,8 @@ export function IframePanel({
             {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
             {...(onConfigurePreviewSlots ? { onConfigurePreviewSlots } : {})}
             {...(onWorkspaceCreated ? { onWorkspaceCreated } : {})}
+            {...(onOpenCraft ? { onOpenCraft } : {})}
+            {...(onRemoveCraft ? { onRemoveCraft } : {})}
           />
       ) : (
         <EmptyView />
@@ -1513,6 +1521,8 @@ function SingleTabView({
   onOpenVKWorkspace,
   onConfigurePreviewSlots,
   onWorkspaceCreated,
+  onOpenCraft,
+  onRemoveCraft,
 }: {
   activeTab: Tab;
   tabGroup: TabGroup;
@@ -1532,6 +1542,8 @@ function SingleTabView({
   onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void | Promise<void>;
   onConfigurePreviewSlots?: () => void;
   onWorkspaceCreated?: (workspaceId: string) => void;
+  onOpenCraft?: () => void;
+  onRemoveCraft?: () => void;
 }) {
   const isLoaded = loadingState.get(activeIframeKey) ?? false;
   const hasError = errorState.get(activeIframeKey) ?? false;
@@ -1589,7 +1601,12 @@ function SingleTabView({
       >
         <ReactCraftSurfaceHost
           target={target.target}
-          context={{ onConfigurePreviewSlots, onWorkspaceCreated }}
+          context={{
+            onConfigurePreviewSlots,
+            onWorkspaceCreated,
+            onOpenCraft,
+            onRemoveCraft,
+          }}
         />
       </div>
     );
@@ -1616,6 +1633,8 @@ function PairView({
   onUpdatePairRatios,
   onConfigurePreviewSlots,
   onWorkspaceCreated,
+  onOpenCraft,
+  onRemoveCraft,
 }: {
   activePair: { id: string; tabIds: string[]; ratios: number[] };
   tabGroup: TabGroup;
@@ -1626,6 +1645,8 @@ function PairView({
   onUpdatePairRatios: (pairId: string, ratios: number[]) => void;
   onConfigurePreviewSlots?: () => void;
   onWorkspaceCreated?: (workspaceId: string) => void;
+  onOpenCraft?: () => void;
+  onRemoveCraft?: () => void;
 }) {
   const pairTabs = activePair.tabIds
     .map((id) => tabGroup.tabs.find((t) => t.id === id))
@@ -1664,6 +1685,8 @@ function PairView({
                 retryTab={retryTab}
                 onConfigurePreviewSlots={onConfigurePreviewSlots}
                 onWorkspaceCreated={onWorkspaceCreated}
+                onOpenCraft={onOpenCraft}
+                onRemoveCraft={onRemoveCraft}
               />
             </Panel>
             {i < pairTabs.length - 1 && (
@@ -1686,6 +1709,8 @@ function PairTabView({
   retryTab,
   onConfigurePreviewSlots,
   onWorkspaceCreated,
+  onOpenCraft,
+  onRemoveCraft,
 }: {
   tab: Tab;
   tabGroup: TabGroup;
@@ -1696,6 +1721,8 @@ function PairTabView({
   retryTab: (tabId: string) => void;
   onConfigurePreviewSlots?: () => void;
   onWorkspaceCreated?: (workspaceId: string) => void;
+  onOpenCraft?: () => void;
+  onRemoveCraft?: () => void;
 }) {
   const target = getTabRenderTargetForTab(tab, tabGroup);
   const shouldShowLoadingOverlay = shouldShowIframeLoadingOverlay(isLoaded, isActivationShielded);
@@ -1709,7 +1736,12 @@ function PairTabView({
       <div className="relative w-full h-full pointer-events-auto bg-neutral-950">
         <ReactCraftSurfaceHost
           target={target.target}
-          context={{ onConfigurePreviewSlots, onWorkspaceCreated }}
+          context={{
+            onConfigurePreviewSlots,
+            onWorkspaceCreated,
+            onOpenCraft,
+            onRemoveCraft,
+          }}
         />
       </div>
     );

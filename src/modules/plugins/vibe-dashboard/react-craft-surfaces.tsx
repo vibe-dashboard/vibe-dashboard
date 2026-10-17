@@ -28,6 +28,8 @@ export interface ReactCraftSurfaceTarget {
 export interface ReactCraftSurfaceHostContext {
   onConfigurePreviewSlots?: () => void;
   onWorkspaceCreated?: (workspaceId: string) => void;
+  onOpenCraft?: () => void;
+  onRemoveCraft?: () => void;
 }
 
 interface ReactCraftSurfaceComponentProps {
@@ -58,6 +60,8 @@ const FIRST_PARTY_REACT_SURFACES: Record<string, ReactCraftSurfaceComponent> = {
             />
           ) : undefined
         }
+        onOpenCraft={host.onOpenCraft}
+        onRemoveCraft={host.onRemoveCraft}
       />
     </React.Suspense>
   ),

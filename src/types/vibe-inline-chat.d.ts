@@ -13,6 +13,8 @@ declare module '@vibe/inline-chat' {
     theme?: InlineVkAgentChatTheme;
     chatViewMode?: 'full' | 'zen';
     workspacePreview?: ReactNode;
+    onOpenCraft?: () => void;
+    onRemoveCraft?: () => void;
   };
 
   export type InlineVkCreateWorkspaceProps = {

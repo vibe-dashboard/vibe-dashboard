@@ -71,6 +71,8 @@ export type InlineVkAgentChatProps = {
   theme?: InlineVkAgentChatTheme;
   chatViewMode?: 'full' | 'zen';
   workspacePreview?: ReactNode;
+  onOpenCraft?: () => void;
+  onRemoveCraft?: () => void;
 };
 
 export type InlineVkCreateWorkspaceProps = {
@@ -274,10 +276,12 @@ function InlineWorkspaceProvider({
   workspaceId,
   surfaceId,
   children,
+  workspaceUnavailable,
 }: {
   workspaceId: string;
   surfaceId: string;
   children: ReactNode;
+  workspaceUnavailable?: ReactNode;
 }) {
   const preferredSessionId = useMemo(
     () => readSurfaceSessionId(getBrowserStorage(), workspaceId, surfaceId),
@@ -363,6 +367,10 @@ function InlineWorkspaceProvider({
     ]
   );
 
+  if (workspaceQuery.isError) {
+    return workspaceUnavailable ?? null;
+  }
+
   return (
     <WorkspaceContext.Provider value={value}>
       <WorkspaceDiffBridge workspaceId={workspaceId} enabled={!!workspace} />
@@ -378,12 +386,9 @@ function InlineWorkspaceChat({
   surfaceId,
   chatViewMode = 'full',
   workspacePreview,
-}: {
-  workspaceId: string;
-  surfaceId: string;
-  chatViewMode?: 'full' | 'zen';
-  workspacePreview?: ReactNode;
-}) {
+  onOpenCraft,
+  onRemoveCraft,
+}: InlineVkAgentChatProps) {
   const [effectiveChatViewMode, setEffectiveChatViewMode] =
     useState<SurfaceChatViewMode>(
       () =>
@@ -435,6 +440,12 @@ function InlineWorkspaceChat({
         <InlineWorkspaceProvider
           workspaceId={workspaceId}
           surfaceId={surfaceId}
+          workspaceUnavailable={
+            <WorkspaceUnavailable
+              onOpenCraft={onOpenCraft}
+              onRemoveCraft={onRemoveCraft}
+            />
+          }
         >
           <InlineWorkspaceChatContent
             refHolder={workspaceContextRef}
@@ -496,6 +507,8 @@ export function InlineVkAgentChat({
   theme,
   chatViewMode = 'full',
   workspacePreview,
+  onOpenCraft,
+  onRemoveCraft,
 }: InlineVkAgentChatProps) {
   if (!workspaceId) {
     return (
@@ -517,8 +530,52 @@ export function InlineVkAgentChat({
           surfaceId={surfaceId}
           chatViewMode={chatViewMode}
           workspacePreview={workspacePreview}
+          onOpenCraft={onOpenCraft}
+          onRemoveCraft={onRemoveCraft}
         />
       </InlineVkRuntime>
+    </div>
+  );
+}
+
+function WorkspaceUnavailable({
+  onOpenCraft,
+  onRemoveCraft,
+}: {
+  onOpenCraft?: () => void;
+  onRemoveCraft?: () => void;
+}) {
+  return (
+    <div className="flex h-full items-center justify-center bg-primary p-base text-center">
+      <div className="max-w-sm">
+        <h2 className="text-base font-medium text-normal">
+          Workspace unavailable
+        </h2>
+        <p className="mt-half text-sm text-low">
+          This craft's workspace could not be loaded. Open another workspace,
+          or remove this craft if its workspace was deleted.
+        </p>
+        <div className="mt-base flex flex-wrap justify-center gap-half">
+          {onOpenCraft && (
+            <button
+              type="button"
+              className="rounded-sm bg-secondary px-base py-half text-sm text-normal hover:bg-tertiary"
+              onClick={onOpenCraft}
+            >
+              Open Craft
+            </button>
+          )}
+          {onRemoveCraft && (
+            <button
+              type="button"
+              className="rounded-sm border border-border px-base py-half text-sm text-low hover:bg-secondary hover:text-normal"
+              onClick={onRemoveCraft}
+            >
+              Remove stale craft
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

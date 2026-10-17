@@ -32,6 +32,7 @@ interface UnifiedTabViewProps {
     containerRef: string,
     spaceId: string,
   ) => Promise<void>;
+  onOpenCraft: () => void;
 }
 
 export function UnifiedTabView({
@@ -50,6 +51,7 @@ export function UnifiedTabView({
   onStartNewSession,
   onNavigateToTabGroup,
   onOpenVKWorkspace,
+  onOpenCraft,
 }: UnifiedTabViewProps) {
   const activeTabGroup = tabGroups.find((tg) => tg.id === activeTabGroupId);
   const activeItemId = activeTabGroup
@@ -133,6 +135,19 @@ export function UnifiedTabView({
               })().catch((error) => {
                 console.error('Failed to open the created workspace', error);
               });
+            }}
+            onOpenCraft={onOpenCraft}
+            onRemoveCraft={() => {
+              const spaceId = workspace.spaces.find((space) =>
+                space.tabGroupIds.includes(activeTabGroup.id),
+              )?.id;
+              if (!spaceId) return;
+              if (confirm('Remove this stale craft?')) {
+                void actions.deleteTabGroup({
+                  spaceId,
+                  tabGroupId: activeTabGroup.id,
+                });
+              }
             }}
           />
         ) : (
