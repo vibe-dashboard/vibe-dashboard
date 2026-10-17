@@ -48,7 +48,7 @@ interface ModelSelectorContainerProps {
   agent: BaseCodingAgent | null;
   workspaceId: string | undefined;
   sessionId?: string;
-  onAdvancedSettings: () => void;
+  onAdvancedSettings?: () => void;
   presets: string[];
   selectedPreset: string | null;
   onPresetSelect: (presetId: string | null) => void;
@@ -463,10 +463,14 @@ export function ModelSelectorContainer({
           ) : (
             <DropdownMenuItem disabled>{presetLabel}</DropdownMenuItem>
           )}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem icon={GearIcon} onClick={onAdvancedSettings}>
-            {t('modelSelector.custom')}
-          </DropdownMenuItem>
+          {onAdvancedSettings && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem icon={GearIcon} onClick={onAdvancedSettings}>
+                {t('modelSelector.custom')}
+              </DropdownMenuItem>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 

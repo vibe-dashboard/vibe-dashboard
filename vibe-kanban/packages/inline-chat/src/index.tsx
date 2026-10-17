@@ -485,6 +485,7 @@ function InlineWorkspaceChatContent({
       showContextBar={false}
       disableViewCode
       surfaceId={surfaceId}
+      showOpenInIdeAction
     />
   );
 }

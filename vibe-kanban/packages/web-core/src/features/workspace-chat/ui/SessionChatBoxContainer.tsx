@@ -8,6 +8,7 @@ import {
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useDropzone } from 'react-dropzone';
+import { DesktopIcon } from '@phosphor-icons/react';
 import {
   type AskUserQuestionItem,
   BaseAgentCapability,
@@ -21,6 +22,8 @@ import { workspaceSessionKeys } from '@/shared/hooks/workspaceSessionKeys';
 import { useWorkspaceExecution } from '@/shared/hooks/useWorkspaceExecution';
 import { useWorkspaceRepo } from '@/shared/hooks/useWorkspaceRepo';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
+import { useIsMobile } from '@/shared/hooks/useIsMobile';
+import { useOpenInEditor } from '@/shared/hooks/useOpenInEditor';
 import WYSIWYGEditor from '@/shared/components/WYSIWYGEditor';
 import { useApprovalFeedbackOptional } from '../model/contexts/ApprovalFeedbackContext';
 import { useMessageEditContext } from '../model/contexts/MessageEditContext';
@@ -71,6 +74,7 @@ import {
   recordMobilePerfDiagnostic,
 } from '@/shared/lib/mobilePerfDiagnostics';
 import { WorkspaceBeadsTaskList } from './WorkspaceBeadsTaskList';
+import { shouldShowOpenInIde } from '../model/openInIdeVisibility';
 
 /** Compute execution status from boolean flags */
 function computeExecutionStatus(params: {
@@ -96,6 +100,8 @@ function computeExecutionStatus(params: {
 interface SharedProps {
   /** Stable host surface id; isolates embedded drafts from sibling panes. */
   surfaceId?: string;
+  /** Show the host-approved editor action when the environment supports it. */
+  showOpenInIdeAction?: boolean;
   /** Available sessions for this workspace */
   sessions: Session[];
   /** Chat presentation mode */
@@ -171,6 +177,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     disableViewCode = false,
     showOpenWorkspaceButton,
     surfaceId,
+    showOpenInIdeAction = false,
   } = props;
 
   // Extract mode-specific values
@@ -194,6 +201,8 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   const lastComposerDiagnosticAtRef = useRef(0);
   const queryClient = useQueryClient();
   const hostId = useHostId();
+  const isMobile = useIsMobile();
+  const openInEditor = useOpenInEditor(workspaceId);
 
   const handleRenameSession = useCallback(
     (targetSessionId: string, currentName: string) => {
@@ -845,9 +854,28 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     }
   }, [workspaceId, repos, handleInsertMarkdown]);
 
-  // PR review toolbar actions depend on the full VK app shell. Inline VD chat
-  // keeps the toolbar empty until those dialogs are transplanted.
-  const toolbarActionItems = useMemo(() => [], []);
+  const canOpenInIde =
+    showOpenInIdeAction &&
+    shouldShowOpenInIde({
+      isMobile,
+      hostname: typeof window === 'undefined' ? '' : window.location.hostname,
+      remoteSshHost: config?.editor.remote_ssh_host,
+    });
+  const toolbarActionItems = useMemo(
+    () =>
+      canOpenInIde
+        ? [
+            {
+              id: 'open-in-ide',
+              icon: DesktopIcon,
+              label: 'Open in IDE',
+              tooltip: 'Open this workspace in your configured IDE',
+              onClick: () => void openInEditor(),
+            },
+          ]
+        : [],
+    [canOpenInIde, openInEditor]
+  );
 
   // Handle approve action
   const handleApprove = useCallback(async () => {
@@ -1008,7 +1036,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
       agent={effectiveExecutor}
       workspaceId={workspaceId}
       sessionId={sessionId}
-      onAdvancedSettings={handleCustomise}
+      onAdvancedSettings={surfaceId ? undefined : handleCustomise}
       presets={variantOptions}
       selectedPreset={selectedVariant}
       onPresetSelect={setSelectedVariant}
