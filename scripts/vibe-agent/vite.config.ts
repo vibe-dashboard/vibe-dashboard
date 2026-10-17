@@ -8,6 +8,9 @@ const externalBuiltins = new Set([
 ]);
 
 export default defineConfig({
+  ssr: {
+    noExternal: ['ajv'],
+  },
   build: {
     ssr: true,
     target: 'node22',

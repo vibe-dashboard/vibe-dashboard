@@ -57,12 +57,12 @@ async function setup(scenario: FakeVkScenario) {
 }
 
 describe('auto-nudge across real VK transport', () => {
-  it('sends one continuation for a terminal teammate turn across repeated cycles', async () => {
-    const scenario = base([process('failed', 'impl', 'failed')]); scenario.followUps = [{ sessionId: 'impl', process: process('continued', 'impl', 'running') }];
+  it('leaves terminal teammate recovery to VK across repeated cycles', async () => {
+    const scenario = base([process('failed', 'impl', 'failed')]);
     const { server, options, client } = await setup(scenario);
     await runAutoNudgeCycle(client, options); await runAutoNudgeCycle(client, options);
-    expect(server.journal.filter(item => item.type === 'follow-up-accepted')).toHaveLength(1);
-    expect(readAutoNudgeState(options.statePath).nudgedProcessIds).toEqual(['failed']);
+    expect(server.journal.filter(item => item.type === 'follow-up-accepted')).toHaveLength(0);
+    expect(readAutoNudgeState(options.statePath).nudgedProcessIds).toEqual([]);
   });
 
   it('suppresses action while work is active', async () => {
