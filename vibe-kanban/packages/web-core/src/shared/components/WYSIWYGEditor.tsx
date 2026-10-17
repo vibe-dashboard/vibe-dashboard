@@ -108,6 +108,9 @@ type WysiwygProps = {
   constrainMobileComposerHeight?: boolean;
   /** Repo IDs for file search in typeahead */
   repoIds?: string[];
+  /** Host-owned repository preference for independently mounted editors. */
+  preferredFileSearchRepoId?: string | null;
+  onPreferredFileSearchRepoChange?: (repoId: string | null) => void;
   /** Enables `/` command autocomplete (agent-specific). */
   executor?: BaseCodingAgent | null;
   onCmdEnter?: () => void;
@@ -263,6 +266,8 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
       className,
       constrainMobileComposerHeight = false,
       repoIds,
+      preferredFileSearchRepoId,
+      onPreferredFileSearchRepoChange,
       executor = null,
       onCmdEnter,
       onShiftCmdEnter,
@@ -304,12 +309,18 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
     const [copied, setCopied] = useState(false);
     const diffPaths = useDiffPaths();
     const isMobile = useIsMobile();
-    const preferredRepoId = useUiPreferencesStore(
+    const globalPreferredRepoId = useUiPreferencesStore(
       (state) => state.fileSearchRepoId
     );
-    const setFileSearchRepo = useUiPreferencesStore(
+    const setGlobalFileSearchRepo = useUiPreferencesStore(
       (state) => state.setFileSearchRepo
     );
+    const preferredRepoId =
+      preferredFileSearchRepoId === undefined
+        ? globalPreferredRepoId
+        : preferredFileSearchRepoId;
+    const setFileSearchRepo =
+      onPreferredFileSearchRepoChange ?? setGlobalFileSearchRepo;
     const slashCommandsQuery = useSlashCommands(executor, {
       workspaceId: sessionId ? workspaceId : undefined,
       sessionId,

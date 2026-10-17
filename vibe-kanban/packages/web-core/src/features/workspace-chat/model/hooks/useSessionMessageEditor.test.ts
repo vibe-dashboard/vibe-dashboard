@@ -6,9 +6,60 @@ import {
 } from '../../../../shared/lib/scratchDraftStore';
 import {
   clearFollowUpDraft,
+  resolveSessionMessageDraftStorageId,
   resolveSessionMessageScratchId,
   restoreQueuedFollowUpDraftAfterCancel,
 } from './useSessionMessageEditor';
+
+describe('resolveSessionMessageDraftStorageId', () => {
+  it('isolates embedded drafts by stable surface id', () => {
+    const left = resolveSessionMessageDraftStorageId(
+      'session-1',
+      'left-pane'
+    );
+    const right = resolveSessionMessageDraftStorageId(
+      'session-1',
+      'right-pane'
+    );
+
+    expect(left).toBe('surface:left-pane:session-1');
+    expect(right).toBe('surface:right-pane:session-1');
+
+    writeStoredScratchDraft(
+      ScratchType.DRAFT_FOLLOW_UP,
+      left!,
+      { message: 'left', executor_config: { executor: 'codex' } },
+      true
+    );
+    writeStoredScratchDraft(
+      ScratchType.DRAFT_FOLLOW_UP,
+      right!,
+      { message: 'right', executor_config: { executor: 'codex' } },
+      true
+    );
+
+    expect(
+      readStoredScratchDraft<{ message: string }>(
+        ScratchType.DRAFT_FOLLOW_UP,
+        left!
+      )?.value.message
+    ).toBe('left');
+    expect(
+      readStoredScratchDraft<{ message: string }>(
+        ScratchType.DRAFT_FOLLOW_UP,
+        right!
+      )?.value.message
+    ).toBe('right');
+    localStorage.clear();
+  });
+
+  it('preserves standalone VK scratch keys', () => {
+    expect(resolveSessionMessageDraftStorageId('session-1')).toBe('session-1');
+    expect(
+      resolveSessionMessageDraftStorageId(undefined, 'left-pane')
+    ).toBeUndefined();
+  });
+});
 
 describe('resolveSessionMessageScratchId', () => {
   it('uses the workspace id for new-session drafts', () => {

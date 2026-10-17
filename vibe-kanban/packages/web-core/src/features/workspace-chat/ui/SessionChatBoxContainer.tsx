@@ -1,4 +1,11 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useDropzone } from 'react-dropzone';
 import {
@@ -87,6 +94,8 @@ function computeExecutionStatus(params: {
 
 /** Shared props across all modes */
 interface SharedProps {
+  /** Stable host surface id; isolates embedded drafts from sibling panes. */
+  surfaceId?: string;
   /** Available sessions for this workspace */
   sessions: Session[];
   /** Chat presentation mode */
@@ -161,6 +170,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     getActiveTurnPatchKey,
     disableViewCode = false,
     showOpenWorkspaceButton,
+    surfaceId,
   } = props;
 
   // Extract mode-specific values
@@ -178,6 +188,9 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     mode === 'existing-session' ? props.onStartNewSession : undefined;
 
   const sessionId = session?.id;
+  const [surfaceFileSearchRepoId, setSurfaceFileSearchRepoId] = useState<
+    string | null
+  >(null);
   const lastComposerDiagnosticAtRef = useRef(0);
   const queryClient = useQueryClient();
   const hostId = useHostId();
@@ -423,7 +436,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     deleteDraftScratch,
     cancelDebouncedSave,
     handleMessageChange,
-  } = useSessionMessageEditor({ scratchId });
+  } = useSessionMessageEditor({ scratchId, surfaceId });
 
   // Ref to access current message value for attachment handler
   const localMessageRef = useRef(localMessage);
@@ -452,7 +465,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   );
 
   useEffect(() => {
-    if (pendingComponentMarkdown) {
+    if (!surfaceId && pendingComponentMarkdown) {
       handleInsertMarkdown(pendingComponentMarkdown);
       clearPendingComponentMarkdown();
     }
@@ -460,6 +473,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     pendingComponentMarkdown,
     handleInsertMarkdown,
     clearPendingComponentMarkdown,
+    surfaceId,
   ]);
 
   const { uploadFiles, localAttachments, clearUploadedAttachments } =
@@ -967,6 +981,12 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
         className="min-h-double max-h-[50vh] overflow-y-auto"
         constrainMobileComposerHeight
         repoIds={repoIds}
+        preferredFileSearchRepoId={
+          surfaceId ? surfaceFileSearchRepoId : undefined
+        }
+        onPreferredFileSearchRepoChange={
+          surfaceId ? setSurfaceFileSearchRepoId : undefined
+        }
         executor={executor}
         sessionId={sessionId}
         autoFocus
@@ -975,7 +995,12 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
         sendShortcut={config?.send_message_shortcut}
       />
     ),
-    [config?.send_message_shortcut, sessionId]
+    [
+      config?.send_message_shortcut,
+      sessionId,
+      surfaceFileSearchRepoId,
+      surfaceId,
+    ]
   );
 
   const modelSelectorNode = effectiveExecutor ? (

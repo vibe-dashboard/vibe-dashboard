@@ -436,6 +436,7 @@ function InlineWorkspaceChat({
           chatViewMode={effectiveChatViewMode}
           chatViewModeSelector={chatViewModeSelector}
           workspacePreview={workspacePreview}
+          surfaceId={surfaceId}
         />
       </InlineWorkspaceProvider>
     </WorkspaceDiffStoreProvider>
@@ -447,6 +448,7 @@ function InlineWorkspaceChatContent({
   chatViewMode,
   chatViewModeSelector,
   workspacePreview,
+  surfaceId,
 }: {
   refHolder: React.RefObject<{
     scrollToBottom: (behavior?: 'auto' | 'smooth') => void;
@@ -454,6 +456,7 @@ function InlineWorkspaceChatContent({
   chatViewMode: 'full' | 'zen';
   chatViewModeSelector: ReactNode;
   workspacePreview?: ReactNode;
+  surfaceId: string;
 }) {
   const workspace = useWorkspaceContext();
 
@@ -475,6 +478,7 @@ function InlineWorkspaceChatContent({
       workspacePreview={workspacePreview}
       showContextBar={false}
       disableViewCode
+      surfaceId={surfaceId}
     />
   );
 }
