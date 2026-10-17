@@ -29,6 +29,7 @@ import {
 } from '@/shared/hooks/useActions';
 import { AuthContext } from '@/shared/hooks/auth/useAuth';
 import { ExecutionProcessesProvider } from '@/shared/providers/ExecutionProcessesProvider';
+import { WorkspaceChatSurfaceProvider } from '@/shared/providers/WorkspaceChatSurfaceProvider';
 import { UserContext } from '@/shared/hooks/useUserContext';
 import { UserSystemContext } from '@/shared/hooks/useUserSystem';
 import { useUserSystemController } from '@/shared/hooks/useUserSystemController';
@@ -429,17 +430,22 @@ function InlineWorkspaceChat({
   );
 
   return (
-    <WorkspaceDiffStoreProvider>
-      <InlineWorkspaceProvider workspaceId={workspaceId} surfaceId={surfaceId}>
-        <InlineWorkspaceChatContent
-          refHolder={workspaceContextRef}
-          chatViewMode={effectiveChatViewMode}
-          chatViewModeSelector={chatViewModeSelector}
-          workspacePreview={workspacePreview}
+    <WorkspaceChatSurfaceProvider surfaceId={surfaceId}>
+      <WorkspaceDiffStoreProvider>
+        <InlineWorkspaceProvider
+          workspaceId={workspaceId}
           surfaceId={surfaceId}
-        />
-      </InlineWorkspaceProvider>
-    </WorkspaceDiffStoreProvider>
+        >
+          <InlineWorkspaceChatContent
+            refHolder={workspaceContextRef}
+            chatViewMode={effectiveChatViewMode}
+            chatViewModeSelector={chatViewModeSelector}
+            workspacePreview={workspacePreview}
+            surfaceId={surfaceId}
+          />
+        </InlineWorkspaceProvider>
+      </WorkspaceDiffStoreProvider>
+    </WorkspaceChatSurfaceProvider>
   );
 }
 

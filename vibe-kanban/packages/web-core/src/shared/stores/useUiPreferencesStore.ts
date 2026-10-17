@@ -2,6 +2,10 @@ import { useCallback, useMemo, useRef } from 'react';
 import { create } from 'zustand';
 import type { RepoAction } from '@vibe/ui/components/RepoCard';
 import type { IssuePriority } from 'shared/remote-types';
+import {
+  scopeWorkspaceChatStateKey,
+  useWorkspaceChatSurfaceId,
+} from '@/shared/providers/WorkspaceChatSurfaceProvider';
 
 export const RIGHT_MAIN_PANEL_MODES = {
   CHANGES: 'changes',
@@ -868,15 +872,17 @@ export function usePersistedExpanded(
   key: PersistKey,
   defaultValue = true
 ): [boolean, (value?: boolean) => void] {
+  const surfaceId = useWorkspaceChatSurfaceId();
+  const scopedKey = scopeWorkspaceChatStateKey(key, surfaceId) as PersistKey;
   const expanded = useUiPreferencesStore(
-    (s) => s.expanded[key] ?? defaultValue
+    (s) => s.expanded[scopedKey] ?? defaultValue
   );
   const setExpanded = useUiPreferencesStore((s) => s.setExpanded);
   const toggleExpanded = useUiPreferencesStore((s) => s.toggleExpanded);
 
   const set = (value?: boolean) => {
-    if (typeof value === 'boolean') setExpanded(key, value);
-    else toggleExpanded(key, defaultValue);
+    if (typeof value === 'boolean') setExpanded(scopedKey, value);
+    else toggleExpanded(scopedKey, defaultValue);
   };
 
   return [expanded, set];
