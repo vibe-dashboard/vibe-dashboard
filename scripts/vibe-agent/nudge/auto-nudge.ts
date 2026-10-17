@@ -2,6 +2,9 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execFile as execFileCallback } from 'node:child_process';
+import { promisify } from 'node:util';
+import { buildBeadsFormsSummary, compileBeadsForm, type StandardBeadsForm } from '../../../packages/beads-form/src/index.js';
 import { client as defaultClient } from '../core/client.js';
 import type { AutoNudgeProcessWindowQuery, AutoNudgeStatusRequest, AutoNudgeStatusResponse, AutoNudgeStatusSession, AutoNudgeStatusWorkspace, ConversationEntry, CreateSessionBody, ExecutionProcess, ExecutionProcessFinalResponse, SendMessageBody, Session, Workspace } from '../types.js';
 import { conversationEntryText, conversationEntryType, decideNudgeForProcess, isActiveProcess } from './criteria.js';
@@ -27,25 +30,19 @@ import {
 } from './send-queue.js';
 import { DEFAULT_HANDLER_LOG_PATH, runWorkflowHandler } from './workflow-handlers.js';
 import { DEFAULT_WORKFLOW_CONFIG_PATH, loadWorkflowConfig, type WorkflowConfig, type WorkflowMessageTypeConfig } from './workflow-config.js';
-import { parseWorkflowResultXml, validateWorkflowActions, type WorkflowAction } from './workflow-xml.js';
+import { parseWorkflowResultXml, schemaHash, validateWorkflowActions, validateWorkflowSchema, type WorkflowAction, type WorkflowSchemaIdentity } from './workflow-xml.js';
 
 const DEFAULT_STATE_PATH = '/var/lib/vd/auto-nudge/state.json';
 const DEFAULT_LOCK_PATH = '/var/lib/vd/auto-nudge/owner.lock';
 export const DEFAULT_WORKSPACE_REGISTRY_PATH = '/var/lib/vd/auto-nudge/workspaces.json';
-export const DEFAULT_NUDGE_CONFIG_PATH = '/home/vkuser/.local/share/vibe-dashboard-runtime/data/config/nudge_config.json';
-const DEFAULT_POLL_MS = 5 * 60_000;
+export const DEFAULT_POLL_SECONDS = 300;
+export const MIN_POLL_SECONDS = 5;
+export const MAX_POLL_SECONDS = 3_600;
 const RESPONSE_ROUTE_INTENT_STALE_MS = 5 * 60_000;
 const GLOBAL_RECOVERY_RECENT_MS = 24 * 60 * 60_000;
 const GLOBAL_RECOVERY_WORKSPACES_PER_CYCLE = 25;
 const GLOBAL_RECOVERY_SESSIONS_PER_CYCLE = 250;
-export const DEFAULT_OVERSEER_PROMPT = `- If all milestones are complete, end your response with "DONE".
-- If the next milestone-completion step needs user input, create a beads-form for the user and end your response with "CREATED FORM".
-- If you have just completed a milestone, make sure it gets reviewed by the appropriate agents.
-- If you approve the review, continue to the next milestone.
-
-Use vibe-agent send ... when a teammate response is needed. Use --fire-and-forget only for notifications that do not require a reply.`;
-export const DEFAULT_END_CONDITIONS = ['DONE', 'CREATED FORM'] as const;
-
+const execFile = promisify(execFileCallback);
 export function isAutoNudgeEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return ['1', 'true', 'yes', 'on'].includes(String(env.VD_AUTO_NUDGE_ENABLED ?? '').toLowerCase());
 }
@@ -55,13 +52,11 @@ export interface AutoNudgeConfig {
   discord?: { enabled: boolean };
   workspaces?: Array<{ workspaceId: string; overseerSessionId: string | null }>;
 }
-export interface NudgeRuntimeConfig { version: 1; overseerPrompt: string; endConditions: string[] }
-export interface NudgeRuntimeConfigLoadResult { config: NudgeRuntimeConfig; error: string | null }
 export interface AutoNudgeWorkspaceCriteria { goal?: string; beads?: string[]; beadsDir?: string }
 export interface AutoNudgeWorkspaceRegistration { workspaceId: string; overseerSessionId: string; registeredAt: string; registeredBySessionId: string; criteria?: AutoNudgeWorkspaceCriteria }
 export interface AutoNudgeWorkspaceRegistry { version: 1; workspaces: Record<string, AutoNudgeWorkspaceRegistration> }
-export type TriggerStatus = 'observed' | 'checkpoint-sent' | 'checkpoint-indeterminate' | 'done' | 'delegated' | 'waiting-callback' | 'rate-limited' | 'retryable-failure';
-export interface TriggerState { processId: string; workspaceId: string; sessionId: string; observedAt: string; status: TriggerStatus; checkpointProcessId: string | null; baselineProcessIds?: string[]; updatedAt: string; error: string | null }
+export type TriggerStatus = 'observed' | 'checkpoint-sent' | 'checkpoint-indeterminate' | 'done' | 'delegated' | 'waiting-callback' | 'rate-limited' | 'retryable-failure' | 'invalid-response';
+export interface TriggerState { processId: string; workspaceId: string; sessionId: string; observedAt: string; status: TriggerStatus; checkpointProcessId: string | null; baselineProcessIds?: string[]; correctionAttempts?: number; updatedAt: string; error: string | null }
 export interface OutboxItem { id: string; workspaceId: string; content: string; createdAt: string; deliveredAt: string | null; attempts: number }
 export interface AutoNudgeState { version: 1; nudgedProcessIds: string[]; triggers: Record<string, TriggerState>; outbox: Record<string, OutboxItem>; globalCursor?: string | null }
 export interface AutoNudgeClient {
@@ -78,13 +73,13 @@ export interface AutoNudgeClient {
 }
 export interface AutoNudgeOptions {
   config: AutoNudgeConfig; statePath: string; callbackRegistryPath: string; responseRoutesPath?: string; workspaceRegistryPath?: string;
-  nudgeConfigPath?: string;
   workflowConfigPath?: string;
   sendQueuePath?: string;
   handlerLogPath?: string;
   now: () => Date; unacknowledgedAfterMs: number; operationTimeoutMs: number; responseTimeoutMs: number;
   concurrency: number; dryRun: boolean; discordWebhookUrl?: string;
   deliverDiscord?: (url: string, content: string) => Promise<void>;
+  createForm?: (input: { beadsDir: string; beadId: string; form: ReturnType<typeof compileBeadsForm>; workspaceId: string; sessionId: string }) => Promise<void>;
   signal?: AbortSignal;
   checkpointPollMs?: number;
 }
@@ -97,32 +92,14 @@ function requiredString(value: unknown, name: string): string {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${name} must be a non-empty string`);
   return value;
 }
-export function defaultNudgeRuntimeConfig(): NudgeRuntimeConfig {
-  return { version: 1, overseerPrompt: DEFAULT_OVERSEER_PROMPT, endConditions: [...DEFAULT_END_CONDITIONS] };
-}
-function parseNudgeRuntimeConfig(value: unknown): NudgeRuntimeConfig {
-  const input = value as Partial<NudgeRuntimeConfig>;
-  if (input.version !== 1) throw new Error('nudge config version must be 1');
-  const defaults = defaultNudgeRuntimeConfig();
-  const overseerPrompt = input.overseerPrompt == null ? defaults.overseerPrompt : requiredString(input.overseerPrompt, 'overseerPrompt');
-  if (input.endConditions != null && !Array.isArray(input.endConditions)) throw new Error('endConditions must be an array');
-  const endConditions = (input.endConditions ?? defaults.endConditions)
-    .map((item, index) => requiredString(item, `endConditions[${index}]`));
-  if (endConditions.length === 0) throw new Error('endConditions must not be empty');
-  return { version: 1, overseerPrompt, endConditions };
-}
-export function loadNudgeRuntimeConfig(filePath = DEFAULT_NUDGE_CONFIG_PATH): NudgeRuntimeConfigLoadResult {
-  try {
-    return { config: parseNudgeRuntimeConfig(JSON.parse(fs.readFileSync(filePath, 'utf8'))), error: null };
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { config: defaultNudgeRuntimeConfig(), error: null };
-    return { config: defaultNudgeRuntimeConfig(), error: `Invalid nudge config at ${filePath}: ${(error as Error).message}` };
-  }
-}
-export function responseMatchesEndCondition(response: string | null | undefined, endConditions: readonly string[]): boolean {
-  if (!response) return false;
-  const trimmed = response.trimEnd();
-  return endConditions.some(marker => trimmed === marker || trimmed.endsWith(`\n${marker}`));
+
+export function pollIntervalSeconds(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.VD_AUTO_NUDGE_POLL_INTERVAL_SECONDS;
+  if (raw == null || raw === '') return DEFAULT_POLL_SECONDS;
+  if (!/^\d+$/.test(raw)) throw new Error('VD_AUTO_NUDGE_POLL_INTERVAL_SECONDS must be an integer number of seconds');
+  const seconds = Number(raw);
+  if (seconds < MIN_POLL_SECONDS || seconds > MAX_POLL_SECONDS) throw new Error(`VD_AUTO_NUDGE_POLL_INTERVAL_SECONDS must be between ${MIN_POLL_SECONDS} and ${MAX_POLL_SECONDS}`);
+  return seconds;
 }
 export function formatWorkspaceCriteriaBlock(criteria?: AutoNudgeWorkspaceCriteria): string {
   const lines: string[] = [];
@@ -139,6 +116,31 @@ export function formatWorkspaceCriteriaBlock(criteria?: AutoNudgeWorkspaceCriter
 function overseerPromptWithCriteria(prompt: string, criteria?: AutoNudgeWorkspaceCriteria): string {
   const block = formatWorkspaceCriteriaBlock(criteria);
   return block ? `${prompt.trimEnd()}\n\n${block}` : prompt;
+}
+
+function checkpointContract(config: WorkflowConfig, configPath: string): { prompt: string; identity: WorkflowSchemaIdentity; schemaPath: string } {
+  const message = config.messageTypes.overseer_checkpoint;
+  if (!message || message.fromRole !== 'auto_nudge' || message.toRole !== 'overseer' || !message.responseSchemaId) throw new Error('workflow config requires reserved message_types.overseer_checkpoint with an overseer response schema');
+  const prompt = config.prompts[message.promptId]?.text;
+  const schema = config.responseSchemas[message.responseSchemaId];
+  if (!prompt || !schema) throw new Error('overseer_checkpoint prompt or response schema is missing');
+  const schemaPath = path.resolve(path.dirname(configPath), schema.schemaFile);
+  const payload = JSON.parse(fs.readFileSync(schemaPath, 'utf8')) as unknown;
+  return { prompt, schemaPath, identity: { schemaId: schema.schemaId, schemaVersion: schema.schemaVersion, schemaHash: schemaHash(payload) } };
+}
+
+function checkpointPrompt(contract: ReturnType<typeof checkpointContract>, criteria?: AutoNudgeWorkspaceCriteria): string {
+  const example = `<auto-nudge-result schema_id="${contract.identity.schemaId}" schema_version="${contract.identity.schemaVersion}" schema_hash="${contract.identity.schemaHash}" format="json">\n{"outcome":"complete","actions":[]}\n</auto-nudge-result>`;
+  return [
+    overseerPromptWithCriteria(contract.prompt, criteria),
+    '', 'Required final response contract:',
+    `Schema ID: ${contract.identity.schemaId}`,
+    `Schema version: ${contract.identity.schemaVersion}`,
+    `Schema hash: ${contract.identity.schemaHash}`,
+    `Authoritative schema: ${contract.schemaPath}`,
+    'Human-readable Markdown may precede exactly one final envelope. Unknown fields, duplicate JSON keys, or mismatched metadata are invalid.',
+    '', example,
+  ].join('\n');
 }
 export function loadAutoNudgeConfig(filePath: string): AutoNudgeConfig {
   const value = JSON.parse(fs.readFileSync(filePath, 'utf8')) as Partial<AutoNudgeConfig>;
@@ -248,9 +250,10 @@ export function readAutoNudgeState(filePath: string): AutoNudgeState {
     && typeof (item as TriggerState).processId === 'string' && typeof (item as TriggerState).workspaceId === 'string'
     && typeof (item as TriggerState).sessionId === 'string' && typeof (item as TriggerState).observedAt === 'string'
     && typeof (item as TriggerState).updatedAt === 'string'
-    && ['observed', 'checkpoint-sent', 'checkpoint-indeterminate', 'done', 'delegated', 'waiting-callback', 'rate-limited', 'retryable-failure'].includes((item as TriggerState).status)
+    && ['observed', 'checkpoint-sent', 'checkpoint-indeterminate', 'done', 'delegated', 'waiting-callback', 'rate-limited', 'retryable-failure', 'invalid-response'].includes((item as TriggerState).status)
     && ((item as TriggerState).checkpointProcessId == null || typeof (item as TriggerState).checkpointProcessId === 'string')
     && ((item as TriggerState).baselineProcessIds == null || (Array.isArray((item as TriggerState).baselineProcessIds) && (item as TriggerState).baselineProcessIds!.every(id => typeof id === 'string')))
+    && ((item as TriggerState).correctionAttempts == null || (Number.isSafeInteger((item as TriggerState).correctionAttempts) && (item as TriggerState).correctionAttempts! >= 0))
     && ((item as TriggerState).error == null || typeof (item as TriggerState).error === 'string'));
   const validOutbox = (item: unknown): item is OutboxItem => Boolean(item && typeof item === 'object'
     && typeof (item as OutboxItem).id === 'string' && typeof (item as OutboxItem).workspaceId === 'string'
@@ -529,12 +532,21 @@ async function executeWorkflowActions(
   config: WorkflowConfig,
   client: AutoNudgeClient,
   options: AutoNudgeOptions,
-  context: { workspaceId: string; triggerProcessId: string; sessions: Session[]; replySessionId: string },
+  context: { workspaceId: string; triggerProcessId: string; sessions: Session[]; replySessionId: string; beadsDir?: string },
 ): Promise<void> {
   const queuePath = options.sendQueuePath ?? DEFAULT_SEND_QUEUE_PATH;
   const sendActions: Array<{ action: WorkflowAction; messageType: WorkflowMessageTypeConfig; prompt: string; currentTarget: Session }> = [];
   for (const action of actions) {
     if (action.type === 'wait') continue;
+    if (action.type === 'create_form') {
+      if (!context.beadsDir) throw new Error('create_form requires workspace criteria beadsDir');
+      const source = action.artifact ? readWorkflowArtifact(context.beadsDir, action.artifact) : JSON.stringify(action.form);
+      const form = compileBeadsForm(JSON.parse(source) as StandardBeadsForm);
+      if (!options.dryRun) await (options.createForm
+        ? options.createForm({ beadsDir: context.beadsDir, beadId: action.beadId!, form, workspaceId: context.workspaceId, sessionId: context.replySessionId })
+        : attachWorkflowForm(context.beadsDir, action.beadId!, form, context.workspaceId, context.replySessionId));
+      continue;
+    }
     if (action.type === 'send_message') {
       const messageType = action.messageType ? config.messageTypes[action.messageType] : null;
       if (!messageType) throw new Error(`Unknown message_type ${action.messageType ?? '(missing)'}`);
@@ -580,6 +592,40 @@ async function executeWorkflowActions(
   }
 }
 
+function readWorkflowArtifact(beadsDir: string, artifact: string): string {
+  if (path.isAbsolute(artifact) || artifact.includes('\0')) throw new Error('create_form artifact must be a relative path');
+  const root = path.resolve(beadsDir);
+  const file = path.resolve(root, artifact);
+  if (file !== root && !file.startsWith(`${root}${path.sep}`)) throw new Error('create_form artifact escapes beadsDir');
+  const stat = fs.statSync(file);
+  if (!stat.isFile() || stat.size > 256 * 1024) throw new Error('create_form artifact must be a file no larger than 256 KiB');
+  return fs.readFileSync(file, 'utf8');
+}
+
+async function attachWorkflowForm(beadsDir: string, beadId: string, form: ReturnType<typeof compileBeadsForm>, workspaceId: string, sessionId: string): Promise<void> {
+  const { stdout } = await execFile('bd', ['show', beadId, '--json', '--long'], { cwd: beadsDir, timeout: 30_000, maxBuffer: 5 * 1024 * 1024 });
+  const text = String(stdout); const parsed = JSON.parse(text.slice(Math.max(0, text.indexOf('[')))) as Array<{ id: string; metadata?: Record<string, unknown> }>;
+  const bead = parsed.find(item => item.id === beadId); if (!bead) throw new Error(`Bead not found: ${beadId}`);
+  const metadata = structuredClone(bead.metadata ?? {});
+  const namespace = metadata.beadForms && typeof metadata.beadForms === 'object' ? metadata.beadForms as { forms?: unknown[] } : {};
+  const forms = Array.isArray(namespace.forms) ? namespace.forms : [];
+  const existing = forms.find(item => item && typeof item === 'object' && (item as { id?: unknown }).id === form.id);
+  if (existing) {
+    const comparable = { ...(existing as Record<string, unknown>) }; delete comparable.responses;
+    if (JSON.stringify(comparable) !== JSON.stringify(form)) throw new Error(`create_form conflicts with existing form ${form.id}`);
+    return;
+  }
+  const nextForms = [...forms, form];
+  metadata.beadForms = { ...namespace, forms: nextForms };
+  metadata.beadFormsSummary = buildBeadsFormsSummary(nextForms as Array<{ id: string; responses?: unknown[] }>);
+  metadata.VK_WORKSPACE_ID = workspaceId; metadata.VK_SESSION_ID = sessionId;
+  const temporary = path.join(beadsDir, `.auto-nudge-form-${process.pid}-${Date.now()}.json`);
+  try {
+    fs.writeFileSync(temporary, JSON.stringify(metadata), { mode: 0o600 });
+    await execFile('bd', ['update', beadId, '--metadata', `@${temporary}`], { cwd: beadsDir, timeout: 30_000, maxBuffer: 5 * 1024 * 1024 });
+  } finally { fs.rmSync(temporary, { force: true }); }
+}
+
 async function createFreshWorkflowSession(client: AutoNudgeClient, workspaceId: string, currentTarget: Session): Promise<Session> {
   if (!client.createSession) throw new Error('fresh workflow sessions require createSession support');
   return client.createSession({ workspace_id: workspaceId, executor: currentTarget.executor, name: currentTarget.name });
@@ -623,7 +669,7 @@ async function fetchAutoNudgeStatus(
 ): Promise<AutoNudgeStatusResponse> {
   const request: AutoNudgeStatusRequest = {
     registered_workspace_ids: registeredWorkspaceIds,
-    include_global_recent: extra.includeGlobalRecent ?? true,
+    include_global_recent: extra.includeGlobalRecent ?? false,
     global_cursor: options.dryRun ? null : readAutoNudgeState(options.statePath).globalCursor ?? null,
     updated_after: new Date(options.now().getTime() - GLOBAL_RECOVERY_RECENT_MS).toISOString(),
     limit_workspaces: GLOBAL_RECOVERY_WORKSPACES_PER_CYCLE,
@@ -691,9 +737,9 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
     workspaces: 0, teammateNudges: 0, checkpoints: 0, responseRoutes: 0, discordDeliveries: 0, errors: [],
     registeredWorkspaces: 0, globalWorkspacesScanned: 0, sessionsScanned: 0, processesConsidered: 0, pagesFetched: 0, truncated: false, nextCursor: null,
   };
-  const nudgeConfig = loadNudgeRuntimeConfig(options.nudgeConfigPath ?? DEFAULT_NUDGE_CONFIG_PATH);
-  const workflowConfig = loadWorkflowConfig(options.workflowConfigPath ?? DEFAULT_WORKFLOW_CONFIG_PATH);
-  if (nudgeConfig.error) result.errors.push(nudgeConfig.error);
+  const workflowConfigPath = options.workflowConfigPath ?? DEFAULT_WORKFLOW_CONFIG_PATH;
+  const workflowConfig = loadWorkflowConfig(workflowConfigPath);
+  const contract = checkpointContract(workflowConfig, workflowConfigPath);
   const registered = registeredWorkspacesForCycle(options);
   const registeredByWorkspace = new Map(registered.map(item => [item.workspaceId, item]));
   const status = await fetchAutoNudgeStatus(client, options, registered.map(item => item.workspaceId));
@@ -776,34 +822,39 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
       const reconcileCheckpoint = async (trigger: TriggerState): Promise<void> => {
         if (!trigger.checkpointProcessId) return;
         const baselineIds = new Set(trigger.baselineProcessIds ?? []);
+        let checkpointCompleted = false;
+        let responseValidated = false;
         try {
           const checkpoint = await waitForTerminalProcess(client, trigger.checkpointProcessId, options);
+          checkpointCompleted = checkpoint.status === 'completed';
           const final = await deadline(client.getExecutionProcessFinalResponse(checkpoint.id), options.operationTimeoutMs, 'fetch checkpoint final response', options.signal);
           const response = final.final_response;
           trigger.error = null;
           const workflowResult = response ? parseWorkflowResultXml(response) : null;
           if (workflowResult) {
+            validateWorkflowSchema(workflowResult, contract.identity);
             validateWorkflowActions(workflowResult, workflowConfig, 'overseer');
+            responseValidated = true;
+            await executeOutcomeHandlers(workflowResult.outcome, workflowConfig, options, configured.workspaceId, trigger.processId);
             await executeWorkflowActions(workflowResult.actions, workflowConfig, client, options, {
               workspaceId: configured.workspaceId,
               triggerProcessId: trigger.processId,
               sessions,
               replySessionId: overseer?.id ?? configured.overseerSessionId,
+              beadsDir: configured.criteria?.beadsDir,
             });
-            trigger.status = 'delegated';
-          } else if (responseMatchesEndCondition(response, nudgeConfig.config.endConditions)) {
-            trigger.status = 'done';
+            trigger.status = workflowResult.outcome === 'complete' ? 'done' : 'delegated';
           } else {
             const refreshedStatus = await fetchAutoNudgeStatus(client, options, [configured.workspaceId], { includeGlobalRecent: false });
             const refreshed = refreshedStatus.workspaces.flatMap(item => item.sessions.flatMap(latestProcessForSession));
             result.sessionsScanned += refreshedStatus.counts.sessions;
             result.processesConsidered += refreshedStatus.counts.processes;
             result.pagesFetched += refreshedStatus.counts.pages;
-            const delegated = refreshed.some(item => item.run_reason === 'codingagent' && !item.dropped && !baselineIds.has(item.id));
+            const delegated = refreshed.some(item => item.session_id !== overseer.id && item.run_reason === 'codingagent' && !item.dropped && !baselineIds.has(item.id));
             const callbackRegistered = callbacksForTrigger(options.callbackRegistryPath, checkpoint.id, options.now())
               .some(item => item.status === 'running' || item.status === 'completed');
             if (delegated || callbackRegistered) trigger.status = 'delegated';
-            else if (checkpoint.status === 'completed') { trigger.status = 'observed'; trigger.checkpointProcessId = null; }
+            else if (checkpoint.status === 'completed') throw new Error('checkpoint response is missing the required auto-nudge-result envelope');
             else {
               trigger.status = 'retryable-failure';
               trigger.error = `checkpoint ${checkpoint.id} ended ${checkpoint.status} without a final response`;
@@ -812,7 +863,34 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
           }
           trigger.updatedAt = options.now().toISOString(); result.checkpoints++;
         } catch (error) {
-          trigger.status = 'checkpoint-sent'; trigger.error = (error as Error).message; trigger.updatedAt = options.now().toISOString();
+          const message = (error as Error).message;
+          const attempts = trigger.correctionAttempts ?? 0;
+          if (!checkpointCompleted || responseValidated) {
+            trigger.status = 'checkpoint-sent';
+            trigger.error = message;
+          } else if (attempts === 0 && !options.signal?.aborted) {
+            try {
+              const invalidProcessId = trigger.checkpointProcessId;
+              trigger.checkpointProcessId = null;
+              trigger.correctionAttempts = 1;
+              trigger.status = 'checkpoint-sent';
+              trigger.error = message;
+              trigger.updatedAt = options.now().toISOString();
+              writeAutoNudgeState(options.statePath, state);
+              const correction = await sendGuard.send(overseer.id, () => deadline(client.sendMessage(overseer.id, body(`Your previous response did not match the required structured response contract: ${message}\n\nReturn one corrected final envelope using this contract:\n\n${checkpointPrompt(contract, configured.criteria)}`, overseer)), options.operationTimeoutMs, 'send schema correction', options.signal));
+              if (correction) {
+                trigger.checkpointProcessId = correction.id;
+              } else {
+                trigger.checkpointProcessId = invalidProcessId;
+                trigger.correctionAttempts = 0;
+              }
+            } catch (correctionError) {
+              trigger.status = 'invalid-response'; trigger.error = `invalid response: ${message}; correction failed: ${(correctionError as Error).message}`;
+            }
+          } else {
+            trigger.status = 'invalid-response'; trigger.error = `invalid response after ${attempts} correction attempt(s): ${message}`;
+          }
+          trigger.updatedAt = options.now().toISOString();
         }
         writeAutoNudgeState(options.statePath, state);
       };
@@ -849,7 +927,7 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
         const now = options.now().toISOString();
         const trigger = state.triggers[latest.id] ?? { processId: latest.id, workspaceId: configured.workspaceId, sessionId: teammate.id, observedAt: now, status: 'observed' as const, checkpointProcessId: null, baselineProcessIds: [], updatedAt: now, error: null };
         state.triggers[latest.id] = trigger;
-        if (['done', 'delegated', 'rate-limited'].includes(trigger.status)) continue;
+        if (['done', 'delegated', 'rate-limited', 'invalid-response'].includes(trigger.status)) continue;
         const laterProgress = teammateProcesses.some(item => item.id !== latest.id && new Date(item.created_at).getTime() > terminalTime(latest));
         if (laterProgress) {
           trigger.status = 'delegated'; trigger.updatedAt = now;
@@ -869,7 +947,7 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
             if (!sendGuard.canSendTo(overseer.id)) return;
             trigger.status = 'checkpoint-sent'; trigger.baselineProcessIds = [...baselineIds]; trigger.updatedAt = now;
             writeAutoNudgeState(options.statePath, state);
-            const sent = await sendGuard.send(overseer.id, () => deadline(client.sendMessage(overseer.id, body(overseerPromptWithCriteria(nudgeConfig.config.overseerPrompt, configured.criteria), overseer)), options.operationTimeoutMs, 'send checkpoint', options.signal));
+            const sent = await sendGuard.send(overseer.id, () => deadline(client.sendMessage(overseer.id, body(checkpointPrompt(contract, configured.criteria), overseer)), options.operationTimeoutMs, 'send checkpoint', options.signal));
             if (!sent) {
               trigger.status = 'observed';
               trigger.error = null;
@@ -893,6 +971,15 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
   await processSendQueue(client, options, result, sendGuard);
   await processOutbox(options, state, result);
   return result;
+}
+
+async function executeOutcomeHandlers(outcome: string, config: WorkflowConfig, options: AutoNudgeOptions, workspaceId: string, triggerProcessId: string): Promise<void> {
+  for (const handlerId of config.outcomeHandlers[outcome] ?? []) {
+    const handler = config.handlers[handlerId]!;
+    const action: WorkflowAction = { type: 'run_handler', handlerId, beadIds: [], formIds: [] };
+    const result = await runWorkflowHandler(handler, { idempotencyKey: `${triggerProcessId}:outcome:${outcome}:${handlerId}`, action, workspaceId, triggerProcessId, outcome, dryRun: options.dryRun }, { logPath: options.handlerLogPath ?? DEFAULT_HANDLER_LOG_PATH, timeoutMs: handler.timeoutMs });
+    if (result.status === 'failed') throw new Error(`outcome handler ${handlerId} failed: ${result.error ?? `exit ${result.exitCode}`}`);
+  }
 }
 
 function parseArgs(args: string[]): { registryPath: string; statePath: string; once: boolean; dryRun: boolean } {
@@ -948,12 +1035,13 @@ async function main(): Promise<void> {
     console.log('vibe-agent auto-nudge daemon disabled; set VD_AUTO_NUDGE_ENABLED=true to enable response routing and nudges');
     return;
   }
+  const pollMs = pollIntervalSeconds() * 1_000;
   let stopping = false;
   await runWithOwnerLock(process.env.VD_AUTO_NUDGE_LOCK_PATH ?? DEFAULT_LOCK_PATH, async () => {
     const abortController = new AbortController();
     const stop = () => { stopping = true; abortController.abort(); }; process.once('SIGINT', stop); process.once('SIGTERM', stop);
-    const options: AutoNudgeOptions = { config, statePath: args.statePath, callbackRegistryPath: process.env.VD_CALLBACK_REGISTRY_PATH ?? DEFAULT_CALLBACK_REGISTRY_PATH, responseRoutesPath: process.env.VD_RESPONSE_ROUTES_PATH ?? DEFAULT_RESPONSE_ROUTES_PATH, workspaceRegistryPath: args.registryPath, nudgeConfigPath: process.env.VD_AUTO_NUDGE_CONFIG_PATH ?? DEFAULT_NUDGE_CONFIG_PATH, workflowConfigPath: process.env.VD_AUTO_NUDGE_WORKFLOW_CONFIG_PATH ?? DEFAULT_WORKFLOW_CONFIG_PATH, sendQueuePath: process.env.VD_SEND_QUEUE_PATH ?? DEFAULT_SEND_QUEUE_PATH, handlerLogPath: process.env.VD_HANDLER_LOG_PATH ?? DEFAULT_HANDLER_LOG_PATH, now: () => new Date(), unacknowledgedAfterMs: 60_000, operationTimeoutMs: 15_000, responseTimeoutMs: 30 * 60_000, concurrency: 4, dryRun: args.dryRun, discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL, signal: abortController.signal };
-    do { const result = await runAutoNudgeCycle(makeClient(), options); console.log(JSON.stringify({ type: 'auto-nudge-cycle', at: new Date().toISOString(), ...result })); if (!args.once && !stopping) { try { await abortableDelay(DEFAULT_POLL_MS, abortController.signal); } catch { /* Shutdown aborts the poll delay. */ } } } while (!args.once && !stopping);
+    const options: AutoNudgeOptions = { config, statePath: args.statePath, callbackRegistryPath: process.env.VD_CALLBACK_REGISTRY_PATH ?? DEFAULT_CALLBACK_REGISTRY_PATH, responseRoutesPath: process.env.VD_RESPONSE_ROUTES_PATH ?? DEFAULT_RESPONSE_ROUTES_PATH, workspaceRegistryPath: args.registryPath, workflowConfigPath: process.env.VD_AUTO_NUDGE_WORKFLOW_CONFIG_PATH ?? DEFAULT_WORKFLOW_CONFIG_PATH, sendQueuePath: process.env.VD_SEND_QUEUE_PATH ?? DEFAULT_SEND_QUEUE_PATH, handlerLogPath: process.env.VD_HANDLER_LOG_PATH ?? DEFAULT_HANDLER_LOG_PATH, now: () => new Date(), unacknowledgedAfterMs: 60_000, operationTimeoutMs: 15_000, responseTimeoutMs: 30 * 60_000, concurrency: 4, dryRun: args.dryRun, discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL, signal: abortController.signal };
+    do { const result = await runAutoNudgeCycle(makeClient(), options); console.log(JSON.stringify({ type: 'auto-nudge-cycle', at: new Date().toISOString(), ...result })); if (!args.once && !stopping) { try { await abortableDelay(pollMs, abortController.signal); } catch { /* Shutdown aborts the poll delay. */ } } } while (!args.once && !stopping);
   });
   if (stopping || args.once) process.exit(0);
 }

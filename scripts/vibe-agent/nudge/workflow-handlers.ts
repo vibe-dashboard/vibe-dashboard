@@ -11,6 +11,7 @@ export interface HandlerPayload {
   action: WorkflowAction;
   workspaceId: string;
   triggerProcessId: string;
+  outcome?: string;
   dryRun: boolean;
 }
 

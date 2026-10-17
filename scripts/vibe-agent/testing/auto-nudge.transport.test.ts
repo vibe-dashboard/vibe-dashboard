@@ -5,12 +5,15 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { VibeClient } from '../core/client.js';
 import { createAutoNudgeClient, readAutoNudgeState, runAutoNudgeCycle, writeAutoNudgeState, type AutoNudgeOptions } from '../nudge/auto-nudge.js';
 import { createCallback } from '../nudge/callback-registry.js';
+import { DEFAULT_OVERSEER_RESULT_SCHEMA } from '../nudge/workflow-config.js';
+import { schemaHash } from '../nudge/workflow-xml.js';
 import { appendResponseRoute, readResponseRouteState } from '../nudge/response-routes.js';
 import { FakeDiscordServer } from './fake-discord-server.js';
 import { FakeVkServer, type FakeVkProcess, type FakeVkScenario } from './fake-vk-server.js';
 import type { SendMessageBody, Session } from '../types.js';
 
 const now = '2026-09-21T00:10:00.000Z'; const old = '2026-09-21T00:00:00.000Z';
+const completeResult = `<auto-nudge-result schema_id="vd.auto-nudge.overseer-result" schema_version="1" schema_hash="${schemaHash(DEFAULT_OVERSEER_RESULT_SCHEMA)}" format="json">{"outcome":"complete","actions":[]}</auto-nudge-result>`;
 const process = (id: string, sessionId: string, status: FakeVkProcess['status'], final?: string): FakeVkProcess => ({
   id, session_id: sessionId, status, created_at: old, started_at: old, updated_at: old, completed_at: status === 'running' ? null : old,
   exit_code: status === 'completed' ? 0 : 1, run_reason: 'codingagent', dropped: false, executor_action: { typ: { prompt: 'work' } },
@@ -68,9 +71,9 @@ describe('auto-nudge across real VK transport', () => {
     expect(server.journal.filter(item => item.type === 'follow-up-accepted')).toHaveLength(0);
   });
 
-  it('checkpoints and closes the trigger on exact DONE', async () => {
+  it('checkpoints and closes the trigger on structured completion', async () => {
     const scenario = base([process('complete', 'impl', 'completed', 'Finished')]);
-    const checkpoint = process('checkpoint', 'overseer', 'running', 'DONE'); checkpoint.statusSequence = ['completed'];
+    const checkpoint = process('checkpoint', 'overseer', 'running', completeResult); checkpoint.statusSequence = ['completed'];
     scenario.followUps = [{ sessionId: 'overseer', process: checkpoint }];
     const { options, client } = await setup(scenario);
     await runAutoNudgeCycle(client, options);
@@ -84,11 +87,14 @@ describe('auto-nudge across real VK transport', () => {
     scenario.followUps = [{ sessionId: 'overseer', process: checkpoint }];
     const { options, client } = await setup(scenario);
     let reads = 0;
-    const original = client.getSessionProcesses;
-    client.getSessionProcesses = async sessionId => {
-      const processes = await original(sessionId);
-      if (sessionId === 'review' && ++reads > 1) return [process('handoff', 'review', 'running')];
-      return processes;
+    const original = client.getAutoNudgeStatus;
+    client.getAutoNudgeStatus = async (request, signal) => {
+      const status = await original(request, signal);
+      if (++reads > 1) {
+        const review = status.workspaces[0]?.sessions.find(item => item.id === 'review');
+        if (review) review.latest_codingagent_process = { ...process('handoff', 'review', 'running'), final_response: null, terminal_no_response: false };
+      }
+      return status;
     };
     await runAutoNudgeCycle(client, options);
     expect(readAutoNudgeState(options.statePath).triggers.complete).toMatchObject({ status: 'delegated' });
@@ -96,7 +102,7 @@ describe('auto-nudge across real VK transport', () => {
 
   it('restarts from persisted checkpoint identity without another follow-up', async () => {
     const scenario = base([process('complete', 'impl', 'completed', 'Finished')]);
-    const checkpoint = process('checkpoint', 'overseer', 'completed', 'DONE'); scenario.sessions[1].processes.push(checkpoint);
+    const checkpoint = process('checkpoint', 'overseer', 'completed', completeResult); scenario.sessions[1].processes.push(checkpoint);
     const { server, options, client } = await setup(scenario);
     const state = readAutoNudgeState(options.statePath); state.triggers.complete = { processId: 'complete', workspaceId: 'workspace', sessionId: 'impl', observedAt: old, status: 'checkpoint-sent', checkpointProcessId: 'checkpoint', baselineProcessIds: ['complete'], updatedAt: old, error: null }; writeAutoNudgeState(options.statePath, state);
     await runAutoNudgeCycle(client, options);

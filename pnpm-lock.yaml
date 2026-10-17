@@ -92,6 +92,9 @@ importers:
       tailwindcss:
         specifier: ^4.1.18
         version: 4.1.18
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
     devDependencies:
       '@better-auth/cli':
         specifier: ^1.4.21

@@ -20,15 +20,9 @@ When the user asks you to complete all milestones, keep going until done, or oth
 
 2. Coordinate teammates with `vibe-agent send ...`. Response routing is the default; use `--fire-and-forget` only when no response is needed.
 
-3. If the workflow is complete, reply exactly:
-   ```text
-   DONE
-   ```
+3. Read the response schema path and identity included in every auto-nudge checkpoint prompt. End with exactly one matching `auto-nudge-result` envelope containing strict JSON. Human-readable Markdown may precede it. Use `{"outcome":"complete","actions":[]}` when the workflow is complete.
 
-4. If the next milestone-completion step needs a user decision or approval, create a beads-form for the user, then end your response with:
-   ```text
-   CREATED FORM
-   ```
+4. If the next milestone-completion step needs a user decision or approval, create a beads-form and report the handoff through the structured actions required by the checkpoint schema. Do not use legacy `DONE` or `CREATED FORM` markers.
 
 5. If auto-nudge coordination should stop for this workspace, run:
    ```bash
@@ -36,7 +30,7 @@ When the user asks you to complete all milestones, keep going until done, or oth
    ```
 
 Notes:
-- The auto-nudge daemon can still recover agents that stopped mid-turn even when overseer coordination is not enabled for the workspace.
+- VK owns recovery of prematurely stopped agent turns. Auto-nudge coordinates only registered workspace workflows.
 - `vibe-agent auto-nudge status` shows the current workspace registration.
-- The default runtime config is `/home/vkuser/.local/share/vibe-dashboard-runtime/data/config/nudge_config.json`. It can customize the overseer checkpoint prompt and end-condition markers.
-- End-condition markers are case-sensitive and must appear at the end of your final message. They may be on the final line, for example `All done.\nDONE` or `Please fill out the form.\nCREATED FORM`.
+- The default runtime workflow config is `/home/vkuser/.local/share/vibe-dashboard-runtime/data/config/auto_nudge_workflow.yaml`; its response schema files live beside it under `schemas/`.
+- The daemon rejects malformed, duplicate-key, unknown-field, or schema-identity-mismatched results and permits one correction attempt before manual recovery.

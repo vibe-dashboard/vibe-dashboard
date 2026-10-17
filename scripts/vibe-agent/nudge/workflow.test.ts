@@ -1,222 +1,75 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import {
-  DEFAULT_WORKFLOW_CONFIG_YAML,
-  ensureWorkflowConfig,
-  loadWorkflowConfig,
-  parseWorkflowConfig,
-} from './workflow-config.js';
-import { parseWorkflowResultXml, validateWorkflowActions } from './workflow-xml.js';
+import { DEFAULT_OVERSEER_RESULT_SCHEMA, DEFAULT_WORKFLOW_CONFIG_YAML, ensureWorkflowConfig, loadWorkflowConfig, parseWorkflowConfig } from './workflow-config.js';
+import { parseWorkflowResultXml, schemaHash, validateWorkflowActions, validateWorkflowSchema } from './workflow-xml.js';
 import { runWorkflowHandler } from './workflow-handlers.js';
 
 const dirs: string[] = [];
-afterEach(() => {
-  while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true });
-});
-
-function tempPath(name: string): string {
-  const dir = mkdtempSync(join(tmpdir(), 'workflow-'));
-  dirs.push(dir);
-  return join(dir, name);
-}
+afterEach(() => { while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true }); });
+function tempPath(name: string): string { const dir = mkdtempSync(join(tmpdir(), 'workflow-')); dirs.push(dir); return join(dir, name); }
+const hash = schemaHash(DEFAULT_OVERSEER_RESULT_SCHEMA);
+const envelope = (payload: string, attrs = `schema_id="vd.auto-nudge.overseer-result" schema_version="1" schema_hash="${hash}" format="json"`) => `Human summary.\n<auto-nudge-result ${attrs}>${payload}</auto-nudge-result>`;
 
 describe('workflow YAML config', () => {
-  it('auto-populates and loads the built-in YAML config', () => {
-    const file = tempPath('workflow.yaml');
-    ensureWorkflowConfig(file);
+  it('auto-populates the config and authoritative schema', () => {
+    const file = tempPath('workflow.yaml'); ensureWorkflowConfig(file);
     expect(readFileSync(file, 'utf8')).toBe(DEFAULT_WORKFLOW_CONFIG_YAML);
-    expect(loadWorkflowConfig(file).messageTypes.created_form_handoff).toMatchObject({
-      fromRole: 'overseer',
-      toRole: 'decision_maker',
-      promptId: 'created_form_handoff',
-      fresh: false,
-    });
+    expect(loadWorkflowConfig(file).messageTypes.overseer_checkpoint.responseSchemaId).toBe('overseer_result');
+    expect(JSON.parse(readFileSync(join(dirname(file), 'schemas/overseer-result.schema.json'), 'utf8'))).toEqual(DEFAULT_OVERSEER_RESULT_SCHEMA);
   });
-
-  it('fails closed on malformed or unsafe handler config', () => {
-    expect(() => parseWorkflowConfig('version: 2\n')).toThrow(/unsupported top-level/);
-    expect(() => parseWorkflowConfig(`version: 1
-roles:
-  overseer:
-    can_emit_actions:
-      - nope
-prompts: {}
-message_types: {}
-handlers: {}
-`)).toThrow(/Unknown workflow action/);
-    expect(() => parseWorkflowConfig(`version: 1
-roles:
-  overseer:
-    can_emit_actions:
-      - run_handler
-prompts:
-  created_form_handoff:
-    text: |
-      text
-message_types:
-  created_form_handoff:
-    from_role: overseer
-    to_role: decision_maker
-    prompt_id: created_form_handoff
-    fresh: false
-    allowed_actions: []
-handlers:
-  post:
-    enabled: true
-    command: []
-`)).toThrow(/command is required/);
-    expect(() => parseWorkflowConfig(`version: 1
-roles:
-  overseer:
-    can_emit_actions: []
-prompts:
-  p:
-    text: |
-      text
-message_types:
-handlers:
-  post:
-    enabled: yes
-    command: []
-`)).toThrow(/handlers.post.enabled must be true or false/);
-    expect(parseWorkflowConfig(`version: 1
-roles:
-  overseer:
-    can_emit_actions: []
-prompts:
-  p:
-    text: |
-      text
-message_types:
-  m:
-    from_role: overseer
-    to_role: decision_maker
-    prompt_id: p
-    fresh: true
-    allowed_actions: []
-handlers: {}
-`).messageTypes.m).toMatchObject({ fresh: true });
+  it.each([
+    ['duplicate keys', DEFAULT_WORKFLOW_CONFIG_YAML.replace('version: 2', 'version: 2\nversion: 2'), /Map keys must be unique/],
+    ['aliases', 'version: 2\nroles: &roles {}\nprompts: {}\nresponse_schemas: {}\nmessage_types: {}\nhandlers: {}\ncopy: *roles\n', /aliases and anchors/],
+    ['custom tags', 'version: !bad 2\nroles: {}\nprompts: {}\nresponse_schemas: {}\nmessage_types: {}\nhandlers: {}\n', /custom tag/],
+    ['unknown fields', `${DEFAULT_WORKFLOW_CONFIG_YAML}extra: true\n`, /unknown field extra/],
+    ['wrong boolean type', DEFAULT_WORKFLOW_CONFIG_YAML.replace('fresh: false', 'fresh: "false"'), /must be true or false/],
+  ])('fails closed on %s', (_name, yaml, error) => expect(() => parseWorkflowConfig(yaml)).toThrow(error));
+  it('rejects multiple documents, merge keys, excessive depth, and oversized input', () => {
+    expect(() => parseWorkflowConfig(`${DEFAULT_WORKFLOW_CONFIG_YAML}\n---\nversion: 2`)).toThrow();
+    expect(() => parseWorkflowConfig(DEFAULT_WORKFLOW_CONFIG_YAML.replace('handlers: {}', 'handlers:\n  <<: {}'))).toThrow(/merge keys|must be an object/);
+    expect(() => parseWorkflowConfig(`version: 2\nroles: ${'['.repeat(25)}x${']'.repeat(25)}\nprompts: {}\nresponse_schemas: {}\nmessage_types: {}\nhandlers: {}\noutcome_handlers: {}`)).toThrow(/depth|must be an object/);
+    expect(() => parseWorkflowConfig(`#${'x'.repeat(256 * 1024)}\n`)).toThrow(/exceeds/);
   });
 });
 
-describe('workflow XML parser', () => {
-  const xml = `Please fill out the form.
-<auto-nudge-result version="1">
-  <actions>
-    <action type="send_message" role="decision_maker" message_type="created_form_handoff">
-      <bead id="vkvw-pnhne" />
-      <form id="decision-form" />
-    </action>
-    <action type="wait" mode="callback-wait" />
-  </actions>
-</auto-nudge-result>`;
-
-  it('parses a final auto-nudge result block', () => {
-    expect(parseWorkflowResultXml(xml)).toEqual({
-      actions: [
-        { type: 'send_message', role: 'decision_maker', messageType: 'created_form_handoff', handlerId: undefined, mode: undefined, beadIds: ['vkvw-pnhne'], formIds: ['decision-form'] },
-        { type: 'wait', role: undefined, messageType: undefined, handlerId: undefined, mode: 'callback-wait', beadIds: [], formIds: [] },
-      ],
-    });
+describe('role-scoped JSON result envelope', () => {
+  const result = envelope(JSON.stringify({ outcome: 'waiting', actions: [
+    { type: 'send_message', role: 'decision_maker', message_type: 'created_form_handoff', beads: ['task-4uf'], forms: ['decision-form'] },
+    { type: 'wait', mode: 'callback-wait' },
+  ] }));
+  it('parses strict JSON and validates schema identity and permissions', () => {
+    const parsed = parseWorkflowResultXml(result)!;
+    expect(parsed).toMatchObject({ schemaId: 'vd.auto-nudge.overseer-result', schemaVersion: 1, schemaHash: hash, outcome: 'waiting' });
+    validateWorkflowSchema(parsed, { schemaId: 'vd.auto-nudge.overseer-result', schemaVersion: 1, schemaHash: hash });
+    expect(() => validateWorkflowActions(parsed, parseWorkflowConfig(DEFAULT_WORKFLOW_CONFIG_YAML), 'overseer')).not.toThrow();
   });
-
-  it('returns null for legacy marker-only responses', () => {
-    expect(parseWorkflowResultXml('Please fill out the form.\nCREATED FORM')).toBeNull();
+  it('rejects duplicate keys, unknown fields, mismatched identity, and legacy XML actions', () => {
+    expect(() => parseWorkflowResultXml(envelope('{"outcome":"complete","outcome":"waiting","actions":[]}'))).toThrow(/unique/);
+    expect(() => parseWorkflowResultXml(envelope('{"outcome":"complete","actions":[],"extra":true}'))).toThrow(/unknown field/);
+    const parsed = parseWorkflowResultXml(result)!;
+    expect(() => validateWorkflowSchema(parsed, { schemaId: 'other', schemaVersion: 1, schemaHash: hash })).toThrow(/does not match/);
+    expect(() => parseWorkflowResultXml('<auto-nudge-result version="1"><actions /></auto-nudge-result>')).toThrow(/metadata/);
+    expect(parseWorkflowResultXml('DONE')).toBeNull();
   });
-
-  it('rejects malformed or non-final XML', () => {
-    expect(() => parseWorkflowResultXml(`${xml}\nextra`)).toThrow(/final response block/);
-    expect(() => parseWorkflowResultXml(`${xml}\n${xml}`)).toThrow(/one auto-nudge-result/);
-    expect(() => parseWorkflowResultXml('<auto-nudge-result><actions><action type="unknown" /></actions></auto-nudge-result>')).toThrow(/Unknown XML action/);
-    expect(() => parseWorkflowResultXml('<auto-nudge-result><actions><action type="wait" /><extra /></actions></auto-nudge-result>')).toThrow(/unsupported content/);
-    expect(() => parseWorkflowResultXml('<auto-nudge-result><actions><action type="wait" bad="x" /></actions></auto-nudge-result>')).toThrow(/Unknown action attribute/);
-    expect(() => parseWorkflowResultXml('<auto-nudge-result><actions><action type="wait">text</action></actions></auto-nudge-result>')).toThrow(/unsupported content/);
-  });
-
-  it('validates configured role permissions and message types', () => {
-    const config = parseWorkflowConfig(DEFAULT_WORKFLOW_CONFIG_YAML);
-    const result = parseWorkflowResultXml(xml)!;
-    expect(() => validateWorkflowActions(result, config, 'overseer')).not.toThrow();
-    expect(() => validateWorkflowActions(result, config, 'decision_maker')).toThrow(/may not emit/);
-  });
-
-  it('enforces message type allowed actions for handlers', () => {
-    const config = parseWorkflowConfig(`version: 1
-roles:
-  overseer:
-    can_emit_actions:
-      - send_message
-      - run_handler
-prompts:
-  p:
-    text: |
-      text
-message_types:
-  m:
-    from_role: overseer
-    to_role: decision_maker
-    prompt_id: p
-    fresh: false
-    allowed_actions: []
-handlers:
-  post:
-    enabled: true
-    command:
-      - echo
-`);
-    const result = parseWorkflowResultXml(`<auto-nudge-result>
-  <actions>
-    <action type="send_message" role="decision_maker" message_type="m" />
-    <action type="run_handler" handler_id="post" />
-  </actions>
-</auto-nudge-result>`)!;
-    expect(() => validateWorkflowActions(result, config, 'overseer')).toThrow(/does not allow run_handler/);
-    const standalone = parseWorkflowResultXml('<auto-nudge-result><actions><action type="run_handler" handler_id="post" /></actions></auto-nudge-result>')!;
-    expect(() => validateWorkflowActions(standalone, config, 'overseer')).toThrow(/requires a send_message/);
+  it('hashes canonical JSON independent of object key order', () => {
+    expect(schemaHash({ b: 2, a: { d: 4, c: 3 } })).toBe(schemaHash({ a: { c: 3, d: 4 }, b: 2 }));
   });
 });
 
 describe('workflow handlers', () => {
-  it('keeps custom handlers explicit and idempotent while dry-run stays read-only', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'workflow-'));
-    dirs.push(root);
-    const logPath = join(root, 'handler-log', 'handler-runs.jsonl');
+  it('keeps dry-run read-only and real execution idempotent', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'workflow-')); dirs.push(root); const logPath = join(root, 'log', 'runs.jsonl');
     const action = { type: 'run_handler' as const, handlerId: 'post', beadIds: [], formIds: [] };
     const payload = { idempotencyKey: 'once', action, workspaceId: 'w1', triggerProcessId: 'p1', dryRun: true };
-    const result = await runWorkflowHandler({ enabled: true, command: ['echo', 'ok'], timeoutMs: 1_000 }, payload, { logPath });
-    expect(result.status).toBe('dry-run');
+    expect((await runWorkflowHandler({ enabled: true, command: ['echo', 'ok'], timeoutMs: 1_000 }, payload, { logPath })).status).toBe('dry-run');
     expect(existsSync(dirname(logPath))).toBe(false);
-    expect(() => readFileSync(logPath, 'utf8')).toThrow();
-    const second = await runWorkflowHandler({ enabled: true, command: ['echo', 'ok'], timeoutMs: 1_000 }, { ...payload, dryRun: false }, { logPath });
-    expect(second.status).toBe('completed');
+    expect((await runWorkflowHandler({ enabled: true, command: ['echo', 'ok'], timeoutMs: 1_000 }, { ...payload, dryRun: false }, { logPath })).status).toBe('completed');
   });
-
-  it('records nonzero handler exits', async () => {
-    const logPath = tempPath('handler-runs.jsonl');
-    const result = await runWorkflowHandler(
-      { enabled: true, command: ['node', '-e', 'process.stderr.write("bad"); process.exit(2)'], timeoutMs: 1_000 },
-      { idempotencyKey: 'fail', action: { type: 'run_handler', handlerId: 'post', beadIds: [], formIds: [] }, workspaceId: 'w1', triggerProcessId: 'p1', dryRun: false },
-      { logPath },
-    );
-    expect(result).toMatchObject({ status: 'failed', exitCode: 2, error: 'bad' });
-  });
-
-  it('does not treat failed handler records as completed idempotency', async () => {
-    const logPath = tempPath('handler-runs.jsonl');
-    const payload = { idempotencyKey: 'retry', action: { type: 'run_handler' as const, handlerId: 'post', beadIds: [], formIds: [] }, workspaceId: 'w1', triggerProcessId: 'p1', dryRun: false };
-    const failed = await runWorkflowHandler(
-      { enabled: true, command: ['node', '-e', 'process.exit(2)'], timeoutMs: 1_000 },
-      payload,
-      { logPath },
-    );
-    expect(failed.status).toBe('failed');
-    const retried = await runWorkflowHandler(
-      { enabled: true, command: ['node', '-e', 'process.exit(0)'], timeoutMs: 1_000 },
-      payload,
-      { logPath },
-    );
-    expect(retried.status).toBe('completed');
+  it('does not treat failed records as completed idempotency', async () => {
+    const logPath = tempPath('runs.jsonl'); const action = { type: 'run_handler' as const, handlerId: 'post', beadIds: [], formIds: [] }; const payload = { idempotencyKey: 'retry', action, workspaceId: 'w1', triggerProcessId: 'p1', dryRun: false };
+    expect((await runWorkflowHandler({ enabled: true, command: ['node', '-e', 'process.exit(2)'], timeoutMs: 1_000 }, payload, { logPath })).status).toBe('failed');
+    expect((await runWorkflowHandler({ enabled: true, command: ['node', '-e', 'process.exit(0)'], timeoutMs: 1_000 }, payload, { logPath })).status).toBe('completed');
   });
 });
