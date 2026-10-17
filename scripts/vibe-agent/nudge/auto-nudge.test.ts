@@ -1,10 +1,10 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AutoNudgeStatusRequest, AutoNudgeStatusResponse, ConversationEntry, ExecutionProcess, SendMessageBody, Session } from '../types.js';
 import {
-  abortableDelay, acquireLock, createAutoNudgeClient, disableAutoNudgeWorkspace, enableAutoNudgeWorkspace, formatWorkspaceCriteriaBlock, isAutoNudgeEnabled, loadAutoNudgeConfig, pollIntervalSeconds, readAutoNudgeState, readAutoNudgeWorkspaceRegistry, runAutoNudgeCycle, runWithOwnerLock, writeAutoNudgeState,
+  abortableDelay, acquireLock, attachWorkflowForm, createAutoNudgeClient, disableAutoNudgeWorkspace, enableAutoNudgeWorkspace, formatWorkspaceCriteriaBlock, isAutoNudgeEnabled, loadAutoNudgeConfig, pollIntervalSeconds, readAutoNudgeState, readAutoNudgeWorkspaceRegistry, readWorkflowArtifact, runAutoNudgeCycle, runWithOwnerLock, writeAutoNudgeState,
   type AutoNudgeClient, type AutoNudgeOptions,
 } from './auto-nudge.js';
 import { appendResponseRoute, bindResponseRouteProcess, readResponseRouteState, updateResponseRoute } from './response-routes.js';
@@ -181,17 +181,16 @@ describe('auto nudge', () => {
     ].join('\n'));
   });
 
-  it('nudges an idle teammate terminal turn without a final response exactly once', async () => {
+  it('leaves registered terminal-no-response recovery to VK', async () => {
     const { options } = setup();
     const p = proc('failed', 'impl', 'failed', 8);
     const { client, sent } = fake({ processes: { impl: [p], overseer: [] }, entries: { failed: [tool] } });
     await runAutoNudgeCycle(client, options);
     await runAutoNudgeCycle(client, options);
-    expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatchObject({ sessionId: 'impl', body: { prompt: 'Please continue' } });
+    expect(sent).toEqual([]);
   });
 
-  it('nudges terminal no-final work in an unregistered workspace without checkpointing', async () => {
+  it('leaves unregistered terminal-no-response recovery to VK', async () => {
     const { options } = setup();
     options.config.workspaces = [];
     const p = proc('failed', 'impl', 'failed', 8);
@@ -199,21 +198,21 @@ describe('auto nudge', () => {
     client.getAllWorkspaces = async () => [{ id: 'w1', archived: false } as any];
     client.getSessions = async () => [session('impl', 'impl')];
     await runAutoNudgeCycle(client, options);
-    expect(sent).toHaveLength(1);
+    expect(sent).toEqual([]);
     expect(readAutoNudgeState(options.statePath).triggers).toEqual({});
   });
 
-  it('keeps dry-run read-only and sends exactly once on the following real cycle', async () => {
+  it('keeps dry-run read-only for terminal-no-response work', async () => {
     const { options } = setup();
     const p = proc('failed', 'impl', 'failed', 8);
     const { client, sent } = fake({ processes: { impl: [p], overseer: [] }, entries: { failed: [tool] } });
     options.dryRun = true;
-    expect((await runAutoNudgeCycle(client, options)).teammateNudges).toBe(1);
+    expect((await runAutoNudgeCycle(client, options)).teammateNudges).toBe(0);
     expect(existsSync(options.statePath)).toBe(false);
     options.dryRun = false;
     await runAutoNudgeCycle(client, options);
     await runAutoNudgeCycle(client, options);
-    expect(sent).toHaveLength(1);
+    expect(sent).toEqual([]);
   });
 
   it('sends nothing while any workspace teammate is active', async () => {
@@ -226,13 +225,13 @@ describe('auto nudge', () => {
     expect(sent).toEqual([]);
   });
 
-  it('executes at most one deterministic recovery for two failed sessions', async () => {
+  it('does not recover two failed sessions owned by VK', async () => {
     const { options } = setup();
     const older = proc('older', 'impl', 'failed', 7); const newer = proc('newer', 'review', 'failed', 8);
     const { client, sent } = fake({ processes: { impl: [older], review: [newer], overseer: [] }, entries: { older: [tool], newer: [tool] } });
     client.getSessions = async () => [session('overseer', 'overseer'), session('impl', 'impl'), session('review', 'review')];
     await runAutoNudgeCycle(client, options);
-    expect(sent).toEqual([expect.objectContaining({ sessionId: 'review' })]);
+    expect(sent).toEqual([]);
   });
 
   it('treats newer teammate progress as acknowledgement before checkpointing', async () => {
@@ -284,7 +283,8 @@ describe('auto nudge', () => {
     await runAutoNudgeCycle(client, options);
     const trigger = readAutoNudgeState(options.statePath).triggers.complete;
     expect(trigger?.status).toBe('checkpoint-sent');
-    expect(trigger?.correctionAttempts ?? 0).toBe(0);
+    expect(trigger).toMatchObject({ correctionAttempts: 1, correctionSendId: 'complete:schema-correction' });
+    expect(readSendQueue(options.sendQueuePath!).sends['complete:schema-correction']).toMatchObject({ status: 'queued' });
   });
 
   it('sends exactly one schema correction then persists visible invalid response state', async () => {
@@ -296,6 +296,42 @@ describe('auto nudge', () => {
     expect(sent.filter(item => item.body.prompt.includes('corrected final envelope'))).toHaveLength(1);
     await runAutoNudgeCycle(client, options);
     expect(readAutoNudgeState(options.statePath).triggers.complete).toMatchObject({ status: 'invalid-response', correctionAttempts: 1, error: expect.stringContaining('invalid response') });
+  });
+
+  it('validates against the exact authoritative schema bytes that were hashed', async () => {
+    const { options } = setup();
+    const schema = structuredClone(DEFAULT_OVERSEER_RESULT_SCHEMA) as any;
+    schema.properties.outcome.enum = ['complete'];
+    mkdirSync(join(dirname(options.workflowConfigPath!), 'schemas'), { recursive: true });
+    writeFileSync(options.workflowConfigPath!, DEFAULT_WORKFLOW_CONFIG_YAML);
+    writeFileSync(join(dirname(options.workflowConfigPath!), 'schemas/overseer-result.schema.json'), JSON.stringify(schema));
+    const complete = proc('complete', 'impl', 'completed', 5);
+    const response = `<auto-nudge-result schema_id="vd.auto-nudge.overseer-result" schema_version="1" schema_hash="${schemaHash(schema)}" format="json">${JSON.stringify({ outcome: 'waiting', actions: [] })}</auto-nudge-result>`;
+    const { client } = fake({ processes: { impl: [complete], overseer: [] }, entries: { complete: [msg('Finished')] }, response });
+    await runAutoNudgeCycle(client, options);
+    expect(readAutoNudgeState(options.statePath).triggers.complete).toMatchObject({ correctionAttempts: 1, error: expect.stringContaining('authoritative schema') });
+  });
+
+  it('fails startup when the configured authoritative schema is invalid', async () => {
+    const { options } = setup();
+    mkdirSync(join(dirname(options.workflowConfigPath!), 'schemas'), { recursive: true });
+    writeFileSync(options.workflowConfigPath!, DEFAULT_WORKFLOW_CONFIG_YAML);
+    writeFileSync(join(dirname(options.workflowConfigPath!), 'schemas/overseer-result.schema.json'), JSON.stringify({ type: 'not-a-json-schema-type' }));
+    const { client } = fake({ processes: {} });
+    await expect(runAutoNudgeCycle(client, options)).rejects.toThrow(/Invalid workflow response schema/);
+  });
+
+  it('keeps a persisted correction intent at-most-once across cycles', async () => {
+    const { options } = setup();
+    const complete = proc('complete', 'impl', 'completed', 5);
+    writeAutoNudgeState(options.statePath, { version: 1, nudgedProcessIds: [], outbox: {}, globalCursor: null, triggers: {
+      complete: { processId: 'complete', workspaceId: 'w1', sessionId: 'impl', observedAt: iso(5), status: 'checkpoint-sent', checkpointProcessId: null, correctionAttempts: 1, correctionSendId: 'complete:schema-correction', updatedAt: iso(9), error: 'bad response' },
+    } });
+    enqueueSend(options.sendQueuePath!, { id: 'complete:schema-correction', targetRole: 'overseer', targetSessionId: 'overseer', executor: 'CODEX', prompt: 'correct it', replySessionId: null, now: new Date(iso(9)) });
+    const { client, sent } = fake({ processes: { impl: [complete], overseer: [] }, entries: { complete: [msg('Finished')] }, response: resultEnvelope('complete') });
+    await runAutoNudgeCycle(client, options);
+    await runAutoNudgeCycle(client, options);
+    expect(sent.filter(item => item.body.prompt === 'correct it')).toHaveLength(1);
   });
 
   it('keeps an invalid checkpoint visible without a causally newer teammate process', async () => {
@@ -833,12 +869,47 @@ describe('auto nudge', () => {
     state.triggers.complete = { processId: 'complete', workspaceId: 'w1', sessionId: 'impl', observedAt: iso(6), status: 'checkpoint-sent', checkpointProcessId: 'persisted', baselineProcessIds: ['complete'], updatedAt: iso(6), error: null };
     writeAutoNudgeState(options.statePath, state);
     const created: unknown[] = []; options.createForm = async input => { created.push(input); };
-    const response = resultEnvelope('waiting', [{ type: 'create_form', id: 'form-action', bead: 'task-4uf', form: { format: 'standard', id: 'decision', title: 'Decision', questions: [] } }]);
-    const { client } = fake({ processes: { impl: [complete], overseer: [] }, entries: { persisted: [msg(response)] } });
+    const response = resultEnvelope('waiting', [
+      { type: 'create_form', id: 'form-action', bead: 'task-4uf', form: { format: 'standard', id: 'decision', title: 'Decision', questions: [] } },
+      { type: 'send_message', role: 'decision_maker', message_type: 'created_form_handoff', form_refs: ['form-action'] },
+    ]);
+    const { client, sent } = fake({ processes: { impl: [complete], overseer: [] }, entries: { persisted: [msg(response)] }, sessions: [session('overseer', 'overseer'), session('impl', 'impl'), session('decision', 'decision_maker')] });
     client.getExecutionProcess = async () => proc('persisted', 'overseer', 'completed', 8);
     await runAutoNudgeCycle(client, options);
     expect(created).toEqual([expect.objectContaining({ beadId: 'task-4uf', beadsDir: dir, form: expect.objectContaining({ id: 'decision', html: expect.stringContaining('<form>') }) })]);
+    expect(sent.find(item => item.sessionId === 'decision')?.body.prompt).toContain('Forms: decision');
     expect(readAutoNudgeState(options.statePath).triggers.complete?.status).toBe('delegated');
+  });
+
+  it('confines create_form artifacts to real files under beadsDir', () => {
+    const { dir } = setup();
+    const root = join(dir, 'beads'); const outside = join(dir, 'outside.json');
+    mkdirSync(join(root, 'forms'), { recursive: true });
+    writeFileSync(join(root, 'forms', 'ok.json'), '{}'); writeFileSync(outside, '{}');
+    expect(readWorkflowArtifact(root, 'forms/ok.json')).toBe('{}');
+    expect(() => readWorkflowArtifact(root, '../outside.json')).toThrow(/escapes/);
+    expect(() => readWorkflowArtifact(root, outside)).toThrow(/relative/);
+    symlinkSync(outside, join(root, 'direct.json'));
+    expect(() => readWorkflowArtifact(root, 'direct.json')).toThrow(/symbolic link/);
+    symlinkSync(dirname(outside), join(root, 'linked-parent'));
+    expect(() => readWorkflowArtifact(root, 'linked-parent/outside.json')).toThrow(/symbolic link/);
+  });
+
+  it('re-reads concurrent bead metadata before attaching a form', async () => {
+    const { dir } = setup(); let shows = 0; let written: Record<string, unknown> | null = null;
+    const form = { id: 'decision', title: 'Decision', html: '<form></form>' } as any;
+    await attachWorkflowForm(dir, 'task-1', form, 'w1', 'overseer', async (_file, args) => {
+      if (args[0] === 'show') {
+        shows++;
+        const metadata = shows === 1 ? { original: true } : { original: true, concurrent: true };
+        return { stdout: JSON.stringify([{ id: 'task-1', metadata }]) };
+      }
+      const metadataPath = args.at(-1)!.slice(1);
+      written = JSON.parse(readFileSync(metadataPath, 'utf8'));
+      return { stdout: '' };
+    });
+    expect(shows).toBeGreaterThanOrEqual(4);
+    expect(written).toMatchObject({ original: true, concurrent: true, VK_WORKSPACE_ID: 'w1' });
   });
 
   it('treats an existing matching workflow send as idempotent success on retry', async () => {
@@ -879,7 +950,7 @@ describe('auto nudge', () => {
     writeAutoNudgeState(options.statePath, state);
     writeFileSync(options.workflowConfigPath!, DEFAULT_WORKFLOW_CONFIG_YAML
       .replace('The overseer created a decision form for the next milestone.', 'fresh handoff')
-      .replace('fresh: false\n    allowed_actions: [wait, run_handler]', 'fresh: true\n    allowed_actions: [wait, run_handler]'));
+      .replace('fresh: false\n    allowed_actions: [wait, run_handler, create_form]', 'fresh: true\n    allowed_actions: [wait, run_handler, create_form]'));
     const response = resultEnvelope('delegated', [{ type: 'send_message', role: 'decision_maker', message_type: 'created_form_handoff' }]);
     const { client, sent } = fake({
       processes: { impl: [complete], overseer: [], decision: [] },
@@ -1234,6 +1305,7 @@ describe('auto nudge', () => {
       async getAllWorkspaces() { return []; },
       async getSessions() { return []; }, async getSessionProcesses() { return []; },
       async getSession(id) { return session(id, id); },
+      async createSession(body) { return session('fresh-production', body.name ?? 'fresh', body.executor); },
       async sendMessage() { return sentProcess; },
       async fetchConversation(_id, timeout) { observedTimeout = timeout; return [msg('DONE')]; },
       async getExecutionProcess(id) { expect(id).toBe('checkpoint'); return terminalProcess; },
@@ -1242,6 +1314,7 @@ describe('auto nudge', () => {
       async getAutoNudgeStatus(request) { return aggregateStatus(request, { processes: {} }); },
     });
     expect((await adapter.sendMessage('overseer', {} as SendMessageBody)).id).toBe('checkpoint');
+    expect((await adapter.createSession!({ workspace_id: 'w1', executor: 'CODEX', name: 'review' })).id).toBe('fresh-production');
     expect(await adapter.getExecutionProcess('checkpoint')).toBe(terminalProcess);
     await adapter.fetchConversation('checkpoint', 100);
     expect(observedTimeout).toBe(100);

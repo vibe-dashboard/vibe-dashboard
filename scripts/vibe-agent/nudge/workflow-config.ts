@@ -21,8 +21,8 @@ export const DEFAULT_OVERSEER_RESULT_SCHEMA = {
   properties: {
     outcome: { enum: ['complete', 'delegated', 'waiting', 'blocked'] },
     actions: { type: 'array', items: { oneOf: [
-      { type: 'object', additionalProperties: false, required: ['type', 'role', 'message_type'], properties: { type: { const: 'send_message' }, role: { type: 'string', minLength: 1 }, message_type: { type: 'string', minLength: 1 }, beads: { type: 'array', items: { type: 'string' } }, forms: { type: 'array', items: { type: 'string' } } } },
-      { type: 'object', additionalProperties: false, required: ['type', 'mode'], properties: { type: { const: 'wait' }, mode: { const: 'callback-wait' } } },
+      { type: 'object', additionalProperties: false, required: ['type', 'role', 'message_type'], properties: { type: { const: 'send_message' }, role: { type: 'string', minLength: 1 }, message_type: { type: 'string', minLength: 1 }, beads: { type: 'array', items: { type: 'string' } }, forms: { type: 'array', items: { type: 'string' } }, form_refs: { type: 'array', items: { type: 'string', minLength: 1 } } } },
+      { type: 'object', additionalProperties: false, required: ['type', 'mode'], properties: { type: { const: 'wait' }, mode: { const: 'callback-wait' }, form_refs: { type: 'array', items: { type: 'string', minLength: 1 } } } },
       { type: 'object', additionalProperties: false, required: ['type', 'handler_id'], properties: { type: { const: 'run_handler' }, handler_id: { type: 'string', minLength: 1 } } },
       { type: 'object', additionalProperties: false, required: ['type', 'id', 'bead'], oneOf: [{ required: ['form'] }, { required: ['artifact'] }], properties: { type: { const: 'create_form' }, id: { type: 'string', minLength: 1 }, bead: { type: 'string', minLength: 1 }, form: { type: 'object' }, artifact: { type: 'string', minLength: 1 } } },
     ] } },
@@ -64,7 +64,7 @@ message_types:
     to_role: decision_maker
     prompt_id: created_form_handoff
     fresh: false
-    allowed_actions: [wait, run_handler]
+    allowed_actions: [wait, run_handler, create_form]
 handlers: {}
 outcome_handlers: {}
 `;
@@ -81,6 +81,7 @@ function actions(value: unknown, name: string): WorkflowActionType[] { return st
 function inspectYaml(node: Node | null, depth = 0): void {
   if (!node) return;
   if (depth > MAX_CONFIG_DEPTH) throw new Error(`workflow config exceeds maximum depth ${MAX_CONFIG_DEPTH}`);
+  if ('anchor' in node && typeof node.anchor === 'string' && node.anchor) throw new Error('workflow config aliases and anchors are not allowed');
   if (isAlias(node)) throw new Error('workflow config aliases and anchors are not allowed');
   if (node.tag && !['tag:yaml.org,2002:map', 'tag:yaml.org,2002:seq', 'tag:yaml.org,2002:str', 'tag:yaml.org,2002:int', 'tag:yaml.org,2002:bool', 'tag:yaml.org,2002:null'].includes(node.tag)) throw new Error(`workflow config custom tag ${node.tag} is not allowed`);
   if (isMap(node) || isSeq(node)) for (const item of node.items) inspectYaml(item as Node, depth + 1);

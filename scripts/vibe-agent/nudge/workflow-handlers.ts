@@ -31,10 +31,13 @@ export async function runWorkflowHandler(
     return { status: 'dry-run', exitCode: null, error: null };
   }
   fs.mkdirSync(path.dirname(logPath), { recursive: true });
-  if (hasHandlerRun(logPath, payload.idempotencyKey)) return { status: 'completed', exitCode: 0, error: null };
+  const prior = latestHandlerRun(logPath, payload.idempotencyKey);
+  if (prior === 'completed') return { status: 'completed', exitCode: 0, error: null };
+  if (prior === 'running') return { status: 'failed', exitCode: null, error: 'handler execution is indeterminate after an interrupted run; manual recovery is required' };
   if (!handler.enabled) throw new Error('handler is not enabled');
   if (!handler.command.length) throw new Error('handler command is empty');
 
+  appendHandlerRun(logPath, payload, { status: 'running', exitCode: null, error: null });
   const result = await spawnHandler(handler.command, JSON.stringify(payload), {
     cwd: options.cwd ?? process.cwd(),
     env: options.env ?? process.env,
@@ -44,31 +47,35 @@ export async function runWorkflowHandler(
   return result;
 }
 
-function hasHandlerRun(filePath: string, idempotencyKey: string): boolean {
+function latestHandlerRun(filePath: string, idempotencyKey: string): HandlerRunResult['status'] | 'running' | null {
   try {
-    return fs.readFileSync(filePath, 'utf8')
+    const records = fs.readFileSync(filePath, 'utf8')
       .split('\n')
       .filter(Boolean)
-      .some(line => {
+      .flatMap(line => {
         try {
           const record = JSON.parse(line);
-          return record.idempotencyKey === idempotencyKey && record.result?.status === 'completed';
+          return record.idempotencyKey === idempotencyKey ? [record.result?.status] : [];
         }
-        catch { return false; }
+        catch { return []; }
       });
+    return records.at(-1) ?? null;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw error;
   }
 }
 
-function appendHandlerRun(filePath: string, payload: HandlerPayload, result: HandlerRunResult): void {
-  fs.appendFileSync(filePath, `${JSON.stringify({
+function appendHandlerRun(filePath: string, payload: HandlerPayload, result: HandlerRunResult | { status: 'running'; exitCode: null; error: null }): void {
+  const line = `${JSON.stringify({
     at: new Date().toISOString(),
     idempotencyKey: payload.idempotencyKey,
     handlerId: payload.action.handlerId ?? null,
     result,
-  })}\n`, { mode: 0o600 });
+  })}\n`;
+  const descriptor = fs.openSync(filePath, 'a', 0o600);
+  try { fs.writeFileSync(descriptor, line); fs.fsyncSync(descriptor); }
+  finally { fs.closeSync(descriptor); }
 }
 
 function spawnHandler(command: string[], stdin: string, options: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number }): Promise<HandlerRunResult> {

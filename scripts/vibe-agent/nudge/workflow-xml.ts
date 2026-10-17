@@ -2,9 +2,9 @@ import { createHash } from 'node:crypto';
 import { parseDocument } from 'yaml';
 import type { WorkflowActionType, WorkflowConfig } from './workflow-config.js';
 
-export interface WorkflowAction { type: WorkflowActionType; id?: string; role?: string; messageType?: string; handlerId?: string; mode?: string; beadId?: string; form?: unknown; artifact?: string; beadIds: string[]; formIds: string[] }
+export interface WorkflowAction { type: WorkflowActionType; id?: string; role?: string; messageType?: string; handlerId?: string; mode?: string; beadId?: string; form?: unknown; artifact?: string; beadIds: string[]; formIds: string[]; formRefs?: string[] }
 export type WorkflowOutcome = 'complete' | 'delegated' | 'waiting' | 'blocked';
-export interface WorkflowResult { schemaId: string; schemaVersion: number; schemaHash: string; outcome: WorkflowOutcome; actions: WorkflowAction[] }
+export interface WorkflowResult { schemaId: string; schemaVersion: number; schemaHash: string; outcome: WorkflowOutcome; actions: WorkflowAction[]; payload: unknown }
 export interface WorkflowSchemaIdentity { schemaId: string; schemaVersion: number; schemaHash: string }
 
 function canonical(value: unknown): string {
@@ -27,18 +27,18 @@ function parseStrictJson(raw: string): unknown {
 function parseAction(value: unknown, index: number): WorkflowAction {
   const item = object(value, `actions[${index}]`);
   const type = nonempty(item.type, `actions[${index}].type`) as WorkflowActionType;
-  if (type === 'send_message') { exact(item, ['type', 'role', 'message_type', 'beads', 'forms'], `actions[${index}]`); return { type, role: nonempty(item.role, `actions[${index}].role`), messageType: nonempty(item.message_type, `actions[${index}].message_type`), beadIds: ids(item.beads, `actions[${index}].beads`), formIds: ids(item.forms, `actions[${index}].forms`) }; }
-  if (type === 'wait') { exact(item, ['type', 'mode'], `actions[${index}]`); if (item.mode !== 'callback-wait') throw new Error(`actions[${index}].mode must be callback-wait`); return { type, mode: 'callback-wait', beadIds: [], formIds: [] }; }
-  if (type === 'run_handler') { exact(item, ['type', 'handler_id'], `actions[${index}]`); return { type, handlerId: nonempty(item.handler_id, `actions[${index}].handler_id`), beadIds: [], formIds: [] }; }
+  if (type === 'send_message') { exact(item, ['type', 'role', 'message_type', 'beads', 'forms', 'form_refs'], `actions[${index}]`); return { type, role: nonempty(item.role, `actions[${index}].role`), messageType: nonempty(item.message_type, `actions[${index}].message_type`), beadIds: ids(item.beads, `actions[${index}].beads`), formIds: ids(item.forms, `actions[${index}].forms`), formRefs: ids(item.form_refs, `actions[${index}].form_refs`) }; }
+  if (type === 'wait') { exact(item, ['type', 'mode', 'form_refs'], `actions[${index}]`); if (item.mode !== 'callback-wait') throw new Error(`actions[${index}].mode must be callback-wait`); return { type, mode: 'callback-wait', beadIds: [], formIds: [], formRefs: ids(item.form_refs, `actions[${index}].form_refs`) }; }
+  if (type === 'run_handler') { exact(item, ['type', 'handler_id'], `actions[${index}]`); return { type, handlerId: nonempty(item.handler_id, `actions[${index}].handler_id`), beadIds: [], formIds: [], formRefs: [] }; }
   if (type === 'create_form') {
     exact(item, ['type', 'id', 'bead', 'form', 'artifact'], `actions[${index}]`);
     if ((item.form === undefined) === (item.artifact === undefined)) throw new Error(`actions[${index}] requires exactly one of form or artifact`);
-    return { type, id: nonempty(item.id, `actions[${index}].id`), beadId: nonempty(item.bead, `actions[${index}].bead`), ...(item.form !== undefined ? { form: item.form } : { artifact: nonempty(item.artifact, `actions[${index}].artifact`) }), beadIds: [], formIds: [] };
+    return { type, id: nonempty(item.id, `actions[${index}].id`), beadId: nonempty(item.bead, `actions[${index}].bead`), ...(item.form !== undefined ? { form: item.form } : { artifact: nonempty(item.artifact, `actions[${index}].artifact`) }), beadIds: [], formIds: [], formRefs: [] };
   }
   throw new Error(`Unknown workflow action type: ${type}`);
 }
 
-export function parseWorkflowResultXml(response: string): WorkflowResult | null {
+export function parseWorkflowResultXml(response: string, validatePayload?: (payload: unknown) => void): WorkflowResult | null {
   const trimmed = response.trim();
   const roots = [...trimmed.matchAll(/<auto-nudge-result\b[\s\S]*?<\/auto-nudge-result>/g)];
   if (!roots.length) return null;
@@ -48,10 +48,14 @@ export function parseWorkflowResultXml(response: string): WorkflowResult | null 
   const match = root.match(/^<auto-nudge-result\s+schema_id="([^"]+)"\s+schema_version="([1-9]\d*)"\s+schema_hash="(sha256:[a-f0-9]{64})"\s+format="json">([\s\S]*)<\/auto-nudge-result>$/);
   if (!match) throw new Error('Malformed auto-nudge-result envelope or metadata');
   const payload = object(parseStrictJson(match[4]!.trim()), 'result');
+  validatePayload?.(payload);
   exact(payload, ['outcome', 'actions'], 'result');
   if (!['complete', 'delegated', 'waiting', 'blocked'].includes(String(payload.outcome))) throw new Error('result.outcome is invalid');
   if (!Array.isArray(payload.actions)) throw new Error('result.actions must be an array');
-  return { schemaId: match[1]!, schemaVersion: Number(match[2]), schemaHash: match[3]!, outcome: payload.outcome as WorkflowOutcome, actions: payload.actions.map(parseAction) };
+  const actions = payload.actions.map(parseAction);
+  const actionIds = actions.flatMap(action => action.id ? [action.id] : []);
+  if (new Set(actionIds).size !== actionIds.length) throw new Error('create_form action IDs must be unique');
+  return { schemaId: match[1]!, schemaVersion: Number(match[2]), schemaHash: match[3]!, outcome: payload.outcome as WorkflowOutcome, actions, payload };
 }
 
 export function validateWorkflowSchema(result: WorkflowResult, expected: WorkflowSchemaIdentity): void {

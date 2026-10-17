@@ -4,10 +4,12 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
+import * as Ajv2020Module from 'ajv/dist/2020.js';
+import type { ValidateFunction } from 'ajv';
 import { buildBeadsFormsSummary, compileBeadsForm, type StandardBeadsForm } from '../../../packages/beads-form/src/index.js';
 import { client as defaultClient } from '../core/client.js';
 import type { AutoNudgeProcessWindowQuery, AutoNudgeStatusRequest, AutoNudgeStatusResponse, AutoNudgeStatusSession, AutoNudgeStatusWorkspace, ConversationEntry, CreateSessionBody, ExecutionProcess, ExecutionProcessFinalResponse, SendMessageBody, Session, Workspace } from '../types.js';
-import { conversationEntryText, conversationEntryType, decideNudgeForProcess, isActiveProcess } from './criteria.js';
+import { conversationEntryText, conversationEntryType, isActiveProcess } from './criteria.js';
 import { callbacksForTrigger, DEFAULT_CALLBACK_REGISTRY_PATH, type CallbackRecord } from './callback-registry.js';
 import {
   appendResponseRoute,
@@ -43,6 +45,10 @@ const GLOBAL_RECOVERY_RECENT_MS = 24 * 60 * 60_000;
 const GLOBAL_RECOVERY_WORKSPACES_PER_CYCLE = 25;
 const GLOBAL_RECOVERY_SESSIONS_PER_CYCLE = 250;
 const execFile = promisify(execFileCallback);
+const Ajv2020 = (Ajv2020Module.default ?? Ajv2020Module) as unknown as new (options?: Record<string, unknown>) => {
+  compile(schema: object): ValidateFunction;
+  errorsText(errors?: ValidateFunction['errors']): string;
+};
 export function isAutoNudgeEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return ['1', 'true', 'yes', 'on'].includes(String(env.VD_AUTO_NUDGE_ENABLED ?? '').toLowerCase());
 }
@@ -56,7 +62,7 @@ export interface AutoNudgeWorkspaceCriteria { goal?: string; beads?: string[]; b
 export interface AutoNudgeWorkspaceRegistration { workspaceId: string; overseerSessionId: string; registeredAt: string; registeredBySessionId: string; criteria?: AutoNudgeWorkspaceCriteria }
 export interface AutoNudgeWorkspaceRegistry { version: 1; workspaces: Record<string, AutoNudgeWorkspaceRegistration> }
 export type TriggerStatus = 'observed' | 'checkpoint-sent' | 'checkpoint-indeterminate' | 'done' | 'delegated' | 'waiting-callback' | 'rate-limited' | 'retryable-failure' | 'invalid-response';
-export interface TriggerState { processId: string; workspaceId: string; sessionId: string; observedAt: string; status: TriggerStatus; checkpointProcessId: string | null; baselineProcessIds?: string[]; correctionAttempts?: number; updatedAt: string; error: string | null }
+export interface TriggerState { processId: string; workspaceId: string; sessionId: string; observedAt: string; status: TriggerStatus; checkpointProcessId: string | null; baselineProcessIds?: string[]; correctionAttempts?: number; correctionSendId?: string; updatedAt: string; error: string | null }
 export interface OutboxItem { id: string; workspaceId: string; content: string; createdAt: string; deliveredAt: string | null; attempts: number }
 export interface AutoNudgeState { version: 1; nudgedProcessIds: string[]; triggers: Record<string, TriggerState>; outbox: Record<string, OutboxItem>; globalCursor?: string | null }
 export interface AutoNudgeClient {
@@ -118,15 +124,19 @@ function overseerPromptWithCriteria(prompt: string, criteria?: AutoNudgeWorkspac
   return block ? `${prompt.trimEnd()}\n\n${block}` : prompt;
 }
 
-function checkpointContract(config: WorkflowConfig, configPath: string): { prompt: string; identity: WorkflowSchemaIdentity; schemaPath: string } {
+function checkpointContract(config: WorkflowConfig, configPath: string): { prompt: string; identity: WorkflowSchemaIdentity; schemaPath: string; validate: ValidateFunction } {
   const message = config.messageTypes.overseer_checkpoint;
   if (!message || message.fromRole !== 'auto_nudge' || message.toRole !== 'overseer' || !message.responseSchemaId) throw new Error('workflow config requires reserved message_types.overseer_checkpoint with an overseer response schema');
   const prompt = config.prompts[message.promptId]?.text;
   const schema = config.responseSchemas[message.responseSchemaId];
   if (!prompt || !schema) throw new Error('overseer_checkpoint prompt or response schema is missing');
   const schemaPath = path.resolve(path.dirname(configPath), schema.schemaFile);
-  const payload = JSON.parse(fs.readFileSync(schemaPath, 'utf8')) as unknown;
-  return { prompt, schemaPath, identity: { schemaId: schema.schemaId, schemaVersion: schema.schemaVersion, schemaHash: schemaHash(payload) } };
+  const bytes = fs.readFileSync(schemaPath, 'utf8');
+  const payload = JSON.parse(bytes) as object;
+  let validate: ValidateFunction;
+  try { validate = new Ajv2020({ allErrors: true, strict: true, strictRequired: false }).compile(payload); }
+  catch (error) { throw new Error(`Invalid workflow response schema ${schemaPath}: ${(error as Error).message}`); }
+  return { prompt, schemaPath, validate, identity: { schemaId: schema.schemaId, schemaVersion: schema.schemaVersion, schemaHash: schemaHash(payload) } };
 }
 
 function checkpointPrompt(contract: ReturnType<typeof checkpointContract>, criteria?: AutoNudgeWorkspaceCriteria): string {
@@ -254,6 +264,7 @@ export function readAutoNudgeState(filePath: string): AutoNudgeState {
     && ((item as TriggerState).checkpointProcessId == null || typeof (item as TriggerState).checkpointProcessId === 'string')
     && ((item as TriggerState).baselineProcessIds == null || (Array.isArray((item as TriggerState).baselineProcessIds) && (item as TriggerState).baselineProcessIds!.every(id => typeof id === 'string')))
     && ((item as TriggerState).correctionAttempts == null || (Number.isSafeInteger((item as TriggerState).correctionAttempts) && (item as TriggerState).correctionAttempts! >= 0))
+    && ((item as TriggerState).correctionSendId == null || typeof (item as TriggerState).correctionSendId === 'string')
     && ((item as TriggerState).error == null || typeof (item as TriggerState).error === 'string'));
   const validOutbox = (item: unknown): item is OutboxItem => Boolean(item && typeof item === 'object'
     && typeof (item as OutboxItem).id === 'string' && typeof (item as OutboxItem).workspaceId === 'string'
@@ -536,15 +547,20 @@ async function executeWorkflowActions(
 ): Promise<void> {
   const queuePath = options.sendQueuePath ?? DEFAULT_SEND_QUEUE_PATH;
   const sendActions: Array<{ action: WorkflowAction; messageType: WorkflowMessageTypeConfig; prompt: string; currentTarget: Session }> = [];
+  const formActions: Array<{ action: WorkflowAction; form: ReturnType<typeof compileBeadsForm> }> = [];
+  const actionResults = new Map<string, string>();
+  const declaredFormActions = new Set(actions.flatMap(action => action.type === 'create_form' && action.id ? [action.id] : []));
+  for (const action of actions) for (const id of action.formRefs ?? []) {
+    if (!declaredFormActions.has(id)) throw new Error(`${action.type} references unknown create_form action ${id}`);
+  }
   for (const action of actions) {
     if (action.type === 'wait') continue;
     if (action.type === 'create_form') {
       if (!context.beadsDir) throw new Error('create_form requires workspace criteria beadsDir');
       const source = action.artifact ? readWorkflowArtifact(context.beadsDir, action.artifact) : JSON.stringify(action.form);
       const form = compileBeadsForm(JSON.parse(source) as StandardBeadsForm);
-      if (!options.dryRun) await (options.createForm
-        ? options.createForm({ beadsDir: context.beadsDir, beadId: action.beadId!, form, workspaceId: context.workspaceId, sessionId: context.replySessionId })
-        : attachWorkflowForm(context.beadsDir, action.beadId!, form, context.workspaceId, context.replySessionId));
+      actionResults.set(action.id!, form.id);
+      formActions.push({ action, form });
       continue;
     }
     if (action.type === 'send_message') {
@@ -570,7 +586,18 @@ async function executeWorkflowActions(
       if (handlerResult.status === 'failed') throw new Error(`handler ${action.handlerId} failed: ${handlerResult.error ?? `exit ${handlerResult.exitCode}`}`);
     }
   }
+  for (const { action, form } of formActions) {
+    if (!options.dryRun) await (options.createForm
+      ? options.createForm({ beadsDir: context.beadsDir!, beadId: action.beadId!, form, workspaceId: context.workspaceId, sessionId: context.replySessionId })
+      : attachWorkflowForm(context.beadsDir!, action.beadId!, form, context.workspaceId, context.replySessionId));
+  }
   for (const { action, messageType, prompt, currentTarget } of sendActions) {
+    const referencedForms = (action.formRefs ?? []).map(id => {
+      const formId = actionResults.get(id);
+      if (!formId) throw new Error(`send_message references unknown create_form action ${id}`);
+      return formId;
+    });
+    const actionWithResults = { ...action, formIds: [...action.formIds, ...referencedForms] };
     if (!options.dryRun) {
       const id = `${context.triggerProcessId}:${action.type}:${action.role ?? ''}:${action.messageType ?? ''}`;
       const existing = messageType.fresh ? readSendQueue(queuePath).sends[id] : null;
@@ -583,7 +610,7 @@ async function executeWorkflowActions(
         targetRole: action.role ?? messageType.toRole,
         targetSessionId: target.id,
         executor: target.executor,
-        prompt: workflowPromptWithContext(prompt, action),
+        prompt: workflowPromptWithContext(prompt, actionWithResults),
         replySessionId: context.replySessionId,
         now: options.now(),
         id,
@@ -592,38 +619,53 @@ async function executeWorkflowActions(
   }
 }
 
-function readWorkflowArtifact(beadsDir: string, artifact: string): string {
+export function readWorkflowArtifact(beadsDir: string, artifact: string): string {
   if (path.isAbsolute(artifact) || artifact.includes('\0')) throw new Error('create_form artifact must be a relative path');
-  const root = path.resolve(beadsDir);
-  const file = path.resolve(root, artifact);
-  if (file !== root && !file.startsWith(`${root}${path.sep}`)) throw new Error('create_form artifact escapes beadsDir');
+  const root = fs.realpathSync(path.resolve(beadsDir));
+  const lexicalFile = path.resolve(root, artifact);
+  if (lexicalFile !== root && !lexicalFile.startsWith(`${root}${path.sep}`)) throw new Error('create_form artifact escapes beadsDir');
+  if (fs.lstatSync(lexicalFile).isSymbolicLink()) throw new Error('create_form artifact may not be a symbolic link');
+  const file = fs.realpathSync(lexicalFile);
+  if (file !== root && !file.startsWith(`${root}${path.sep}`)) throw new Error('create_form artifact escapes beadsDir through a symbolic link');
   const stat = fs.statSync(file);
   if (!stat.isFile() || stat.size > 256 * 1024) throw new Error('create_form artifact must be a file no larger than 256 KiB');
-  return fs.readFileSync(file, 'utf8');
+  const descriptor = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try { return fs.readFileSync(descriptor, 'utf8'); }
+  finally { fs.closeSync(descriptor); }
 }
 
-async function attachWorkflowForm(beadsDir: string, beadId: string, form: ReturnType<typeof compileBeadsForm>, workspaceId: string, sessionId: string): Promise<void> {
-  const { stdout } = await execFile('bd', ['show', beadId, '--json', '--long'], { cwd: beadsDir, timeout: 30_000, maxBuffer: 5 * 1024 * 1024 });
-  const text = String(stdout); const parsed = JSON.parse(text.slice(Math.max(0, text.indexOf('[')))) as Array<{ id: string; metadata?: Record<string, unknown> }>;
-  const bead = parsed.find(item => item.id === beadId); if (!bead) throw new Error(`Bead not found: ${beadId}`);
-  const metadata = structuredClone(bead.metadata ?? {});
-  const namespace = metadata.beadForms && typeof metadata.beadForms === 'object' ? metadata.beadForms as { forms?: unknown[] } : {};
-  const forms = Array.isArray(namespace.forms) ? namespace.forms : [];
-  const existing = forms.find(item => item && typeof item === 'object' && (item as { id?: unknown }).id === form.id);
-  if (existing) {
-    const comparable = { ...(existing as Record<string, unknown>) }; delete comparable.responses;
-    if (JSON.stringify(comparable) !== JSON.stringify(form)) throw new Error(`create_form conflicts with existing form ${form.id}`);
-    return;
+type BdExec = (file: string, args: string[], options: { cwd: string; timeout: number; maxBuffer: number }) => Promise<{ stdout: string | Buffer }>;
+export async function attachWorkflowForm(beadsDir: string, beadId: string, form: ReturnType<typeof compileBeadsForm>, workspaceId: string, sessionId: string, run: BdExec = execFile): Promise<void> {
+  const readMetadata = async (): Promise<Record<string, unknown>> => {
+    const { stdout } = await run('bd', ['show', beadId, '--json', '--long'], { cwd: beadsDir, timeout: 30_000, maxBuffer: 5 * 1024 * 1024 });
+    const text = String(stdout); const parsed = JSON.parse(text.slice(Math.max(0, text.indexOf('[')))) as Array<{ id: string; metadata?: Record<string, unknown> }>;
+    const bead = parsed.find(item => item.id === beadId); if (!bead) throw new Error(`Bead not found: ${beadId}`);
+    return structuredClone(bead.metadata ?? {});
+  };
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const original = await readMetadata();
+    const metadata = structuredClone(original);
+    const namespace = metadata.beadForms && typeof metadata.beadForms === 'object' ? metadata.beadForms as { forms?: unknown[] } : {};
+    const forms = Array.isArray(namespace.forms) ? namespace.forms : [];
+    const existing = forms.find(item => item && typeof item === 'object' && (item as { id?: unknown }).id === form.id);
+    if (existing) {
+      const comparable = { ...(existing as Record<string, unknown>) }; delete comparable.responses;
+      if (JSON.stringify(comparable) !== JSON.stringify(form)) throw new Error(`create_form conflicts with existing form ${form.id}`);
+      return;
+    }
+    const nextForms = [...forms, form];
+    metadata.beadForms = { ...namespace, forms: nextForms };
+    metadata.beadFormsSummary = buildBeadsFormsSummary(nextForms as Array<{ id: string; responses?: unknown[] }>);
+    metadata.VK_WORKSPACE_ID = workspaceId; metadata.VK_SESSION_ID = sessionId;
+    if (JSON.stringify(await readMetadata()) !== JSON.stringify(original)) continue;
+    const temporary = path.join(beadsDir, `.auto-nudge-form-${process.pid}-${Date.now()}-${attempt}.json`);
+    try {
+      fs.writeFileSync(temporary, JSON.stringify(metadata), { mode: 0o600 });
+      await run('bd', ['update', beadId, '--metadata', `@${temporary}`], { cwd: beadsDir, timeout: 30_000, maxBuffer: 5 * 1024 * 1024 });
+      return;
+    } finally { fs.rmSync(temporary, { force: true }); }
   }
-  const nextForms = [...forms, form];
-  metadata.beadForms = { ...namespace, forms: nextForms };
-  metadata.beadFormsSummary = buildBeadsFormsSummary(nextForms as Array<{ id: string; responses?: unknown[] }>);
-  metadata.VK_WORKSPACE_ID = workspaceId; metadata.VK_SESSION_ID = sessionId;
-  const temporary = path.join(beadsDir, `.auto-nudge-form-${process.pid}-${Date.now()}.json`);
-  try {
-    fs.writeFileSync(temporary, JSON.stringify(metadata), { mode: 0o600 });
-    await execFile('bd', ['update', beadId, '--metadata', `@${temporary}`], { cwd: beadsDir, timeout: 30_000, maxBuffer: 5 * 1024 * 1024 });
-  } finally { fs.rmSync(temporary, { force: true }); }
+  throw new Error(`create_form metadata changed concurrently for ${beadId}; retry on a later cycle`);
 }
 
 async function createFreshWorkflowSession(client: AutoNudgeClient, workspaceId: string, currentTarget: Session): Promise<Session> {
@@ -775,30 +817,27 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
         .flatMap(item => processMap.get(item.id) ?? [])
         .filter(item => item.run_reason === 'codingagent' && !item.dropped);
       if (!overseer) {
-        if (relevantProcesses.some(isActiveProcess)) return;
-        const teammates = sessions.sort((left, right) => {
-          const leftLatest = Math.max(...(processMap.get(left.id) ?? []).map(terminalTime), 0);
-          const rightLatest = Math.max(...(processMap.get(right.id) ?? []).map(terminalTime), 0);
-          return rightLatest - leftLatest || left.id.localeCompare(right.id);
-        });
-        for (const teammate of teammates) {
-          const processes = (processMap.get(teammate.id) ?? []).filter(item => item.run_reason === 'codingagent' && !item.dropped).sort((a, b) => terminalTime(b) - terminalTime(a));
-          if (processes.some(isActiveProcess)) continue;
-          const latest = processes[0]; if (!latest) continue;
-          const final = finalFromAggregate(latest);
-          const decision = final.terminal_no_response && latest.status !== 'completed'
-            ? { shouldNudge: true }
-            : decideNudgeForProcess(latest, final.final_response ? [{ content: { entry_type: { type: 'assistant_message' }, content: final.final_response } }] : [], { enableActiveStaleNudge: false, now: options.now() });
-          if (decision.shouldNudge && !state.nudgedProcessIds.includes(latest.id)) {
-            if (!options.dryRun) {
-              const sent = await sendGuard.send(teammate.id, () => deadline(client.sendMessage(teammate.id, body('Please continue', teammate)), options.operationTimeoutMs, 'send teammate nudge', options.signal));
-              if (!sent) continue;
-            }
-            if (!options.dryRun) { state.nudgedProcessIds.push(latest.id); writeAutoNudgeState(options.statePath, state); }
-            result.teammateNudges++; return;
-          }
-        }
         return;
+      }
+      const pendingCorrection = Object.values(state.triggers)
+        .find(trigger => trigger.workspaceId === configured.workspaceId && trigger.status === 'checkpoint-sent' && trigger.correctionSendId);
+      if (pendingCorrection?.correctionSendId) {
+        const queued = readSendQueue(options.sendQueuePath ?? DEFAULT_SEND_QUEUE_PATH).sends[pendingCorrection.correctionSendId];
+        if (!queued) throw new Error(`schema correction send ${pendingCorrection.correctionSendId} is missing`);
+        if (queued.status === 'queued' || queued.status === 'sending') return;
+        if (queued.status === 'accepted' && queued.processId) {
+          pendingCorrection.checkpointProcessId = queued.processId;
+          delete pendingCorrection.correctionSendId;
+          pendingCorrection.updatedAt = options.now().toISOString();
+          writeAutoNudgeState(options.statePath, state);
+        } else {
+          pendingCorrection.status = 'invalid-response';
+          pendingCorrection.error = `schema correction delivery is ${queued.status}; automatic resend is disabled`;
+          delete pendingCorrection.correctionSendId;
+          pendingCorrection.updatedAt = options.now().toISOString();
+          writeAutoNudgeState(options.statePath, state);
+          return;
+        }
       }
       const orphanedCheckpoint = Object.values(state.triggers)
         .find(trigger => trigger.workspaceId === configured.workspaceId
@@ -830,7 +869,9 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
           const final = await deadline(client.getExecutionProcessFinalResponse(checkpoint.id), options.operationTimeoutMs, 'fetch checkpoint final response', options.signal);
           const response = final.final_response;
           trigger.error = null;
-          const workflowResult = response ? parseWorkflowResultXml(response) : null;
+          const workflowResult = response ? parseWorkflowResultXml(response, payload => {
+            if (!contract.validate(payload)) throw new Error(`checkpoint result violates authoritative schema: ${new Ajv2020().errorsText(contract.validate.errors)}`);
+          }) : null;
           if (workflowResult) {
             validateWorkflowSchema(workflowResult, contract.identity);
             validateWorkflowActions(workflowResult, workflowConfig, 'overseer');
@@ -870,20 +911,23 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
             trigger.error = message;
           } else if (attempts === 0 && !options.signal?.aborted) {
             try {
-              const invalidProcessId = trigger.checkpointProcessId;
+              const correctionSendId = `${trigger.processId}:schema-correction`;
               trigger.checkpointProcessId = null;
               trigger.correctionAttempts = 1;
+              trigger.correctionSendId = correctionSendId;
               trigger.status = 'checkpoint-sent';
               trigger.error = message;
               trigger.updatedAt = options.now().toISOString();
               writeAutoNudgeState(options.statePath, state);
-              const correction = await sendGuard.send(overseer.id, () => deadline(client.sendMessage(overseer.id, body(`Your previous response did not match the required structured response contract: ${message}\n\nReturn one corrected final envelope using this contract:\n\n${checkpointPrompt(contract, configured.criteria)}`, overseer)), options.operationTimeoutMs, 'send schema correction', options.signal));
-              if (correction) {
-                trigger.checkpointProcessId = correction.id;
-              } else {
-                trigger.checkpointProcessId = invalidProcessId;
-                trigger.correctionAttempts = 0;
-              }
+              enqueueSendIdempotent(options.sendQueuePath ?? DEFAULT_SEND_QUEUE_PATH, {
+                id: correctionSendId,
+                targetRole: overseer.name ?? 'overseer',
+                targetSessionId: overseer.id,
+                executor: overseer.executor,
+                prompt: `Your previous response did not match the required structured response contract: ${message}\n\nReturn one corrected final envelope using this contract:\n\n${checkpointPrompt(contract, configured.criteria)}`,
+                replySessionId: null,
+                now: options.now(),
+              });
             } catch (correctionError) {
               trigger.status = 'invalid-response'; trigger.error = `invalid response: ${message}; correction failed: ${(correctionError as Error).message}`;
             }
@@ -911,17 +955,6 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
         const final = latest.status === 'completed'
           ? await deadline(client.getExecutionProcessFinalResponse(latest.id), options.operationTimeoutMs, 'fetch final response', options.signal)
           : finalFromAggregate(latest);
-        const decision = final.terminal_no_response && latest.status !== 'completed'
-          ? { shouldNudge: true }
-          : decideNudgeForProcess(latest, final.final_response ? [{ content: { entry_type: { type: 'assistant_message' }, content: final.final_response } }] : [], { enableActiveStaleNudge: false, now: options.now() });
-        if (decision.shouldNudge && !state.nudgedProcessIds.includes(latest.id)) {
-          if (!options.dryRun) {
-            const sent = await sendGuard.send(teammate.id, () => deadline(client.sendMessage(teammate.id, body('Please continue', teammate)), options.operationTimeoutMs, 'send teammate nudge', options.signal));
-            if (!sent) continue;
-          }
-          if (!options.dryRun) { state.nudgedProcessIds.push(latest.id); writeAutoNudgeState(options.statePath, state); }
-          result.teammateNudges++; return;
-        }
         if (latest.status !== 'completed' || !final.final_response) continue;
         const age = options.now().getTime() - terminalTime(latest); if (age < options.unacknowledgedAfterMs) continue;
         const now = options.now().toISOString();
@@ -1015,13 +1048,14 @@ export async function runWithOwnerLock<T>(lockPath: string, task: () => Promise<
   try { return await task(); }
   finally { release(); }
 }
-type VibeClientAdapterSource = Pick<typeof defaultClient, 'getAllWorkspaces' | 'getSessions' | 'getSession' | 'getSessionProcesses' | 'fetchConversation' | 'sendMessage' | 'getExecutionProcess' | 'getExecutionProcessFinalResponse' | 'getExecutionProcessFinalResponseStrict' | 'getAutoNudgeStatus'>;
+type VibeClientAdapterSource = Pick<typeof defaultClient, 'getAllWorkspaces' | 'getSessions' | 'getSession' | 'createSession' | 'getSessionProcesses' | 'fetchConversation' | 'sendMessage' | 'getExecutionProcess' | 'getExecutionProcessFinalResponse' | 'getExecutionProcessFinalResponseStrict' | 'getAutoNudgeStatus'>;
 
 export function createAutoNudgeClient(source: VibeClientAdapterSource): AutoNudgeClient {
   return {
     getAllWorkspaces: () => source.getAllWorkspaces(),
     getSessions: id => source.getSessions(id), getSessionProcesses: id => source.getSessionProcesses(id),
     getSession: id => source.getSession(id),
+    createSession: body => source.createSession(body),
     getExecutionProcess: id => source.getExecutionProcess(id),
     getExecutionProcessFinalResponse: id => source.getExecutionProcessFinalResponseStrict(id),
     getAutoNudgeStatus: (request, signal) => source.getAutoNudgeStatus(request, signal),
