@@ -54,6 +54,14 @@ describe('role-scoped JSON result envelope', () => {
     expect(() => parseWorkflowResultXml('<auto-nudge-result version="1"><actions /></auto-nudge-result>')).toThrow(/metadata/);
     expect(parseWorkflowResultXml('DONE')).toBeNull();
   });
+  it('rejects mismatched schema identity before parsing or validating payload', () => {
+    let validated = false;
+    const wrongIdentity = envelope('{not json', `schema_id="other" schema_version="1" schema_hash="${hash}" format="json"`);
+    expect(() => parseWorkflowResultXml(wrongIdentity, () => { validated = true; }, {
+      schemaId: 'vd.auto-nudge.overseer-result', schemaVersion: 1, schemaHash: hash,
+    })).toThrow(/identity does not match/);
+    expect(validated).toBe(false);
+  });
   it('hashes canonical JSON independent of object key order', () => {
     expect(schemaHash({ b: 2, a: { d: 4, c: 3 } })).toBe(schemaHash({ a: { c: 3, d: 4 }, b: 2 }));
   });

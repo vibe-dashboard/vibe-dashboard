@@ -32,7 +32,7 @@ import {
 } from './send-queue.js';
 import { DEFAULT_HANDLER_LOG_PATH, runWorkflowHandler } from './workflow-handlers.js';
 import { DEFAULT_WORKFLOW_CONFIG_PATH, loadWorkflowConfig, type WorkflowConfig, type WorkflowMessageTypeConfig } from './workflow-config.js';
-import { parseWorkflowResultXml, schemaHash, validateWorkflowActions, validateWorkflowSchema, type WorkflowAction, type WorkflowSchemaIdentity } from './workflow-xml.js';
+import { parseWorkflowResultXml, schemaHash, validateWorkflowActions, type WorkflowAction, type WorkflowSchemaIdentity } from './workflow-xml.js';
 
 const DEFAULT_STATE_PATH = '/var/lib/vd/auto-nudge/state.json';
 const DEFAULT_LOCK_PATH = '/var/lib/vd/auto-nudge/owner.lock';
@@ -642,30 +642,23 @@ export async function attachWorkflowForm(beadsDir: string, beadId: string, form:
     const bead = parsed.find(item => item.id === beadId); if (!bead) throw new Error(`Bead not found: ${beadId}`);
     return structuredClone(bead.metadata ?? {});
   };
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const original = await readMetadata();
-    const metadata = structuredClone(original);
-    const namespace = metadata.beadForms && typeof metadata.beadForms === 'object' ? metadata.beadForms as { forms?: unknown[] } : {};
-    const forms = Array.isArray(namespace.forms) ? namespace.forms : [];
-    const existing = forms.find(item => item && typeof item === 'object' && (item as { id?: unknown }).id === form.id);
-    if (existing) {
-      const comparable = { ...(existing as Record<string, unknown>) }; delete comparable.responses;
-      if (JSON.stringify(comparable) !== JSON.stringify(form)) throw new Error(`create_form conflicts with existing form ${form.id}`);
-      return;
-    }
-    const nextForms = [...forms, form];
-    metadata.beadForms = { ...namespace, forms: nextForms };
-    metadata.beadFormsSummary = buildBeadsFormsSummary(nextForms as Array<{ id: string; responses?: unknown[] }>);
-    metadata.VK_WORKSPACE_ID = workspaceId; metadata.VK_SESSION_ID = sessionId;
-    if (JSON.stringify(await readMetadata()) !== JSON.stringify(original)) continue;
-    const temporary = path.join(beadsDir, `.auto-nudge-form-${process.pid}-${Date.now()}-${attempt}.json`);
-    try {
-      fs.writeFileSync(temporary, JSON.stringify(metadata), { mode: 0o600 });
-      await run('bd', ['update', beadId, '--metadata', `@${temporary}`], { cwd: beadsDir, timeout: 30_000, maxBuffer: 5 * 1024 * 1024 });
-      return;
-    } finally { fs.rmSync(temporary, { force: true }); }
+  const metadata = await readMetadata();
+  const namespace = metadata.beadForms && typeof metadata.beadForms === 'object' ? metadata.beadForms as { forms?: unknown[] } : {};
+  const forms = Array.isArray(namespace.forms) ? namespace.forms : [];
+  const existing = forms.find(item => item && typeof item === 'object' && (item as { id?: unknown }).id === form.id);
+  if (existing) {
+    const comparable = { ...(existing as Record<string, unknown>) }; delete comparable.responses;
+    if (JSON.stringify(comparable) !== JSON.stringify(form)) throw new Error(`create_form conflicts with existing form ${form.id}`);
+    return;
   }
-  throw new Error(`create_form metadata changed concurrently for ${beadId}; retry on a later cycle`);
+  const nextForms = [...forms, form];
+  await run('bd', [
+    'update', beadId,
+    '--set-metadata', `beadForms=${JSON.stringify({ ...namespace, forms: nextForms })}`,
+    '--set-metadata', `beadFormsSummary=${JSON.stringify(buildBeadsFormsSummary(nextForms as Array<{ id: string; responses?: unknown[] }>))}`,
+    '--set-metadata', `VK_WORKSPACE_ID=${workspaceId}`,
+    '--set-metadata', `VK_SESSION_ID=${sessionId}`,
+  ], { cwd: beadsDir, timeout: 30_000, maxBuffer: 5 * 1024 * 1024 });
 }
 
 async function createFreshWorkflowSession(client: AutoNudgeClient, workspaceId: string, currentTarget: Session): Promise<Session> {
@@ -871,9 +864,8 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
           trigger.error = null;
           const workflowResult = response ? parseWorkflowResultXml(response, payload => {
             if (!contract.validate(payload)) throw new Error(`checkpoint result violates authoritative schema: ${new Ajv2020().errorsText(contract.validate.errors)}`);
-          }) : null;
+          }, contract.identity) : null;
           if (workflowResult) {
-            validateWorkflowSchema(workflowResult, contract.identity);
             validateWorkflowActions(workflowResult, workflowConfig, 'overseer');
             responseValidated = true;
             await executeOutcomeHandlers(workflowResult.outcome, workflowConfig, options, configured.workspaceId, trigger.processId);
@@ -912,13 +904,6 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
           } else if (attempts === 0 && !options.signal?.aborted) {
             try {
               const correctionSendId = `${trigger.processId}:schema-correction`;
-              trigger.checkpointProcessId = null;
-              trigger.correctionAttempts = 1;
-              trigger.correctionSendId = correctionSendId;
-              trigger.status = 'checkpoint-sent';
-              trigger.error = message;
-              trigger.updatedAt = options.now().toISOString();
-              writeAutoNudgeState(options.statePath, state);
               enqueueSendIdempotent(options.sendQueuePath ?? DEFAULT_SEND_QUEUE_PATH, {
                 id: correctionSendId,
                 targetRole: overseer.name ?? 'overseer',
@@ -928,6 +913,13 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
                 replySessionId: null,
                 now: options.now(),
               });
+              trigger.checkpointProcessId = null;
+              trigger.correctionAttempts = 1;
+              trigger.correctionSendId = correctionSendId;
+              trigger.status = 'checkpoint-sent';
+              trigger.error = message;
+              trigger.updatedAt = options.now().toISOString();
+              writeAutoNudgeState(options.statePath, state);
             } catch (correctionError) {
               trigger.status = 'invalid-response'; trigger.error = `invalid response: ${message}; correction failed: ${(correctionError as Error).message}`;
             }

@@ -287,6 +287,26 @@ describe('auto nudge', () => {
     expect(readSendQueue(options.sendQueuePath!).sends['complete:schema-correction']).toMatchObject({ status: 'queued' });
   });
 
+  it('does not persist a correction reference before its queue intent exists', async () => {
+    const { options } = setup();
+    writeSendQueue(options.sendQueuePath!, { version: 1, sends: {
+      'complete:schema-correction': {
+        id: 'complete:schema-correction', status: 'accepted', targetRole: 'overseer', targetSessionId: 'overseer', executor: 'CODEX',
+        prompt: 'conflicting prompt', replySessionId: null, createdAt: iso(1), updatedAt: iso(1), processId: 'already-sent', error: null,
+      },
+    } });
+    const complete = proc('complete', 'impl', 'completed', 5);
+    const { client } = fake({ processes: { impl: [complete], overseer: [] }, entries: { complete: [msg('Finished')] }, response: 'plain text' });
+    await runAutoNudgeCycle(client, options);
+    const trigger = readAutoNudgeState(options.statePath).triggers.complete;
+    expect(trigger).toMatchObject({
+      status: 'invalid-response',
+      error: expect.stringContaining('correction failed'),
+    });
+    expect(trigger).not.toHaveProperty('correctionAttempts');
+    expect(trigger).not.toHaveProperty('correctionSendId');
+  });
+
   it('sends exactly one schema correction then persists visible invalid response state', async () => {
     const { options } = setup();
     const complete = proc('complete', 'impl', 'completed', 5);
@@ -895,21 +915,20 @@ describe('auto nudge', () => {
     expect(() => readWorkflowArtifact(root, 'linked-parent/outside.json')).toThrow(/symbolic link/);
   });
 
-  it('re-reads concurrent bead metadata before attaching a form', async () => {
-    const { dir } = setup(); let shows = 0; let written: Record<string, unknown> | null = null;
+  it('updates only owned bead metadata keys when attaching a form', async () => {
+    const { dir } = setup(); let updateArgs: string[] = [];
     const form = { id: 'decision', title: 'Decision', html: '<form></form>' } as any;
     await attachWorkflowForm(dir, 'task-1', form, 'w1', 'overseer', async (_file, args) => {
       if (args[0] === 'show') {
-        shows++;
-        const metadata = shows === 1 ? { original: true } : { original: true, concurrent: true };
-        return { stdout: JSON.stringify([{ id: 'task-1', metadata }]) };
+        return { stdout: JSON.stringify([{ id: 'task-1', metadata: { untouched: true, beadForms: { forms: [{ id: 'old', responses: [{ answer: true }] }] } } }]) };
       }
-      const metadataPath = args.at(-1)!.slice(1);
-      written = JSON.parse(readFileSync(metadataPath, 'utf8'));
+      updateArgs = args;
       return { stdout: '' };
     });
-    expect(shows).toBeGreaterThanOrEqual(4);
-    expect(written).toMatchObject({ original: true, concurrent: true, VK_WORKSPACE_ID: 'w1' });
+    expect(updateArgs).not.toContain('--metadata');
+    expect(updateArgs.filter(arg => arg === '--set-metadata')).toHaveLength(4);
+    expect(updateArgs.join('\n')).toContain('"id":"old","responses":[{"answer":true}]');
+    expect(updateArgs.join('\n')).not.toContain('untouched');
   });
 
   it('treats an existing matching workflow send as idempotent success on retry', async () => {

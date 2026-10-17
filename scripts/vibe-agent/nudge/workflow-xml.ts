@@ -38,7 +38,7 @@ function parseAction(value: unknown, index: number): WorkflowAction {
   throw new Error(`Unknown workflow action type: ${type}`);
 }
 
-export function parseWorkflowResultXml(response: string, validatePayload?: (payload: unknown) => void): WorkflowResult | null {
+export function parseWorkflowResultXml(response: string, validatePayload?: (payload: unknown) => void, expectedIdentity?: WorkflowSchemaIdentity): WorkflowResult | null {
   const trimmed = response.trim();
   const roots = [...trimmed.matchAll(/<auto-nudge-result\b[\s\S]*?<\/auto-nudge-result>/g)];
   if (!roots.length) return null;
@@ -47,6 +47,8 @@ export function parseWorkflowResultXml(response: string, validatePayload?: (payl
   if (!trimmed.endsWith(root)) throw new Error('auto-nudge-result must be the final response block');
   const match = root.match(/^<auto-nudge-result\s+schema_id="([^"]+)"\s+schema_version="([1-9]\d*)"\s+schema_hash="(sha256:[a-f0-9]{64})"\s+format="json">([\s\S]*)<\/auto-nudge-result>$/);
   if (!match) throw new Error('Malformed auto-nudge-result envelope or metadata');
+  const identity = { schemaId: match[1]!, schemaVersion: Number(match[2]), schemaHash: match[3]! };
+  if (expectedIdentity) validateWorkflowSchema(identity, expectedIdentity);
   const payload = object(parseStrictJson(match[4]!.trim()), 'result');
   validatePayload?.(payload);
   exact(payload, ['outcome', 'actions'], 'result');
@@ -55,10 +57,10 @@ export function parseWorkflowResultXml(response: string, validatePayload?: (payl
   const actions = payload.actions.map(parseAction);
   const actionIds = actions.flatMap(action => action.id ? [action.id] : []);
   if (new Set(actionIds).size !== actionIds.length) throw new Error('create_form action IDs must be unique');
-  return { schemaId: match[1]!, schemaVersion: Number(match[2]), schemaHash: match[3]!, outcome: payload.outcome as WorkflowOutcome, actions, payload };
+  return { ...identity, outcome: payload.outcome as WorkflowOutcome, actions, payload };
 }
 
-export function validateWorkflowSchema(result: WorkflowResult, expected: WorkflowSchemaIdentity): void {
+export function validateWorkflowSchema(result: WorkflowSchemaIdentity, expected: WorkflowSchemaIdentity): void {
   if (result.schemaId !== expected.schemaId || result.schemaVersion !== expected.schemaVersion || result.schemaHash !== expected.schemaHash) throw new Error('auto-nudge-result schema identity does not match the initiating turn');
 }
 export function validateWorkflowActions(result: WorkflowResult, config: WorkflowConfig, emitterRole: string): void {
