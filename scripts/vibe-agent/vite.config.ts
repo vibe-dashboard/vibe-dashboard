@@ -8,8 +8,11 @@ const externalBuiltins = new Set([
 ]);
 
 export default defineConfig({
+  // The CLI is copied into production images without node_modules. Bundle every
+  // package dependency; the Rollup external rule below still preserves Node's
+  // built-in modules.
   ssr: {
-    noExternal: ['ajv'],
+    noExternal: true,
   },
   build: {
     ssr: true,
