@@ -51,10 +51,14 @@ const vdDbPath = path.resolve(process.env.SQLITE_DATABASE_FILE ?? defaultVdDbPat
 const vkDevAssetsPath = path.join(vkRoot, 'dev_assets');
 const vkDbPath = path.join(vkDevAssetsPath, 'db.v2.sqlite');
 const vkSessionLogsPath = path.join(vkDevAssetsPath, 'sessions');
-const sandboxPlanPath = path.join(
-  repoRoot,
-  '.vk-mocked-sandbox/current/plan.json',
+const sandboxRunDir = path.resolve(
+  process.env.VK_MOCKED_SANDBOX_RUN_DIR ??
+    path.join(repoRoot, '.vk-mocked-sandbox/current'),
 );
+const vkReleaseDataPath = path.join(sandboxRunDir, 'xdg-data/vibe-kanban');
+const vkReleaseDbPath = path.join(vkReleaseDataPath, 'db.v2.sqlite');
+const vkReleaseSessionLogsPath = path.join(vkReleaseDataPath, 'sessions');
+const sandboxPlanPath = path.join(sandboxRunDir, 'plan.json');
 
 const generatedVkDevAssetFiles = [
   'db.v2.sqlite',
@@ -236,6 +240,7 @@ async function resetCommonState() {
   await removeIfExists(`${vkDbPath}-wal`);
   await removeIfExists(`${vkDbPath}-shm`);
   await removeIfExists(vkSessionLogsPath);
+  await removeIfExists(vkReleaseDataPath);
 
   for (const fileName of generatedVkDevAssetFiles.filter(
     (file) => file !== 'db.v2.sqlite',
@@ -249,21 +254,27 @@ async function resetVariant(variant: Variant, force: boolean) {
   await resetCommonState();
   await mkdir(path.dirname(vdDbPath), { recursive: true });
   await mkdir(vkDevAssetsPath, { recursive: true });
+  await mkdir(vkReleaseDataPath, { recursive: true });
 
   const fixtureDir = path.join(fixtureRoot, variant);
   if (variant === 'basic-seeded') {
     await copyFile(path.join(fixtureDir, 'vd/kv.db'), vdDbPath);
     for (const fileName of fixtureVkDevAssetFiles) {
-      await copyFileIfExists(
-        path.join(fixtureDir, 'vk/dev_assets', fileName),
-        path.join(vkDevAssetsPath, fileName),
-      );
+      const source = path.join(fixtureDir, 'vk/dev_assets', fileName);
+      await copyFileIfExists(source, path.join(vkDevAssetsPath, fileName));
+      await copyFileIfExists(source, path.join(vkReleaseDataPath, fileName));
     }
     await updateRepoPath(vkDbPath, canonicalRepoPath, runtimeRepoPath);
+    await updateRepoPath(vkReleaseDbPath, canonicalRepoPath, runtimeRepoPath);
     if (await exists(path.join(fixtureDir, 'vk/dev_assets/sessions'))) {
       await cp(path.join(fixtureDir, 'vk/dev_assets/sessions'), vkSessionLogsPath, {
         recursive: true,
       });
+      await cp(
+        path.join(fixtureDir, 'vk/dev_assets/sessions'),
+        vkReleaseSessionLogsPath,
+        { recursive: true },
+      );
     }
 
     await removeIfExists(runtimeRepoPath);
