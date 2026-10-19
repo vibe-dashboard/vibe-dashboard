@@ -36,6 +36,14 @@ export interface WorkspaceBeadsOptions {
   settingsDirectory?: string;
   beadsDirectory?: string;
   runBd?: BdCommandRunner;
+  profileTiming?: (timing: WorkspaceSetupTiming) => void;
+  nowMs?: () => number;
+}
+
+export interface WorkspaceSetupTiming {
+  phase: 'database' | 'redirect' | 'config_load' | 'instruction_blocks' | 'aggregate' | 'bd_process';
+  durationMs: number;
+  command?: string;
 }
 
 export interface ExternalIssueBeadInput {
@@ -108,23 +116,37 @@ export async function seedWorkspaceBeadsInstructionConfig(options: WorkspaceBead
 }
 
 export async function renderWorkspaceBeadsInstructionBlock(options: WorkspaceBeadsOptions = {}): Promise<string> {
-  await seedWorkspaceBeadsInstructionConfig(options);
-  const root = resolveVkSettingsDirectory(options);
-  const manifest = await loadWorkspaceBeadsManifest(options);
-  const fragments = [...manifest.required_fragments, ...manifest.append_fragments];
-  const rendered: string[] = [];
-  for (const fragment of fragments) {
-    const content = await readFile(resolveSettingsPath(root, fragment), 'utf8').catch(() => '');
-    if (content.trim()) rendered.push(content.trim());
-  }
-  return rendered.join('\n\n');
+  return (await loadWorkspaceInstructionPlan(options)).instructions;
 }
 
 export async function applyWorkspaceBeadsSetup(input: WorkspaceSetupInput, options: WorkspaceBeadsOptions = {}): Promise<void> {
-  await ensureWorkspaceBeadsDatabase(input.workspaceId, options);
-  await writeWorkspaceRedirect(input.workspaceId, input.workspaceDir, options);
-  await upsertWorkspaceInstructionBlocks(input.workspaceDir, options);
-  await upsertWorkspaceIndexBead(input, options);
+  const nowMs = options.nowMs ?? (() => performance.now());
+  const measure = async <T>(phase: WorkspaceSetupTiming['phase'], operation: () => Promise<T>): Promise<T> => {
+    const started = nowMs();
+    try {
+      return await operation();
+    } finally {
+      options.profileTiming?.({ phase, durationMs: nowMs() - started });
+    }
+  };
+  const baseRunBd = options.runBd ?? defaultRunBd;
+  const measuredOptions: WorkspaceBeadsOptions = {
+    ...options,
+    runBd: async (args, commandOptions) => {
+      const started = nowMs();
+      try {
+        return await baseRunBd(args, commandOptions);
+      } finally {
+        options.profileTiming?.({ phase: 'bd_process', command: args[0], durationMs: nowMs() - started });
+      }
+    },
+  };
+
+  await measure('database', () => ensureWorkspaceBeadsDatabase(input.workspaceId, measuredOptions));
+  await measure('redirect', () => writeWorkspaceRedirect(input.workspaceId, input.workspaceDir, measuredOptions));
+  const instructionPlan = await measure('config_load', () => loadWorkspaceInstructionPlan(measuredOptions));
+  await measure('instruction_blocks', () => upsertWorkspaceInstructionBlocks(input.workspaceDir, instructionPlan));
+  await measure('aggregate', () => upsertWorkspaceIndexBead(input, measuredOptions));
 }
 
 export async function upsertWorkspaceIndexBead(input: WorkspaceSetupInput, options: WorkspaceBeadsOptions = {}): Promise<WorkspaceBeadPointer> {
@@ -224,12 +246,29 @@ async function writeWorkspaceRedirect(workspaceId: string, workspaceDir: string,
   await writeFile(path.join(markerDir, 'redirect'), `${workspaceBeadsDir(workspaceId, options)}\n`);
 }
 
-async function upsertWorkspaceInstructionBlocks(workspaceDir: string, options: WorkspaceBeadsOptions): Promise<void> {
-  const manifest = await loadWorkspaceBeadsManifest(options);
-  const instructions = await renderWorkspaceBeadsInstructionBlock(options);
+async function upsertWorkspaceInstructionBlocks(
+  workspaceDir: string,
+  plan: { manifest: Awaited<ReturnType<typeof loadWorkspaceBeadsManifest>>; instructions: string },
+): Promise<void> {
+  const { manifest, instructions } = plan;
   for (const targetFile of manifest.target_files) {
     await upsertManagedBlock(resolveWorkspacePath(workspaceDir, targetFile), 'workspace-instructions', instructions);
   }
+}
+
+async function loadWorkspaceInstructionPlan(options: WorkspaceBeadsOptions): Promise<{
+  manifest: Awaited<ReturnType<typeof loadWorkspaceBeadsManifest>>;
+  instructions: string;
+}> {
+  await seedWorkspaceBeadsInstructionConfig(options);
+  const root = resolveVkSettingsDirectory(options);
+  const manifest = await loadWorkspaceBeadsManifest(options);
+  const rendered: string[] = [];
+  for (const fragment of [...manifest.required_fragments, ...manifest.append_fragments]) {
+    const content = await readFile(resolveSettingsPath(root, fragment), 'utf8').catch(() => '');
+    if (content.trim()) rendered.push(content.trim());
+  }
+  return { manifest, instructions: rendered.join('\n\n') };
 }
 
 async function upsertManagedBlock(filePath: string, marker: string, content: string): Promise<void> {
@@ -283,7 +322,6 @@ function parseWorkspaceBeadsManifest(toml: string): { required_fragments: string
 }
 
 async function loadWorkspaceBeadsManifest(options: WorkspaceBeadsOptions): Promise<{ required_fragments: string[]; append_fragments: string[]; target_files: string[] }> {
-  await seedWorkspaceBeadsInstructionConfig(options);
   const root = resolveVkSettingsDirectory(options);
   const manifest = parseWorkspaceBeadsManifest(await readFile(path.join(root, 'workspace-beads.toml'), 'utf8'));
   return {

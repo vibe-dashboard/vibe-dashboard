@@ -3,10 +3,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  applyWorkspaceBeadsSetup,
   renderWorkspaceBeadsInstructionBlock,
   deterministicExternalIssueBeadId,
   ensureExternalIssueWorkspaceBead,
   seedWorkspaceBeadsInstructionConfig,
+  type WorkspaceSetupTiming,
 } from './workspaceBeads';
 
 describe('workspaceBeads', () => {
@@ -86,5 +88,44 @@ describe('workspaceBeads', () => {
 
     expect(repaired.beadId).toMatch(/^vde-/);
     expect(calls.filter((args) => args[0] === 'create')).toHaveLength(2);
+  });
+
+  it('reports removable setup phase and bd process timings without bead content', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'vd-beads-profile-'));
+    const timings: WorkspaceSetupTiming[] = [];
+    let tick = 0;
+    try {
+      await applyWorkspaceBeadsSetup({
+        workspaceId: 'workspace-profile',
+        workspaceDir: path.join(root, 'workspace'),
+        repos: [{ name: 'repo-secret' }],
+      }, {
+        settingsDirectory: path.join(root, 'settings'),
+        beadsDirectory: path.join(root, 'beads'),
+        nowMs: () => tick++,
+        profileTiming: (timing) => timings.push(timing),
+        runBd: async (args) => {
+          if (args[0] === 'show') throw new Error('missing');
+          return { stdout: '{}' };
+        },
+      });
+
+      expect(timings.filter((timing) => timing.phase !== 'bd_process').map((timing) => timing.phase)).toEqual([
+        'database',
+        'redirect',
+        'config_load',
+        'instruction_blocks',
+        'aggregate',
+      ]);
+      expect(timings.filter((timing) => timing.phase === 'bd_process').map((timing) => timing.command)).toEqual([
+        'init',
+        'init',
+        'show',
+        'create',
+      ]);
+      expect(JSON.stringify(timings)).not.toContain('repo-secret');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

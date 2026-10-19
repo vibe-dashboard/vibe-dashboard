@@ -8,6 +8,7 @@ import {
   applyWorkspaceBeadsSetup,
   deterministicWorkspaceBeadId,
   resolveVkSettingsDirectory,
+  type WorkspaceSetupTiming,
 } from '../src/modules/plugins/kanban/server/workspaceBeads.ts';
 
 const execFile = promisify(execFileCallback);
@@ -24,13 +25,19 @@ async function main(): Promise<void> {
   if (!workspaceDir) throw new Error('VK_WORKSPACE_DIR is required');
 
   const repos = parseReposJson(process.env.VK_WORKSPACE_REPOS_JSON ?? '[]');
-  await applyWorkspaceBeadsSetup({ workspaceId, workspaceDir, repos });
+  const timings: WorkspaceSetupTiming[] = [];
+  const profile = process.env.VD_BEADS_SETUP_PROFILE === '1';
+  const started = performance.now();
+  await applyWorkspaceBeadsSetup({ workspaceId, workspaceDir, repos }, {
+    ...(profile ? { profileTiming: (timing) => timings.push(timing) } : {}),
+  });
   await runUserSetupCommands(workspaceDir);
   console.log(JSON.stringify({
     ok: true,
     workspaceId,
     workspaceBeadId: deterministicWorkspaceBeadId(workspaceId),
     repoCount: repos.length,
+    ...(profile ? { totalDurationMs: performance.now() - started, timings } : {}),
   }));
 }
 
