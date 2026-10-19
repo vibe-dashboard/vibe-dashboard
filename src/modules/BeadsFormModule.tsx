@@ -447,13 +447,13 @@ function BeadsFormPendingQueue({ actions, parentDir }: {
         <button type="button" onClick={() => void load()} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button>
       </header>
       {error ? <p role="alert" className="beadsform-error">{error}</p> : null}
-      {!pending && !error ? <p>Scanning persisted workspace beads stores under <code>{parentDir || 'VD_BEADS_DIRECTORY'}/workspaces</code>…</p> : null}
+      {!pending && !error ? <p>Scanning active workspace beads stores under <code>{parentDir || 'VD_BEADS_DIRECTORY'}/workspaces</code>…</p> : null}
       {pending ? (
         <>
           <section className="beadsform-warning" role="note">
             <h2>Update strategy</h2>
             <p>{pending.updateStrategy.rationale}</p>
-            <p>Scanned {pending.reposScanned} workspace beads stores under <code>{pending.reposRoot}</code> with a limit of {pending.repoLimit}.</p>
+            <p>Scanned {pending.reposScanned} active workspace beads stores under <code>{pending.reposRoot}</code> with a limit of {pending.repoLimit}.</p>
           </section>
           {pending.entries.length === 0 ? <p>No pending BeadsForms found.</p> : (
             <section>
@@ -866,12 +866,16 @@ springboard.registerModule(
           } : {}),
         };
       },
-      loadPendingForms: async (input: LoadPendingFormsInput): Promise<LoadPendingFormsResult> => (
-        nodeClient().listPendingBeadsFormQueue({
+      loadPendingForms: async (input: LoadPendingFormsInput): Promise<LoadPendingFormsResult> => {
+        const activeWorkspaceIds = (await vkClient().getWorkspaces())
+          .filter((workspace) => !workspace.archived)
+          .map((workspace) => workspace.id);
+        return nodeClient().listPendingBeadsFormQueue({
+          activeWorkspaceIds,
           ...(input.beadsDirectory ? { beadsDirectory: input.beadsDirectory } : {}),
           ...(input.repoLimit ? { repoLimit: input.repoLimit } : {}),
-        })
-      ),
+        });
+      },
       submitBeadForm: async (input: SubmitFormInput): Promise<SubmitFormResult> => {
         const result = await nodeClient().submitForm(input);
         const forms = getBeadsForms(result.metadata);

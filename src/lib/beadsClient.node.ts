@@ -1,7 +1,7 @@
 /// <reference types="node" />
 
 import { execFile } from 'node:child_process';
-import { access, readdir, realpath } from 'node:fs/promises';
+import { access, realpath } from 'node:fs/promises';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
@@ -170,17 +170,16 @@ export class BeadsClient {
   async listPendingBeadsFormQueue(input: {
     beadsDirectory?: string;
     repoLimit?: number;
-  } = {}): Promise<PendingBeadsFormQueueResult> {
+    activeWorkspaceIds: string[];
+  }): Promise<PendingBeadsFormQueueResult> {
     const requestedReposRoot = join(input.beadsDirectory ?? vdBeadsDirectory(), 'workspaces');
     const repoLimit = input.repoLimit ?? 80;
     let workspaceStores: Array<{ workspaceId: string; storeDir: string }>;
     let reposRoot: string;
     try {
       reposRoot = await realpath(requestedReposRoot);
-      workspaceStores = (await readdir(reposRoot, { withFileTypes: true }))
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => entry.name)
-        .filter((name) => !name.startsWith('.') && name !== 'node_modules')
+      workspaceStores = [...new Set(input.activeWorkspaceIds)]
+        .filter((workspaceId) => workspaceId.trim())
         .sort((a, b) => a.localeCompare(b))
         .slice(0, repoLimit)
         .map((workspaceId) => ({ workspaceId, storeDir: join(reposRoot, workspaceId, '.beads') }));
@@ -197,11 +196,11 @@ export class BeadsClient {
 
     const entries: PendingBeadsFormEntry[] = [];
     const skipped: Array<{ repoDir: string; reason: string }> = [];
-    for (const { workspaceId, storeDir } of workspaceStores) {
+    await mapWithConcurrency(workspaceStores, 8, async ({ workspaceId, storeDir }) => {
       try {
         if (!await pathExists(storeDir)) {
           skipped.push({ repoDir: storeDir, reason: 'workspace beads store not initialized' });
-          continue;
+          return;
         }
         entries.push(...await this.listPendingFormsInWorkspaceStore(workspaceId, storeDir));
       } catch (error) {
@@ -211,7 +210,13 @@ export class BeadsClient {
           skipped.push({ repoDir: storeDir, reason: error instanceof Error ? error.message : String(error) });
         }
       }
-    }
+    });
+    entries.sort((left, right) => (
+      left.workspaceId.localeCompare(right.workspaceId)
+      || left.bead.id.localeCompare(right.bead.id)
+      || left.form.id.localeCompare(right.form.id)
+    ));
+    skipped.sort((left, right) => left.repoDir.localeCompare(right.repoDir));
 
     return {
       reposRoot,
@@ -224,28 +229,20 @@ export class BeadsClient {
   }
 
   private async listPendingFormsInWorkspaceStore(workspaceId: string, storeDir: string): Promise<PendingBeadsFormEntry[]> {
-    const candidates = new Map<string, BeadLike>();
-    for (const metadataKey of ['beadFormsSummary', 'beadForms', 'beadsWeb']) {
-      const listed = parseBdJsonArray<BeadLike>((await this.exec(this.bdPath, [
-        '--readonly',
-        'list',
-        '--json',
-        '--all',
-        '--limit',
-        '0',
-        '--has-metadata-key',
-        metadataKey,
-      ], {
-        cwd: storeDir,
-        timeout: 15_000,
-        maxBuffer: 1024 * 1024 * 5,
-      })).stdout);
-      for (const bead of listed) {
-        if (bead.id) candidates.set(bead.id, bead);
-      }
-    }
+    const beads = parseBdJsonArray<BeadLike>((await this.exec(this.bdPath, [
+      '--readonly',
+      'list',
+      '--json',
+      '--all',
+      '--limit',
+      '0',
+    ], {
+      cwd: storeDir,
+      timeout: 10_000,
+      maxBuffer: 1024 * 1024 * 10,
+    })).stdout);
 
-    return Array.from(candidates.values()).flatMap((bead) => {
+    return beads.flatMap((bead) => {
       if (isClosedBead(bead)) return [];
       const forms = getBeadsForms(bead.metadata)
         .filter((form) => isPendingForm(bead, form));
@@ -448,6 +445,16 @@ export class BeadsClient {
       maxBuffer: 1024 * 1024,
     });
   }
+}
+
+async function mapWithConcurrency<T>(items: readonly T[], concurrency: number, visit: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next++;
+      await visit(items[index]!);
+    }
+  }));
 }
 
 function workspaceBeadsStoreDir(workspaceId: string): string {

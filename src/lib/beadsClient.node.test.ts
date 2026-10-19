@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -280,7 +280,7 @@ describe('BeadsClient', () => {
     }
   });
 
-  it('lists pending bead forms from persisted workspace stores without mutating bead databases', async () => {
+  it('lists pending forms only from active workspace stores with one bd call per store', async () => {
     const beadsRoot = await mkdtemp(join(tmpdir(), 'vd-beads-'));
     const workspaceAStore = join(beadsRoot, 'workspaces', 'workspace-a', '.beads');
     const workspaceBRoot = join(beadsRoot, 'workspaces', 'workspace-b');
@@ -294,21 +294,22 @@ describe('BeadsClient', () => {
       expect(args[0]).toBe('--readonly');
       expect(options.cwd).not.toContain('/repos/');
       if (options.cwd === workspaceAStore && args[1] === 'list') {
-        if (args.includes('beadFormsSummary')) return { stdout: JSON.stringify([
+        return { stdout: JSON.stringify([
           { id: 'summary_done', title: 'Summary done', metadata: { beadFormsSummary: { hasForms: true, hasPendingAnswer: false, pendingResponseCount: 0, formIds: ['summary_done_form'], pendingFormIds: [] }, beadForms: { forms: [{ id: 'summary_done_form', title: 'Done', html: '<form></form>' }] } } },
-        ]), stderr: '' };
-        return { stdout: args.includes('beadForms') ? JSON.stringify([
           { id: 'task-pending', title: 'Pending bead', metadata: { beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } },
           { id: 'done', title: 'Done bead', metadata: { beadForms: { forms: [{ id: 'done_form', title: 'Done', html: '<form></form>', responses: [{ submittedAt: 'now', submittedBy: 'user', values: {} }] }] } } },
           { id: 'closed', title: 'Closed bead', status: 'closed', metadata: { beadForms: { forms: [{ id: 'closed_form', title: 'Closed', html: '<form></form>' }] } } },
-        ]) : '[]', stderr: '' };
+        ]), stderr: '' };
       }
       return { stdout: '[]', stderr: '' };
     });
     const client = new BeadsClient({ execFile: exec });
 
     try {
-      const result = await client.listPendingBeadsFormQueue({ repoLimit: 2 });
+      const result = await client.listPendingBeadsFormQueue({
+        activeWorkspaceIds: ['workspace-a', 'workspace-b'],
+        repoLimit: 2,
+      });
 
       expect(result.reposScanned).toBe(2);
       expect(result.repoLimit).toBe(2);
@@ -324,12 +325,45 @@ describe('BeadsClient', () => {
       expect(result.updateStrategy.mode).toBe('explicit-refresh');
       expect(exec.mock.calls.some(([, args]) => args.includes('update'))).toBe(false);
       expect(exec.mock.calls.some(([, args]) => args.includes('show'))).toBe(false);
+      expect(exec).toHaveBeenCalledTimes(1);
+      expect(exec.mock.calls[0]![1]).not.toContain('--has-metadata-key');
     } finally {
       if (previous === undefined) {
         delete process.env.VD_BEADS_DIRECTORY;
       } else {
         process.env.VD_BEADS_DIRECTORY = previous;
       }
+    }
+  });
+
+  it('bounds workspace failures and still returns metadata-less task form beads', async () => {
+    const beadsRoot = await mkdtemp(join(tmpdir(), 'vd-beads-'));
+    const activeStore = join(beadsRoot, 'workspaces', 'active', '.beads');
+    const brokenStore = join(beadsRoot, 'workspaces', 'broken', '.beads');
+    const archivedStore = join(beadsRoot, 'workspaces', 'archived', '.beads');
+    await Promise.all([activeStore, brokenStore, archivedStore].map((dir) => mkdir(dir, { recursive: true })));
+    const exec = vi.fn<ExecFileLike>(async (_file, _args, options) => {
+      if (options.cwd === brokenStore) throw new Error('timed out');
+      if (options.cwd === activeStore) return {
+        stdout: JSON.stringify([{ id: 'task-no-summary', metadata: { beadForms: { forms: [{ id: 'answer', title: 'Answer', html: '<form></form>' }] } } }]),
+        stderr: '',
+      };
+      throw new Error(`unexpected scan: ${options.cwd}`);
+    });
+    const client = new BeadsClient({ execFile: exec });
+
+    try {
+      const result = await client.listPendingBeadsFormQueue({
+        beadsDirectory: beadsRoot,
+        activeWorkspaceIds: ['active', 'broken'],
+      });
+
+      expect(result.entries).toHaveLength(1);
+      expect(result.entries[0]?.bead.id).toBe('task-no-summary');
+      expect(result.skipped).toEqual([{ repoDir: brokenStore, reason: 'timed out' }]);
+      expect(exec.mock.calls.map((call) => call[2].cwd).sort()).toEqual([activeStore, brokenStore].sort());
+    } finally {
+      await rm(beadsRoot, { recursive: true, force: true });
     }
   });
 });
