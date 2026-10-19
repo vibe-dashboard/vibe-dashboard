@@ -153,11 +153,12 @@ function ciReleaseArtifactFromEnv(
 
   const artifactRoot =
     env.VK_MOCKED_RELEASE_CACHE_DIR?.trim() || ciReleaseArtifactRoot(vdRoot, contentHash);
+  const artifactName = env.VK_MOCKED_GH_ARTIFACT_NAME ?? DEFAULT_VK_GH_ARTIFACT_NAME;
   return {
     contentHash,
     releaseTag,
     artifactRoot,
-    binaryPath: join(artifactRoot, 'extracted', 'vibe-kanban'),
+    binaryPath: join(artifactRoot, artifactName, 'extracted', 'vibe-kanban'),
   };
 }
 
@@ -315,7 +316,7 @@ export async function downloadCiReleaseArtifactFromEnv(
     env.VK_MOCKED_RELEASE_CACHE_DIR?.trim() ||
     ciReleaseArtifactRoot(vdRoot, contentHash);
   const artifactDir = join(artifactRoot, artifactName);
-  const extractDir = join(artifactRoot, 'extracted');
+  const extractDir = join(artifactDir, 'extracted');
   const archivePath = join(artifactDir, archiveName);
   const binaryPath = join(extractDir, 'vibe-kanban');
 
@@ -381,11 +382,12 @@ async function resolveCiReleaseArtifact(
   const releaseTag = env.VK_MOCKED_RELEASE_TAG?.trim() || ciReleaseTag(contentHash);
   await requireCiReleaseExists(releaseTag, env);
   const artifactRoot = ciReleaseArtifactRoot(vdRoot, contentHash);
+  const artifactName = env.VK_MOCKED_GH_ARTIFACT_NAME ?? DEFAULT_VK_GH_ARTIFACT_NAME;
   return {
     contentHash,
     releaseTag,
     artifactRoot,
-    binaryPath: join(artifactRoot, 'extracted', 'vibe-kanban'),
+    binaryPath: join(artifactRoot, artifactName, 'extracted', 'vibe-kanban'),
   };
 }
 

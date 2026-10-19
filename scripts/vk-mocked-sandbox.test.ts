@@ -356,7 +356,7 @@ describe('VK mocked sandbox helpers', () => {
     expect(plan.commands[0]).toMatchObject({
       name: 'vk-backend-ci-release',
       cwd: '/tmp/worktrees/example/vibe-kanban-vscode-web/vibe-kanban',
-      command: `${artifactRoot}/extracted/vibe-kanban`,
+      command: `${artifactRoot}/release-assets-linux-x64-qa/extracted/vibe-kanban`,
       args: [],
       env: {
         BACKEND_PORT: '4107',
@@ -468,7 +468,7 @@ describe('VK mocked sandbox helpers', () => {
       '.vk-mocked-sandbox/vk-release-assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     );
     const artifactDir = join(artifactRoot, 'release-assets-linux-x64-qa');
-    const extractDir = join(artifactRoot, 'extracted');
+    const extractDir = join(artifactDir, 'extracted');
     const archiveName = 'vibe-kanban-linux-x64-qa.tar.gz';
     const archiveContents = 'cached archive';
     const archiveSha = createHash('sha256').update(archiveContents).digest('hex');
