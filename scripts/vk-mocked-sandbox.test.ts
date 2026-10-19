@@ -296,8 +296,8 @@ describe('VK mocked sandbox helpers', () => {
       args: ['build', '--features', 'qa-mode', '--bin', 'server'],
     });
     expect(plan.commands[0]).toMatchObject({
-      command: 'cargo',
-      args: ['run', '--features', 'qa-mode', '--bin', 'server'],
+      command: '/tmp/worktrees/example/vibe-kanban-vscode-web/vibe-kanban/target/debug/server',
+      args: [],
     });
   });
 
@@ -430,28 +430,34 @@ describe('VK mocked sandbox helpers', () => {
     ).toThrow('VK_MOCKED_RELEASE_HASH must be a full 64-character VK content hash');
   });
 
-  it('rejects stale source prebuild env in release-asset VK planning', () => {
-    expect(() =>
-      createSandboxPlan({
-        workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
-        env: {
-          VK_MOCKED_VK_BACKEND: 'ci-release',
-          VK_MOCKED_RELEASE_HASH:
-            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-          VK_MOCKED_PREBUILD_BACKEND: '1',
-        } as NodeJS.ProcessEnv,
-        ports: {
-          vkBackend: 4107,
-          vkFrontend: 4100,
-          vkPreviewProxy: 4106,
-          vdDashboard: 4105,
-          vdServer: 4104,
-          vdCaddy: 4101,
-        },
-        runDir: '/tmp/run',
-        caddyfile: 'mocked sandbox caddyfile',
-      }),
-    ).toThrow('VK_MOCKED_PREBUILD_BACKEND is not supported in ci-release mode');
+  it('ignores source prebuild mode when a release binary is available', () => {
+    const plan = createSandboxPlan({
+      workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
+      env: {
+        VK_MOCKED_VK_BACKEND: 'ci-release',
+        VK_MOCKED_RELEASE_HASH:
+          'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        VK_MOCKED_PREBUILD_BACKEND: '1',
+      } as NodeJS.ProcessEnv,
+      ports: {
+        vkBackend: 4107,
+        vkFrontend: 4100,
+        vkPreviewProxy: 4106,
+        vdDashboard: 4105,
+        vdServer: 4104,
+        vdCaddy: 4101,
+      },
+      runDir: '/tmp/run',
+      caddyfile: '# Vibe Dashboard app\nmocked sandbox caddyfile',
+    });
+
+    expect(plan.setupCommands.map((command) => command.name)).toEqual([
+      'vk-download-release-artifact',
+    ]);
+    expect(plan.commands[0]).toMatchObject({
+      name: 'vk-backend-ci-release',
+      args: [],
+    });
   });
 
   it('verifies cached release artifact manifest and checksum before using binary', async () => {

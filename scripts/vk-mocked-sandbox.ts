@@ -487,14 +487,6 @@ export function createSandboxPlan(input: {
     ? resolve(workspaceRoot, configuredVkCheckout)
     : join(vdRoot, 'vibe-kanban');
   const ciReleaseArtifact = ciReleaseArtifactFromEnv(vdRoot, env);
-  if (ciReleaseArtifact && env.VK_MOCKED_PREBUILD_BACKEND === '1') {
-    throw new Error(
-      [
-        'VK_MOCKED_PREBUILD_BACKEND is not supported in ci-release mode because it would locally build VK.',
-        'Unset VK_MOCKED_PREBUILD_BACKEND or use npm run dev:vk-mocked-sandbox for source mode.',
-      ].join(' '),
-    );
-  }
   const configuredRunDir = env.VK_MOCKED_SANDBOX_RUN_DIR?.trim();
   const runDir = resolve(
     input.runDir || configuredRunDir || join(vdRoot, '.vk-mocked-sandbox', 'current'),
@@ -579,7 +571,7 @@ export function createSandboxPlan(input: {
       },
     });
   }
-  if (env.VK_MOCKED_PREBUILD_BACKEND === '1') {
+  if (!ciReleaseArtifact && env.VK_MOCKED_PREBUILD_BACKEND === '1') {
     setupCommands.push({
       name: 'vk-build-backend-qa',
       cwd: vkRoot,
@@ -612,8 +604,14 @@ export function createSandboxPlan(input: {
     : {
       name: 'vk-backend-qa',
       cwd: vkRoot,
-      command: 'cargo',
-      args: ['run', '--features', 'qa-mode', '--bin', 'server'],
+      command:
+        env.VK_MOCKED_PREBUILD_BACKEND === '1'
+          ? join(vkRoot, 'target', 'debug', 'server')
+          : 'cargo',
+      args:
+        env.VK_MOCKED_PREBUILD_BACKEND === '1'
+          ? []
+          : ['run', '--features', 'qa-mode', '--bin', 'server'],
       env: {
         ...commonEnv,
         HOST: '127.0.0.1',
