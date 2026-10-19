@@ -214,7 +214,8 @@ async function resolveVkContentHash(
 }
 
 async function ensureCleanVendoredVk(vdRoot: string, vkRoot: string): Promise<void> {
-  if (resolve(vkRoot) !== join(resolve(vdRoot), 'vibe-kanban')) return;
+  const vendoredVkRoot = join(resolve(vdRoot), 'vibe-kanban');
+  if (resolve(vkRoot) !== vendoredVkRoot) return;
   const status = (await execText('git', ['status', '--porcelain', '--', 'vibe-kanban'], {
     cwd: vdRoot,
   })).trim();
@@ -363,6 +364,12 @@ async function resolveCiReleaseArtifact(
   vkRoot: string,
   env: NodeJS.ProcessEnv,
 ): Promise<CiReleaseArtifact> {
+  const vendoredVkRoot = join(resolve(vdRoot), 'vibe-kanban');
+  if (resolve(vkRoot) !== vendoredVkRoot && !env.VK_MOCKED_RELEASE_HASH?.trim()) {
+    throw new Error(
+      'An external VK_CHECKOUT requires VK_MOCKED_RELEASE_HASH in ci-release mode.',
+    );
+  }
   await ensureCleanVendoredVk(vdRoot, vkRoot);
   const contentHash = await resolveVkContentHash(vdRoot, env);
   const releaseTag = env.VK_MOCKED_RELEASE_TAG?.trim() || ciReleaseTag(contentHash);
@@ -482,8 +489,9 @@ export function createSandboxPlan(input: {
       ].join(' '),
     );
   }
+  const configuredRunDir = env.VK_MOCKED_SANDBOX_RUN_DIR?.trim();
   const runDir = resolve(
-    input.runDir ?? join(vdRoot, '.vk-mocked-sandbox', 'current'),
+    input.runDir || configuredRunDir || join(vdRoot, '.vk-mocked-sandbox', 'current'),
   );
   const caddyfile = ciReleaseArtifact
     ? caddyfileWithCiReleaseAssetRouting(input.caddyfile)
@@ -828,7 +836,10 @@ async function main(): Promise<void> {
       VK_MOCKED_RELEASE_TAG: artifact.releaseTag,
       VK_MOCKED_RELEASE_CACHE_DIR: artifact.artifactRoot,
     };
-  } else if (process.env.VK_MOCKED_VK_BACKEND !== 'source') {
+  } else if (
+    process.env.VK_MOCKED_VK_BACKEND !== 'source' &&
+    resolve(vkRoot) === join(resolve(vdRoot), 'vibe-kanban')
+  ) {
     const artifact = await tryResolveCiReleaseArtifact(vdRoot, vkRoot, process.env);
     if (artifact) {
       env = {

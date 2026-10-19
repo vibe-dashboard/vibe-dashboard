@@ -234,7 +234,8 @@ is `VK_CHECKOUT` in this sandbox.
 | `VK_MOCKED_VD_DASHBOARD_PORT` | Explicit VD Vite port. |
 | `VK_MOCKED_VD_SERVER_PORT` | Explicit VD server port. |
 | `VK_MOCKED_CADDY_PORT` | Explicit front-door Caddy port. |
-| `VK_MOCKED_VK_BACKEND` | Defaults to trying a CI release artifact first, then source mode. Set to `ci-release` to require a CI artifact or `source` to force local source mode. |
+| `VK_MOCKED_SANDBOX_RUN_DIR` | Overrides the generated plan, environment, log, and PID directory. |
+| `VK_MOCKED_VK_BACKEND` | For vendored VK, defaults to trying a CI release artifact first, then source mode. External `VK_CHECKOUT` values default to source mode. Set to `ci-release` to require a CI artifact or `source` to force local source mode. |
 | `VK_MOCKED_RELEASE_HASH` | Optional CI-release mode override; full 64-character VK content hash. When omitted, `.github/scripts/vk-content-hash.sh` hashes tracked files under `vibe-kanban`. |
 | `VK_MOCKED_RELEASE_TAG` | Optional CI-release mode release tag override; defaults to `vk-assets-sha256-<VK_MOCKED_RELEASE_HASH>`. |
 | `VK_MOCKED_GH_REPO` | CI-release mode GitHub repo; defaults to `vibe-dashboard/vibe-kanban`. |

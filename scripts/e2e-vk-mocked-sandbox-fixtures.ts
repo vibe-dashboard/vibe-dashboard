@@ -32,7 +32,11 @@ type Manifest = {
 const execFileAsync = promisify(execFile);
 
 const repoRoot = process.cwd();
-const vkRoot = path.join(repoRoot, 'vibe-kanban');
+const workspaceRoot = path.resolve(repoRoot, '..');
+const configuredVkCheckout = process.env.VK_CHECKOUT?.trim();
+const vkRoot = configuredVkCheckout
+  ? path.resolve(workspaceRoot, configuredVkCheckout)
+  : path.join(repoRoot, 'vibe-kanban');
 const fixtureRoot = path.join(
   repoRoot,
   'tests/e2e/fixtures/vk-mocked-sandbox',

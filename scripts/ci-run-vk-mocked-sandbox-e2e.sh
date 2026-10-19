@@ -3,6 +3,7 @@ set -euo pipefail
 
 RUN_DIR="${VK_MOCKED_SANDBOX_RUN_DIR:-.vk-mocked-sandbox/current}"
 READY_TIMEOUT_SECONDS="${VK_MOCKED_SANDBOX_READY_TIMEOUT_SECONDS:-1200}"
+PORT_LOCK="${VK_MOCKED_SANDBOX_PORT_LOCK:-${TMPDIR:-/tmp}/vk-mocked-sandbox-ports.lock}"
 
 cleanup() {
   if [[ -n "${sandbox_pid:-}" ]] && kill -0 "$sandbox_pid" 2>/dev/null; then
@@ -15,6 +16,15 @@ trap cleanup EXIT
 mkdir -p "$RUN_DIR"
 
 npm run e2e:vk-mocked-sandbox:reset -- --variant basic-seeded
+
+# Port probes do not reserve sockets. Serialize allocation through readiness so
+# another worktree cannot select these ports before the services bind them.
+command -v flock >/dev/null 2>&1 || {
+  echo "flock is required for concurrent mocked-sandbox port allocation" >&2
+  exit 1
+}
+exec 9>"$PORT_LOCK"
+flock 9
 
 echo "::group::Prepare VK mocked sandbox"
 node --experimental-strip-types scripts/vk-mocked-sandbox.ts setup
@@ -48,6 +58,8 @@ until curl --fail --silent "$VK_HEALTH_URL" >/dev/null \
   fi
   sleep 2
 done
+
+flock -u 9
 
 echo "VK mocked sandbox is ready: $VK_HEALTH_URL and $SANDBOX_URL/workspaces"
 npx playwright test --config playwright.vk-mocked-sandbox.config.ts
