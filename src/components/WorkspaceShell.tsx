@@ -1582,6 +1582,7 @@ export function WorkspaceShell({
         ...current,
         [tabGroupId]: tabId,
       }));
+      sessionActions.selectSessionTab(spaceId, tabGroupId, tabId);
       return;
     }
 
@@ -1742,11 +1743,17 @@ export function WorkspaceShell({
             (id): id is string => Boolean(id),
           )
         : expandedSessionTabGroup.entry.viewIds;
+    const activeItemId =
+      effectiveActiveItems[expandedSessionTabGroup.tabGroup.id] ||
+      session.activeItemsByVoyageEntryId[expandedSessionTabGroup.entry.id] ||
+      session.activeItems[expandedSessionTabGroup.tabGroup.id];
     const tabItems = expandedSessionTabGroup.tabGroup.tabs.map((tab) => ({
       kind: "tab" as const,
       id: tab.id,
       label: tab.title,
-      isActive: activeViewIds.length === 1 && activeViewIds[0] === tab.id,
+      isActive:
+        activeItemId === tab.id ||
+        (activeViewIds.length === 1 && activeViewIds[0] === tab.id),
     }));
     const pairItems = expandedSessionTabGroup.tabGroup.pairs.map(
       (pair, index) => {
@@ -1763,16 +1770,23 @@ export function WorkspaceShell({
           id: pair.id,
           label: labels || `Split ${index + 1}`,
           isActive:
-            pair.tabIds.length === activeViewIds.length &&
-            pair.tabIds.every(
-              (tabId, tabIndex) => tabId === activeViewIds[tabIndex],
-            ),
+            activeItemId === pair.id ||
+            (pair.tabIds.length === activeViewIds.length &&
+              pair.tabIds.every(
+                (tabId, tabIndex) => tabId === activeViewIds[tabIndex],
+              )),
         };
       },
     );
 
     return isDesktop ? [...tabItems, ...pairItems] : tabItems;
-  }, [expandedSessionTabGroup, isDesktop]);
+  }, [
+    effectiveActiveItems,
+    expandedSessionTabGroup,
+    isDesktop,
+    session.activeItems,
+    session.activeItemsByVoyageEntryId,
+  ]);
 
   const clearLongPress = () => {
     if (longPressTimerRef.current != null) {
@@ -1891,9 +1905,9 @@ export function WorkspaceShell({
     item: { kind: "tab" | "pair"; id: string },
   ) => {
     if (item.kind === "pair") {
-      sessionActions.selectSessionPair(spaceId, tabGroupId, item.id);
+      effectiveSessionActions.selectSessionPair(spaceId, tabGroupId, item.id);
     } else {
-      sessionActions.selectSessionTab(spaceId, tabGroupId, item.id);
+      effectiveSessionActions.selectSessionTab(spaceId, tabGroupId, item.id);
     }
     setExpandedVoyageEntryId(null);
   };

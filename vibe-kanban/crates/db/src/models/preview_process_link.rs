@@ -109,6 +109,33 @@ pub struct CreatePreviewProcessLink {
 }
 
 impl PreviewProcessLink {
+    pub async fn find_latest_by_workspace(
+        pool: &SqlitePool,
+        workspace_id: Uuid,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, PreviewProcessLinkRow>(
+            r#"SELECT id, workspace_id, repo_id, run_config_id, preview_slot_id, execution_process_id,
+                      assigned_port, status_snapshot, started_at, updated_at, ended_at
+               FROM preview_process_links AS link
+               WHERE workspace_id = ?
+                 AND preview_slot_id IS NOT NULL
+                 AND id = (
+                   SELECT candidate.id
+                   FROM preview_process_links AS candidate
+                   WHERE candidate.workspace_id = link.workspace_id
+                     AND candidate.preview_slot_id = link.preview_slot_id
+                   ORDER BY candidate.started_at DESC, candidate.id DESC
+                   LIMIT 1
+                 )
+               ORDER BY started_at DESC, id DESC"#,
+        )
+        .bind(workspace_id)
+        .fetch_all(pool)
+        .await?;
+
+        rows.into_iter().map(TryInto::try_into).collect()
+    }
+
     pub async fn find_active_by_slot(
         pool: &SqlitePool,
         workspace_id: Uuid,
@@ -149,6 +176,35 @@ impl PreviewProcessLink {
         .await?;
 
         row.map(TryInto::try_into).transpose()
+    }
+
+    pub async fn find_active_by_workspace_process(
+        pool: &SqlitePool,
+        workspace_id: Uuid,
+        execution_process_id: Uuid,
+        preview_slot_id: Option<Uuid>,
+    ) -> Result<Option<Self>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, PreviewProcessLinkRow>(
+            r#"SELECT id, workspace_id, repo_id, run_config_id, preview_slot_id, execution_process_id,
+                      assigned_port, status_snapshot, started_at, updated_at, ended_at
+               FROM preview_process_links
+               WHERE workspace_id = ? AND execution_process_id = ? AND ended_at IS NULL
+               ORDER BY started_at DESC"#,
+        )
+        .bind(workspace_id)
+        .bind(execution_process_id)
+        .fetch_all(pool)
+        .await?;
+
+        rows.into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<Self>, sqlx::Error>>()?
+            .into_iter()
+            .find(|link| {
+                preview_slot_id.is_none_or(|slot_id| link.preview_slot_id == Some(slot_id))
+            })
+            .map(Ok)
+            .transpose()
     }
 
     pub async fn count_active(pool: &SqlitePool) -> Result<i64, sqlx::Error> {
@@ -236,5 +292,167 @@ impl PreviewProcessLink {
         .execute(pool)
         .await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sqlx::{Executor, sqlite::SqlitePoolOptions};
+    use uuid::Uuid;
+
+    use super::{CreatePreviewProcessLink, PreviewProcessLink};
+
+    #[tokio::test]
+    async fn latest_workspace_links_returns_one_link_per_slot_in_one_query() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        pool.execute(
+            r#"CREATE TABLE preview_process_links (
+                id BLOB PRIMARY KEY,
+                workspace_id BLOB NOT NULL,
+                repo_id BLOB NOT NULL,
+                run_config_id BLOB NOT NULL,
+                preview_slot_id BLOB,
+                execution_process_id BLOB NOT NULL,
+                assigned_port INTEGER NOT NULL,
+                status_snapshot TEXT NOT NULL,
+                started_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                ended_at TEXT
+            )"#,
+        )
+        .await
+        .unwrap();
+
+        let workspace_id = Uuid::new_v4();
+        let slot_id = Uuid::new_v4();
+        let first = create_link(&pool, workspace_id, Some(slot_id)).await;
+        let latest = create_link(&pool, workspace_id, Some(slot_id)).await;
+        let other_slot = create_link(&pool, workspace_id, Some(Uuid::new_v4())).await;
+        let _unrelated = create_link(&pool, Uuid::new_v4(), Some(slot_id)).await;
+        sqlx::query("UPDATE preview_process_links SET started_at = ? WHERE id = ?")
+            .bind("2026-09-15 20:00:00")
+            .bind(first.id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE preview_process_links SET started_at = ? WHERE id = ?")
+            .bind("2026-09-15 21:00:00")
+            .bind(latest.id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let links = PreviewProcessLink::find_latest_by_workspace(&pool, workspace_id)
+            .await
+            .unwrap();
+
+        assert_eq!(links.len(), 2);
+        assert!(links.iter().any(|link| link.id == latest.id));
+        assert!(links.iter().any(|link| link.id == other_slot.id));
+        assert!(!links.iter().any(|link| link.id == first.id));
+    }
+
+    #[tokio::test]
+    async fn active_workspace_process_lookup_requires_matching_workspace_slot_and_open_link() {
+        let pool = test_pool().await;
+        let workspace_id = Uuid::new_v4();
+        let process_id = Uuid::new_v4();
+        let slot_id = Uuid::new_v4();
+        let matching =
+            create_link_with_process(&pool, workspace_id, process_id, Some(slot_id)).await;
+        let _sibling_slot =
+            create_link_with_process(&pool, workspace_id, process_id, Some(Uuid::new_v4())).await;
+        let _other_workspace =
+            create_link_with_process(&pool, Uuid::new_v4(), process_id, Some(slot_id)).await;
+        let ended =
+            create_link_with_process(&pool, workspace_id, Uuid::new_v4(), Some(slot_id)).await;
+        PreviewProcessLink::mark_ended_for_process(
+            &pool,
+            ended.execution_process_id,
+            super::PreviewProcessStatusSnapshot::Stopped,
+        )
+        .await
+        .unwrap();
+
+        let found = PreviewProcessLink::find_active_by_workspace_process(
+            &pool,
+            workspace_id,
+            process_id,
+            Some(slot_id),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(found.map(|link| link.id), Some(matching.id));
+        assert!(
+            PreviewProcessLink::find_active_by_workspace_process(
+                &pool,
+                workspace_id,
+                process_id,
+                Some(Uuid::new_v4()),
+            )
+            .await
+            .unwrap()
+            .is_none()
+        );
+    }
+
+    async fn create_link(
+        pool: &sqlx::SqlitePool,
+        workspace_id: Uuid,
+        preview_slot_id: Option<Uuid>,
+    ) -> PreviewProcessLink {
+        create_link_with_process(pool, workspace_id, Uuid::new_v4(), preview_slot_id).await
+    }
+
+    async fn create_link_with_process(
+        pool: &sqlx::SqlitePool,
+        workspace_id: Uuid,
+        execution_process_id: Uuid,
+        preview_slot_id: Option<Uuid>,
+    ) -> PreviewProcessLink {
+        PreviewProcessLink::create(
+            pool,
+            &CreatePreviewProcessLink {
+                workspace_id,
+                repo_id: Uuid::new_v4(),
+                run_config_id: Uuid::new_v4(),
+                preview_slot_id,
+                execution_process_id,
+                assigned_port: 4000,
+            },
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn test_pool() -> sqlx::SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        pool.execute(
+            r#"CREATE TABLE preview_process_links (
+                id BLOB PRIMARY KEY,
+                workspace_id BLOB NOT NULL,
+                repo_id BLOB NOT NULL,
+                run_config_id BLOB NOT NULL,
+                preview_slot_id BLOB,
+                execution_process_id BLOB NOT NULL,
+                assigned_port INTEGER NOT NULL,
+                status_snapshot TEXT NOT NULL,
+                started_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                ended_at TEXT
+            )"#,
+        )
+        .await
+        .unwrap();
+        pool
     }
 }

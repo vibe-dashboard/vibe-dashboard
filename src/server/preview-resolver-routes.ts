@@ -5,22 +5,32 @@ import {
   type PreviewSlotUrlResponse,
   type PreviewResolveRequest,
   type PreviewResolveResponse,
+  type RepoWithBranch,
   type RunConfig,
   type RunConfigStartResponse,
   type UpsertPreviewSlot,
   type UpsertRunConfig,
   type WorkspaceRunConfigsResponse,
 } from './vk-client';
+import { PreviewProcessLinkStore } from './preview-process-link-store';
 
 export interface RegisterPreviewResolverRoutesOptions {
   vkClient?: Pick<VibeKanbanServerClient, 'resolvePreview'> & Partial<Pick<
     VibeKanbanServerClient,
     | 'getRunConfigs'
+    | 'getWorkspaceRepos'
+    | 'getExecutionProcess'
+    | 'getSession'
     | 'upsertRunConfig'
     | 'upsertPreviewSlot'
     | 'startRunConfig'
     | 'startPreviewSlot'
+    | 'stopExecutionProcess'
+    | 'stopPreviewProcess'
     | 'getPreviewSlotUrl'
+    | 'deleteRunConfig'
+    | 'deletePreviewSlot'
+    | 'fetchRawExecutionLogs'
   >>;
 }
 
@@ -33,12 +43,27 @@ const VALID_RESOLVE_STATUSES = new Set([
   'unavailable',
   'error',
 ]);
-
 export function registerPreviewResolverRoutes(
   app: Hono,
   options: RegisterPreviewResolverRoutesOptions = {},
 ): void {
   const vkClient = options.vkClient ?? new VibeKanbanServerClient();
+  const startedPreviewLinks = new PreviewProcessLinkStore();
+
+  const rememberStartedPreviewLink = (workspaceId: string, response: RunConfigStartResponse) => {
+    startedPreviewLinks.remember(workspaceId, response.preview_process_link);
+  };
+
+  const authorizePreviewProcess = async (workspaceId: string, processId: string) => {
+    const previewData = await vkClient.getRunConfigs!(workspaceId);
+    const linkedProcess = previewData.preview_process_links?.some(
+      (link) => link.workspace_id === workspaceId && link.execution_process_id === processId,
+    ) || startedPreviewLinks.has(workspaceId, processId);
+    if (!linkedProcess) return false;
+    const process = await vkClient.getExecutionProcess!(processId);
+    const session = await vkClient.getSession!(process.session_id);
+    return session.workspace_id === workspaceId;
+  };
 
   app.post('/internal/preview/resolve', async (c) => {
     let payload: PreviewResolveRequest;
@@ -66,10 +91,63 @@ export function registerPreviewResolverRoutes(
     const workspaceId = c.req.param('workspaceId');
     try {
       const response = await vkClient.getRunConfigs!(workspaceId);
-      return c.json(response, 200);
+      return c.json({
+        ...response,
+        preview_process_links: startedPreviewLinks.merge(workspaceId, response.preview_process_links ?? []),
+      }, 200);
     } catch (error) {
       console.warn('Preview run config list failed', error);
       return c.json({ message: 'Preview run config backend is unavailable' }, 502);
+    }
+  });
+
+  app.get('/internal/preview/workspaces/:workspaceId/repos', async (c) => {
+    const workspaceId = c.req.param('workspaceId');
+    try {
+      const response: RepoWithBranch[] = await vkClient.getWorkspaceRepos!(workspaceId);
+      return c.json(response, 200);
+    } catch (error) {
+      console.warn('Preview repo list failed', error);
+      return c.json({ message: 'Preview repo backend is unavailable' }, 502);
+    }
+  });
+
+  app.get('/internal/preview/workspaces/:workspaceId/execution-processes/:processId/logs', async (c) => {
+    const workspaceId = c.req.param('workspaceId');
+    const processId = c.req.param('processId');
+    const timeoutMs = parseBoundedInteger(c.req.query('timeoutMs'), 1500, 100, 10_000);
+    const maxEntries = parseBoundedInteger(c.req.query('maxEntries'), 200, 1, 1_000);
+    try {
+      if (!await authorizePreviewProcess(workspaceId, processId)) {
+        return c.json({ message: 'No PreviewServer logs found for this workspace process.' }, 404);
+      }
+      const logs = await vkClient.fetchRawExecutionLogs!(processId, { timeoutMs, maxEntries });
+      return c.json({ process_id: processId, logs }, 200);
+    } catch (error) {
+      console.warn('Preview process logs failed', error);
+      return c.json({ message: error instanceof Error ? error.message : 'Preview process logs failed' }, 502);
+    }
+  });
+
+  app.post('/internal/preview/workspaces/:workspaceId/execution-processes/:processId/stop', async (c) => {
+    const workspaceId = c.req.param('workspaceId');
+    const processId = c.req.param('processId');
+    const payload = await parseJson<{ previewSlotId?: string | null }>(c.req.raw);
+    const previewSlotId = payload.ok ? payload.value.previewSlotId ?? undefined : undefined;
+    try {
+      if (!await authorizePreviewProcess(workspaceId, processId)) {
+        return c.json({ message: 'No PreviewServer process found for this workspace.' }, 404);
+      }
+      if (vkClient.stopPreviewProcess) {
+        await vkClient.stopPreviewProcess(workspaceId, processId, { previewSlotId });
+      } else {
+        await vkClient.stopExecutionProcess!(processId);
+      }
+      startedPreviewLinks.markStopped(workspaceId, processId, previewSlotId);
+      return c.json({ stopped: true }, 200);
+    } catch (error) {
+      console.warn('Preview process stop failed', error);
+      return c.json({ message: error instanceof Error ? error.message : 'Preview process stop failed' }, 502);
     }
   });
 
@@ -99,11 +177,36 @@ export function registerPreviewResolverRoutes(
     }
   });
 
+  app.delete('/internal/preview/workspaces/:workspaceId/run-configs/:runConfigId', async (c) => {
+    const workspaceId = c.req.param('workspaceId');
+    const runConfigId = c.req.param('runConfigId');
+    try {
+      await vkClient.deleteRunConfig!(workspaceId, runConfigId);
+      return c.json({ deleted: true }, 200);
+    } catch (error) {
+      console.warn('Preview run config delete failed', error);
+      return c.json({ message: error instanceof Error ? error.message : 'Preview run config delete failed' }, 502);
+    }
+  });
+
+  app.delete('/internal/preview/workspaces/:workspaceId/preview-slots/:previewSlotId', async (c) => {
+    const workspaceId = c.req.param('workspaceId');
+    const previewSlotId = c.req.param('previewSlotId');
+    try {
+      await vkClient.deletePreviewSlot!(workspaceId, previewSlotId);
+      return c.json({ deleted: true }, 200);
+    } catch (error) {
+      console.warn('Preview slot delete failed', error);
+      return c.json({ message: error instanceof Error ? error.message : 'Preview slot delete failed' }, 502);
+    }
+  });
+
   app.post('/internal/preview/workspaces/:workspaceId/run-configs/:runConfigId/start', async (c) => {
     const workspaceId = c.req.param('workspaceId');
     const runConfigId = c.req.param('runConfigId');
     try {
       const response = await vkClient.startRunConfig!(workspaceId, runConfigId);
+      rememberStartedPreviewLink(workspaceId, response);
       return c.json(response, 200);
     } catch (error) {
       console.warn('Preview run config start failed', error);
@@ -116,6 +219,7 @@ export function registerPreviewResolverRoutes(
     const previewSlotId = c.req.param('previewSlotId');
     try {
       const response = await vkClient.startPreviewSlot!(workspaceId, previewSlotId);
+      rememberStartedPreviewLink(workspaceId, response);
       return c.json(response, 200);
     } catch (error) {
       console.warn('Preview slot start failed', error);
@@ -126,15 +230,15 @@ export function registerPreviewResolverRoutes(
   app.get('/internal/preview/workspaces/:workspaceId/preview-slots/:previewSlotId/url', async (c) => {
     const workspaceId = c.req.param('workspaceId');
     const previewSlotId = c.req.param('previewSlotId');
-    const customerSlug = c.req.query('customerSlug') || '';
-    const previewUrlDefaults = previewUrlDefaultsFromSiteOrigin();
+    const customerSlug = c.req.query('customerSlug') || configuredPreviewDefaultCustomer();
+    const baseDomain = c.req.query('baseDomain') || configuredPreviewPublicBaseDomain();
+    const localOrigin = c.req.query('localOrigin') || undefined;
     try {
-      const response = await vkClient.getPreviewSlotUrl!(workspaceId, previewSlotId, {
-        customerSlug,
-        baseDomain: previewUrlDefaults?.baseDomain,
-        urlScheme: previewUrlDefaults?.urlScheme,
-      });
-      return c.json(response, 200);
+      const response = await vkClient.getPreviewSlotUrl!(workspaceId, previewSlotId, { customerSlug, baseDomain });
+      return c.json(
+        rewritePreviewUrlForLocalCaddy(response, { baseDomain, localOrigin }),
+        200,
+      );
     } catch (error) {
       console.warn('Preview slot URL generation failed', error);
       return c.json({ message: error instanceof Error ? error.message : 'Preview slot URL generation failed' }, 502);
@@ -142,26 +246,44 @@ export function registerPreviewResolverRoutes(
   });
 }
 
-function optionalEnvString(name: string): string | undefined {
-  const value = process.env[name]?.trim();
+function configuredPreviewDefaultCustomer(): string | undefined {
+  const value = process.env.PREVIEW_URL_DEFAULT_CUSTOMER?.trim();
   return value || undefined;
 }
 
-function previewUrlDefaultsFromSiteOrigin(): { baseDomain: string; urlScheme: 'http' | 'https' } | undefined {
-  const siteOrigin = optionalEnvString('SITE_ORIGIN');
-  if (!siteOrigin) return undefined;
-  try {
-    const url = new URL(siteOrigin);
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') return undefined;
-    const baseDomain = url.host || undefined;
-    if (!baseDomain) return undefined;
-    return {
-      baseDomain,
-      urlScheme: url.protocol === 'http:' ? 'http' : 'https',
-    };
-  } catch {
-    return undefined;
+function configuredPreviewPublicBaseDomain(): string | undefined {
+  const value = process.env.PREVIEW_URL_PUBLIC_BASE_DOMAIN?.trim();
+  return value || undefined;
+}
+
+function rewritePreviewUrlForLocalCaddy(
+  response: PreviewSlotUrlResponse,
+  options: { baseDomain?: string; localOrigin?: string },
+): PreviewSlotUrlResponse {
+  if (options.baseDomain !== 'localhost' || !options.localOrigin) {
+    return response;
   }
+
+  let origin: URL;
+  try {
+    origin = new URL(options.localOrigin);
+  } catch {
+    return response;
+  }
+
+  if (
+    origin.protocol !== 'http:' ||
+    origin.hostname !== 'localhost' ||
+    !origin.port ||
+    !response.host.endsWith('.localhost')
+  ) {
+    return response;
+  }
+
+  return {
+    ...response,
+    url: `http://${response.host}:${origin.port}/`,
+  };
 }
 
 async function parseJson<T>(request: Request): Promise<{ ok: true; value: T } | { ok: false; message: string }> {
@@ -188,6 +310,17 @@ function validatePreviewResolveRequest(payload: PreviewResolveRequest): string |
   return null;
 }
 
+function parseBoundedInteger(
+  value: string | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  const parsed = value ? Number(value) : fallback;
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, Math.trunc(parsed)));
+}
+
 function normalizeResolveResponse(response: PreviewResolveResponse): PreviewResolveResponse {
   const status = String(response.status || '').toLowerCase() as PreviewResolveResponse['status'];
   if (!VALID_RESOLVE_STATUSES.has(status)) {
@@ -198,5 +331,7 @@ function normalizeResolveResponse(response: PreviewResolveResponse): PreviewReso
     upstream: response.upstream ?? undefined,
     message: response.message ?? undefined,
     executionProcessId: response.executionProcessId ?? undefined,
+    workspaceId: response.workspaceId ?? undefined,
+    previewSlotId: response.previewSlotId ?? undefined,
   };
 }

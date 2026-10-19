@@ -453,10 +453,9 @@ RUN mkdir -p /etc/supervisor/conf.d /etc/supervisor/conf.d/vd-generated /etc/cad
 COPY supervisord.vkvd.conf /etc/supervisor/conf.d/supervisord.conf
 COPY ops/process-exporter.yml /etc/process-exporter/process-exporter.yml
 
-# Copy Caddyfile and startup page
+# Copy Caddyfile and plugin route placeholders.
 COPY Caddyfile /etc/caddy/Caddyfile
 COPY Caddyfile.plugins /etc/caddy/plugins.caddy
-COPY startup.html /etc/caddy/startup.html
 
 # Copy database backup script
 COPY backup-vibe-kanban-db.sh /usr/local/bin/backup-vibe-kanban-db.sh
@@ -497,10 +496,11 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Copy startup scripts
 COPY scripts/sync-seeded-repo.sh /usr/local/bin/sync-seeded-repo.sh
+COPY scripts/install-vibe-dashboard-agent-skills.sh /usr/local/bin/install-vibe-dashboard-agent-skills.sh
 COPY plugins/scripts/vd-plugin-runtime-apply.sh /usr/local/bin/vd-plugin-runtime-apply.sh
 COPY plugins/scripts/vd-plugin-reload.sh /usr/local/bin/vd-plugin-reload.sh
 COPY plugins/scripts/vd-plugin-service-runner.mjs /usr/local/bin/vd-plugin-service-runner.mjs
-RUN chmod +x /usr/local/bin/sync-seeded-repo.sh /usr/local/bin/vd-plugin-runtime-apply.sh /usr/local/bin/vd-plugin-reload.sh /usr/local/bin/vd-plugin-service-runner.mjs
+RUN chmod +x /usr/local/bin/sync-seeded-repo.sh /usr/local/bin/install-vibe-dashboard-agent-skills.sh /usr/local/bin/vd-plugin-runtime-apply.sh /usr/local/bin/vd-plugin-reload.sh /usr/local/bin/vd-plugin-service-runner.mjs
 
 # Install bd wrapper at /usr/local/bin so Codex tool subprocesses still use it
 # after Codex strips PATH down to /usr/local/bin:/usr/bin:/bin.

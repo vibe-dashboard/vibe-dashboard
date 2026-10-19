@@ -4,6 +4,13 @@
 
 import { fileURLToPath } from 'url';
 import {
+  buildLocalPreviewUrl,
+  normalizeLocalCaddyStartOptions,
+  readLocalCaddyStatus,
+  startLocalPreviewCaddy,
+  stopLocalPreviewCaddy,
+} from './preview-local-caddy.js';
+import {
   VKService,
   type PreviewSlot,
   type PullRequestDetail,
@@ -278,6 +285,7 @@ function printRunConfig(runConfig: RunConfig) {
   console.log(`Repo:        ${runConfig.repo_id}`);
   console.log(`Slug:        ${runConfig.slug}`);
   console.log(`Name:        ${runConfig.name}`);
+  if (runConfig.description) console.log(`Description: ${runConfig.description}`);
   console.log(`Kind:        ${runConfig.kind}`);
   console.log(`Enabled:     ${runConfig.enabled}`);
   console.log(`Command:     ${runConfig.command}`);
@@ -290,6 +298,7 @@ function printPreviewSlot(slot: PreviewSlot) {
   console.log(`Run Config:   ${slot.run_config_id}`);
   console.log(`Slot Slug:    ${slot.slot_slug}`);
   console.log(`Title:        ${slot.title}`);
+  if (slot.description) console.log(`Description:  ${slot.description}`);
   console.log(`Enabled:      ${slot.enabled}`);
 }
 
@@ -682,28 +691,6 @@ function requireWorkspaceId(value: string | undefined, usage: string): string {
   return value;
 }
 
-function optionalEnvString(name: string): string | undefined {
-  const value = process.env[name]?.trim();
-  return value || undefined;
-}
-
-function previewUrlDefaultsFromSiteOrigin(): { baseDomain: string; urlScheme: 'http' | 'https' } | undefined {
-  const siteOrigin = optionalEnvString('SITE_ORIGIN');
-  if (!siteOrigin) return undefined;
-  try {
-    const url = new URL(siteOrigin);
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') return undefined;
-    const baseDomain = url.host || undefined;
-    if (!baseDomain) return undefined;
-    return {
-      baseDomain,
-      urlScheme: url.protocol === 'http:' ? 'http' : 'https',
-    };
-  } catch {
-    return undefined;
-  }
-}
-
 function parseRunConfigKind(value: string | undefined): RunConfigKind {
   const kind = value ?? 'long_running';
   if (kind === 'long_running' || kind === 'one_shot' || kind === 'test') {
@@ -749,7 +736,7 @@ async function commandPreviewUrl(positional: string[], flags: FlagMap) {
         printPreviewSlot(slot);
         const urlParts = data.preview_url_parts.find(parts => parts.previewSlotId === slot.id);
         if (urlParts) {
-          console.log(`Host Parts:   ${urlParts.workspaceToken}-${urlParts.repoSlug}-${urlParts.slotSlug}-<customerSlug>`);
+          console.log(`Host Parts:   ${urlParts.slotSlug}-${urlParts.repoSlug}-${urlParts.workspaceToken}-<customerSlug>`);
         }
         console.log('');
       }
@@ -759,14 +746,14 @@ async function commandPreviewUrl(positional: string[], flags: FlagMap) {
     case 'upsert-run-config': {
       const workspaceId = requireWorkspaceId(
         positional[1],
-        'Usage: vk preview-url upsert-run-config <workspace-id> --repo <repo-id> --slug <slug> --name <name> --command "script" [--id <run-config-id>] [--kind long_running|one_shot|test] [--disabled] [--json]',
+        'Usage: vk preview-url upsert-run-config <workspace-id> --repo <repo-id> --slug <slug> --name <name> --command "script" [--description <text>] [--id <run-config-id>] [--kind long_running|one_shot|test] [--disabled] [--json]',
       );
       const repoId = getFlagString(flags, 'repo') ?? getFlagString(flags, 'repo-id');
       const slug = getFlagString(flags, 'slug') ?? positional[2];
       const name = getFlagString(flags, 'name') ?? slug;
       const command = getFlagString(flags, 'command') ?? getFlagString(flags, 'script') ?? positional.slice(3).join(' ').trim();
       if (!repoId || !slug || !name || !command) {
-        console.error('Usage: vk preview-url upsert-run-config <workspace-id> --repo <repo-id> --slug <slug> --name <name> --command "script" [--id <run-config-id>] [--kind long_running|one_shot|test] [--disabled] [--json]');
+        console.error('Usage: vk preview-url upsert-run-config <workspace-id> --repo <repo-id> --slug <slug> --name <name> --command "script" [--description <text>] [--id <run-config-id>] [--kind long_running|one_shot|test] [--disabled] [--json]');
         process.exit(1);
       }
       const runConfig = await service.upsertRunConfig(workspaceId, {
@@ -774,6 +761,7 @@ async function commandPreviewUrl(positional: string[], flags: FlagMap) {
         repo_id: repoId,
         slug,
         name,
+        description: getFlagString(flags, 'description') ?? null,
         command,
         kind: parseRunConfigKind(getFlagString(flags, 'kind')),
         enabled: enabledFlag(flags),
@@ -793,14 +781,14 @@ async function commandPreviewUrl(positional: string[], flags: FlagMap) {
     case 'upsert-slot': {
       const workspaceId = requireWorkspaceId(
         positional[1],
-        'Usage: vk preview-url upsert-slot <workspace-id> --repo <repo-id> --run-config <run-config-id> --slot <slot-slug> --title <title> [--id <preview-slot-id>] [--disabled] [--json]',
+        'Usage: vk preview-url upsert-slot <workspace-id> --repo <repo-id> --run-config <run-config-id> --slot <slot-slug> --title <title> [--description <text>] [--id <preview-slot-id>] [--disabled] [--json]',
       );
       const repoId = getFlagString(flags, 'repo') ?? getFlagString(flags, 'repo-id');
       const runConfigId = getFlagString(flags, 'run-config') ?? getFlagString(flags, 'run-config-id');
       const slotSlug = getFlagString(flags, 'slot') ?? getFlagString(flags, 'slot-slug') ?? positional[2];
       const title = getFlagString(flags, 'title') ?? slotSlug;
       if (!repoId || !runConfigId || !slotSlug || !title) {
-        console.error('Usage: vk preview-url upsert-slot <workspace-id> --repo <repo-id> --run-config <run-config-id> --slot <slot-slug> --title <title> [--id <preview-slot-id>] [--disabled] [--json]');
+        console.error('Usage: vk preview-url upsert-slot <workspace-id> --repo <repo-id> --run-config <run-config-id> --slot <slot-slug> --title <title> [--description <text>] [--id <preview-slot-id>] [--disabled] [--json]');
         process.exit(1);
       }
       const slot = await service.upsertPreviewSlot(workspaceId, {
@@ -809,6 +797,7 @@ async function commandPreviewUrl(positional: string[], flags: FlagMap) {
         run_config_id: runConfigId,
         slot_slug: slotSlug,
         title,
+        description: getFlagString(flags, 'description') ?? null,
         enabled: enabledFlag(flags),
       });
       if (flags.json === true) {
@@ -819,32 +808,80 @@ async function commandPreviewUrl(positional: string[], flags: FlagMap) {
       printPreviewSlot(slot);
       console.log('');
       console.log('To get its URL:');
-      console.log(`  vk preview-url url ${workspaceId} ${slot.id} --customer <customer-slug>`);
+      console.log(`  vk preview-url url ${workspaceId} ${slot.id} [--customer <customer-slug>]`);
       break;
     }
 
     case 'url': {
       const workspaceId = requireWorkspaceId(
         positional[1],
-        'Usage: vk preview-url url <workspace-id> <preview-slot-id> --customer <customer-slug> [--json]',
+        'Usage: vk preview-url url <workspace-id> <preview-slot-id> [--customer <customer-slug>] [--base-domain <domain>] [--local-caddy-port <port>] [--json]',
       );
       const previewSlotId = positional[2] ?? getFlagString(flags, 'slot-id') ?? getFlagString(flags, 'preview-slot-id');
       const customerSlug = getFlagString(flags, 'customer') ?? getFlagString(flags, 'customer-slug');
-      const previewUrlDefaults = previewUrlDefaultsFromSiteOrigin();
-      if (!previewSlotId || !customerSlug) {
-        console.error('Usage: vk preview-url url <workspace-id> <preview-slot-id> --customer <customer-slug> [--json]');
+      const localCaddyPort = getFlagString(flags, 'local-caddy-port');
+      const parsedLocalCaddyPort = localCaddyPort ? Number(localCaddyPort) : undefined;
+      if (
+        parsedLocalCaddyPort !== undefined &&
+        (!Number.isInteger(parsedLocalCaddyPort) || parsedLocalCaddyPort < 1 || parsedLocalCaddyPort > 65535)
+      ) {
+        throw new Error(`Invalid --local-caddy-port: ${localCaddyPort}`);
+      }
+      const baseDomain = localCaddyPort ? 'localhost' : getFlagString(flags, 'base-domain');
+      if (!previewSlotId) {
+        console.error('Usage: vk preview-url url <workspace-id> <preview-slot-id> [--customer <customer-slug>] [--base-domain <domain>] [--local-caddy-port <port>] [--json]');
         process.exit(1);
       }
-      const response = await service.getPreviewSlotUrl(workspaceId, previewSlotId, {
-        customerSlug,
-        baseDomain: previewUrlDefaults?.baseDomain,
-        urlScheme: previewUrlDefaults?.urlScheme,
-      });
+      const response = await service.getPreviewSlotUrl(workspaceId, previewSlotId, { customerSlug, baseDomain });
+      const output = parsedLocalCaddyPort
+        ? {
+            ...response,
+            url: buildLocalPreviewUrl(response, parsedLocalCaddyPort),
+            localCaddyPort: parsedLocalCaddyPort,
+          }
+        : response;
       if (flags.json === true) {
-        console.log(JSON.stringify(response, null, 2));
+        console.log(JSON.stringify(output, null, 2));
         return;
       }
-      console.log(response.url);
+      console.log(output.url);
+      break;
+    }
+
+    case 'delete-run-config': {
+      const workspaceId = requireWorkspaceId(positional[1], 'Usage: vk preview-url delete-run-config <workspace-id> <run-config-id>');
+      const runConfigId = positional[2] ?? getFlagString(flags, 'run-config') ?? getFlagString(flags, 'run-config-id');
+      if (!runConfigId) {
+        console.error('Usage: vk preview-url delete-run-config <workspace-id> <run-config-id>');
+        process.exit(1);
+      }
+      await service.deleteRunConfig(workspaceId, runConfigId);
+      if (flags.json === true) {
+        console.log(JSON.stringify({ deleted: true }, null, 2));
+        return;
+      }
+      console.log(`Deleted run config ${runConfigId}`);
+      break;
+    }
+
+    case 'delete-slot': {
+      const workspaceId = requireWorkspaceId(positional[1], 'Usage: vk preview-url delete-slot <workspace-id> <preview-slot-id>');
+      const previewSlotId = positional[2] ?? getFlagString(flags, 'slot-id') ?? getFlagString(flags, 'preview-slot-id');
+      if (!previewSlotId) {
+        console.error('Usage: vk preview-url delete-slot <workspace-id> <preview-slot-id>');
+        process.exit(1);
+      }
+      await service.deletePreviewSlot(workspaceId, previewSlotId);
+      if (flags.json === true) {
+        console.log(JSON.stringify({ deleted: true }, null, 2));
+        return;
+      }
+      console.log(`Deleted preview slot ${previewSlotId}`);
+      break;
+    }
+
+    case 'local-caddy': {
+      await commandPreviewUrlLocalCaddy(positional.slice(1), flags);
       break;
     }
 
@@ -914,15 +951,80 @@ async function commandPreviewUrl(positional: string[], flags: FlagMap) {
     }
 
     default:
-      console.error('Usage: vk preview-url <list|upsert-run-config|upsert-slot|url|start-run-config|start-slot|logs|stop> ...');
+      console.error('Usage: vk preview-url <list|upsert-run-config|upsert-slot|url|delete-run-config|delete-slot|start-run-config|start-slot|logs|stop|local-caddy> ...');
       console.error('Examples:');
       console.error('  vk preview-url list <workspace-id> [--json]');
       console.error('  vk preview-url upsert-run-config <workspace-id> --repo <repo-id> --slug web --name Web --command "npm run dev"');
       console.error('  vk preview-url upsert-slot <workspace-id> --repo <repo-id> --run-config <run-config-id> --slot web --title Web');
-      console.error('  vk preview-url url <workspace-id> <preview-slot-id> --customer <customer-slug>');
+      console.error('  vk preview-url url <workspace-id> <preview-slot-id> [--customer <customer-slug>]');
+      console.error('  vk preview-url delete-slot <workspace-id> <preview-slot-id>');
+      console.error('  vk preview-url local-caddy start --dashboard-port 3005 --caddy-port 3001');
       console.error('  vk preview-url start-slot <workspace-id> <preview-slot-id> [--json]');
       process.exit(1);
   }
+}
+
+async function commandPreviewUrlLocalCaddy(positional: string[], flags: FlagMap) {
+  const subcommand = positional[0];
+  switch (subcommand) {
+    case 'start': {
+      const options = normalizeLocalCaddyStartOptions({
+        backendPort: getFlagString(flags, 'backend-port'),
+        caddyPort: getFlagString(flags, 'caddy-port'),
+        dashboardPort: getFlagString(flags, 'dashboard-port'),
+        caddyBin: getFlagString(flags, 'caddy-bin'),
+        readinessTimeoutMs: getFlagString(flags, 'readiness-timeout-ms'),
+      });
+      const state = await startLocalPreviewCaddy(options);
+      if (flags.json === true) {
+        console.log(JSON.stringify(state, null, 2));
+        return;
+      }
+      console.log(`Local PreviewServer Caddy is running at ${state.url}`);
+      console.log(`Resolver: ${buildPreviewResolverUrlForDisplay(state.dashboardPort)}`);
+      console.log(`PID: ${state.pid}`);
+      break;
+    }
+
+    case 'stop': {
+      const state = await stopLocalPreviewCaddy();
+      if (flags.json === true) {
+        console.log(JSON.stringify(state ?? {}, null, 2));
+        return;
+      }
+      console.log(state ? `Stopped local PreviewServer Caddy PID ${state.pid}` : 'No local PreviewServer Caddy state found.');
+      break;
+    }
+
+    case 'status': {
+      const status = await readLocalCaddyStatus();
+      const state = status.state;
+      if (flags.json === true) {
+        console.log(JSON.stringify(status, null, 2));
+        return;
+      }
+      if (!state) {
+        console.log('No local PreviewServer Caddy state found.');
+        return;
+      }
+      if (status.stale) {
+        console.log(`Stale local PreviewServer Caddy state removed for PID ${state.pid}.`);
+        return;
+      }
+      console.log(`Local PreviewServer Caddy: ${state.url}`);
+      console.log(`PID: ${state.pid}`);
+      console.log(`Resolver: ${buildPreviewResolverUrlForDisplay(state.dashboardPort)}`);
+      break;
+    }
+
+    default:
+      console.error('Usage: vk preview-url local-caddy <start|stop|status> [--caddy-port <port>] [--dashboard-port <port>] [--backend-port <port>] [--readiness-timeout-ms <ms>] [--json]');
+      process.exit(1);
+  }
+}
+
+function buildPreviewResolverUrlForDisplay(dashboardPort: number): string {
+  return `http://127.0.0.1:${dashboardPort}/internal/preview/resolve`;
 }
 
 async function commandSessions(workspaceId: string) {
@@ -1155,7 +1257,7 @@ function printHelp() {
   console.log('  workspace-repos <workspace-id> [--json]    List repos attached to workspace');
   console.log('  dev-script get <repo-id> [--json]          Show repo dev server script');
   console.log('  preview-url list <workspace-id> [--json]   List Preview URL run configs and slots');
-  console.log('  preview-url url <workspace-id> <slot-id> --customer <slug>  Print canonical preview URL');
+  console.log('  preview-url url <workspace-id> <slot-id> [--customer <slug>]  Print canonical preview URL');
   console.log('  sessions <workspace-id>                    List sessions for workspace');
   console.log('  status <workspace-id>...                   Get workspace status summary');
   console.log('  processes <session-id>                     List execution processes');
@@ -1171,8 +1273,11 @@ function printHelp() {
   console.log('  dev-server stop <process-id>               Stop a dev server process');
   console.log('  preview-url upsert-run-config <workspace-id> --repo <repo> --slug <slug> --name <name> --command "script"');
   console.log('  preview-url upsert-slot <workspace-id> --repo <repo> --run-config <id> --slot <slug> --title <title>');
+  console.log('  preview-url delete-run-config <workspace-id> <run-config-id>');
+  console.log('  preview-url delete-slot <workspace-id> <slot-id>');
   console.log('  preview-url start-run-config <workspace-id> <run-config-id> [--json]');
   console.log('  preview-url start-slot <workspace-id> <preview-slot-id> [--json]');
+  console.log('  preview-url local-caddy start [--caddy-port <port>] [--dashboard-port <port>]  Start localhost Preview URL Caddy front door');
   console.log('  preview-url logs <process-id> [--json]     Fetch raw preview process logs');
   console.log('  preview-url stop <process-id>              Stop a preview process');
   console.log('  create-session <workspace-id> <executor>   Create new session');

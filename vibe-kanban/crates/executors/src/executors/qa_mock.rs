@@ -1,7 +1,7 @@
 //! QA Mode: Mock executor for testing
 //!
 //! This module provides a mock executor that:
-//! 1. Performs random file operations (create, delete, modify)
+//! 1. Writes one deterministic fixture file
 //! 2. Streams 10 mock log entries over 10 seconds
 //! 3. Outputs logs in ClaudeJson format for compatibility with existing log normalization
 
@@ -9,10 +9,9 @@ use std::{path::Path, process::Stdio, sync::Arc};
 
 #[cfg(feature = "qa-mode")]
 use async_trait::async_trait;
-use rand::seq::SliceRandom as _;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tracing::{info, warn};
+use tracing::info;
 use ts_rs::TS;
 use workspace_utils::{command_ext::GroupSpawnNoWindowExt, msg_store::MsgStore};
 
@@ -57,8 +56,8 @@ impl QaMockExecutor {
     ) -> Result<SpawnedChild, ExecutorError> {
         info!("QA Mock Executor: spawning mock execution");
 
-        // 1. Perform file operations before spawning the log output process
-        perform_file_operations(current_dir).await;
+        // 1. Write the same fixture advertised by the mock tool event.
+        write_qa_fixture(current_dir).await?;
 
         // 2. Generate mock logs and write to temp file to avoid shell escaping issues
         let logs = generate_mock_logs(prompt);
@@ -177,81 +176,13 @@ fn env_value_enabled(value: &str) -> bool {
     )
 }
 
-/// Perform random file operations in the worktree
-async fn perform_file_operations(dir: &Path) {
-    info!("QA Mock: performing file operations in {:?}", dir);
-
-    // Create: qa_created_{uuid}.txt
-    let uuid = uuid::Uuid::new_v4();
-    let new_file = dir.join(format!("qa_created_{}.txt", uuid));
-    match tokio::fs::write(&new_file, "QA mode created this file\n").await {
-        Ok(_) => info!("QA Mock: created file {:?}", new_file),
-        Err(e) => warn!("QA Mock: failed to create file: {}", e),
-    }
-
-    // Find files (excluding .git and binary files)
-    let files: Vec<_> = walkdir::WalkDir::new(dir)
-        .max_depth(3) // Limit depth to avoid long walks
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file())
-        .filter(|e| !e.path().to_string_lossy().contains(".git"))
-        .filter(|e| {
-            e.path()
-                .extension()
-                .and_then(|ext| ext.to_str())
-                .is_some_and(|ext| ["rs", "ts", "js", "txt", "md", "json"].contains(&ext))
-        })
-        .collect();
-
-    if files.len() >= 2 {
-        // Pick random indices before any await points (thread_rng is not Send)
-        let (remove_idx, modify_idx) = {
-            let mut rng = rand::thread_rng();
-            let mut indices: Vec<usize> = (0..files.len()).collect();
-            indices.shuffle(&mut rng);
-            (indices.first().copied(), indices.get(1).copied())
-        };
-
-        // Remove a random file (first shuffled index)
-        if let Some(idx) = remove_idx {
-            let file_to_remove = files[idx].path().to_path_buf();
-            // Don't remove the file we just created
-            if file_to_remove != new_file {
-                match tokio::fs::remove_file(&file_to_remove).await {
-                    Ok(_) => info!("QA Mock: removed file {:?}", file_to_remove),
-                    Err(e) => warn!("QA Mock: failed to remove file: {}", e),
-                }
-            }
-        }
-
-        // Modify a different random file (second shuffled index)
-        if let Some(idx) = modify_idx {
-            let file_to_modify = files[idx].path().to_path_buf();
-            // Don't modify the file we just created
-            if file_to_modify != new_file {
-                match tokio::fs::read_to_string(&file_to_modify).await {
-                    Ok(content) => {
-                        let modified = format!(
-                            "{}\n// QA modification at {}\n",
-                            content,
-                            chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
-                        );
-                        match tokio::fs::write(&file_to_modify, modified).await {
-                            Ok(_) => info!("QA Mock: modified file {:?}", file_to_modify),
-                            Err(e) => warn!("QA Mock: failed to write modified file: {}", e),
-                        }
-                    }
-                    Err(e) => warn!("QA Mock: failed to read file for modification: {}", e),
-                }
-            }
-        }
-    } else {
-        info!(
-            "QA Mock: not enough files found for remove/modify operations (found {})",
-            files.len()
-        );
-    }
+async fn write_qa_fixture(dir: &Path) -> Result<(), ExecutorError> {
+    let path = dir.join("qa_output.txt");
+    tokio::fs::write(&path, "QA generated content\n")
+        .await
+        .map_err(|error| ExecutorError::Io(std::io::Error::other(error)))?;
+    info!("QA Mock: wrote fixture file {:?}", path);
+    Ok(())
 }
 
 /// Generate 10 mock log entries in ClaudeJson format using strongly-typed structs
@@ -453,6 +384,45 @@ mod tests {
 
     use super::*;
     use crate::logs::{NormalizedEntryType, utils::patch::extract_normalized_entry_from_patch};
+
+    #[tokio::test]
+    async fn test_write_qa_fixture_creates_the_advertised_file_only() {
+        let dir = std::env::temp_dir().join(format!("qa-mock-test-{}", uuid::Uuid::new_v4()));
+        tokio::fs::create_dir(&dir).await.unwrap();
+        tokio::fs::write(dir.join("README.md"), "keep me\n")
+            .await
+            .unwrap();
+
+        write_qa_fixture(&dir).await.unwrap();
+
+        assert_eq!(
+            tokio::fs::read_to_string(dir.join("qa_output.txt"))
+                .await
+                .unwrap(),
+            "QA generated content\n"
+        );
+        assert_eq!(
+            tokio::fs::read_to_string(dir.join("README.md"))
+                .await
+                .unwrap(),
+            "keep me\n"
+        );
+        let mut names = Vec::new();
+        let mut entries = tokio::fs::read_dir(&dir).await.unwrap();
+        while let Some(entry) = entries.next_entry().await.unwrap() {
+            names.push(entry.file_name());
+        }
+        names.sort();
+        assert_eq!(
+            names,
+            [
+                std::ffi::OsString::from("README.md"),
+                std::ffi::OsString::from("qa_output.txt")
+            ]
+        );
+
+        tokio::fs::remove_dir_all(dir).await.unwrap();
+    }
 
     #[test]
     fn test_generate_mock_logs_count() {
