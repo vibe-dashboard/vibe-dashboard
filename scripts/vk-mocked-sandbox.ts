@@ -61,8 +61,8 @@ const CHILD_SHUTDOWN_TIMEOUT_MS = 5_000;
 const CI_RELEASE_BACKEND_MODE = 'ci-release';
 const VK_CONTENT_HASH_PATTERN = /^[0-9a-f]{64}$/i;
 const DEFAULT_VK_GH_REPO = 'vibe-dashboard/vibe-kanban';
-const DEFAULT_VK_GH_ARTIFACT_NAME = 'release-assets-linux-x64';
-const DEFAULT_VK_GH_ARCHIVE_NAME = 'vibe-kanban-linux-x64.tar.gz';
+const DEFAULT_VK_GH_ARTIFACT_NAME = 'release-assets-linux-x64-qa';
+const DEFAULT_VK_GH_ARCHIVE_NAME = 'vibe-kanban-linux-x64-qa.tar.gz';
 const VIBE_DASHBOARD_CADDY_MARKER = '# Vibe Dashboard app';
 
 const execFileAsync = promisify(execFile);
@@ -233,15 +233,21 @@ async function requireCiReleaseExists(
   env: NodeJS.ProcessEnv,
 ): Promise<void> {
   const repo = env.VK_MOCKED_GH_REPO ?? DEFAULT_VK_GH_REPO;
-  await execText('gh', [
+  const archiveName = env.VK_MOCKED_GH_ARCHIVE_NAME ?? DEFAULT_VK_GH_ARCHIVE_NAME;
+  const matchingAsset = await execText('gh', [
     'release',
     'view',
     releaseTag,
     '--repo',
     repo,
     '--json',
-    'tagName',
+    'assets',
+    '--jq',
+    `.assets[] | select(.name == "${archiveName}") | .name`,
   ]);
+  if (matchingAsset.trim() !== archiveName) {
+    throw new Error(`Release ${releaseTag} is missing required qa-mode asset ${archiveName}.`);
+  }
 }
 
 async function verifyManifestIfAvailable(

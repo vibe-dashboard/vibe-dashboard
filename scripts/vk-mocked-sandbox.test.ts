@@ -461,9 +461,9 @@ describe('VK mocked sandbox helpers', () => {
       root,
       '.vk-mocked-sandbox/vk-release-assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     );
-    const artifactDir = join(artifactRoot, 'release-assets-linux-x64');
+    const artifactDir = join(artifactRoot, 'release-assets-linux-x64-qa');
     const extractDir = join(artifactRoot, 'extracted');
-    const archiveName = 'vibe-kanban-linux-x64.tar.gz';
+    const archiveName = 'vibe-kanban-linux-x64-qa.tar.gz';
     const archiveContents = 'cached archive';
     const archiveSha = createHash('sha256').update(archiveContents).digest('hex');
     const originalPath = process.env.PATH;
@@ -477,7 +477,7 @@ describe('VK mocked sandbox helpers', () => {
         [
           '#!/usr/bin/env bash',
           'if [ "$1 $2" = "release view" ]; then',
-          '  printf \'{"tagName":"vk-assets-sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}\\n\'',
+          '  printf \'vibe-kanban-linux-x64-qa.tar.gz\\n\'',
           '  exit 0',
           'fi',
           'echo "unexpected gh call: $*" >&2',

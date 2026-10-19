@@ -239,8 +239,8 @@ is `VK_CHECKOUT` in this sandbox.
 | `VK_MOCKED_RELEASE_HASH` | Optional CI-release mode override; full 64-character VK content hash. When omitted, `.github/scripts/vk-content-hash.sh` hashes tracked files under `vibe-kanban`. |
 | `VK_MOCKED_RELEASE_TAG` | Optional CI-release mode release tag override; defaults to `vk-assets-sha256-<VK_MOCKED_RELEASE_HASH>`. |
 | `VK_MOCKED_GH_REPO` | CI-release mode GitHub repo; defaults to `vibe-dashboard/vibe-kanban`. |
-| `VK_MOCKED_GH_ARTIFACT_NAME` | CI-release mode artifact name; defaults to `release-assets-linux-x64`. |
-| `VK_MOCKED_GH_ARCHIVE_NAME` | CI-release mode archive name; defaults to `vibe-kanban-linux-x64.tar.gz`. |
+| `VK_MOCKED_GH_ARTIFACT_NAME` | CI-release mode cache directory name; defaults to `release-assets-linux-x64-qa`. |
+| `VK_MOCKED_GH_ARCHIVE_NAME` | CI-release mode archive name; defaults to the qa-mode build `vibe-kanban-linux-x64-qa.tar.gz`. |
 | `RUST_LOG` | VK backend log level; defaults to `debug` in the sandbox. |
 
 Explicit port overrides must be unique. The sandbox rejects duplicate explicit
