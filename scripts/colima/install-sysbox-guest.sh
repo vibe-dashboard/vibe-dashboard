@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
-SYSBOX_VERSION="${SYSBOX_VERSION:-0.7.1}"
+if [ "$(id -u)" -ne 0 ]; then
+  echo "install-sysbox-guest.sh must run as root" >&2
+  exit 1
+fi
+
+SYSBOX_VERSION="0.7.1"
 SYSBOX_SHA256_AMD64="9d6d5484f980d0a17f86c492c1262015c2afb66280bdb97215b79fde6a0261c5"
 SYSBOX_SHA256_ARM64="04ca894ae0b53f0fa54eaacc173ce40363c9a95ea5450f773716a84ef650a69b"
 
@@ -20,7 +25,7 @@ case "$arch" in
     pkg_sha="$SYSBOX_SHA256_ARM64"
     ;;
   *)
-    echo "Unsupported Colima VM architecture for bundled Sysbox install: $arch" >&2
+    echo "Unsupported architecture for bundled Sysbox install: $arch" >&2
     exit 1
     ;;
 esac
@@ -53,4 +58,4 @@ systemctl restart sysbox || true
 systemctl reset-failed docker || true
 systemctl restart docker
 
-docker info | grep -q 'sysbox-runc'
+docker info --format '{{json .Runtimes}}' | grep -q '"sysbox-runc"'

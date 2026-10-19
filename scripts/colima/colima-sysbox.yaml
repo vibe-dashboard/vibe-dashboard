@@ -2,7 +2,7 @@
 # Docker-in-Docker on macOS.
 #
 # Usage:
-#   ./scripts/colima/setup-sysbox.sh
+#   ./scripts/setup-sysbox.sh
 #   docker context use colima-vd-sysbox
 #   VKVD_CONTAINER_RUNTIME=sysbox-runc docker compose up -d code-vibe
 #
@@ -11,7 +11,7 @@
 cpu: 8
 memory: 16
 disk: 200
-arch: aarch64
+arch: host
 runtime: docker
 vmType: vz
 mountType: virtiofs

@@ -20,6 +20,9 @@ const goldenSupervisor = readFileSync(resolve(process.cwd(), 'supervisord.vkvd.c
 const goldenDockerfile = readFileSync(resolve(process.cwd(), 'Dockerfile.vkvd'), 'utf8');
 const goldenDockerCompose = readFileSync(resolve(process.cwd(), 'docker-compose.yaml'), 'utf8');
 const qaDockerCompose = readFileSync(resolve(process.cwd(), 'docker-compose.qa.yaml'), 'utf8');
+const sysboxSetup = readFileSync(resolve(process.cwd(), 'scripts/setup-sysbox.sh'), 'utf8');
+const sysboxSmoke = readFileSync(resolve(process.cwd(), 'scripts/smoke-sysbox-dind.sh'), 'utf8');
+const colimaConfig = readFileSync(resolve(process.cwd(), 'scripts/colima/colima-sysbox.yaml'), 'utf8');
 const goldenCaddyfile = readFileSync(resolve(process.cwd(), 'Caddyfile'), 'utf8');
 const rootPackageJson = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8')) as {
   scripts: Record<string, string>;
@@ -178,13 +181,10 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     expect(qaDockerCompose).toContain('VKVD_CONTAINER_RUNTIME: ${VKVD_CONTAINER_RUNTIME:-runc}');
     expect(goldenDockerCompose).not.toContain('VKVD_ALLOW_NON_SYSBOX_RUNTIME');
     expect(qaDockerCompose).not.toContain('VKVD_ALLOW_NON_SYSBOX_RUNTIME');
-    for (const [name, compose] of [
-      ['default', goldenDockerCompose],
-      ['QA', qaDockerCompose],
-    ] as const) {
-      expect(compose, `${name} compose inner Docker data`).toContain('docker-data:/var/lib/docker');
-      expect(compose, `${name} compose active host socket mount`).not.toMatch(/^\s*-\s+\/var\/run\/docker\.sock:\/var\/run\/docker\.sock/m);
-    }
+    expect(goldenDockerCompose).toContain('docker-data:/var/lib/docker');
+    expect(qaDockerCompose).not.toContain('docker-data:/var/lib/docker');
+    expect(goldenDockerCompose).not.toMatch(/^\s*-\s+\/var\/run\/docker\.sock:\/var\/run\/docker\.sock/m);
+    expect(qaDockerCompose).not.toMatch(/^\s*-\s+\/var\/run\/docker\.sock:\/var\/run\/docker\.sock/m);
     expect(goldenDockerfile).toContain('docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin');
     expect(goldenDockerfile).toContain('usermod -aG vkadmin,sudo,docker vkuser');
     expect(dockerEntrypoint).toContain('prepare docker access');
@@ -209,12 +209,27 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     expect(dockerEntrypoint).toContain('command=/usr/bin/dockerd --host=unix:///var/run/docker.sock --data-root=/var/lib/docker');
   });
 
-  it('enables inner Docker only when the workspace is launched with Sysbox', () => {
+  it('fails startup when explicitly requested Sysbox capabilities are unavailable', () => {
     expect(dockerEntrypoint).toContain('verify Sysbox runtime');
+    expect(dockerEntrypoint).toContain('Sysbox capabilities were not detected');
+    expect(dockerEntrypoint).toContain('startup_step_end 1');
+    expect(dockerEntrypoint).toContain('exit 1');
     expect(dockerEntrypoint).toContain('Docker-in-Docker is disabled');
     expect(dockerEntrypoint).toContain('mount -t tmpfs tmpfs');
     expect(dockerEntrypoint).not.toContain('VKVD_ALLOW_NON_SYSBOX_RUNTIME');
     expect(dockerEntrypoint).not.toContain('DOCKER_SOCK_GID');
+  });
+
+  it('ships one host setup command and a nested-Docker smoke test', () => {
+    expect(sysboxSetup).toContain('Darwin)');
+    expect(sysboxSetup).toContain('Linux)');
+    expect(sysboxSetup).toContain('scripts/colima/setup-sysbox.sh');
+    expect(sysboxSetup).toContain('scripts/colima/install-sysbox-guest.sh');
+    expect(sysboxSmoke).toContain('docker compose up -d');
+    expect(sysboxSmoke).toContain('docker info');
+    expect(sysboxSmoke).toContain('docker run --rm alpine:3.20 true');
+    expect(sysboxSmoke).toContain('--user vkuser');
+    expect(colimaConfig).toContain('arch: host');
   });
 
   it('treats Dockerfile.vkvd and supervisord.vkvd.conf as golden runtime config names', () => {

@@ -18,8 +18,8 @@ services:
     mem_limit: ${DEV_CONTAINER_MEM_LIMIT:-14g}
     mem_reservation: ${DEV_CONTAINER_MEM_RESERVATION:-12g}
 
-    # Normal Docker runtime by default. Set VKVD_CONTAINER_RUNTIME=sysbox-runc
-    # on a Sysbox-capable Docker host to enable the inner Docker daemon.
+    # Normal Docker runtime by default. Run ./scripts/setup-sysbox.sh, then set
+    # VKVD_CONTAINER_RUNTIME=sysbox-runc to enable the inner Docker daemon.
     runtime: ${VKVD_CONTAINER_RUNTIME:-runc}
 
     # Required for Tailscale

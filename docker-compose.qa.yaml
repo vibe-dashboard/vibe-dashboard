@@ -8,8 +8,7 @@ services:
     mem_limit: ${DEV_CONTAINER_MEM_LIMIT:-14g}
     mem_reservation: ${DEV_CONTAINER_MEM_RESERVATION:-12g}
 
-    # Normal Docker runtime by default. Set VKVD_CONTAINER_RUNTIME=sysbox-runc
-    # on a Sysbox-capable Docker host to enable the inner Docker daemon.
+    # QA stays on the normal runtime and does not provide Docker-in-Docker.
     runtime: ${VKVD_CONTAINER_RUNTIME:-runc}
 
     cap_add:
@@ -75,8 +74,6 @@ services:
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
 
     volumes:
-      # Persist the inner daemon without exposing the host Docker socket.
-      - docker-data:/var/lib/docker
       - vibe-kanban-repos:/home/vkuser/repos
       - vibe-kanban-data:/home/vkuser/.local/share/vibe-kanban
       - vibe-kanban-worktrees:/var/tmp/vibe-kanban/worktrees
@@ -94,8 +91,6 @@ services:
       - bosun-data:/home/vkuser/bosun
 
 volumes:
-  docker-data:
-    name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-docker-data
   vibe-kanban-repos:
     name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-vibe-kanban-repos
   vibe-kanban-data:

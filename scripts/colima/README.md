@@ -7,26 +7,24 @@ Docker app with Sysbox-backed Docker-in-Docker.
 
 ```bash
 brew install colima docker
-./scripts/colima/setup-sysbox.sh
+./scripts/setup-sysbox.sh
 ```
 
-The setup script creates/updates the Colima profile `vd-sysbox`, switches Docker
-to context `colima-vd-sysbox`, installs Sysbox in the Linux VM, and verifies that
-`sysbox-runc` can launch a container. The setup script also runs the guest installer after `colima start` because Colima may rewrite Docker daemon settings during startup.
+The setup script creates/updates a native-architecture Colima profile named
+`vd-sysbox`, switches Docker to `colima-vd-sysbox`, installs Sysbox in the Linux
+VM, and verifies that `sysbox-runc` can launch a container.
 
 Override the profile name if needed:
 
 ```bash
-COLIMA_SYSBOX_PROFILE=my-profile ./scripts/colima/setup-sysbox.sh
+COLIMA_SYSBOX_PROFILE=my-profile ./scripts/setup-sysbox.sh
 ```
 
 ## Verify
 
 ```bash
 ./scripts/colima/check-sysbox.sh
-VKVD_CONTAINER_RUNTIME=sysbox-runc DOCKER_CONTEXT=colima-vd-sysbox docker compose up -d code-vibe
-DOCKER_CONTEXT=colima-vd-sysbox docker compose exec code-vibe docker info
-DOCKER_CONTEXT=colima-vd-sysbox docker compose exec code-vibe docker run --rm alpine:3.20 true
+DOCKER_CONTEXT=colima-vd-sysbox ./scripts/smoke-sysbox-dind.sh
 ```
 
 ## Use with compose

@@ -141,10 +141,13 @@ if [ "${VKVD_CONTAINER_RUNTIME:-runc}" = "sysbox-runc" ]; then
     if vkvd_sysbox_marker_detected || vkvd_system_container_capability_detected; then
         startup_log "Sysbox runtime preflight passed; Docker-in-Docker is enabled"
     else
-        startup_log "WARNING: VKVD_CONTAINER_RUNTIME=sysbox-runc but Sysbox capabilities were not detected; continuing without guaranteed Docker-in-Docker support"
+        startup_log "ERROR: VKVD_CONTAINER_RUNTIME=sysbox-runc was requested, but Sysbox capabilities were not detected"
+        startup_log "Run ./scripts/setup-sysbox.sh on the Docker host, then recreate this container"
+        startup_step_end 1
+        exit 1
     fi
 else
-    startup_log "WARNING: VKVD_CONTAINER_RUNTIME=${VKVD_CONTAINER_RUNTIME:-runc}; Docker-in-Docker is disabled unless a host Docker socket is mounted"
+    startup_log "VKVD_CONTAINER_RUNTIME=${VKVD_CONTAINER_RUNTIME:-runc}; Docker-in-Docker is disabled"
 fi
 startup_step_end
 
