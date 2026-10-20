@@ -27,6 +27,7 @@ use serde::{Deserialize, Serialize};
 use services::services::container::ContainerService;
 use tokio::sync::Mutex;
 use ts_rs::TS;
+use url::Url;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
@@ -323,19 +324,12 @@ pub async fn preview_slot_url(
     let repo_slug = RepoPreviewSlug::ensure(pool, slot.repo_id, &repo_name)
         .await?
         .slug;
-    let base_domain = preview_base_domain(query.base_domain.as_deref());
-    let url_scheme = query
-        .url_scheme
-        .as_deref()
-        .unwrap_or("https")
-        .trim()
-        .trim_end_matches(':')
-        .to_ascii_lowercase();
-    if url_scheme != "http" && url_scheme != "https" {
-        return Err(ApiError::BadRequest(
-            "Preview URL scheme must be http or https".to_string(),
-        ));
-    }
+    let site_origin = std::env::var("SITE_ORIGIN").ok();
+    let (base_domain, url_scheme) = preview_url_origin(
+        query.base_domain.as_deref(),
+        query.url_scheme.as_deref(),
+        site_origin.as_deref(),
+    )?;
     let host = format!(
         "{}-{}-{}-{}.{}",
         workspace_token, repo_slug, slot.slot_slug, query.customer_slug, base_domain
@@ -351,12 +345,47 @@ pub async fn preview_slot_url(
     })))
 }
 
-fn preview_base_domain(configured: Option<&str>) -> String {
-    configured
-        .unwrap_or("jamtools.dev")
+fn preview_url_origin(
+    configured_domain: Option<&str>,
+    configured_scheme: Option<&str>,
+    site_origin: Option<&str>,
+) -> Result<(String, String), ApiError> {
+    let site_url = site_origin.and_then(|origin| Url::parse(origin).ok());
+    let site_domain = site_url.as_ref().and_then(|url| {
+        let host = url.host_str()?;
+        Some(match url.port() {
+            Some(port) => format!("{host}:{port}"),
+            None => host.to_string(),
+        })
+    });
+    let base_domain = configured_domain
+        .map(str::to_string)
+        .or(site_domain)
+        .ok_or_else(|| {
+            ApiError::BadRequest(
+                "Preview URL generation requires baseDomain or SITE_ORIGIN".to_string(),
+            )
+        })?
         .trim()
         .trim_start_matches('.')
-        .to_ascii_lowercase()
+        .to_ascii_lowercase();
+    let url_scheme = configured_scheme
+        .map(str::to_string)
+        .or_else(|| site_url.as_ref().map(|url| url.scheme().to_string()))
+        .ok_or_else(|| {
+            ApiError::BadRequest(
+                "Preview URL generation requires urlScheme or SITE_ORIGIN".to_string(),
+            )
+        })?
+        .trim()
+        .trim_end_matches(':')
+        .to_ascii_lowercase();
+    if !matches!(url_scheme.as_str(), "http" | "https") {
+        return Err(ApiError::BadRequest(
+            "Preview URL scheme must be http or https".to_string(),
+        ));
+    }
+    Ok((base_domain, url_scheme))
 }
 
 #[axum::debug_handler]
@@ -902,16 +931,33 @@ pub async fn run_archive_script(
 
 #[cfg(test)]
 mod tests {
-    use super::preview_base_domain;
     use axum::{Router, body::Body, extract::Path as AxumPath, routing::get};
     use http::Request;
     use tower::ServiceExt;
     use uuid::Uuid;
 
+    use super::preview_url_origin;
+
     #[test]
-    fn preview_urls_default_to_jamtools() {
-        assert_eq!(preview_base_domain(None), "jamtools.dev");
-        assert_eq!(preview_base_domain(Some(".Customer.Example ")), "customer.example");
+    fn preview_urls_use_site_origin_without_a_hardcoded_domain() {
+        assert_eq!(
+            preview_url_origin(None, None, Some("https://Customer.Example:8443/path")).unwrap(),
+            ("customer.example:8443".to_string(), "https".to_string())
+        );
+        assert!(preview_url_origin(None, None, None).is_err());
+    }
+
+    #[test]
+    fn explicit_preview_url_options_override_site_origin() {
+        assert_eq!(
+            preview_url_origin(
+                Some(".Preview.Example "),
+                Some("HTTP:"),
+                Some("https://site.example")
+            )
+            .unwrap(),
+            ("preview.example".to_string(), "http".to_string())
+        );
     }
 
     #[tokio::test]
