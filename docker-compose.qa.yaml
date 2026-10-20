@@ -32,6 +32,7 @@ services:
       ENABLE_VIBE_KANBAN: ${ENABLE_VIBE_KANBAN:-true}
       VK_CODEX_BINARY: ${VK_CODEX_BINARY:-/usr/local/bin/codex}
       CODEX_SQLITE_LOGS: ${CODEX_SQLITE_LOGS:-off}
+      VK_QA_SEED_DEFAULTS: ${VK_QA_SEED_DEFAULTS:-true}
       VK_SETTINGS_DIRECTORY: ${VK_SETTINGS_DIRECTORY:-/var/lib/vd/vk-config}
       VD_BEADS_DIRECTORY: ${VD_BEADS_DIRECTORY:-/var/lib/vd/beads}
 
@@ -83,6 +84,13 @@ services:
       - type: bind
         source: ${QA_CODEX_AUTH_FILE:-${HOME}/.codex/auth.json}
         target: /home/vkuser/.codex/auth.json
+        read_only: true
+        bind:
+          create_host_path: false
+      # OpenCode stores provider credentials in its XDG data directory.
+      - type: bind
+        source: ${QA_OPENCODE_AUTH_FILE:-${HOME}/.local/share/opencode/auth.json}
+        target: /home/vkuser/.local/share/opencode/auth.json
         read_only: true
         bind:
           create_host_path: false

@@ -101,6 +101,19 @@ install -d -m 0700 -o vkuser -g vkadmin /home/vkuser/.beads
 install -d -m 0750 -o vkuser -g vkadmin "${VK_SETTINGS_DIRECTORY:-/var/lib/vd/vk-config}"
 install -d -m 0750 -o vkuser -g vkadmin "${VD_BEADS_DIRECTORY:-/var/lib/vd/beads}"
 
+if [ "${VK_QA_SEED_DEFAULTS:-false}" = "true" ]; then
+    VK_DATA_DIR=/home/vkuser/.local/share/vibe-kanban
+    install -d -m 0755 -o vkuser -g vkuser "$VK_DATA_DIR"
+    if [ ! -e "$VK_DATA_DIR/config.json" ]; then
+        install -m 0644 -o vkuser -g vkuser /usr/local/share/vkvd/defaults/vk-config.json "$VK_DATA_DIR/config.json"
+        startup_log "Seeded QA VK default agent configuration"
+    fi
+    if [ ! -e "$VK_DATA_DIR/profiles.json" ]; then
+        install -m 0644 -o vkuser -g vkuser /usr/local/share/vkvd/defaults/vk-profiles.json "$VK_DATA_DIR/profiles.json"
+        startup_log "Seeded QA VK OpenCode profile"
+    fi
+fi
+
 BD_CONFIG=/home/vkuser/.config/bd/config.yaml
 if [ ! -e "$BD_CONFIG" ] && [ ! -L "$BD_CONFIG" ]; then
     BD_CONFIG_TMP=$(mktemp "${BD_CONFIG}.tmp.XXXXXX")

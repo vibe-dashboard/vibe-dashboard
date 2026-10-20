@@ -491,6 +491,7 @@ COPY --chown=vkuser:vkuser --from=dashboard-builder /app/dist /home/vkuser/.loca
 # Copy entrypoint script that fixes docker group GID at runtime
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY bd-config.default.yaml /usr/local/share/vkvd/defaults/bd-config.yaml
+COPY qa/vk-config.json qa/vk-profiles.json /usr/local/share/vkvd/defaults/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Copy startup scripts

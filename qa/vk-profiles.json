@@ -1,0 +1,12 @@
+{
+  "executors": {
+    "OPENCODE": {
+      "DEFAULT": {
+        "OPENCODE": {
+          "model": "openai/gpt-6.1-sol",
+          "base_command_override": "opencode"
+        }
+      }
+    }
+  }
+}
