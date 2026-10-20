@@ -323,13 +323,7 @@ pub async fn preview_slot_url(
     let repo_slug = RepoPreviewSlug::ensure(pool, slot.repo_id, &repo_name)
         .await?
         .slug;
-    let base_domain = query
-        .base_domain
-        .as_deref()
-        .unwrap_or("vibedashboard.dev")
-        .trim()
-        .trim_start_matches('.')
-        .to_ascii_lowercase();
+    let base_domain = preview_base_domain(query.base_domain.as_deref());
     let url_scheme = query
         .url_scheme
         .as_deref()
@@ -355,6 +349,14 @@ pub async fn preview_slot_url(
         url: format!("{url_scheme}://{host}/"),
         host,
     })))
+}
+
+fn preview_base_domain(configured: Option<&str>) -> String {
+    configured
+        .unwrap_or("jamtools.dev")
+        .trim()
+        .trim_start_matches('.')
+        .to_ascii_lowercase()
 }
 
 #[axum::debug_handler]
@@ -900,10 +902,17 @@ pub async fn run_archive_script(
 
 #[cfg(test)]
 mod tests {
+    use super::preview_base_domain;
     use axum::{Router, body::Body, extract::Path as AxumPath, routing::get};
     use http::Request;
     use tower::ServiceExt;
     use uuid::Uuid;
+
+    #[test]
+    fn preview_urls_default_to_jamtools() {
+        assert_eq!(preview_base_domain(None), "jamtools.dev");
+        assert_eq!(preview_base_domain(Some(".Customer.Example ")), "customer.example");
+    }
 
     #[tokio::test]
     async fn nested_run_config_route_path_extracts_workspace_and_run_config_ids() {
