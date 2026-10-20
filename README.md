@@ -1,18 +1,24 @@
 # Vibe Dashboard
 
-**Break out of the terminal, and into your personal dashboard**
+**Break out of the terminal and into your personal dashboard.**
 
-Note: This readme is currently in-progress and under construction 10/16/26 :)
+Vibe Dashboard gives you one browser workspace for repositories, coding agents, decisions,
+previews, and follow-up work.
 
-[Self-host](#self-host-in-60-seconds) · [Explore the workflow](#from-request-to-reviewed-change) · [Documentation](#documentation) · [Support](#support)
+> **README under construction:** product screenshots and several documentation links are being
+> finalized.
 
-<!-- SCREENSHOT: hero-issue-to-review | mixed status | 1440x900 | issue, active agent, structured decision, preview, review | redact repository/account data -->
-![Placeholder for the Vibe Dashboard issue-to-review workflow](https://picsum.photos/seed/vd-hero-issue-review/1440/900?grayscale&blur=2)
+[Self-host](#self-host) · [Explore the features](#features) · [In-progress work](#in-progress) · [Documentation](#documentation)
 
-> **Hero media placeholder:** an issue becomes agent work, a structured decision returns to
-> the agent, and the resulting change enters review.
+<!-- SCREENSHOT: hero-dashboard-workflow | 1440x900 | repository workspace, active agent, task context, preview URL | use public sample data and redact accounts -->
+![Placeholder for the Vibe Dashboard workspace](https://picsum.photos/seed/vd-hero-dashboard/1440/900?grayscale&blur=2)
+
+> **Media placeholder:** a repository workspace moving from assigned agent work to a running
+> preview and a clear next action.
 
 ## Self-host
+
+You need Docker with Compose and credentials for the coding agents you choose to run.
 
 ```bash
 git clone https://github.com/vibe-dashboard/vibe-dashboard.git
@@ -20,185 +26,214 @@ cd vibe-dashboard
 docker compose up
 ```
 
-Open <http://localhost:3001>. A successful start shows the workspace UI. The default image is
-`ghcr.io/vibe-dashboard/vk-vd:latest`
+Open <http://localhost:3001>. No environment variables are required for the default local
+configuration. It uses `ghcr.io/vibe-dashboard/vk-vd:latest`.
 
-See [Self-hosting and operations](user-docs/self-hosting.md) for authentication, ports, preview
-routing, persistent credentials, tracing, private networking, and browser sidecars.
+For a stable release instead of the moving `latest` tag:
 
-## From request to reviewed change
+```bash
+VKVD_IMAGE_VERSION=0.1.0 docker compose up
+```
 
-1. Bring in work from a repository or external task.
-2. Give an agent a workspace and the context to act.
-3. Resolve nuanced questions in structured forms instead of long chat threads.
-4. Preview the result and inspect the diff.
-5. Return feedback to the agent or finish in browser VS Code.
+See [Self-hosting and operations](user-docs/self-hosting.md) for authentication, persistence,
+ports, routing, tracing, private networking, and the current Docker trust boundary.
 
-### Features
+## Features
 
-- [Run agents in isolated workspaces](#run-agents-in-isolated-workspaces)
-- [Bring work into the dashboard](#bring-work-into-the-dashboard)
-- [Turn agent questions into decisions](#turn-agent-questions-into-decisions)
-- [Preview, review, and take over](#preview-review-and-take-over)
-- [Keep context between agent turns](#keep-context-between-agent-turns)
-- [Prepare safer development environments](#prepare-safer-development-environments)
-- [Reach the workspace where you work](#reach-the-workspace-where-you-work)
+- [Repository workspaces](#repository-workspaces)
+- [Automatic nudging](#automatic-nudging)
+- [Per-workspace beads management](#per-workspace-beads-management)
+- [Structured questions](#structured-questions)
+- [Preview URLs](#preview-urls)
+- [Issue intake](#issue-intake)
+- [Create work from repositories](#create-work-from-repositories)
+- [Browser VS Code](#browser-vs-code)
+- [Agent coordination](#agent-coordination)
+- [Callbacks](#callbacks)
+- [Docker-in-Docker isolation](#docker-in-docker-isolation)
 
-**Available** means usable from the current self-hosted baseline. **In progress** means working
-development exists but is not stable. **Experimental** means dogfoodable and subject to change.
-**Planned** means direction only.
+## Repository workspaces
 
-## Run agents in isolated workspaces
+Give each task a durable home instead of spreading its state across terminal tabs. A workspace
+keeps the repository, task context, agent sessions, working tree, and next human action together.
 
-**Available · In progress**
+Vibe Dashboard manages Git worktrees so independent tasks can use separate branches without
+overwriting one another. Start and follow supported coding-agent sessions from the workspace
+that owns their changes.
 
-**Problem:** agents scatter work across terminal tabs.
+<!-- SCREENSHOT: repository-workspaces | 1440x900 | workspace list, selected repository, worktree branch, active agent session | do not imply runtime security isolation -->
+![Placeholder for repository workspaces and agent sessions](https://picsum.photos/seed/vd-repository-workspaces/1440/900?grayscale&blur=2)
 
-**Action:** start and follow Codex,
-Claude, or OpenCode sessions from a repository workspace.
+> **Media placeholder:** multiple repository workspaces with separate worktrees and an agent
+> session attached to the selected task.
 
-**Result:** the task, conversation,
-working tree, and next human action stay together.
+## Automatic nudging
 
-Agent-to-agent setup is still difficult. In-progress agent-control MCP work makes catch-up,
-guarded messaging, callbacks, workspace creation, and preview control available without manual
-CLI setup. **PR link pending.**
+Long-running agent work should not stop merely because a turn ended. Automatic nudging checks
+work that still has an active goal and prompts the responsible agent to continue when another
+action is ready.
 
-<!-- SCREENSHOT: multi-agent-workspace | available + in progress | 1440x900 | two sessions, workspace task, handoff state | do not imply cloud isolation -->
-![Placeholder for two agent sessions in one workspace](https://picsum.photos/seed/vd-multi-agent-workspace/1440/900?grayscale&blur=2)
+The workspace keeps ownership visible, so continuation happens in the task that already holds
+the relevant context rather than in a new, disconnected chat.
 
-> **Media placeholder:** two sessions working from one repository workspace.
+<!-- SCREENSHOT: automatic-nudging | 1440x900 | active goal, paused agent, automatic continuation, resulting progress | show controls and avoid fabricated timing claims -->
+![Placeholder for automatic agent nudging](https://picsum.photos/seed/vd-automatic-nudging/1440/900?grayscale&blur=2)
 
-## Bring work into the dashboard
+> **Media placeholder:** an agent automatically continuing an unfinished workspace goal.
 
-**In progress**
+## Per-workspace beads management
 
-**Problem:** requests lose context during handoff.
+Vibe Dashboard creates and manages a Beads task store for each workspace. Tasks, dependencies,
+assignments, and acceptance criteria survive individual chat turns and remain attached to the
+work that owns them.
 
-**Action:** open a GitHub URL as a workspace
-or route an external issue into the dashboard.
+The same workflow applies to a workspace containing one repository or several repositories.
+Each agent can inspect the shared task graph and pick up the next unblocked item without relying
+on a transient conversation checklist.
 
-**Result:** the source remains connected to the
-workspace and agent executing it.
+<!-- SCREENSHOT: per-workspace-beads | 1440x900 | workspace, task tree, dependency, single- and multi-repository context | sample task names only -->
+![Placeholder for per-workspace Beads management](https://picsum.photos/seed/vd-workspace-beads/1440/900?grayscale&blur=2)
 
-- [Open GitHub URLs as workspaces — PR #38](https://github.com/vibe-dashboard/vibe-dashboard/pull/38)
-- Jira/Linear intake — **PR link pending**
-- Chrome-assisted feedback capture — **PR link pending**
+> **Media placeholder:** a workspace task graph shared by agents working across its repositories.
 
-<!-- SCREENSHOT: work-intake | in progress | 1440x900 | source issue, workspace, assigned agent | public seed data -->
-![Placeholder for external work entering Vibe Dashboard](https://picsum.photos/seed/vd-work-intake/1440/900?grayscale&blur=2)
+## Structured questions
 
-> **Media placeholder:** an external issue opening as assigned workspace work.
+When an agent needs a nuanced decision, it can create a BeadsForm instead of burying several
+questions in a long chat message. The form presents choices, explanations, annotations, and
+free-form fields in the browser.
 
-## Turn agent questions into decisions
+Submitting the form returns a normalized response that agents can consume without interpreting
+an ambiguous block of prose. The decision remains discoverable with the task that requested it.
 
-**Available**
+<!-- SCREENSHOT: structured-questions | 1440x900 | originating task, BeadsForm choices, annotation, normalized response | sample values only -->
+![Placeholder for a structured BeadsForm decision](https://picsum.photos/seed/vd-structured-questions/1440/900?grayscale&blur=2)
 
-**Problem:** Juggling multiple topics/decisions in the same chat can get cumbersome
+> **Media placeholder:** a BeadsForm beside its originating task and normalized response.
 
-**Action:** Use BeadsForm to streamline answering questions and provide annotations
+## Preview URLs
 
-**Result:** Decisions are memorialized and easily discoverable by all agents involved with the task
+Open a running application from the workspace that produced it. Preview URLs keep the running
+result connected to its repository, agent, and task instead of leaving users to find a port in
+terminal output.
 
-Core forms and attachments are available. Routing selected context to a specific agent is in
-progress. **PR link pending.**
+Use the preview to exercise the change while the agent retains the surrounding implementation
+context.
 
-<!-- SCREENSHOT: structured-decisions | available + in progress | 1440x900 | request, form, normalized handoff | sample values only -->
-![Placeholder for a structured agent decision form](https://picsum.photos/seed/vd-structured-decisions/1440/900?grayscale&blur=2)
+<!-- SCREENSHOT: preview-urls | 1440x900 | workspace, detected preview, open URL action, running application | use a harmless sample app -->
+![Placeholder for a workspace preview URL](https://picsum.photos/seed/vd-preview-urls/1440/900?grayscale&blur=2)
 
-> **Media placeholder:** a decision form beside its originating agent session.
+> **Media placeholder:** a workspace opening its running application through a preview URL.
 
-## Preview, review, and take over
+## Issue intake
 
-**Available · In progress · Experimental**
+Bring existing work into the dashboard without copying its context by hand. GitHub, Jira, and
+Linear issues can become workspace tasks while retaining a reference to their source.
 
-**Problem:** review spans a terminal, Git diff, and dev server.
+The imported request gives the assigned agent a concrete starting point and keeps the original
+tracker visible during implementation.
 
-**Action:** open browser VS
-Code, inspect the preview and diff, then return specific feedback.
+<!-- SCREENSHOT: issue-intake | 1440x900 | GitHub, Jira, or Linear source issue becoming a workspace task | use public or synthetic issue data -->
+![Placeholder for GitHub, Jira, and Linear issue intake](https://picsum.photos/seed/vd-issue-intake/1440/900?grayscale&blur=2)
 
-**Result:** the human stays
-in control without reconstructing the environment.
+> **Media placeholder:** an external issue becoming assigned work without losing its source.
 
-Browser VS Code is available. Diff and feedback surfaces are in progress. Preview URLs are
-experimental. **Diff-review PR link pending.**
+## Create work from repositories
 
-<!-- SCREENSHOT: preview-review | mixed status | 1440x900 | preview, diff feedback, browser VS Code | label each surface status -->
-![Placeholder for preview, diff, and review](https://picsum.photos/seed/vd-preview-review/1440/900?grayscale&blur=2)
+Start from the code when there is no pre-existing issue. Create a workspace for a repository, or
+paste a supported GitHub URL and let Vibe Dashboard resolve the repository context needed to
+begin work.
 
-> **Media placeholder:** the running change, its diff, and feedback returning to the agent.
+The resulting workspace owns its branch, worktree, task state, and agent sessions from the
+start.
 
-## Keep context between agent turns
+<!-- SCREENSHOT: repository-work-creation | 1440x900 | GitHub URL input, resolved repository, new workspace | public repository only -->
+![Placeholder for creating work from a GitHub repository](https://picsum.photos/seed/vd-create-from-repository/1440/900?grayscale&blur=2)
 
-**Available · In progress**
+> **Media placeholder:** a GitHub URL resolving into a ready repository workspace.
 
-**Problem:** durable task state outlives chat turns.
+## Browser VS Code
 
-**Action:** use workspace-native Beads and
-callbacks today; use the developing timeline and outline for longer work.
+Open the complete workspace in browser VS Code whenever you need to inspect files, use a
+terminal, debug a process, or take over an edit directly. It is a foundational escape hatch:
+the same repository and worktree remain available when the dashboard's focused views are not
+enough.
 
-**Result:** work stays
-attached to the workspace that owns it.
+After manual work, the workspace and its agents continue from the changed files rather than
+requiring a separate local checkout.
 
-Agent summaries in commit messages are in progress and **optional** because git history is
-durable and shared.
+<!-- SCREENSHOT: browser-vscode | 1440x900 | workspace file tree, editor, terminal, dashboard navigation | redact repository secrets -->
+![Placeholder for browser VS Code in a workspace](https://picsum.photos/seed/vd-browser-vscode/1440/900?grayscale&blur=2)
 
-<!-- SCREENSHOT: durable-agent-context | mixed status | 1440x900 | task, callback, timeline/outline | separate branch captures if needed -->
-![Placeholder for durable task and callback context](https://picsum.photos/seed/vd-durable-context/1440/900?grayscale&blur=2)
+> **Media placeholder:** browser VS Code opened directly in the selected workspace worktree.
 
-> **Media placeholder:** durable tasks and callback state, with developing navigation shown separately.
+## Agent coordination
 
-## Prepare safer development environments
+Agents can discover collaborators, exchange guarded messages, and hand off work without asking
+the user to relay every update. Agent-control MCP exposes those operations through the same
+workspace-aware interface agents already use for their tools.
 
-**In progress**
+Messages retain explicit sender, recipient, and workspace ownership so coordination does not
+turn into an untraceable shared chat.
 
-- Vardash/Varlock environment values ([PR #48](https://github.com/vibe-dashboard/vibe-dashboard/pull/48); final `main` integration link pending)
-- persistent Nix tools — **PR link pending**
-- Sysbox runtime boundary ([PR #49](https://github.com/vibe-dashboard/vibe-dashboard/pull/49))
-- turnkey private Tailscale access — **PR link pending**
+<!-- SCREENSHOT: agent-coordination | 1440x900 | two named agents, guarded message, workspace ownership, MCP action | sample content only -->
+![Placeholder for agent-to-agent coordination](https://picsum.photos/seed/vd-agent-coordination/1440/900?grayscale&blur=2)
 
-These are development direction, not security guarantees. Inactivity/auto-sleep is omitted.
+> **Media placeholder:** one workspace agent handing a bounded task to another through MCP.
 
-<!-- SCREENSHOT: safe-environment | in progress | 1440x900 | sample variable, tool environment, private URL | never capture credentials -->
-![Placeholder for safe environment configuration](https://picsum.photos/seed/vd-safe-environment/1440/900?grayscale&blur=2)
+## Callbacks
 
-> **Media placeholder:** safe sample configuration leading to a private preview.
+An agent can start a long-running command, register a callback, and yield instead of keeping an
+interactive turn open. When the command completes, the callback returns the result and resumes
+the owning agent with the workspace context intact.
 
-## Reach the workspace where you work
+Callbacks are useful for builds, deployments, and test suites whose completion is known but not
+immediate.
 
-**Available · In progress**
+<!-- SCREENSHOT: callbacks | 1440x900 | long-running command, registered callback, completion, resumed agent | show real timestamps only -->
+![Placeholder for an agent callback](https://picsum.photos/seed/vd-agent-callbacks/1440/900?grayscale&blur=2)
 
-The self-hosted dashboard works in a browser at desktop and narrow widths. Turnkey Tailscale
-configuration is in progress. Managed hosting is waitlist-only. This README does not claim a
-native mobile application.
+> **Media placeholder:** a long-running command completing and returning control to its agent.
 
-<!-- SCREENSHOT: responsive-browser-access | available + in progress | desktop + phone browser | same real workspace -->
-![Placeholder for desktop and phone browser access](https://picsum.photos/seed/vd-responsive-browser/1440/900?grayscale&blur=2)
+## Docker-in-Docker isolation
 
-> **Media placeholder:** the same workspace in desktop and phone browsers.
+Run workspace containers through Sysbox rather than granting ordinary workspace processes
+direct control of the host Docker daemon. This enables Docker-in-Docker workflows with a
+stronger runtime boundary for agent-created containers.
 
-## Development index
+The host must install and support Sysbox. Select its runtime when starting Vibe Dashboard:
 
-| Work | Status | Evidence |
-| --- | --- | --- |
-| Timeline and conversation outline | In progress | PR link pending |
-| Optional agent summaries in commits | In progress | PR link pending |
-| Vardash/Varlock | In progress | [PR #48](https://github.com/vibe-dashboard/vibe-dashboard/pull/48) |
-| Persistent Nix tools | In progress | PR link pending |
-| Sysbox runtime | In progress | [PR #49](https://github.com/vibe-dashboard/vibe-dashboard/pull/49) |
-| Turnkey Tailscale access | In progress | PR link pending |
-| Voyage/DockView workspace grids | In progress | PR link pending |
+```bash
+VKVD_CONTAINER_RUNTIME=sysbox-runc docker compose up
+```
+
+Sysbox changes the container boundary; it does not make untrusted code risk-free. Review the
+[self-hosting and operations guide](user-docs/self-hosting.md) before exposing repositories,
+credentials, or network services.
+
+<!-- SCREENSHOT: sysbox-docker-in-docker | 1440x900 | runtime configuration, workspace container, nested Docker workload | never show credentials -->
+![Placeholder for Sysbox Docker-in-Docker isolation](https://picsum.photos/seed/vd-sysbox-dind/1440/900?grayscale&blur=2)
+
+> **Media placeholder:** a workspace using `sysbox-runc` to run its own Docker workload.
+
+## In progress
+
+These capabilities are being developed and are not part of the available feature showcase yet:
+
+- **Targeted context delivery:** route selected evidence or attachments to a specific agent.
+- **Code diff review:** inspect workspace changes in a focused review surface.
+- **Review feedback:** return specific requested changes to the responsible agent.
+- **Environment-value management:** define and validate workspace configuration with Vardash/Varlock.
+- **Persistent Nix tools:** retain declared development tools across workspace sessions.
+- **Private Tailscale access:** provide turnkey private access to dashboards and previews.
+- **Browser automation:** give agents controlled browser access for testing and inspection.
 
 ## Documentation
 
 - [Self-hosting and operations](user-docs/self-hosting.md)
-- Integration guides — **placeholder: documentation hub pending**
-- Feature guides — **placeholder: documentation hub pending**
 
 ## Support
 
-- Bugs: [GitHub Issues](https://github.com/vibe-dashboard/vibe-dashboard/issues)
-- Product questions and community — **placeholder: destination pending**
+- [Report bugs and request features](https://github.com/vibe-dashboard/vibe-dashboard/issues)
 
 ## Contributing
 
