@@ -138,11 +138,9 @@ function useWorkspaceDiffSelector<T>(
 
 export const useDiffs = () => useWorkspaceDiffSelector((s) => s.diffs);
 
-export const useDiffPaths = () =>
-  useWorkspaceDiffSelector((s) => s.diffPaths);
+export const useDiffPaths = () => useWorkspaceDiffSelector((s) => s.diffPaths);
 
-export const useDiffStats = () =>
-  useWorkspaceDiffSelector((s) => s.diffStats);
+export const useDiffStats = () => useWorkspaceDiffSelector((s) => s.diffStats);
 
 export const useStoreDiffGitHubComments = () =>
   useWorkspaceDiffSelector((s) => s.gitHubComments);

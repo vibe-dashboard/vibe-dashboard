@@ -13,10 +13,7 @@ import {
 
 describe('resolveSessionMessageDraftStorageId', () => {
   it('isolates embedded drafts by stable surface id', () => {
-    const left = resolveSessionMessageDraftStorageId(
-      'session-1',
-      'left-pane'
-    );
+    const left = resolveSessionMessageDraftStorageId('session-1', 'left-pane');
     const right = resolveSessionMessageDraftStorageId(
       'session-1',
       'right-pane'

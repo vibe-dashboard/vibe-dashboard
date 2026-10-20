@@ -158,9 +158,7 @@ export function useSessionMessageEditor({
   } = useScratch(ScratchType.DRAFT_FOLLOW_UP, scratchId ?? '', {
     enabled: persistServerDraft,
   });
-  const effectiveScratchLoading = persistServerDraft
-    ? isScratchLoading
-    : false;
+  const effectiveScratchLoading = persistServerDraft ? isScratchLoading : false;
 
   const scratchData: DraftFollowUpData | undefined =
     scratch?.payload?.type === 'DRAFT_FOLLOW_UP'

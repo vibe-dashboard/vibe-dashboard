@@ -353,8 +353,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     () =>
       branchStatus?.some((repo) =>
         repo.merges?.some(
-          (merge) =>
-            merge.type === 'pr' && merge.pr_info.status === 'open'
+          (merge) => merge.type === 'pr' && merge.pr_info.status === 'open'
         )
       ) ?? false,
     [branchStatus]
@@ -1148,9 +1147,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
       toolbarActions={{
         items: toolbarActionItems,
       }}
-      onPrCommentClick={
-        hasOpenPullRequest ? handleInsertPrComments : undefined
-      }
+      onPrCommentClick={hasOpenPullRequest ? handleInsertPrComments : undefined}
       stats={{
         filesChanged,
         linesAdded,
