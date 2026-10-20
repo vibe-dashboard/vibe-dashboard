@@ -79,6 +79,13 @@ services:
       - code-server-data:/home/vkuser/.local/share/code-server
       - claude-data:/home/vkuser/.claude
       - codex-data:/home/vkuser/.codex
+      # Reuse host Codex login for local QA; override for nonstandard CODEX_HOME.
+      - type: bind
+        source: ${QA_CODEX_AUTH_FILE:-${HOME}/.codex/auth.json}
+        target: /home/vkuser/.codex/auth.json
+        read_only: true
+        bind:
+          create_host_path: false
       - user-config:/home/vkuser/.config
       - beads-data:/home/vkuser/.beads
       - npm-cache:/home/vkuser/.npm
