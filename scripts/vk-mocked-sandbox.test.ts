@@ -11,12 +11,63 @@ import {
   downloadCiReleaseArtifactFromEnv,
   findFreePort,
   loadSandboxCaddyfile,
+  readPreparedSandboxPlan,
   writeSandboxFiles,
   type PortAllocator,
 } from './vk-mocked-sandbox';
 import { sandboxRuntimeRepoPath } from './e2e-vk-mocked-sandbox-fixtures';
 
 describe('VK mocked sandbox helpers', () => {
+  it('reuses the prepared backend command without resolving it again', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vk-mocked-prepared-plan-'));
+    const runDir = join(root, 'run');
+    const releaseBinary = join(root, 'release', 'vibe-kanban');
+    try {
+      await mkdir(runDir, { recursive: true });
+      await mkdir(join(root, 'release'), { recursive: true });
+      await writeFile(releaseBinary, '#!/usr/bin/env bash\n');
+      await chmod(releaseBinary, 0o755);
+      await writeFile(
+        join(runDir, 'plan.json'),
+        JSON.stringify({
+          ports: {
+            vkBackend: 4107,
+            vkFrontend: 4100,
+            vkPreviewProxy: 4106,
+            vdDashboard: 4105,
+            vdServer: 4104,
+            vdCaddy: 4101,
+          },
+          paths: { workspaceRoot: root, vdRoot: root, vkRoot: root, runDir },
+          urls: {
+            vd: 'http://localhost:4101',
+            vkFrontend: 'http://localhost:4101',
+          },
+          env: {},
+          caddyfile: 'test',
+          setupCommands: [],
+          commands: [
+            {
+              name: 'vk-backend-ci-release',
+              cwd: root,
+              command: releaseBinary,
+              args: [],
+              env: {},
+            },
+          ],
+        }),
+      );
+
+      const plan = await readPreparedSandboxPlan(runDir);
+      expect(plan.commands[0]).toMatchObject({
+        name: 'vk-backend-ci-release',
+        command: releaseBinary,
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('finds the first available port at or above the requested start', async () => {
     const checked: number[] = [];
     const allocator: PortAllocator = {

@@ -155,8 +155,13 @@ async function assertSandboxStopped(force: boolean) {
   const handles = await openHandles([
     vdDbPath,
     vkDbPath,
+    vkReleaseDbPath,
     `${vdDbPath}-wal`,
     `${vdDbPath}-shm`,
+    `${vkDbPath}-wal`,
+    `${vkDbPath}-shm`,
+    `${vkReleaseDbPath}-wal`,
+    `${vkReleaseDbPath}-shm`,
   ]);
 
   if (sandboxRunning || handles.length) {

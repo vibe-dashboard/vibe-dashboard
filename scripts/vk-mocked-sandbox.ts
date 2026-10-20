@@ -1,7 +1,7 @@
 import { createServer } from 'node:net';
 import { access, chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { promisify } from 'node:util';
@@ -697,6 +697,56 @@ export async function writeSandboxFiles(plan: SandboxPlan): Promise<void> {
   await writeFile(join(plan.paths.runDir, 'plan.json'), JSON.stringify(plan, null, 2));
 }
 
+export async function readPreparedSandboxPlan(runDir: string): Promise<SandboxPlan> {
+  const planPath = join(runDir, 'plan.json');
+  let value: unknown;
+  try {
+    value = JSON.parse(await readFile(planPath, 'utf8'));
+  } catch (error) {
+    throw new Error(`Cannot read prepared sandbox plan ${planPath}: ${String(error)}`);
+  }
+
+  const plan = value as Partial<SandboxPlan>;
+  if (
+    !plan.paths ||
+    typeof plan.paths.vkRoot !== 'string' ||
+    typeof plan.paths.runDir !== 'string' ||
+    resolve(plan.paths.runDir) !== resolve(runDir) ||
+    !plan.urls ||
+    typeof plan.urls.vd !== 'string' ||
+    typeof plan.urls.vkFrontend !== 'string' ||
+    !plan.env ||
+    typeof plan.env !== 'object' ||
+    typeof plan.caddyfile !== 'string' ||
+    !Array.isArray(plan.setupCommands) ||
+    !Array.isArray(plan.commands) ||
+    plan.commands.length === 0
+  ) {
+    throw new Error(`Prepared sandbox plan ${planPath} is invalid or belongs to another run directory.`);
+  }
+  for (const spec of plan.commands) {
+    if (
+      !spec ||
+      typeof spec.name !== 'string' ||
+      typeof spec.cwd !== 'string' ||
+      typeof spec.command !== 'string' ||
+      !Array.isArray(spec.args) ||
+      !spec.args.every((arg) => typeof arg === 'string') ||
+      !spec.env ||
+      typeof spec.env !== 'object'
+    ) {
+      throw new Error(`Prepared sandbox plan ${planPath} contains an invalid command.`);
+    }
+    if (!existsSync(spec.cwd)) {
+      throw new Error(`Prepared sandbox command ${spec.name} has missing cwd ${spec.cwd}.`);
+    }
+    if (isAbsolute(spec.command) && !existsSync(spec.command)) {
+      throw new Error(`Prepared sandbox command ${spec.name} is missing ${spec.command}.`);
+    }
+  }
+  return plan as SandboxPlan;
+}
+
 function printPlan(plan: SandboxPlan): void {
   console.log(`VD URL: ${plan.urls.vd}`);
   console.log(`VK frontend URL: ${plan.urls.vkFrontend}`);
@@ -816,38 +866,31 @@ async function stopChild(
 
 async function main(): Promise<void> {
   const mode = process.argv[2] ?? 'prepare';
+  const workspaceRoot = resolve(process.cwd(), '..');
+  const vdRoot = resolve(workspaceRoot, 'vibe-kanban-vscode-web');
   if (mode === 'download-ci-release') {
-    const workspaceRoot = resolve(process.cwd(), '..');
-    const vdRoot = resolve(workspaceRoot, 'vibe-kanban-vscode-web');
     const artifact = await downloadCiReleaseArtifactFromEnv(vdRoot, process.env);
     console.log(`[vk-mocked-sandbox] VK release binary ready: ${artifact.binaryPath}`);
     return;
   }
 
-  const ports = await allocatePorts();
-  const workspaceRoot = resolve(process.cwd(), '..');
-  const vdRoot = resolve(workspaceRoot, 'vibe-kanban-vscode-web');
-  const caddyfile = await loadSandboxCaddyfile(vdRoot);
-  const configuredVkCheckout = process.env.VK_CHECKOUT?.trim();
-  const vkRoot = configuredVkCheckout
-    ? resolve(workspaceRoot, configuredVkCheckout)
-    : join(vdRoot, 'vibe-kanban');
-  let env = process.env;
-  if (isCiReleaseBackend(process.env)) {
-    const artifact = await resolveCiReleaseArtifact(vdRoot, vkRoot, process.env);
-    env = {
-      ...process.env,
-      VK_MOCKED_VK_BACKEND: CI_RELEASE_BACKEND_MODE,
-      VK_MOCKED_RELEASE_HASH: artifact.contentHash,
-      VK_MOCKED_RELEASE_TAG: artifact.releaseTag,
-      VK_MOCKED_RELEASE_CACHE_DIR: artifact.artifactRoot,
-    };
-  } else if (
-    process.env.VK_MOCKED_VK_BACKEND !== 'source' &&
-    resolve(vkRoot) === join(resolve(vdRoot), 'vibe-kanban')
-  ) {
-    const artifact = await tryResolveCiReleaseArtifact(vdRoot, vkRoot, process.env);
-    if (artifact) {
+  let plan: SandboxPlan;
+  if (mode === 'start' && process.env.VK_MOCKED_SKIP_SETUP_COMMANDS === '1') {
+    const runDir = resolve(
+      process.env.VK_MOCKED_SANDBOX_RUN_DIR?.trim() ||
+        join(vdRoot, '.vk-mocked-sandbox', 'current'),
+    );
+    plan = await readPreparedSandboxPlan(runDir);
+  } else {
+    const ports = await allocatePorts();
+    const caddyfile = await loadSandboxCaddyfile(vdRoot);
+    const configuredVkCheckout = process.env.VK_CHECKOUT?.trim();
+    const vkRoot = configuredVkCheckout
+      ? resolve(workspaceRoot, configuredVkCheckout)
+      : join(vdRoot, 'vibe-kanban');
+    let env = process.env;
+    if (isCiReleaseBackend(process.env)) {
+      const artifact = await resolveCiReleaseArtifact(vdRoot, vkRoot, process.env);
       env = {
         ...process.env,
         VK_MOCKED_VK_BACKEND: CI_RELEASE_BACKEND_MODE,
@@ -855,15 +898,29 @@ async function main(): Promise<void> {
         VK_MOCKED_RELEASE_TAG: artifact.releaseTag,
         VK_MOCKED_RELEASE_CACHE_DIR: artifact.artifactRoot,
       };
+    } else if (
+      process.env.VK_MOCKED_VK_BACKEND !== 'source' &&
+      resolve(vkRoot) === join(resolve(vdRoot), 'vibe-kanban')
+    ) {
+      const artifact = await tryResolveCiReleaseArtifact(vdRoot, vkRoot, process.env);
+      if (artifact) {
+        env = {
+          ...process.env,
+          VK_MOCKED_VK_BACKEND: CI_RELEASE_BACKEND_MODE,
+          VK_MOCKED_RELEASE_HASH: artifact.contentHash,
+          VK_MOCKED_RELEASE_TAG: artifact.releaseTag,
+          VK_MOCKED_RELEASE_CACHE_DIR: artifact.artifactRoot,
+        };
+      }
     }
+    plan = createSandboxPlan({
+      workspaceRoot: process.cwd(),
+      env,
+      ports,
+      caddyfile,
+    });
+    await writeSandboxFiles(plan);
   }
-  const plan = createSandboxPlan({
-    workspaceRoot: process.cwd(),
-    env,
-    ports,
-    caddyfile,
-  });
-  await writeSandboxFiles(plan);
 
   if (mode === 'prepare') {
     printPlan(plan);
