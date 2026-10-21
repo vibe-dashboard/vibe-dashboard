@@ -64,7 +64,7 @@ use utils::{
 use uuid::Uuid;
 use workspace_manager::{RepoWorkspaceInput, WorkspaceError, WorkspaceManager};
 
-use crate::{command, copy};
+use crate::{command, copy, workspace_setup::WorkspaceSetup};
 
 const WORKSPACE_TOUCH_DEBOUNCE: Duration = Duration::from_mins(2);
 
@@ -80,6 +80,7 @@ pub struct LocalContainerService {
     db_stream_handles: Arc<RwLock<HashMap<Uuid, JoinHandle<()>>>>,
     exit_monitor_handles: Arc<RwLock<HashMap<Uuid, JoinHandle<()>>>>,
     workspace_touch_times: Arc<RwLock<HashMap<Uuid, Instant>>>,
+    workspace_setup: Arc<WorkspaceSetup>,
     config: Arc<RwLock<Config>>,
     git: GitService,
     file_service: FileService,
@@ -91,6 +92,36 @@ pub struct LocalContainerService {
 }
 
 impl LocalContainerService {
+    async fn run_workspace_setup(
+        &self,
+        workspace: &Workspace,
+        workspace_dir: &Path,
+    ) -> Result<(), ContainerError> {
+        let mut repos =
+            WorkspaceRepo::find_repos_with_target_branch_for_workspace(&self.db.pool, workspace.id)
+                .await?;
+        repos.sort_by_key(|repo| repo.repo.id);
+        let repos = repos
+            .iter()
+            .map(|repo| {
+                json!({
+                    "id": repo.repo.id,
+                    "name": repo.repo.name,
+                    "displayName": repo.repo.display_name,
+                    "path": repo.repo.path,
+                    "targetBranch": repo.target_branch,
+                })
+            })
+            .collect::<Vec<_>>();
+        let settings_dir = std::env::var_os("VK_SETTINGS_DIRECTORY")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/var/lib/vd/vk-config"));
+        self.workspace_setup
+            .run(&settings_dir, workspace.id, workspace_dir, json!(repos))
+            .await
+            .map_err(|error| ContainerError::WorkspaceSetup(format!("{error:#}")))
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
         db: DBService,
@@ -120,6 +151,7 @@ impl LocalContainerService {
             db_stream_handles,
             exit_monitor_handles,
             workspace_touch_times,
+            workspace_setup: Arc::new(WorkspaceSetup::default()),
             config,
             git,
             file_service,
@@ -1370,6 +1402,9 @@ impl ContainerService for LocalContainerService {
         )
         .await?;
 
+        self.run_workspace_setup(workspace, &created_workspace.workspace_dir)
+            .await?;
+
         Ok(created_workspace
             .workspace_dir
             .to_string_lossy()
@@ -1424,6 +1459,8 @@ impl ContainerService for LocalContainerService {
             .await?;
 
         Self::create_workspace_config_files(&workspace_dir, &repositories).await?;
+
+        self.run_workspace_setup(workspace, &workspace_dir).await?;
 
         Ok(workspace_dir.to_string_lossy().to_string())
     }
@@ -1481,6 +1518,11 @@ impl ContainerService for LocalContainerService {
                 "Container ref not found for workspace"
             )))?;
         let current_dir = PathBuf::from(container_ref);
+
+        // Also guard follow-ups, reviews, and agents reached through setup-script chains.
+        if executor_action.base_executor().is_some() {
+            self.run_workspace_setup(workspace, &current_dir).await?;
+        }
 
         let approvals_service: Arc<dyn ExecutorApprovalService> =
             match executor_action.base_executor() {

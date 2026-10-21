@@ -538,6 +538,11 @@ impl IntoResponse for ApiError {
             ),
 
             ApiError::Deployment(_) => ErrorInfo::internal("DeploymentError"),
+            ApiError::Container(ContainerError::WorkspaceSetup(message)) => ErrorInfo::with_status(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "WorkspaceSetupError",
+                format!("Workspace setup failed: {message}. Fix the setup command and retry. The workspace has been kept."),
+            ),
             ApiError::Container(_) => ErrorInfo::internal("ContainerError"),
             ApiError::Executor(_) => ErrorInfo::internal("ExecutorError"),
             ApiError::CommandBuilder(_) => ErrorInfo::internal("CommandBuildError"),

@@ -128,25 +128,6 @@ if [[ -z "$workspace_dir" || "$workspace_dir" == "null" ]]; then
   exit 1
 fi
 
-echo "Running VD-owned workspace setup..."
-repos_json="$(python3 - "$repo_id" <<'PY'
-import json, sys
-print(json.dumps([{
-    "id": sys.argv[1],
-    "name": "workspace-beads-repo",
-    "displayName": "Workspace Beads Repo",
-    "path": "/home/vkuser/e2e/repos/workspace-beads-repo",
-    "targetBranch": "main",
-}]))
-PY
-)"
-docker exec \
-  -e "VK_WORKSPACE_ID=${workspace_id}" \
-  -e "VK_WORKSPACE_DIR=${workspace_dir}" \
-  -e "VK_WORKSPACE_REPOS_JSON=${repos_json}" \
-  "$container_name" \
-  runuser -u vkuser -- /var/lib/vd/vk-config/workspace-setup.sh
-
 persisted_beads="/var/lib/vd/beads/workspaces/${workspace_id}/.beads"
 aggregate_dir="/var/lib/vd/beads/aggregate-workspaces"
 aggregate_bead_id="vdw-${workspace_id//-/}"
@@ -178,7 +159,7 @@ docker exec "$container_name" grep -Fq 'Workspace root smoke' /tmp/workspace-roo
 
 echo "Asserting aggregate workspace bead has repo metadata..."
 docker exec "$container_name" runuser -u vkuser -- sh -lc "BEADS_DIR='${aggregate_dir}/.beads' /usr/local/bin/bd -C '${aggregate_dir}' show '${aggregate_bead_id}' --json >/tmp/workspace-aggregate-bead.json"
-docker exec -e "EXPECTED_WORKSPACE_ID=${workspace_id}" "$container_name" python3 - <<'PY'
+docker exec -i -e "EXPECTED_WORKSPACE_ID=${workspace_id}" "$container_name" python3 - <<'PY'
 import json
 import os
 from pathlib import Path
@@ -190,6 +171,74 @@ repos = metadata.get('repos') or []
 assert metadata.get('kind') == 'workspace', metadata
 assert metadata.get('vkWorkspaceId') == os.environ['EXPECTED_WORKSPACE_ID'], metadata
 assert any(repo.get('name') == 'workspace-beads-repo' and repo.get('targetBranch') == 'main' for repo in repos), repos
+PY
+
+echo "Asserting required setup failure preserves repositories, blocks agents, and can be retried..."
+python3 - "$api_base" "$container_name" "$workspace_id" "$workspace_dir" "$aggregate_dir" "$aggregate_bead_id" <<'PY'
+import json
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+
+api, container, workspace_id, workspace_dir, aggregate_dir, aggregate_bead_id = sys.argv[1:]
+
+def request(route, body=None, expected_status=200):
+    req = urllib.request.Request(
+        api + route,
+        data=json.dumps(body).encode() if body is not None else None,
+        headers={'content-type': 'application/json'},
+    )
+    try:
+        response = urllib.request.urlopen(req, timeout=150)
+    except urllib.error.HTTPError as error:
+        response = error
+    payload = json.load(response)
+    assert response.code == expected_status, (route, response.code, payload)
+    return payload
+
+def docker(*args, **kwargs):
+    return subprocess.check_output(['docker', 'exec', *args], text=True, **kwargs)
+
+repo_path = '/home/vkuser/e2e/repos/workspace-beads-second'
+docker(container, 'runuser', '-u', 'vkuser', '--', 'git', 'clone',
+       '/home/vkuser/e2e/repos/workspace-beads-repo', repo_path)
+repo = request('/repos', {'path': repo_path, 'display_name': 'Second Repo'})['data']
+config_path = '/var/lib/vd/vk-config/workspace-setup.toml'
+config = docker(container, 'cat', config_path)
+
+def write_config(content):
+    docker('-i', container, 'runuser', '-u', 'vkuser', '--', 'python3', '-c',
+           'import pathlib,sys; pathlib.Path(sys.argv[1]).write_text(sys.stdin.read())',
+           config_path, input=content)
+
+try:
+    assert 'workspace-setup.sh' in config, config
+    write_config(config.replace('workspace-setup.sh', 'workspace-setup-missing.sh'))
+    payload = request(f'/workspaces/{workspace_id}/repos',
+                      {'repo_id': repo['id'], 'target_branch': 'main'}, 500)
+    assert 'Workspace setup failed' in payload.get('message', ''), payload
+    repos = request(f'/workspaces/{workspace_id}/repos')['data']
+    assert any(item['id'] == repo['id'] for item in repos), repos
+    docker(container, 'test', '-f', f'{workspace_dir}/workspace-beads-second/README.md')
+
+    session = request('/sessions', {'workspace_id': workspace_id, 'executor': 'CODEX'})['data']
+    payload = request(f"/sessions/{session['id']}/follow-up",
+                      {'prompt': 'This must not reach an agent.',
+                       'executor_config': {'executor': 'CODEX'}}, 500)
+    assert 'Workspace setup failed' in payload.get('message', ''), payload
+finally:
+    write_config(config)
+
+# Opening an existing workspace retries provisioning/setup without starting an agent.
+request(f'/workspaces/{workspace_id}/integration/editor/path')
+payload = json.loads(docker(container, 'runuser', '-u', 'vkuser', '--',
+    'env', f'BEADS_DIR={aggregate_dir}/.beads', '/usr/local/bin/bd',
+    '-C', aggregate_dir, 'show', aggregate_bead_id, '--json'))
+bead = payload[0] if isinstance(payload, list) else payload
+repos = bead['metadata']['repos']
+assert {repo['name'] for repo in repos} == {'workspace-beads-repo', 'workspace-beads-second'}, repos
+assert all(repo['targetBranch'] == 'main' for repo in repos), repos
 PY
 
 echo "workspace-scoped beads Docker smoke passed."

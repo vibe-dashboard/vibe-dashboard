@@ -47,6 +47,7 @@ mod command;
 pub mod container;
 mod copy;
 pub mod pty;
+mod workspace_setup;
 
 #[derive(Clone)]
 pub struct LocalDeployment {

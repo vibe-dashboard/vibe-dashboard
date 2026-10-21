@@ -7,7 +7,7 @@ use db::models::{
 };
 use deployment::Deployment;
 use serde::{Deserialize, Serialize};
-use services::services::container::ContainerService;
+use services::services::container::{ContainerError, ContainerService};
 use ts_rs::TS;
 use utils::response::ApiResponse;
 use uuid::Uuid;
@@ -79,6 +79,11 @@ pub async fn add_workspace_repo(
         .ensure_container_exists(&managed_workspace.workspace)
         .await
     {
+        // Setup runs after provisioning. Keep the attached repository and worktree
+        // on setup failure so fixing the hook and starting an agent can retry it.
+        if matches!(err, ContainerError::WorkspaceSetup(_)) {
+            return Err(err.into());
+        }
         if let Err(rollback_err) = WorkspaceRepo::delete_by_id(pool, workspace_repo.id).await {
             tracing::error!(
                 "Failed to roll back workspace repo {} after container ensure failure for workspace {}: {}",

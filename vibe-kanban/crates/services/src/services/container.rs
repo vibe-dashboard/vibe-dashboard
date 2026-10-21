@@ -76,6 +76,8 @@ pub enum ContainerError {
     Io(#[from] std::io::Error),
     #[error("Failed to kill process: {0}")]
     KillFailed(std::io::Error),
+    #[error("Workspace setup failed: {0}")]
+    WorkspaceSetup(String),
     #[error(transparent)]
     Other(#[from] AnyhowError), // Catches any unclassified errors
 }

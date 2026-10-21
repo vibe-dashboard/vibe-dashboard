@@ -38,6 +38,7 @@ futures = "0.3"
 tokio = { workspace = true }
 globwalk = "0.9"
 portable-pty = "0.8"
+toml = "0.8"
 
 [build-dependencies]
 dotenv = "0.15"
