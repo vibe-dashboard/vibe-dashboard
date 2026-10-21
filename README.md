@@ -169,6 +169,19 @@ Codex caches credentials in `~/.codex/auth.json` when configured for file-based 
 
 ## Docker-in-Docker support
 
-The container includes Docker CLI and mounts the host's Docker socket at `/var/run/docker.sock`. This allows agents to run docker commands and you to run Docker commands from within the VSCode environment.
+The default workspace uses the normal `runc` runtime, so developers can start the editor and dashboard without installing Sysbox. Docker-in-Docker is disabled in that mode, and the host Docker socket is not exposed.
 
-**Security note:** The mounted Docker socket gives this container the ability to create and manage containers on the host. Only use this environment in trusted contexts. Remove the docker socket volume in the compose file to disable this.
+Install and verify Sysbox on a supported Debian/Ubuntu amd64 or arm64 host, or in a native-architecture Colima profile on macOS:
+
+```bash
+./scripts/setup-sysbox.sh
+```
+
+Start the workspace and run the required end-to-end verification:
+
+```bash
+VKVD_CONTAINER_RUNTIME=sysbox-runc docker compose up -d code-vibe
+./scripts/smoke-sysbox-dind.sh
+```
+
+If Sysbox is explicitly requested but its capabilities are unavailable, the workspace exits with an installation error rather than starting with a broken Docker daemon.

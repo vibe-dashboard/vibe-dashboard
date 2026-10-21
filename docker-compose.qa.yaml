@@ -8,6 +8,9 @@ services:
     mem_limit: ${DEV_CONTAINER_MEM_LIMIT:-14g}
     mem_reservation: ${DEV_CONTAINER_MEM_RESERVATION:-12g}
 
+    # QA exercises the Sysbox-backed inner Docker daemon by default.
+    runtime: ${VKVD_CONTAINER_RUNTIME:-sysbox-runc}
+
     cap_add:
       - NET_ADMIN
       - NET_RAW
@@ -67,11 +70,12 @@ services:
       VK_DISABLE_BACKFILL_REPO_NAMES: ${VK_DISABLE_BACKFILL_REPO_NAMES:-false}
       VK_STARTUP_DIAGNOSTICS_INTERVAL_MS: ${VK_STARTUP_DIAGNOSTICS_INTERVAL_MS:-}
       VK_STARTUP_DIAGNOSTICS_DURATION_SECONDS: ${VK_STARTUP_DIAGNOSTICS_DURATION_SECONDS:-}
+      VKVD_CONTAINER_RUNTIME: ${VKVD_CONTAINER_RUNTIME:-sysbox-runc}
 
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
 
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - docker-data:/var/lib/docker
       - vibe-kanban-repos:/home/vkuser/repos
       - vibe-kanban-data:/home/vkuser/.local/share/vibe-kanban
       - vibe-kanban-worktrees:/var/tmp/vibe-kanban/worktrees
@@ -80,14 +84,6 @@ services:
       - code-server-data:/home/vkuser/.local/share/code-server
       - claude-data:/home/vkuser/.claude
       - codex-data:/home/vkuser/.codex
-      # Reuse host Codex login for local QA; override for nonstandard CODEX_HOME.
-      - type: bind
-        source: ${QA_CODEX_AUTH_FILE:-${HOME}/.codex/auth.json}
-        target: /home/vkuser/.codex/auth.json
-        read_only: true
-        bind:
-          create_host_path: false
-      # OpenCode stores provider credentials in its XDG data directory.
       - opencode-data:/home/vkuser/.local/share/opencode
       - type: bind
         source: ${QA_OPENCODE_AUTH_FILE:-${HOME}/.local/share/opencode/auth.json}
@@ -104,6 +100,8 @@ services:
       - bosun-data:/home/vkuser/bosun
 
 volumes:
+  docker-data:
+    name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-docker-data
   vibe-kanban-repos:
     name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-vibe-kanban-repos
   vibe-kanban-data:
