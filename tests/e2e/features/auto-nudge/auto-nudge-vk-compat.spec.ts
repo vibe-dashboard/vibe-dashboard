@@ -93,6 +93,37 @@ test.describe.serial('auto-nudge compatibility with real VK QA-mode contracts', 
     } finally { await rm(value.dir, { recursive: true, force: true }); }
   });
 
+  test('queued consumption records durable started identity before removing its slot', async () => {
+    test.setTimeout(90_000); const value = await context();
+    try {
+      const target = await client.createSession({ workspace_id: value.workspace.id, executor: 'CODEX', name: `queue-lifecycle-${Date.now()}` });
+      const active = await client.sendMessage(target.id, body(`queue predecessor ${Date.now()}`, target));
+      const queueId = randomUUID();
+      const owner = 'qa-lifecycle';
+      const queued = await api(`/api/sessions/${target.id}/queue`, {
+        method: 'POST',
+        body: JSON.stringify({ queue_id: queueId, owner, message: 'queued lifecycle follow-up', executor_config: { executor: target.executor } }),
+      });
+      expect(queued.status).toBe(200);
+      await expect(api(`/api/sessions/${target.id}/queue/${queueId}/process`).then(response => response.json())).resolves.toMatchObject({ data: null });
+
+      await terminal(active.id);
+      let startedProcessId: string | null = null;
+      await expect.poll(async () => {
+        const response = await api(`/api/sessions/${target.id}/queue/${queueId}/process`);
+        const payload = await response.json() as { data: { owner: string; lifecycle: string; process: ExecutionProcess | null } | null };
+        startedProcessId = payload.data?.process?.id ?? null;
+        return payload.data && { owner: payload.data.owner, lifecycle: payload.data.lifecycle, processId: startedProcessId };
+      }, { timeout: 30_000 }).toEqual({ owner, lifecycle: 'started', processId: expect.any(String) });
+
+      const queueStatus = await api(`/api/sessions/${target.id}/queue`);
+      await expect(queueStatus.json()).resolves.toMatchObject({ data: { status: 'empty' } });
+      const replay = await api(`/api/sessions/${target.id}/queue/${queueId}/process`);
+      await expect(replay.json()).resolves.toMatchObject({ data: { owner, lifecycle: 'started', process: { id: startedProcessId } } });
+      await terminal(startedProcessId!);
+    } finally { await rm(value.dir, { recursive: true, force: true }); }
+  });
+
   test('active QA work is visible through the real snapshot stream and suppresses monitor action', async () => {
     test.setTimeout(60_000); const value = await context();
     try {

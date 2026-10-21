@@ -1103,4 +1103,61 @@ mod admission_tests {
         assert_eq!(reconciliation.queue_id, queue_id);
         assert_eq!(reconciliation.session_id, session_id);
     }
+
+    #[tokio::test]
+    async fn started_queue_effect_replays_the_exact_durable_process() {
+        let pool = pool().await;
+        apply_admission_migration(&pool).await.unwrap();
+        let queue_id = Uuid::new_v4();
+        let session_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO sessions (id) VALUES (?)")
+            .bind(session_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let process_id = Uuid::new_v4();
+        let data = CreateExecutionProcess {
+            session_id,
+            executor_action: script_action("echo started"),
+            run_reason: ExecutionProcessRunReason::SetupScript,
+        };
+
+        assert!(matches!(
+            ExecutionProcess::reserve_queue_effect(&pool, queue_id, "workflow", process_id, &data,)
+                .await
+                .unwrap(),
+            QueueEffectReservation::Proceed
+        ));
+        let created = ExecutionProcess::create(&pool, &data, process_id, &[])
+            .await
+            .unwrap();
+        ExecutionProcess::set_queue_effect_lifecycle(
+            &pool,
+            queue_id,
+            process_id,
+            QueueEffectLifecycle::Started,
+        )
+        .await
+        .unwrap();
+
+        let replay = ExecutionProcess::reserve_queue_effect(
+            &pool,
+            queue_id,
+            "workflow",
+            Uuid::new_v4(),
+            &data,
+        )
+        .await
+        .unwrap();
+        let QueueEffectReservation::Started(replayed) = replay else {
+            panic!("started queue effect did not replay its process");
+        };
+        assert_eq!(replayed.id, created.id);
+        let reconciliation = ExecutionProcess::reconcile_queue_effect(&pool, queue_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(reconciliation.lifecycle, QueueEffectLifecycle::Started);
+        assert_eq!(reconciliation.process.unwrap().id, created.id);
+    }
 }

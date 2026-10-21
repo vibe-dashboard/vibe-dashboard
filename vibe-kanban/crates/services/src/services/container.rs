@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    future::Future,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -83,6 +84,199 @@ pub enum ContainerError {
     KillFailed(std::io::Error),
     #[error(transparent)]
     Other(#[from] AnyhowError), // Catches any unclassified errors
+}
+
+#[cfg(test)]
+mod queue_effect_start_tests {
+    use sqlx::{Executor, sqlite::SqlitePoolOptions};
+
+    use super::*;
+
+    async fn pool() -> sqlx::SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        pool.execute("PRAGMA foreign_keys = ON").await.unwrap();
+        pool.execute("CREATE TABLE sessions (id BLOB PRIMARY KEY NOT NULL)")
+            .await
+            .unwrap();
+        pool.execute(
+            "CREATE TABLE execution_processes (
+                id BLOB PRIMARY KEY NOT NULL,
+                session_id BLOB NOT NULL,
+                status TEXT NOT NULL,
+                run_reason TEXT NOT NULL
+            )",
+        )
+        .await
+        .unwrap();
+        sqlx::raw_sql(include_str!(
+            "../../../db/migrations/20261020000000_enforce_single_active_coding_agent.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool
+    }
+
+    fn data(session_id: Uuid, script: &str) -> CreateExecutionProcess {
+        CreateExecutionProcess {
+            session_id,
+            executor_action: ExecutorAction::new(
+                ExecutorActionType::ScriptRequest(ScriptRequest {
+                    script: script.to_string(),
+                    language: ScriptRequestLanguage::Bash,
+                    context: ScriptContext::SetupScript,
+                    working_dir: None,
+                    env: HashMap::new(),
+                }),
+                None,
+            ),
+            run_reason: ExecutionProcessRunReason::SetupScript,
+        }
+    }
+
+    async fn reserve(
+        pool: &sqlx::SqlitePool,
+        queue_id: Uuid,
+        process_id: Uuid,
+        data: &CreateExecutionProcess,
+    ) {
+        sqlx::query("INSERT INTO sessions (id) VALUES (?) ON CONFLICT DO NOTHING")
+            .bind(data.session_id)
+            .execute(pool)
+            .await
+            .unwrap();
+        assert!(matches!(
+            ExecutionProcess::reserve_queue_effect(pool, queue_id, "workflow", process_id, data,)
+                .await
+                .unwrap(),
+            QueueEffectReservation::Proceed
+        ));
+    }
+
+    async fn lifecycle(pool: &sqlx::SqlitePool, queue_id: Uuid) -> String {
+        sqlx::query_scalar(
+            "SELECT lifecycle FROM execution_process_queue_effects WHERE queue_id = ?",
+        )
+        .bind(queue_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn deterministic_start_failure_is_retryable_but_interrupted_start_is_not() {
+        let pool = pool().await;
+        let session_id = Uuid::new_v4();
+        let failed_queue = Uuid::new_v4();
+        let failed_process = Uuid::new_v4();
+        let failed_data = data(session_id, "echo retry");
+        reserve(&pool, failed_queue, failed_process, &failed_data).await;
+
+        let result = start_execution_with_queue_guard(
+            &pool,
+            Some((failed_queue, failed_process)),
+            || async {
+                Err(ContainerError::Other(anyhow!(
+                    "deterministic spawn failure"
+                )))
+            },
+        )
+        .await;
+        assert!(result.is_err());
+        assert_eq!(lifecycle(&pool, failed_queue).await, "failed_before_start");
+
+        let retry = ExecutionProcess::reserve_queue_effect(
+            &pool,
+            failed_queue,
+            "workflow",
+            Uuid::new_v4(),
+            &failed_data,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(retry, QueueEffectReservation::Proceed));
+
+        let interrupted_queue = Uuid::new_v4();
+        let interrupted_process = Uuid::new_v4();
+        let interrupted_data = data(session_id, "echo never resend");
+        reserve(
+            &pool,
+            interrupted_queue,
+            interrupted_process,
+            &interrupted_data,
+        )
+        .await;
+        let task_pool = pool.clone();
+        let task = tokio::spawn(async move {
+            start_execution_with_queue_guard(
+                &task_pool,
+                Some((interrupted_queue, interrupted_process)),
+                || std::future::pending::<Result<(), ContainerError>>(),
+            )
+            .await
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                if lifecycle(&pool, interrupted_queue).await == "indeterminate" {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        task.abort();
+        assert!(matches!(
+            ExecutionProcess::reserve_queue_effect(
+                &pool,
+                interrupted_queue,
+                "workflow",
+                Uuid::new_v4(),
+                &interrupted_data,
+            )
+            .await,
+            Err(ExecutionProcessError::QueueEffectIndeterminate { .. })
+        ));
+    }
+}
+
+async fn start_execution_with_queue_guard<F, Fut>(
+    pool: &sqlx::SqlitePool,
+    queue_effect: Option<(Uuid, Uuid)>,
+    start: F,
+) -> Result<(), ContainerError>
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = Result<(), ContainerError>>,
+{
+    if let Some((queue_id, process_id)) = queue_effect {
+        ExecutionProcess::set_queue_effect_lifecycle(
+            pool,
+            queue_id,
+            process_id,
+            QueueEffectLifecycle::Indeterminate,
+        )
+        .await?;
+    }
+
+    if let Err(error) = start().await {
+        if let Some((queue_id, process_id)) = queue_effect {
+            let _ = ExecutionProcess::set_queue_effect_lifecycle(
+                pool,
+                queue_id,
+                process_id,
+                QueueEffectLifecycle::FailedBeforeStart,
+            )
+            .await;
+        }
+        return Err(error);
+    }
+
+    Ok(())
 }
 
 #[async_trait]
@@ -1354,19 +1548,12 @@ pub trait ContainerService {
             )
         );
 
-        if let Some((queue_id, _)) = queue_effect {
-            ExecutionProcess::set_queue_effect_lifecycle(
-                &self.db().pool,
-                queue_id,
-                process_id,
-                QueueEffectLifecycle::Indeterminate,
-            )
-            .await?;
-        }
-
-        if let Err(start_error) = self
-            .start_execution_inner(workspace, &execution_process, executor_action)
-            .await
+        if let Err(start_error) = start_execution_with_queue_guard(
+            &self.db().pool,
+            queue_effect.map(|(queue_id, _)| (queue_id, process_id)),
+            || self.start_execution_inner(workspace, &execution_process, executor_action),
+        )
+        .await
         {
             self.msg_stores()
                 .write()
@@ -1386,15 +1573,6 @@ pub trait ContainerService {
                     execution_process.id,
                     update_error
                 );
-            }
-            if let Some((queue_id, _)) = queue_effect {
-                let _ = ExecutionProcess::set_queue_effect_lifecycle(
-                    &self.db().pool,
-                    queue_id,
-                    process_id,
-                    QueueEffectLifecycle::FailedBeforeStart,
-                )
-                .await;
             }
             // Emit stderr error message
             let log_message = LogMsg::Stderr(format!("Failed to start execution: {start_error}"));
