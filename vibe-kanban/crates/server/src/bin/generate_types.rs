@@ -192,6 +192,8 @@ fn generate_types_content() -> String {
         git::GitBranch::decl(),
         services::services::queued_message::QueuedMessage::decl(),
         services::services::queued_message::QueueStatus::decl(),
+        db::models::execution_process::QueueEffectLifecycle::decl(),
+        db::models::execution_process::QueueEffectReconciliation::decl(),
         git::ConflictOp::decl(),
         executors::actions::ExecutorAction::decl(),
         executors::mcp_config::McpConfig::decl(),
@@ -276,11 +278,16 @@ fn generate_types_content() -> String {
         .into_iter()
         .map(|d| {
             let trimmed = d.trim_start();
-            if trimmed.starts_with("export") {
+            let declaration = if trimmed.starts_with("export") {
                 d
             } else {
                 format!("export {trimmed}")
-            }
+            };
+            declaration
+                .lines()
+                .map(str::trim_end)
+                .collect::<Vec<_>>()
+                .join("\n")
         })
         .collect::<Vec<_>>()
         .join("\n\n");

@@ -12,7 +12,8 @@ use db::{
         coding_agent_turn::{CodingAgentTurn, CreateCodingAgentTurn},
         execution_process::{
             CreateExecutionProcess, ExecutionContext, ExecutionProcess, ExecutionProcessError,
-            ExecutionProcessRunReason, ExecutionProcessStatus,
+            ExecutionProcessRunReason, ExecutionProcessStatus, QueueEffectLifecycle,
+            QueueEffectReservation,
         },
         execution_process_repo_state::{
             CreateExecutionProcessRepoState, ExecutionProcessRepoState,
@@ -1189,23 +1190,6 @@ pub trait ContainerService {
         run_reason: &ExecutionProcessRunReason,
         queue_id: Option<Uuid>,
     ) -> Result<ExecutionProcess, ContainerError> {
-        if let Some(queue_id) = queue_id
-            && let Some(existing) =
-                ExecutionProcess::find_by_queue_id(&self.db().pool, queue_id).await?
-        {
-            let same_action = existing
-                .executor_action()
-                .ok()
-                .and_then(|action| serde_json::to_value(action).ok())
-                == serde_json::to_value(executor_action).ok();
-            if existing.session_id == session.id
-                && existing.run_reason == *run_reason
-                && same_action
-            {
-                return Ok(existing);
-            }
-            return Err(ExecutionProcessError::QueueEffectConflict { queue_id }.into());
-        }
         // Create new execution process record
         // Capture current HEAD per repository as the "before" commit for this execution
         let repositories =
@@ -1239,14 +1223,43 @@ pub trait ContainerService {
             run_reason: run_reason.clone(),
         };
 
-        let execution_process = ExecutionProcess::create(
+        let process_id = Uuid::new_v4();
+        if let Some(queue_id) = queue_id {
+            match ExecutionProcess::reserve_queue_effect(
+                &self.db().pool,
+                queue_id,
+                process_id,
+                &create_execution_process,
+            )
+            .await?
+            {
+                QueueEffectReservation::Started(process) => return Ok(process),
+                QueueEffectReservation::Proceed => {}
+            }
+        }
+
+        let execution_process = match ExecutionProcess::create(
             &self.db().pool,
             &create_execution_process,
-            Uuid::new_v4(),
+            process_id,
             &repo_states,
-            queue_id,
         )
-        .await?;
+        .await
+        {
+            Ok(process) => process,
+            Err(error) => {
+                if let Some(queue_id) = queue_id {
+                    let _ = ExecutionProcess::set_queue_effect_lifecycle(
+                        &self.db().pool,
+                        queue_id,
+                        process_id,
+                        QueueEffectLifecycle::FailedBeforeStart,
+                    )
+                    .await;
+                }
+                return Err(error.into());
+            }
+        };
         self.msg_stores()
             .write()
             .await
@@ -1265,6 +1278,15 @@ pub trait ContainerService {
                 None,
             )
             .await;
+            if let Some(queue_id) = queue_id {
+                let _ = ExecutionProcess::set_queue_effect_lifecycle(
+                    &self.db().pool,
+                    queue_id,
+                    process_id,
+                    QueueEffectLifecycle::FailedBeforeStart,
+                )
+                .await;
+            }
             return Err(e.into());
         }
 
@@ -1308,6 +1330,15 @@ pub trait ContainerService {
                     None,
                 )
                 .await;
+                if let Some(queue_id) = queue_id {
+                    let _ = ExecutionProcess::set_queue_effect_lifecycle(
+                        &self.db().pool,
+                        queue_id,
+                        process_id,
+                        QueueEffectLifecycle::FailedBeforeStart,
+                    )
+                    .await;
+                }
                 return Err(e.into());
             }
         }
@@ -1321,6 +1352,16 @@ pub trait ContainerService {
                 }
             )
         );
+
+        if let Some(queue_id) = queue_id {
+            ExecutionProcess::set_queue_effect_lifecycle(
+                &self.db().pool,
+                queue_id,
+                process_id,
+                QueueEffectLifecycle::Indeterminate,
+            )
+            .await?;
+        }
 
         if let Err(start_error) = self
             .start_execution_inner(workspace, &execution_process, executor_action)
@@ -1344,6 +1385,15 @@ pub trait ContainerService {
                     execution_process.id,
                     update_error
                 );
+            }
+            if let Some(queue_id) = queue_id {
+                let _ = ExecutionProcess::set_queue_effect_lifecycle(
+                    &self.db().pool,
+                    queue_id,
+                    process_id,
+                    QueueEffectLifecycle::FailedBeforeStart,
+                )
+                .await;
             }
             // Emit stderr error message
             let log_message = LogMsg::Stderr(format!("Failed to start execution: {start_error}"));
@@ -1390,6 +1440,16 @@ pub trait ContainerService {
                 }
             };
             return Err(start_error);
+        }
+
+        if let Some(queue_id) = queue_id {
+            ExecutionProcess::set_queue_effect_lifecycle(
+                &self.db().pool,
+                queue_id,
+                process_id,
+                QueueEffectLifecycle::Started,
+            )
+            .await?;
         }
 
         if is_clear_session_command

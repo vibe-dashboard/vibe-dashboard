@@ -384,6 +384,12 @@ impl IntoResponse for ApiError {
                     format!("Queue effect {queue_id} is already correlated to different work"),
                 )
             }
+            ApiError::ExecutionProcess(ExecutionProcessError::QueueEffectIndeterminate {
+                queue_id,
+            }) => ErrorInfo::conflict(
+                "QueueEffectIndeterminate",
+                format!("Queue effect {queue_id} has an unresolved prior start attempt"),
+            ),
             ApiError::ExecutionProcess(_) => ErrorInfo::internal("ExecutionProcessError"),
 
             ApiError::GitService(GitServiceError::MergeConflicts { message, .. }) => {

@@ -72,7 +72,7 @@ impl QueuedMessageService {
         id: Uuid,
         owner: String,
         data: DraftFollowUpData,
-    ) -> Result<QueuedMessage, QueueError> {
+    ) -> Result<QueueStatus, QueueError> {
         let queued = QueuedMessage {
             id,
             owner,
@@ -86,13 +86,21 @@ impl QueuedMessageService {
                     message: queued.clone(),
                     consuming: false,
                 });
-                Ok(queued)
+                Ok(QueueStatus::Queued { message: queued })
             }
             Entry::Occupied(entry) => {
                 let existing = &entry.get().message;
                 if existing.id == queued.id {
                     if existing.owner == queued.owner && same_data(&existing.data, &queued.data) {
-                        Ok(existing.clone())
+                        Ok(if entry.get().consuming {
+                            QueueStatus::Consuming {
+                                message: existing.clone(),
+                            }
+                        } else {
+                            QueueStatus::Queued {
+                                message: existing.clone(),
+                            }
+                        })
                     } else {
                         Err(QueueError::IdentityConflict { id })
                     }
@@ -243,13 +251,13 @@ mod tests {
         let first = service
             .queue_message(session, id, "workflow".into(), data("one"))
             .unwrap();
-        assert_eq!(
+        assert!(matches!(first, QueueStatus::Queued { .. }));
+        assert!(matches!(
             service
                 .queue_message(session, id, "workflow".into(), data("one"))
-                .unwrap()
-                .id,
-            first.id
-        );
+                .unwrap(),
+            QueueStatus::Queued { .. }
+        ));
         assert!(matches!(
             service.queue_message(session, id, "workflow".into(), data("changed")),
             Err(QueueError::IdentityConflict { .. })
@@ -282,6 +290,17 @@ mod tests {
             "two"
         );
         assert_eq!(service.claim_queued(session).unwrap().id, id);
+        assert!(matches!(
+            service.get_status(session),
+            QueueStatus::Consuming { .. }
+        ));
+        service
+            .queue_message(session, id, "callback".into(), data("two"))
+            .unwrap();
+        assert!(matches!(
+            service.get_status(session),
+            QueueStatus::Consuming { .. }
+        ));
         assert!(matches!(
             service.cancel_queued(session, id, "callback"),
             Err(QueueError::TooLate { .. })

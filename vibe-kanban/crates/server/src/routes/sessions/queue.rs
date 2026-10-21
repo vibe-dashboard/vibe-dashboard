@@ -6,7 +6,9 @@ use axum::{
     routing::get,
 };
 use db::models::{
-    execution_process::ExecutionProcess, scratch::DraftFollowUpData, session::Session,
+    execution_process::{ExecutionProcess, QueueEffectReconciliation},
+    scratch::DraftFollowUpData,
+    session::Session,
 };
 use deployment::Deployment;
 use executors::profile::ExecutorConfig;
@@ -62,7 +64,7 @@ async fn queue_message(
         executor_config: payload.executor_config,
     };
 
-    let queued = deployment
+    let status = deployment
         .queued_message_service()
         .queue_message(session.id, payload.queue_id, payload.owner, data)
         .map_err(queue_error)?;
@@ -77,9 +79,7 @@ async fn queue_message(
         )
         .await;
 
-    Ok(ResponseJson(ApiResponse::success(QueueStatus::Queued {
-        message: queued,
-    })))
+    Ok(ResponseJson(ApiResponse::success(status)))
 }
 
 /// Cancel a queued follow-up message
@@ -144,17 +144,18 @@ async fn get_queued_execution(
     Extension(session): Extension<Session>,
     State(deployment): State<DeploymentImpl>,
     axum::extract::Path(queue_id): axum::extract::Path<uuid::Uuid>,
-) -> Result<ResponseJson<ApiResponse<Option<ExecutionProcess>>>, ApiError> {
-    let process = ExecutionProcess::find_by_queue_id(&deployment.db().pool, queue_id).await?;
-    if process
+) -> Result<ResponseJson<ApiResponse<Option<QueueEffectReconciliation>>>, ApiError> {
+    let reconciliation =
+        ExecutionProcess::reconcile_queue_effect(&deployment.db().pool, queue_id).await?;
+    if reconciliation
         .as_ref()
-        .is_some_and(|process| process.session_id != session.id)
+        .is_some_and(|effect| effect.session_id != session.id)
     {
         return Err(ApiError::BadRequest(
             "Queue effect does not belong to this session".to_string(),
         ));
     }
-    Ok(ResponseJson(ApiResponse::success(process)))
+    Ok(ResponseJson(ApiResponse::success(reconciliation)))
 }
 
 pub(super) fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {

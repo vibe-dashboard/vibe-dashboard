@@ -10,6 +10,11 @@ WHERE status = 'running' AND run_reason = 'codingagent';
 CREATE TABLE execution_process_queue_effects (
     queue_id BLOB PRIMARY KEY NOT NULL,
     execution_process_id BLOB NOT NULL UNIQUE,
+    session_id BLOB NOT NULL,
+    run_reason TEXT NOT NULL,
+    executor_action TEXT NOT NULL,
+    lifecycle TEXT NOT NULL CHECK (lifecycle IN ('reserved', 'started', 'failed_before_start', 'indeterminate')),
     created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
-    FOREIGN KEY (execution_process_id) REFERENCES execution_processes(id) ON DELETE CASCADE
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
 );

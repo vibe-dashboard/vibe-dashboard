@@ -38,6 +38,8 @@ pub enum ExecutionProcessError {
     SessionBusy { session_id: Uuid },
     #[error("Queue effect {queue_id} is already correlated to different work")]
     QueueEffectConflict { queue_id: Uuid },
+    #[error("Queue effect {queue_id} has an unresolved prior start attempt")]
+    QueueEffectIndeterminate { queue_id: Uuid },
 }
 
 #[derive(Debug, Clone, Type, Serialize, Deserialize, PartialEq, TS)]
@@ -86,6 +88,28 @@ pub struct CreateExecutionProcess {
     pub session_id: Uuid,
     pub executor_action: ExecutorAction,
     pub run_reason: ExecutionProcessRunReason,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum QueueEffectLifecycle {
+    Reserved,
+    Started,
+    FailedBeforeStart,
+    Indeterminate,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct QueueEffectReconciliation {
+    pub queue_id: Uuid,
+    pub session_id: Uuid,
+    pub lifecycle: QueueEffectLifecycle,
+    pub process: Option<ExecutionProcess>,
+}
+
+pub enum QueueEffectReservation {
+    Proceed,
+    Started(ExecutionProcess),
 }
 
 #[derive(Debug)]
@@ -389,7 +413,6 @@ impl ExecutionProcess {
         data: &CreateExecutionProcess,
         process_id: Uuid,
         repo_states: &[CreateExecutionProcessRepoState],
-        queue_id: Option<Uuid>,
     ) -> Result<Self, ExecutionProcessError> {
         let now = Utc::now();
         let executor_action_json = sqlx::types::Json(&data.executor_action);
@@ -431,28 +454,6 @@ impl ExecutionProcess {
             return Err(error.into());
         }
 
-        if let Some(queue_id) = queue_id
-            && let Err(error) = sqlx::query(
-                "INSERT INTO execution_process_queue_effects (queue_id, execution_process_id) VALUES (?, ?)",
-            )
-            .bind(queue_id)
-            .bind(process_id)
-            .execute(pool)
-            .await
-        {
-            let _ = Self::update_completion(
-                pool,
-                process_id,
-                ExecutionProcessStatus::Failed,
-                None,
-            )
-            .await;
-            if error.as_database_error().is_some_and(|database| database.is_unique_violation()) {
-                return Err(ExecutionProcessError::QueueEffectConflict { queue_id });
-            }
-            return Err(error.into());
-        }
-
         match Self::find_by_id(pool, process_id).await {
             Ok(Some(process)) => Ok(process),
             Ok(None) => {
@@ -470,20 +471,120 @@ impl ExecutionProcess {
         }
     }
 
-    pub async fn find_by_queue_id(
+    pub async fn reserve_queue_effect(
         pool: &SqlitePool,
         queue_id: Uuid,
-    ) -> Result<Option<Self>, sqlx::Error> {
-        let process_id = sqlx::query_scalar::<_, Uuid>(
-            "SELECT execution_process_id FROM execution_process_queue_effects WHERE queue_id = ?",
+        process_id: Uuid,
+        data: &CreateExecutionProcess,
+    ) -> Result<QueueEffectReservation, ExecutionProcessError> {
+        let action = serde_json::to_string(&data.executor_action)
+            .map_err(|error| ExecutionProcessError::CreateFailed(error.to_string()))?;
+        let run_reason = serde_json::to_string(&data.run_reason)
+            .map_err(|error| ExecutionProcessError::CreateFailed(error.to_string()))?;
+        let inserted = sqlx::query(
+            "INSERT INTO execution_process_queue_effects (queue_id, execution_process_id, session_id, run_reason, executor_action, lifecycle) VALUES (?, ?, ?, ?, ?, 'reserved') ON CONFLICT(queue_id) DO NOTHING",
+        )
+        .bind(queue_id)
+        .bind(process_id)
+        .bind(data.session_id)
+        .bind(&run_reason)
+        .bind(&action)
+        .execute(pool)
+        .await?;
+        if inserted.rows_affected() == 1 {
+            return Ok(QueueEffectReservation::Proceed);
+        }
+
+        let row = sqlx::query_as::<_, (Uuid, Uuid, String, String, String)>(
+            "SELECT execution_process_id, session_id, run_reason, executor_action, lifecycle FROM execution_process_queue_effects WHERE queue_id = ?",
+        )
+        .bind(queue_id)
+        .fetch_one(pool)
+        .await?;
+        if row.1 != data.session_id || row.2 != run_reason || row.3 != action {
+            return Err(ExecutionProcessError::QueueEffectConflict { queue_id });
+        }
+        match row.4.as_str() {
+            "started" => Self::find_by_id(pool, row.0)
+                .await?
+                .map(QueueEffectReservation::Started)
+                .ok_or(ExecutionProcessError::ExecutionProcessNotFound),
+            "failed_before_start" => {
+                let changed = sqlx::query("UPDATE execution_process_queue_effects SET execution_process_id = ?, lifecycle = 'reserved', updated_at = datetime('now', 'subsec') WHERE queue_id = ? AND lifecycle = 'failed_before_start'")
+                    .bind(process_id)
+                    .bind(queue_id)
+                    .execute(pool)
+                    .await?;
+                if changed.rows_affected() == 1 {
+                    Ok(QueueEffectReservation::Proceed)
+                } else {
+                    Err(ExecutionProcessError::QueueEffectIndeterminate { queue_id })
+                }
+            }
+            "reserved" | "indeterminate" => {
+                Err(ExecutionProcessError::QueueEffectIndeterminate { queue_id })
+            }
+            value => Err(ExecutionProcessError::CreateFailed(format!(
+                "unknown queue effect lifecycle {value}"
+            ))),
+        }
+    }
+
+    pub async fn set_queue_effect_lifecycle(
+        pool: &SqlitePool,
+        queue_id: Uuid,
+        process_id: Uuid,
+        lifecycle: QueueEffectLifecycle,
+    ) -> Result<(), ExecutionProcessError> {
+        let lifecycle = match lifecycle {
+            QueueEffectLifecycle::Reserved => "reserved",
+            QueueEffectLifecycle::Started => "started",
+            QueueEffectLifecycle::FailedBeforeStart => "failed_before_start",
+            QueueEffectLifecycle::Indeterminate => "indeterminate",
+        };
+        let result = sqlx::query("UPDATE execution_process_queue_effects SET lifecycle = ?, updated_at = datetime('now', 'subsec') WHERE queue_id = ? AND execution_process_id = ?")
+            .bind(lifecycle)
+            .bind(queue_id)
+            .bind(process_id)
+            .execute(pool)
+            .await?;
+        if result.rows_affected() != 1 {
+            return Err(ExecutionProcessError::QueueEffectConflict { queue_id });
+        }
+        Ok(())
+    }
+
+    pub async fn reconcile_queue_effect(
+        pool: &SqlitePool,
+        queue_id: Uuid,
+    ) -> Result<Option<QueueEffectReconciliation>, ExecutionProcessError> {
+        let row = sqlx::query_as::<_, (Uuid, Uuid, String)>(
+            "SELECT execution_process_id, session_id, lifecycle FROM execution_process_queue_effects WHERE queue_id = ?",
         )
         .bind(queue_id)
         .fetch_optional(pool)
         .await?;
-        match process_id {
-            Some(process_id) => Self::find_by_id(pool, process_id).await,
-            None => Ok(None),
-        }
+        let Some((process_id, session_id, lifecycle)) = row else {
+            return Ok(None);
+        };
+        let lifecycle = match lifecycle.as_str() {
+            "reserved" => QueueEffectLifecycle::Reserved,
+            "started" => QueueEffectLifecycle::Started,
+            "failed_before_start" => QueueEffectLifecycle::FailedBeforeStart,
+            "indeterminate" => QueueEffectLifecycle::Indeterminate,
+            value => {
+                return Err(ExecutionProcessError::CreateFailed(format!(
+                    "unknown queue effect lifecycle {value}"
+                )));
+            }
+        };
+        let process = Self::find_by_id(pool, process_id).await?;
+        Ok(Some(QueueEffectReconciliation {
+            queue_id,
+            session_id,
+            lifecycle,
+            process,
+        }))
     }
 
     pub async fn was_stopped(pool: &SqlitePool, id: Uuid) -> bool {
@@ -766,6 +867,12 @@ fn is_single_active_turn_violation(error: &sqlx::Error) -> bool {
 
 #[cfg(test)]
 mod admission_tests {
+    use std::collections::HashMap;
+
+    use executors::actions::{
+        ExecutorActionType,
+        script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
+    };
     use sqlx::{Executor, sqlite::SqlitePoolOptions};
 
     use super::*;
@@ -777,16 +884,43 @@ mod admission_tests {
             .await
             .unwrap();
         pool.execute(
+            "CREATE TABLE sessions (
+                id BLOB PRIMARY KEY
+            )",
+        )
+        .await
+        .unwrap();
+        pool.execute(
             "CREATE TABLE execution_processes (
                 id BLOB PRIMARY KEY,
                 session_id BLOB NOT NULL,
                 status TEXT NOT NULL,
-                run_reason TEXT NOT NULL
+                run_reason TEXT NOT NULL,
+                executor_action TEXT NOT NULL DEFAULT '{}',
+                exit_code INTEGER,
+                dropped INTEGER NOT NULL DEFAULT 0,
+                started_at TEXT NOT NULL DEFAULT '2026-01-01T00:00:00Z',
+                completed_at TEXT,
+                created_at TEXT NOT NULL DEFAULT '2026-01-01T00:00:00Z',
+                updated_at TEXT NOT NULL DEFAULT '2026-01-01T00:00:00Z'
             )",
         )
         .await
         .unwrap();
         pool
+    }
+
+    fn script_action(script: &str) -> ExecutorAction {
+        ExecutorAction::new(
+            ExecutorActionType::ScriptRequest(ScriptRequest {
+                script: script.to_string(),
+                language: ScriptRequestLanguage::Bash,
+                context: ScriptContext::SetupScript,
+                working_dir: None,
+                env: HashMap::new(),
+            }),
+            None,
+        )
     }
 
     async fn apply_admission_migration(pool: &SqlitePool) -> Result<(), sqlx::Error> {
@@ -862,5 +996,63 @@ mod admission_tests {
                 .as_database_error()
                 .is_some_and(|db| db.is_unique_violation())
         );
+    }
+
+    #[tokio::test]
+    async fn queue_effect_retries_only_failed_before_start_and_never_replays_indeterminate() {
+        let pool = pool().await;
+        apply_admission_migration(&pool).await.unwrap();
+        let queue_id = Uuid::new_v4();
+        let session_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO sessions (id) VALUES (?)")
+            .bind(session_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let first_process = Uuid::new_v4();
+        let data = CreateExecutionProcess {
+            session_id,
+            executor_action: script_action("echo one"),
+            run_reason: ExecutionProcessRunReason::SetupScript,
+        };
+
+        assert!(matches!(
+            ExecutionProcess::reserve_queue_effect(&pool, queue_id, first_process, &data)
+                .await
+                .unwrap(),
+            QueueEffectReservation::Proceed
+        ));
+        assert!(matches!(
+            ExecutionProcess::reserve_queue_effect(&pool, queue_id, Uuid::new_v4(), &data).await,
+            Err(ExecutionProcessError::QueueEffectIndeterminate { .. })
+        ));
+
+        ExecutionProcess::set_queue_effect_lifecycle(
+            &pool,
+            queue_id,
+            first_process,
+            QueueEffectLifecycle::FailedBeforeStart,
+        )
+        .await
+        .unwrap();
+        let retry_process = Uuid::new_v4();
+        assert!(matches!(
+            ExecutionProcess::reserve_queue_effect(&pool, queue_id, retry_process, &data)
+                .await
+                .unwrap(),
+            QueueEffectReservation::Proceed
+        ));
+        ExecutionProcess::set_queue_effect_lifecycle(
+            &pool,
+            queue_id,
+            retry_process,
+            QueueEffectLifecycle::Indeterminate,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(
+            ExecutionProcess::reserve_queue_effect(&pool, queue_id, Uuid::new_v4(), &data).await,
+            Err(ExecutionProcessError::QueueEffectIndeterminate { .. })
+        ));
     }
 }

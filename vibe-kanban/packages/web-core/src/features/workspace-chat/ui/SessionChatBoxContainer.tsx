@@ -75,6 +75,7 @@ function computeExecutionStatus(params: {
   isQueueLoading: boolean;
   isSendingFollowUp: boolean;
   isQueued: boolean;
+  isConsuming: boolean;
   isAttemptRunning: boolean;
 }): ExecutionStatus {
   if (params.isInFeedbackMode) return 'feedback';
@@ -82,6 +83,7 @@ function computeExecutionStatus(params: {
   if (params.isStopping) return 'stopping';
   if (params.isQueueLoading) return 'queue-loading';
   if (params.isSendingFollowUp) return 'sending';
+  if (params.isConsuming) return 'sending';
   if (params.isQueued) return 'queued';
   if (params.isAttemptRunning) return 'running';
   return 'idle';
@@ -484,6 +486,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   // Queue interaction
   const {
     isQueued,
+    isConsuming,
     queuedMessage,
     queuedConfig,
     isQueueLoading,
@@ -590,8 +593,16 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
   // Editor change handler
   const handleEditorChange = useCallback(
-    (value: string) => {
-      if (isQueued) cancelQueue();
+    async (value: string) => {
+      if (isConsuming) return;
+      if (isQueued) {
+        try {
+          await cancelQueue();
+        } catch {
+          await refreshQueueStatus();
+          return;
+        }
+      }
       if (executorConfig) {
         handleMessageChange(value, executorConfig);
       } else {
@@ -601,7 +612,9 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     },
     [
       isQueued,
+      isConsuming,
       cancelQueue,
+      refreshQueueStatus,
       handleMessageChange,
       executorConfig,
       sendError,
@@ -636,13 +649,13 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
   // Handle cancel queue - restore message to editor
   const handleCancelQueue = useCallback(async () => {
+    await cancelQueue();
     if (queuedMessage) {
       setLocalMessage(queuedMessage);
     }
     if (queuedConfig) {
       setExecutorOverrides(queuedConfig);
     }
-    await cancelQueue();
   }, [
     queuedMessage,
     queuedConfig,
@@ -662,6 +675,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   const areAttachmentInputsDisabled =
     mode === 'placeholder' ||
     isQueued ||
+    isConsuming ||
     isSending ||
     isStopping ||
     !!feedbackContext?.isSubmitting ||
@@ -892,6 +906,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     isQueueLoading,
     isSendingFollowUp: isSending,
     isQueued,
+    isConsuming,
     isAttemptRunning,
   });
 

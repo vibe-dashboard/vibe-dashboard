@@ -11,6 +11,8 @@ interface UseSessionQueueInteractionOptions {
 interface UseSessionQueueInteractionResult {
   /** Whether a message is currently queued */
   isQueued: boolean;
+  /** Whether queue consumption has won and mutation is too late */
+  isConsuming: boolean;
   /** The queued message content, if any */
   queuedMessage: string | null;
   /** The executor config from the queued message, if any */
@@ -30,6 +32,13 @@ interface UseSessionQueueInteractionResult {
 
 const QUEUE_STATUS_KEY = 'queue-status';
 
+export function queueMutationState(status: QueueStatus['status']) {
+  return {
+    isQueued: status === 'queued',
+    isConsuming: status === 'consuming',
+  };
+}
+
 /**
  * Hook to manage queue interaction for session messages.
  * Uses TanStack Query for caching and mutation handling.
@@ -47,7 +56,7 @@ export function useSessionQueueInteraction({
       enabled: !!sessionId,
     });
 
-  const isQueued = queueStatus.status !== 'empty';
+  const { isQueued, isConsuming } = queueMutationState(queueStatus.status);
   const queuedMessageData =
     queueStatus.status === 'empty' ? null : queueStatus.message;
   const queuedMessage = queuedMessageData?.data.message ?? null;
@@ -113,6 +122,7 @@ export function useSessionQueueInteraction({
 
   return {
     isQueued,
+    isConsuming,
     queuedMessage,
     queuedConfig,
     isQueueLoading: queueMutation.isPending || cancelMutation.isPending,
