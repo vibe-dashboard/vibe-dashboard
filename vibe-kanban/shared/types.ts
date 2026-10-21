@@ -10,7 +10,7 @@ export type Project = { id: string, name: string, default_agent_working_dir: str
 
 export type UpdateRepo = { display_name?: string | null, setup_script?: string | null, cleanup_script?: string | null, archive_script?: string | null, copy_files?: string | null, parallel_setup_script?: boolean | null, dev_server_script?: string | null, dev_server_scripts?: Array<UpdateRepoDevServerScript>, default_target_branch?: string | null, default_working_dir?: string | null, };
 
-export type SearchResult = { path: string, is_file: boolean, match_type: SearchMatchType, 
+export type SearchResult = { path: string, is_file: boolean, match_type: SearchMatchType,
 /**
  * Ranking score based on git history (higher = more recently/frequently edited)
  */
@@ -40,15 +40,15 @@ export type DraftWorkspaceLinkedIssue = { issue_id: string, simple_id: string, t
 
 export type DraftWorkspaceRepo = { repo_id: string, target_branch: string, };
 
-export type DraftIssueData = { title: string, description: string | null, status_id: string, 
+export type DraftIssueData = { title: string, description: string | null, status_id: string,
 /**
  * Stored as the string value of IssuePriority (e.g. "urgent", "high", "medium", "low")
  */
-priority: string | null, assignee_ids: Array<string>, tag_ids: Array<string>, create_draft_workspace: boolean, 
+priority: string | null, assignee_ids: Array<string>, tag_ids: Array<string>, create_draft_workspace: boolean,
 /**
  * The project this draft belongs to
  */
-project_id: string, 
+project_id: string,
 /**
  * Parent issue ID if creating a sub-issue
  */
@@ -70,75 +70,75 @@ export type WorkspaceFilterStateData = { project_ids: Array<string>, pr_filter: 
 
 export type WorkspaceSortStateData = { sort_by: WorkspaceSortByData, sort_order: WorkspaceSortOrderData, };
 
-export type UiPreferencesData = { 
+export type UiPreferencesData = {
 /**
  * Preferred repo actions per repo
  */
-repo_actions: { [key in string]?: string }, 
+repo_actions: { [key in string]?: string },
 /**
  * Expanded/collapsed state for UI sections
  */
-expanded: { [key in string]?: boolean }, 
+expanded: { [key in string]?: boolean },
 /**
  * Context bar position
  */
-context_bar_position: string | null, 
+context_bar_position: string | null,
 /**
  * Pane sizes
  */
-pane_sizes: { [key in string]?: JsonValue }, 
+pane_sizes: { [key in string]?: JsonValue },
 /**
  * Collapsed paths per workspace in file tree
  */
-collapsed_paths: { [key in string]?: Array<string> }, 
+collapsed_paths: { [key in string]?: Array<string> },
 /**
  * Preferred file-search repo
  */
-file_search_repo_id: string | null, 
+file_search_repo_id: string | null,
 /**
  * Global left sidebar visibility
  */
-is_left_sidebar_visible: boolean | null, 
+is_left_sidebar_visible: boolean | null,
 /**
  * Global right sidebar visibility
  */
-is_right_sidebar_visible: boolean | null, 
+is_right_sidebar_visible: boolean | null,
 /**
  * Global terminal visibility
  */
-is_terminal_visible: boolean | null, 
+is_terminal_visible: boolean | null,
 /**
  * Workspace chat view mode (full, mostly-zen, zen)
  */
-chat_view_mode: string | null, 
+chat_view_mode: string | null,
 /**
  * Workspace-specific panel states
  */
-workspace_panel_states: { [key in string]?: WorkspacePanelStateData }, 
+workspace_panel_states: { [key in string]?: WorkspacePanelStateData },
 /**
  * Workspace sidebar filter preferences
  */
-workspace_filters: WorkspaceFilterStateData, 
+workspace_filters: WorkspaceFilterStateData,
 /**
  * Workspace sidebar sort preferences
  */
-workspace_sort: WorkspaceSortStateData, 
+workspace_sort: WorkspaceSortStateData,
 /**
  * Last selected organization ID
  */
-selected_org_id: string | null, 
+selected_org_id: string | null,
 /**
  * Last selected project ID
  */
-selected_project_id: string | null, 
+selected_project_id: string | null,
 /**
  * Default setting for creating a draft workspace from new issues
  */
-create_draft_workspace_by_default: boolean | null, 
+create_draft_workspace_by_default: boolean | null,
 /**
  * Kanban project view selections (active view per project)
  */
-kanban_project_view_selections: { [key in string]?: JsonValue }, 
+kanban_project_view_selections: { [key in string]?: JsonValue },
 /**
  * Kanban project view preferences (filters, toggles per project per view)
  */
@@ -162,7 +162,7 @@ export type WorkspaceWithStatus = { is_running: boolean, is_errored: boolean, id
 
 export type Session = { id: string, workspace_id: string, name: string | null, executor: string | null, agent_working_dir: string | null, context_reset_execution_process_id: string | null, created_at: string, updated_at: string, };
 
-export type ExecutionProcess = { id: string, session_id: string, run_reason: ExecutionProcessRunReason, executor_action: ExecutorAction, status: ExecutionProcessStatus, exit_code: bigint | null, 
+export type ExecutionProcess = { id: string, session_id: string, run_reason: ExecutionProcessRunReason, executor_action: ExecutorAction, status: ExecutionProcessStatus, exit_code: bigint | null,
 /**
  * dropped: true if this process is excluded from the current
  * history view (due to restore/trimming). Hidden from logs/timeline;
@@ -198,11 +198,11 @@ export type ApprovalOutcome = { "status": "approved" } | { "status": "denied", r
 
 export type ApprovalResponse = { execution_process_id: string, status: ApprovalOutcome, };
 
-export type Diff = { change: DiffChangeKind, oldPath: string | null, newPath: string | null, oldContent: string | null, newContent: string | null, 
+export type Diff = { change: DiffChangeKind, oldPath: string | null, newPath: string | null, oldContent: string | null, newContent: string | null,
 /**
  * True when file contents are intentionally omitted (e.g., too large)
  */
-contentOmitted: boolean, 
+contentOmitted: boolean,
 /**
  * Optional precomputed stats for omitted content
  */
@@ -270,7 +270,7 @@ export type TagSearchParams = { search: string | null, };
 
 export type TokenResponse = { access_token: string, expires_at: string | null, };
 
-export type UserSystemInfo = { version: string, config: Config, machine_id: string, login_status: LoginStatus, remote_auth_degraded: string | null, environment: Environment, 
+export type UserSystemInfo = { version: string, config: Config, machine_id: string, login_status: LoginStatus, remote_auth_degraded: string | null, environment: Environment,
 /**
  * Capabilities supported per executor (e.g., { "CLAUDE_CODE": ["SESSION_FORK"] })
  */
@@ -432,51 +432,51 @@ export type UpdateSession = { name: string | null, };
 
 export type WorkspaceSummaryRequest = { archived: boolean, };
 
-export type WorkspaceSummary = { workspace_id: string, 
+export type WorkspaceSummary = { workspace_id: string,
 /**
  * Session ID of the latest execution process
  */
-latest_session_id: string | null, 
+latest_session_id: string | null,
 /**
  * Is a tool approval currently pending?
  */
-has_pending_approval: boolean, 
+has_pending_approval: boolean,
 /**
  * Number of files with changes
  */
-files_changed: number | null, 
+files_changed: number | null,
 /**
  * Total lines added across all files
  */
-lines_added: number | null, 
+lines_added: number | null,
 /**
  * Total lines removed across all files
  */
-lines_removed: number | null, 
+lines_removed: number | null,
 /**
  * When the latest execution process completed
  */
-latest_process_completed_at?: string, 
+latest_process_completed_at?: string,
 /**
  * Status of the latest execution process
  */
-latest_process_status: ExecutionProcessStatus | null, 
+latest_process_status: ExecutionProcessStatus | null,
 /**
  * Is a dev server currently running?
  */
-has_running_dev_server: boolean, 
+has_running_dev_server: boolean,
 /**
  * Does this workspace have unseen coding agent turns?
  */
-has_unseen_turns: boolean, 
+has_unseen_turns: boolean,
 /**
  * PR status for this workspace (if any PR exists)
  */
-pr_status: MergeStatus | null, 
+pr_status: MergeStatus | null,
 /**
  * PR number for this workspace (if any PR exists)
  */
-pr_number: bigint | null, 
+pr_number: bigint | null,
 /**
  * PR URL for this workspace (if any PR exists)
  */
@@ -516,29 +516,33 @@ export type SendMessageShortcut = "ModifierEnter" | "Enter";
 
 export type GitBranch = { name: string, is_current: boolean, is_remote: boolean, last_commit_date: Date, };
 
-export type QueuedMessage = { 
+export type QueuedMessage = {
 /**
  * Stable caller-supplied identity for idempotency and reconciliation.
  */
-id: string, 
+id: string,
 /**
  * Caller namespace that owns cancellation and amendment.
  */
-owner: string, 
+owner: string,
 /**
  * The session this message is queued for
  */
-session_id: string, 
+session_id: string,
 /**
  * The follow-up data (message + variant)
  */
-data: DraftFollowUpData, 
+data: DraftFollowUpData,
 /**
  * Timestamp when the message was queued
  */
 queued_at: string, };
 
 export type QueueStatus = { "status": "empty" } | { "status": "queued", message: QueuedMessage, } | { "status": "consuming", message: QueuedMessage, };
+
+export type QueueEffectLifecycle = "reserved" | "started" | "failed_before_start" | "indeterminate";
+
+export type QueueEffectReconciliation = { queue_id: string, owner: string, session_id: string, lifecycle: QueueEffectLifecycle, process: ExecutionProcess | null, };
 
 export type ConflictOp = "rebase" | "merge" | "cherry_pick" | "revert";
 
@@ -548,27 +552,27 @@ export type McpConfig = { servers: { [key in string]?: JsonValue }, servers_path
 
 export type ExecutorActionType = { "type": "CodingAgentInitialRequest" } & CodingAgentInitialRequest | { "type": "CodingAgentFollowUpRequest" } & CodingAgentFollowUpRequest | { "type": "CodingAgentSessionCommandRequest" } & CodingAgentSessionCommandRequest | { "type": "ScriptRequest" } & ScriptRequest | { "type": "ReviewRequest" } & ReviewRequest;
 
-export type ExecutorConfig = { 
+export type ExecutorConfig = {
 /**
  * The executor type (e.g., CLAUDE_CODE, AMP)
  */
-executor: BaseCodingAgent, 
+executor: BaseCodingAgent,
 /**
  * Optional variant/preset name (e.g., "PLAN", "ROUTER")
  */
-variant?: string | null, 
+variant?: string | null,
 /**
  * Model override (e.g., "anthropic/claude-sonnet-4-20250514")
  */
-model_id?: string | null, 
+model_id?: string | null,
 /**
  * Agent mode override
  */
-agent_id?: string | null, 
+agent_id?: string | null,
 /**
  * Reasoning effort override (e.g., "high", "medium")
  */
-reasoning_id?: string | null, 
+reasoning_id?: string | null,
 /**
  * Permission policy override
  */
@@ -576,12 +580,12 @@ permission_policy?: PermissionPolicy | null, };
 
 export type ScriptContext = "SetupScript" | "CleanupScript" | "ArchiveScript" | "DevServer" | "ToolInstallScript";
 
-export type ScriptRequest = { script: string, language: ScriptRequestLanguage, context: ScriptContext, 
+export type ScriptRequest = { script: string, language: ScriptRequestLanguage, context: ScriptContext,
 /**
  * Optional relative path to execute the script in (relative to container_ref).
  * If None, uses the container_ref directory directly.
  */
-working_dir: string | null, 
+working_dir: string | null,
 /**
  * Optional environment overrides for this script invocation.
  */
@@ -589,11 +593,11 @@ env: { [key in string]?: string }, };
 
 export type SessionCommand = { "type": "clear" } | { "type": "compact", instructions: string | null, };
 
-export type CodingAgentSessionCommandRequest = { command: SessionCommand, 
+export type CodingAgentSessionCommandRequest = { command: SessionCommand,
 /**
  * Original user-entered slash command text for chat display and executor input.
  */
-prompt: string, 
+prompt: string,
 /**
  * Agent session/thread id to resume when the command needs provider context.
  */
@@ -605,7 +609,7 @@ export enum BaseCodingAgent { CLAUDE_CODE = "CLAUDE_CODE", AMP = "AMP", GEMINI =
 
 export type CodingAgent = { "CLAUDE_CODE": ClaudeCode } | { "AMP": Amp } | { "GEMINI": Gemini } | { "CODEX": Codex } | { "OPENCODE": Opencode } | { "CURSOR_AGENT": CursorAgent } | { "QWEN_CODE": QwenCode } | { "COPILOT": Copilot } | { "DROID": Droid };
 
-export type SlashCommandDescription = { 
+export type SlashCommandDescription = {
 /**
  * Command name without the leading slash, e.g. `help` for `/help`.
  */
@@ -613,31 +617,31 @@ name: string, description?: string | null, };
 
 export type AvailabilityInfo = { "type": "LOGIN_DETECTED", last_auth_timestamp: bigint, } | { "type": "INSTALLATION_FOUND" } | { "type": "NOT_FOUND" };
 
-export type CommandBuilder = { 
+export type CommandBuilder = {
 /**
  * Base executable command (e.g., "npx -y @anthropic-ai/claude-code@latest")
  */
-base: string, 
+base: string,
 /**
  * Optional parameters to append to the base command
  */
 params: Array<string> | null, };
 
-export type ExecutorProfileId = { 
+export type ExecutorProfileId = {
 /**
  * The executor type (e.g., "CLAUDE_CODE", "AMP")
  */
-executor: BaseCodingAgent, 
+executor: BaseCodingAgent,
 /**
  * Optional variant name (e.g., "PLAN", "ROUTER")
  */
 variant: string | null, };
 
-export type ExecutorRecentModels = { 
+export type ExecutorRecentModels = {
 /**
  * Ordered list of recently used model keys (most recent last).
  */
-models?: Array<string>, 
+models?: Array<string>,
 /**
  * Last-used reasoning effort per model
  */
@@ -673,11 +677,11 @@ export type CursorAgent = { append_prompt: AppendPrompt, force?: boolean | null,
 
 export type Copilot = { append_prompt: AppendPrompt, model?: string | null, allow_all_tools?: boolean | null, allow_tool?: string | null, deny_tool?: string | null, add_dir?: Array<string> | null, disable_mcp_server?: Array<string> | null, base_command_override?: string | null, additional_params?: Array<string> | null, env?: { [key in string]?: string } | null, };
 
-export type Opencode = { append_prompt: AppendPrompt, model?: string | null, variant?: string | null, agent?: string | null, 
+export type Opencode = { append_prompt: AppendPrompt, model?: string | null, variant?: string | null, agent?: string | null,
 /**
  * Auto-approve agent actions
  */
-auto_approve: boolean, 
+auto_approve: boolean,
 /**
  * Enable auto-compaction when the context length approaches the model's context window limit
  */
@@ -693,37 +697,37 @@ export type DroidReasoningEffort = "none" | "dynamic" | "off" | "low" | "medium"
 
 export type AppendPrompt = string | null;
 
-export type CodingAgentInitialRequest = { prompt: string, 
+export type CodingAgentInitialRequest = { prompt: string,
 /**
  * Unified executor identity + overrides
  */
-executor_config: ExecutorConfig, 
+executor_config: ExecutorConfig,
 /**
  * Optional relative path to execute the agent in (relative to container_ref).
  * If None, uses the container_ref directory directly.
  */
 working_dir: string | null, };
 
-export type CodingAgentFollowUpRequest = { prompt: string, session_id: string, reset_to_message_id: string | null, 
+export type CodingAgentFollowUpRequest = { prompt: string, session_id: string, reset_to_message_id: string | null,
 /**
  * Unified executor identity + overrides
  */
-executor_config: ExecutorConfig, 
+executor_config: ExecutorConfig,
 /**
  * Optional relative path to execute the agent in (relative to container_ref).
  * If None, uses the container_ref directory directly.
  */
 working_dir: string | null, };
 
-export type ReviewRequest = { 
+export type ReviewRequest = {
 /**
  * Unified executor identity + overrides
  */
-executor_config: ExecutorConfig, context: Array<RepoReviewContext> | null, prompt: string, 
+executor_config: ExecutorConfig, context: Array<RepoReviewContext> | null, prompt: string,
 /**
  * Optional session ID to resume an existing session
  */
-session_id: string | null, 
+session_id: string | null,
 /**
  * Optional relative path to execute the agent in (relative to container_ref).
  */
@@ -743,11 +747,11 @@ export type NormalizedEntryType = { "type": "user_message" } | { "type": "user_f
 
 export type TokenUsageInfo = { total_tokens: number, model_context_window: number, };
 
-export type FileChange = { "action": "write", content: string, } | { "action": "delete" } | { "action": "rename", new_path: string, } | { "action": "edit", 
+export type FileChange = { "action": "write", content: string, } | { "action": "delete" } | { "action": "rename", new_path: string, } | { "action": "edit",
 /**
  * Unified diff containing file header and hunks.
  */
-unified_diff: string, 
+unified_diff: string,
 /**
  * Whether line number in the hunks are reliable.
  */
@@ -765,7 +769,7 @@ export type TodoItem = { content: string, status: string, priority: string | nul
 
 export type NormalizedEntryError = { "type": "setup_required" } | { "type": "other" };
 
-export type ToolResult = { type: ToolResultValueType, 
+export type ToolResult = { type: ToolResultValueType,
 /**
  * For Markdown, this will be a JSON string; for JSON, a structured value
  */
@@ -777,19 +781,19 @@ export type ToolStatus = { "status": "created" } | { "status": "success" } | { "
 
 export type PatchType = { "type": "NORMALIZED_ENTRY", "content": NormalizedEntry } | { "type": "STDOUT", "content": string } | { "type": "STDERR", "content": string } | { "type": "DIFF", "content": Diff };
 
-export type ModelInfo = { 
+export type ModelInfo = {
 /**
  * Model identifier
  */
-id: string, 
+id: string,
 /**
  * Display name
  */
-name: string, 
+name: string,
 /**
  * Provider this model belongs to
  */
-provider_id?: string | null, 
+provider_id?: string | null,
 /**
  * Configurable reasoning options if supported
  */
@@ -797,11 +801,11 @@ reasoning_options: Array<ReasoningOption>, };
 
 export type ReasoningOption = { id: string, label: string, is_default: boolean, };
 
-export type ModelProvider = { 
+export type ModelProvider = {
 /**
  * Provider identifier
  */
-id: string, 
+id: string,
 /**
  * Display name
  */
@@ -811,23 +815,23 @@ export type AgentInfo = { id: string, label: string, description?: string | null
 
 export enum PermissionPolicy { AUTO = "AUTO", SUPERVISED = "SUPERVISED", PLAN = "PLAN" }
 
-export type ModelSelectorConfig = { 
+export type ModelSelectorConfig = {
 /**
  * Available providers
  */
-providers: Array<ModelProvider>, 
+providers: Array<ModelProvider>,
 /**
  * Available models
  */
-models: Array<ModelInfo>, 
+models: Array<ModelInfo>,
 /**
  * Global default model (format: provider_id/model_id)
  */
-default_model?: string | null, 
+default_model?: string | null,
 /**
  * Available agents
  */
-agents: Array<AgentInfo>, 
+agents: Array<AgentInfo>,
 /**
  * Supported permission policies
  */
@@ -841,49 +845,49 @@ export type RelayWsMessageType = "text" | "binary" | "ping" | "pong" | "close";
 
 export type DataChannelMessage = { "type": "http_request" } & DataChannelRequest | { "type": "http_response" } & DataChannelResponse | { "type": "ws_open" } & WsOpen | { "type": "ws_opened" } & WsOpened | { "type": "ws_frame" } & WsFrame | { "type": "ws_close" } & WsClose | { "type": "ws_error" } & WsError;
 
-export type DataChannelRequest = { id: string, method: string, path: string, headers: { [key in string]?: Array<string> }, 
+export type DataChannelRequest = { id: string, method: string, path: string, headers: { [key in string]?: Array<string> },
 /**
  * Base64-encoded request body, if any.
  */
 body_b64?: string | null, };
 
-export type DataChannelResponse = { id: string, status: number, headers: { [key in string]?: Array<string> }, 
+export type DataChannelResponse = { id: string, status: number, headers: { [key in string]?: Array<string> },
 /**
  * Base64-encoded response body, if any.
  */
 body_b64?: string | null, };
 
-export type WsOpen = { 
+export type WsOpen = {
 /**
  * Unique connection ID for multiplexing.
  */
-conn_id: string, 
+conn_id: string,
 /**
  * Target path, e.g. `/api/sessions/abc/queue`.
  */
-path: string, 
+path: string,
 /**
  * Optional sub-protocol(s) to negotiate.
  */
 protocols?: string | null, };
 
-export type WsOpened = { conn_id: string, 
+export type WsOpened = { conn_id: string,
 /**
  * The sub-protocol selected by the server, if any.
  */
 selected_protocol?: string | null, };
 
-export type WsFrame = { conn_id: string, msg_type: RelayWsMessageType, 
+export type WsFrame = { conn_id: string, msg_type: RelayWsMessageType,
 /**
  * Base64-encoded payload.
  */
 payload_b64?: string | null, };
 
-export type WsClose = { conn_id: string, 
+export type WsClose = { conn_id: string,
 /**
  * Close code (RFC 6455 §7.4).
  */
-code?: number | null, 
+code?: number | null,
 /**
  * Close reason.
  */
@@ -891,21 +895,21 @@ reason?: string | null, };
 
 export type WsError = { conn_id: string, error: string, };
 
-export type SdpOffer = { 
+export type SdpOffer = {
 /**
  * The SDP string from the peer's `RTCPeerConnection.createOffer()`.
  */
-sdp: string, 
+sdp: string,
 /**
  * Caller-provided session identifier to correlate offer/answer/candidates.
  */
 session_id: string, };
 
-export type SdpAnswer = { 
+export type SdpAnswer = {
 /**
  * The SDP string from `Rtc::direct_api().create_answer()`.
  */
-sdp: string, 
+sdp: string,
 /**
  * Echoed session identifier from the offer.
  */
