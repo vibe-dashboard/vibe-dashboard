@@ -275,6 +275,49 @@ fn get_all_branches_lists_current_and_others() {
 }
 
 #[test]
+fn branch_checkout_safety_detects_safe_local_branch() {
+    let td = TempDir::new().unwrap();
+    let repo_path = init_repo_main(&td);
+    create_branch(&repo_path, "feature");
+    let s = GitService::new();
+
+    assert!(s.is_local_branch(&repo_path, "feature").unwrap());
+    assert!(!s.is_branch_checked_out(&repo_path, "feature").unwrap());
+}
+
+#[test]
+fn branch_checkout_safety_rejects_remote_tracking_branch() {
+    let td = TempDir::new().unwrap();
+    let repo_path = init_repo_main(&td);
+    let repo = Repository::open(&repo_path).unwrap();
+    let head = repo.head().unwrap().target().unwrap();
+    repo.reference("refs/remotes/origin/feature", head, true, "test")
+        .unwrap();
+    let s = GitService::new();
+
+    assert!(!s.is_local_branch(&repo_path, "origin/feature").unwrap());
+    assert!(s.is_remote_branch(&repo_path, "origin/feature").unwrap());
+}
+
+#[test]
+fn branch_checkout_safety_detects_branch_checked_out_in_worktree() {
+    let td = TempDir::new().unwrap();
+    let repo_path = init_repo_main(&td);
+    create_branch(&repo_path, "feature");
+    let worktree_path = td.path().join("feature-worktree");
+    let s = GitService::new();
+    s.add_worktree(&repo_path, &worktree_path, "feature", false)
+        .unwrap();
+
+    let checkout_path = s
+        .find_checkout_path_for_branch(&repo_path, "feature")
+        .unwrap();
+
+    assert_eq!(checkout_path.as_deref(), Some(worktree_path.as_path()));
+    assert!(s.is_branch_checked_out(&repo_path, "feature").unwrap());
+}
+
+#[test]
 fn worktree_diff_respects_path_filter() {
     // Use git CLI status diff under the hood
     let td = TempDir::new().unwrap();

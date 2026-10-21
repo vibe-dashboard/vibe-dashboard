@@ -15,7 +15,7 @@ use db::models::{
     merge::{Merge, MergeStatus, PrMerge, PullRequestInfo},
     repo::{Repo, RepoError},
     workspace::Workspace,
-    workspace_repo::WorkspaceRepo,
+    workspace_repo::{WorkspaceRepo, branch_names_conflict_as_self_target},
 };
 use deployment::Deployment;
 use git::{ConflictOp, GitCliError, GitServiceError};
@@ -132,10 +132,60 @@ fn git_status_cache_fresh(entry: &CachedGitStatusResponse) -> bool {
     entry.computed_at.elapsed() < GIT_STATUS_CACHE_TTL
 }
 
+#[allow(clippy::result_large_err)]
+fn ensure_distinct_source_and_target(
+    source_branch: &str,
+    target_branch: &str,
+    target_is_remote: bool,
+    repo_name: &str,
+) -> Result<(), ApiError> {
+    if branch_names_conflict_as_self_target(source_branch, target_branch, target_is_remote) {
+        return Err(ApiError::BadRequest(format!(
+            "Cannot use branch '{}' as both the workspace branch and target/base branch for repository '{}'. Select a different target/base branch.",
+            source_branch, repo_name
+        )));
+    }
+
+    Ok(())
+}
+
 async fn invalidate_git_status_cache(workspace_id: Uuid) {
     let cache = git_status_cache();
     let mut cache_guard = cache.lock().await;
     cache_guard.remove(&workspace_id);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ensure_distinct_source_and_target;
+
+    #[test]
+    fn target_branch_change_allows_distinct_direct_checkout_branch() {
+        let result = ensure_distinct_source_and_target("feature", "main", false, "repo");
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn target_branch_change_rejects_exact_source_branch() {
+        let result = ensure_distinct_source_and_target("feature", "feature", false, "repo");
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn target_branch_change_rejects_remote_tracking_source_branch() {
+        let result = ensure_distinct_source_and_target("main", "origin/main", true, "repo");
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn target_branch_change_allows_local_slash_branch_names() {
+        let result = ensure_distinct_source_and_target("bar/baz", "foo/bar/baz", false, "repo");
+
+        assert!(result.is_ok());
+    }
 }
 
 #[derive(Deserialize, Debug, TS)]
@@ -244,6 +294,12 @@ pub async fn merge_workspace(
     let is_target_remote = deployment
         .git()
         .is_remote_branch(&repo.path, &workspace_repo.target_branch)?;
+    ensure_distinct_source_and_target(
+        workspace_repo.branch_name(&workspace.branch),
+        &workspace_repo.target_branch,
+        is_target_remote,
+        &repo.name,
+    )?;
     if is_target_remote {
         return Err(ApiError::BadRequest(
             "Cannot merge directly into a remote branch. Please create a pull request instead."
@@ -265,7 +321,7 @@ pub async fn merge_workspace(
     let merge_commit_id = deployment.git().merge_changes(
         &repo.path,
         &worktree_path,
-        &workspace.branch,
+        workspace_repo.branch_name(&workspace.branch),
         &workspace_repo.target_branch,
         &commit_message,
     )?;
@@ -322,6 +378,17 @@ pub async fn push_workspace_branch(
         .await?
         .ok_or(RepoError::NotFound)?;
 
+    let branch_name = workspace_repo.branch_name(&workspace.branch);
+    let target_is_remote = deployment
+        .git()
+        .is_remote_branch(&repo.path, &workspace_repo.target_branch)?;
+    ensure_distinct_source_and_target(
+        branch_name,
+        &workspace_repo.target_branch,
+        target_is_remote,
+        &repo.name,
+    )?;
+
     let container_ref = deployment
         .container()
         .ensure_container_exists(&workspace)
@@ -331,7 +398,7 @@ pub async fn push_workspace_branch(
 
     match deployment
         .git()
-        .push_to_remote(&worktree_path, &workspace.branch, false)
+        .push_to_remote(&worktree_path, branch_name, false)
     {
         Ok(_) => {
             invalidate_git_status_cache(workspace.id).await;
@@ -377,6 +444,17 @@ pub async fn force_push_workspace_branch(
         .await?
         .ok_or(RepoError::NotFound)?;
 
+    let branch_name = workspace_repo.branch_name(&workspace.branch);
+    let target_is_remote = deployment
+        .git()
+        .is_remote_branch(&repo.path, &workspace_repo.target_branch)?;
+    ensure_distinct_source_and_target(
+        branch_name,
+        &workspace_repo.target_branch,
+        target_is_remote,
+        &repo.name,
+    )?;
+
     let container_ref = deployment
         .container()
         .ensure_container_exists(&workspace)
@@ -386,7 +464,7 @@ pub async fn force_push_workspace_branch(
 
     deployment
         .git()
-        .push_to_remote(&worktree_path, &workspace.branch, true)?;
+        .push_to_remote(&worktree_path, branch_name, true)?;
 
     invalidate_git_status_cache(workspace.id).await;
 
@@ -469,10 +547,8 @@ async fn compute_workspace_branch_status(
 
     let repositories = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
     let workspace_repos = WorkspaceRepo::find_by_workspace_id(pool, workspace.id).await?;
-    let target_branches: HashMap<_, _> = workspace_repos
-        .iter()
-        .map(|wr| (wr.repo_id, wr.target_branch.clone()))
-        .collect();
+    let workspace_repos_by_id: HashMap<_, _> =
+        workspace_repos.iter().map(|wr| (wr.repo_id, wr)).collect();
 
     let container_ref = deployment
         .container()
@@ -496,9 +572,20 @@ async fn compute_workspace_branch_status(
     let mut results = Vec::with_capacity(repositories.len());
 
     for repo in repositories {
-        let Some(target_branch) = target_branches.get(&repo.id).cloned() else {
+        let Some(workspace_repo) = workspace_repos_by_id.get(&repo.id) else {
             continue;
         };
+        let target_branch = workspace_repo.target_branch.clone();
+        let branch_name = workspace_repo.branch_name(&workspace.branch);
+        let is_target_remote = deployment
+            .git()
+            .is_remote_branch(&repo.path, &target_branch)?;
+        ensure_distinct_source_and_target(
+            branch_name,
+            &target_branch,
+            is_target_remote,
+            &repo.name,
+        )?;
 
         let repo_merges = merges_by_repo.get(&repo.id).cloned().unwrap_or_default();
         let worktree_path = workspace_dir.join(&repo.name);
@@ -544,16 +631,15 @@ async fn compute_workspace_branch_status(
         let (commits_ahead, commits_behind) = if is_target_remote {
             let (ahead, behind) = deployment.git().get_remote_branch_status(
                 &repo.path,
-                &workspace.branch,
+                branch_name,
                 Some(&target_branch),
             )?;
             (Some(ahead), Some(behind))
         } else {
-            let (a, b) = deployment.git().get_branch_status(
-                &repo.path,
-                &workspace.branch,
-                &target_branch,
-            )?;
+            let (a, b) =
+                deployment
+                    .git()
+                    .get_branch_status(&repo.path, branch_name, &target_branch)?;
             (Some(a), Some(b))
         };
 
@@ -568,7 +654,7 @@ async fn compute_workspace_branch_status(
         {
             match deployment
                 .git()
-                .get_remote_branch_status(&repo.path, &workspace.branch, None)
+                .get_remote_branch_status(&repo.path, branch_name, None)
             {
                 Ok((ahead, behind)) => (Some(ahead), Some(behind)),
                 Err(_) => (None, None),
@@ -615,6 +701,9 @@ pub async fn change_target_branch(
     let repo = Repo::find_by_id(pool, repo_id)
         .await?
         .ok_or(RepoError::NotFound)?;
+    let workspace_repo = WorkspaceRepo::find_by_workspace_and_repo_id(pool, workspace.id, repo_id)
+        .await?
+        .ok_or(RepoError::NotFound)?;
 
     if !deployment
         .git()
@@ -629,12 +718,23 @@ pub async fn change_target_branch(
         )));
     };
 
+    let new_target_is_remote = deployment
+        .git()
+        .is_remote_branch(&repo.path, &new_target_branch)?;
+    ensure_distinct_source_and_target(
+        workspace_repo.branch_name(&workspace.branch),
+        &new_target_branch,
+        new_target_is_remote,
+        &repo.name,
+    )?;
+
     WorkspaceRepo::update_target_branch(pool, workspace.id, repo_id, &new_target_branch).await?;
 
-    let status =
-        deployment
-            .git()
-            .get_branch_status(&repo.path, &workspace.branch, &new_target_branch)?;
+    let status = deployment.git().get_branch_status(
+        &repo.path,
+        workspace_repo.branch_name(&workspace.branch),
+        &new_target_branch,
+    )?;
 
     invalidate_git_status_cache(workspace.id).await;
 
@@ -682,6 +782,14 @@ pub async fn rename_branch(
     }
 
     let pool = &deployment.db().pool;
+
+    let workspace_repos = WorkspaceRepo::find_by_workspace_id(pool, workspace.id).await?;
+    if workspace_repos.iter().any(|repo| !repo.create_branch) {
+        return Err(ApiError::BadRequest(
+            "Branch rename is unavailable for direct-branch workspaces because the checked-out branch is user-owned. Rename it outside VK if needed."
+                .to_string(),
+        ));
+    }
 
     let merges = Merge::find_by_workspace_id(pool, workspace.id).await?;
     let has_open_pr = merges.into_iter().any(|merge| {
@@ -819,20 +927,13 @@ pub async fn rebase_workspace(
     let new_base_branch = payload
         .new_base_branch
         .unwrap_or_else(|| workspace_repo.target_branch.clone());
+    let source_branch = workspace_repo.branch_name(&workspace.branch);
 
     match deployment
         .git()
         .check_branch_exists(&repo.path, &new_base_branch)?
     {
-        true => {
-            WorkspaceRepo::update_target_branch(
-                pool,
-                workspace.id,
-                payload.repo_id,
-                &new_base_branch,
-            )
-            .await?;
-        }
+        true => {}
         false => {
             return Ok(ResponseJson(ApiResponse::error(
                 format!(
@@ -843,6 +944,19 @@ pub async fn rebase_workspace(
             )));
         }
     }
+
+    let new_base_is_remote = deployment
+        .git()
+        .is_remote_branch(&repo.path, &new_base_branch)?;
+    ensure_distinct_source_and_target(
+        source_branch,
+        &new_base_branch,
+        new_base_is_remote,
+        &repo.name,
+    )?;
+
+    WorkspaceRepo::update_target_branch(pool, workspace.id, payload.repo_id, &new_base_branch)
+        .await?;
 
     let container_ref = deployment
         .container()
@@ -856,7 +970,7 @@ pub async fn rebase_workspace(
         &worktree_path,
         &new_base_branch,
         &old_base_branch,
-        &workspace.branch.clone(),
+        source_branch,
     );
     if let Err(e) = result {
         return match e {

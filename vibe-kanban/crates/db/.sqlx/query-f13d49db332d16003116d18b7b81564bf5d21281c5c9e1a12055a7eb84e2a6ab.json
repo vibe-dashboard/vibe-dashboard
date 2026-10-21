@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT wr.id as \"id!: Uuid\",\n                      wr.workspace_id as \"workspace_id!: Uuid\",\n                      wr.repo_id as \"repo_id!: Uuid\",\n                      wr.target_branch,\n                      wr.create_branch as \"create_branch!: bool\",\n                      wr.checkout_branch,\n                      wr.created_at as \"created_at!: DateTime<Utc>\",\n                      wr.updated_at as \"updated_at!: DateTime<Utc>\"\n               FROM workspace_repos wr\n               JOIN repos r ON r.id = wr.repo_id\n               WHERE wr.workspace_id = $1 AND lower(r.name) = lower($2)",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "workspace_id!: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "repo_id!: Uuid",
+        "ordinal": 2,
+        "type_info": "Blob"
+      },
+      {
+        "name": "target_branch",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "create_branch!: bool",
+        "ordinal": 4,
+        "type_info": "Bool"
+      },
+      {
+        "name": "checkout_branch",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!: DateTime<Utc>",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: DateTime<Utc>",
+        "ordinal": 7,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "f13d49db332d16003116d18b7b81564bf5d21281c5c9e1a12055a7eb84e2a6ab"
+}

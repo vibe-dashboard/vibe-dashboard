@@ -569,7 +569,7 @@ export function RemoteProjectsSettingsSection({
         }
         const updated = [
           ...defaultRepos,
-          { repo_id: repo.id, target_branch: branch },
+          { repo_id: repo.id, target_branch: branch, create_branch: true },
         ];
         setDefaultRepos(updated);
         await saveProjectRepoDefaults(selectedProjectId, updated);

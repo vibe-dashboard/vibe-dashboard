@@ -132,6 +132,56 @@ impl From<WorkspaceManagerError> for ApiError {
                     branch, repo_name
                 ))
             }
+            WorkspaceManagerError::DirectCheckoutBranchRequired { repo_name } => {
+                ApiError::BadRequest(format!(
+                    "Direct checkout mode requires an existing local branch in repository '{}'",
+                    repo_name
+                ))
+            }
+            WorkspaceManagerError::DirectCheckoutBranchNotLocal { repo_name, branch } => {
+                ApiError::BadRequest(format!(
+                    "Direct checkout branch '{}' in repository '{}' must be a local branch",
+                    branch, repo_name
+                ))
+            }
+            WorkspaceManagerError::DirectCheckoutBranchAlreadyCheckedOut {
+                repo_name,
+                branch,
+                path,
+            } => ApiError::BadRequest(format!(
+                "Direct checkout branch '{}' in repository '{}' is already checked out at {}",
+                branch,
+                repo_name,
+                path.display()
+            )),
+            WorkspaceManagerError::DirectCheckoutBranchMatchesTarget { repo_name } => {
+                ApiError::BadRequest(format!(
+                    "Direct checkout branch and target/base branch must be different for repository '{}'",
+                    repo_name
+                ))
+            }
+            WorkspaceManagerError::InvalidWorkspaceBranchName { branch } => {
+                ApiError::BadRequest(format!(
+                    "Workspace branch name '{}' is not a valid git branch name",
+                    branch
+                ))
+            }
+            WorkspaceManagerError::WorkspaceBranchAlreadyExists { repo_name, branch } => {
+                ApiError::Conflict(format!(
+                    "Workspace branch '{}' already exists in repository '{}'",
+                    branch, repo_name
+                ))
+            }
+            WorkspaceManagerError::WorkspaceBranchAlreadyCheckedOut {
+                repo_name,
+                branch,
+                path,
+            } => ApiError::Conflict(format!(
+                "Workspace branch '{}' in repository '{}' is already checked out at {}",
+                branch,
+                repo_name,
+                path.display()
+            )),
             WorkspaceManagerError::NoRepositories => {
                 ApiError::BadRequest("Workspace has no repositories configured".to_string())
             }

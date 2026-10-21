@@ -550,8 +550,8 @@ impl GitService {
         }
     }
 
-    /// Find where a branch is currently checked out
-    fn find_checkout_path_for_branch(
+    /// Find where a branch is currently checked out in the main repo or any linked worktree.
+    pub fn find_checkout_path_for_branch(
         &self,
         repo_path: &Path,
         branch_name: &str,
@@ -569,6 +569,25 @@ impl GitService {
             }
         }
         Ok(None)
+    }
+
+    pub fn is_local_branch(
+        &self,
+        repo_path: &Path,
+        branch_name: &str,
+    ) -> Result<bool, GitServiceError> {
+        let repo = self.open_repo(repo_path)?;
+        Ok(repo.find_branch(branch_name, BranchType::Local).is_ok())
+    }
+
+    pub fn is_branch_checked_out(
+        &self,
+        repo_path: &Path,
+        branch_name: &str,
+    ) -> Result<bool, GitServiceError> {
+        Ok(self
+            .find_checkout_path_for_branch(repo_path, branch_name)?
+            .is_some())
     }
 
     /// Merge changes from a task branch into the base branch.

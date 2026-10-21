@@ -1,6 +1,5 @@
 pub mod client;
 pub mod jsonrpc;
-mod model_catalog;
 pub mod normalize_logs;
 pub mod review;
 pub mod slash_commands;
@@ -44,7 +43,6 @@ pub(crate) fn fork_params_from(thread_id: String, params: ThreadStartParams) -> 
         base_instructions: params.base_instructions,
         developer_instructions: params.developer_instructions,
         service_tier: params.service_tier,
-        exclude_turns: true,
         ..Default::default()
     }
 }
@@ -317,57 +315,6 @@ impl StandardCodingAgentExecutor for Codex {
         _workdir: Option<&std::path::Path>,
         _repo_path: Option<&std::path::Path>,
     ) -> Result<futures::stream::BoxStream<'static, json_patch::Patch>, ExecutorError> {
-        let fallback_options = Self::static_discovered_options();
-        let initial_options = ExecutorDiscoveredOptions {
-            loading_models: true,
-            ..fallback_options.clone()
-        };
-        let this = self.clone();
-
-        let discovery_stream = async_stream::stream! {
-            yield patch::executor_discovered_options(initial_options);
-
-            match this.discover_model_selector_from_bundled_catalog().await {
-                Ok(model_selector) => {
-                    let options = ExecutorDiscoveredOptions {
-                        model_selector,
-                        ..fallback_options
-                    };
-                    yield patch::executor_discovered_options(options);
-                }
-                Err(error) => {
-                    tracing::warn!(
-                        "Failed to discover Codex models from bundled catalog; using static fallback: {error}"
-                    );
-                    yield patch::executor_discovered_options(fallback_options);
-                }
-            }
-        };
-
-        Ok(Box::pin(discovery_stream))
-    }
-
-    async fn spawn_review(
-        &self,
-        current_dir: &Path,
-        prompt: &str,
-        session_id: Option<&str>,
-        env: &ExecutionEnv,
-    ) -> Result<SpawnedChild, ExecutorError> {
-        let command_parts = self.build_command_builder()?.build_initial()?;
-        let review_target = ReviewTarget::Custom {
-            instructions: prompt.to_string(),
-        };
-        let action = CodexSessionAction::Review {
-            target: review_target,
-        };
-        self.spawn_inner(current_dir, command_parts, action, session_id, env)
-            .await
-    }
-}
-
-impl Codex {
-    fn static_discovered_options() -> ExecutorDiscoveredOptions {
         let xhigh_reasoning_options = ReasoningOption::from_names(
             [
                 ReasoningEffort::Low,
@@ -378,98 +325,58 @@ impl Codex {
             .map(|e| e.as_ref().to_string()),
         );
 
-        let models = vec![
-            ModelInfo {
-                id: "gpt-5.6".to_string(),
-                name: "GPT-5.6".to_string(),
-                provider_id: None,
-                reasoning_options: xhigh_reasoning_options.clone(),
-            },
-            ModelInfo {
-                id: "gpt-5.6-sol".to_string(),
-                name: "GPT-5.6 Sol".to_string(),
-                provider_id: None,
-                reasoning_options: xhigh_reasoning_options.clone(),
-            },
-            ModelInfo {
-                id: "gpt-5.6-sol-fast".to_string(),
-                name: "GPT-5.6 Sol Fast".to_string(),
-                provider_id: None,
-                reasoning_options: xhigh_reasoning_options.clone(),
-            },
-            ModelInfo {
-                id: "gpt-5.6-terra".to_string(),
-                name: "GPT-5.6 Terra".to_string(),
-                provider_id: None,
-                reasoning_options: xhigh_reasoning_options.clone(),
-            },
-            ModelInfo {
-                id: "gpt-5.6-terra-fast".to_string(),
-                name: "GPT-5.6 Terra Fast".to_string(),
-                provider_id: None,
-                reasoning_options: xhigh_reasoning_options.clone(),
-            },
-            ModelInfo {
-                id: "gpt-5.6-luna".to_string(),
-                name: "GPT-5.6 Luna".to_string(),
-                provider_id: None,
-                reasoning_options: xhigh_reasoning_options.clone(),
-            },
-            ModelInfo {
-                id: "gpt-5.5".to_string(),
-                name: "GPT-5.5".to_string(),
-                provider_id: None,
-                reasoning_options: xhigh_reasoning_options.clone(),
-            },
-            ModelInfo {
-                id: "gpt-5.5-fast".to_string(),
-                name: "GPT-5.5 Fast".to_string(),
-                provider_id: None,
-                reasoning_options: xhigh_reasoning_options.clone(),
-            },
-            ModelInfo {
-                id: "gpt-5.4".to_string(),
-                name: "GPT-5.4".to_string(),
-                provider_id: None,
-                reasoning_options: xhigh_reasoning_options.clone(),
-            },
-            ModelInfo {
-                id: "gpt-5.4-fast".to_string(),
-                name: "GPT-5.4 Fast".to_string(),
-                provider_id: None,
-                reasoning_options: xhigh_reasoning_options.clone(),
-            },
-            ModelInfo {
-                id: "gpt-5.4-mini".to_string(),
-                name: "GPT-5.4 Mini".to_string(),
-                provider_id: None,
-                reasoning_options: xhigh_reasoning_options.clone(),
-            },
-            ModelInfo {
-                id: "gpt-5.3-codex".to_string(),
-                name: "GPT-5.3 Codex".to_string(),
-                provider_id: None,
-                reasoning_options: xhigh_reasoning_options.clone(),
-            },
-            ModelInfo {
-                id: "gpt-5.3-codex-spark".to_string(),
-                name: "GPT-5.3 Codex Spark".to_string(),
-                provider_id: None,
-                reasoning_options: xhigh_reasoning_options.clone(),
-            },
-            ModelInfo {
-                id: "gpt-5.2".to_string(),
-                name: "GPT-5.2".to_string(),
-                provider_id: None,
-                reasoning_options: xhigh_reasoning_options,
-            },
-        ];
-        let model_order = models.iter().map(|model| model.id.clone()).collect();
-
-        ExecutorDiscoveredOptions {
+        let options = ExecutorDiscoveredOptions {
             model_selector: ModelSelectorConfig {
-                models,
-                model_order: Some(model_order),
+                models: vec![
+                    ModelInfo {
+                        id: "gpt-5.5".to_string(),
+                        name: "GPT-5.5".to_string(),
+                        provider_id: None,
+                        reasoning_options: xhigh_reasoning_options.clone(),
+                    },
+                    ModelInfo {
+                        id: "gpt-5.5-fast".to_string(),
+                        name: "GPT-5.5 Fast".to_string(),
+                        provider_id: None,
+                        reasoning_options: xhigh_reasoning_options.clone(),
+                    },
+                    ModelInfo {
+                        id: "gpt-5.4".to_string(),
+                        name: "GPT-5.4".to_string(),
+                        provider_id: None,
+                        reasoning_options: xhigh_reasoning_options.clone(),
+                    },
+                    ModelInfo {
+                        id: "gpt-5.4-fast".to_string(),
+                        name: "GPT-5.4 Fast".to_string(),
+                        provider_id: None,
+                        reasoning_options: xhigh_reasoning_options.clone(),
+                    },
+                    ModelInfo {
+                        id: "gpt-5.4-mini".to_string(),
+                        name: "GPT-5.4 Mini".to_string(),
+                        provider_id: None,
+                        reasoning_options: xhigh_reasoning_options.clone(),
+                    },
+                    ModelInfo {
+                        id: "gpt-5.3-codex".to_string(),
+                        name: "GPT-5.3 Codex".to_string(),
+                        provider_id: None,
+                        reasoning_options: xhigh_reasoning_options.clone(),
+                    },
+                    ModelInfo {
+                        id: "gpt-5.3-codex-spark".to_string(),
+                        name: "GPT-5.3 Codex Spark".to_string(),
+                        provider_id: None,
+                        reasoning_options: xhigh_reasoning_options.clone(),
+                    },
+                    ModelInfo {
+                        id: "gpt-5.2".to_string(),
+                        name: "GPT-5.2".to_string(),
+                        provider_id: None,
+                        reasoning_options: xhigh_reasoning_options,
+                    },
+                ],
                 permissions: vec![
                     PermissionPolicy::Auto,
                     PermissionPolicy::Supervised,
@@ -520,125 +427,44 @@ impl Codex {
                 },
             ],
             ..Default::default()
-        }
+        };
+        Ok(Box::pin(futures::stream::once(async move {
+            patch::executor_discovered_options(options)
+        })))
+    }
+
+    async fn spawn_review(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        session_id: Option<&str>,
+        env: &ExecutionEnv,
+    ) -> Result<SpawnedChild, ExecutorError> {
+        let command_parts = self.build_command_builder()?.build_initial()?;
+        let review_target = ReviewTarget::Custom {
+            instructions: prompt.to_string(),
+        };
+        let action = CodexSessionAction::Review {
+            target: review_target,
+        };
+        self.spawn_inner(current_dir, command_parts, action, session_id, env)
+            .await
     }
 }
 
 impl Codex {
-    const BINARY_ENV_VAR: &'static str = "VK_CODEX_BINARY";
-
     pub fn base_command() -> &'static str {
-        "npx -y @openai/codex@0.147.0"
-    }
-
-    fn selected_base_command(&self) -> Result<String, CommandBuildError> {
-        Self::select_base_command(
-            self.cmd.base_command_override.as_deref(),
-            env::var_os(Self::BINARY_ENV_VAR),
-        )
-    }
-
-    fn select_base_command(
-        user_override: Option<&str>,
-        configured_binary: Option<std::ffi::OsString>,
-    ) -> Result<String, CommandBuildError> {
-        if let Some(user_override) = user_override {
-            return Ok(user_override.to_string());
-        }
-
-        let Some(configured_binary) = configured_binary else {
-            return Ok(Self::base_command().to_string());
-        };
-        let path = PathBuf::from(configured_binary);
-        if !path.is_absolute() || !Self::is_executable_file(&path) {
-            return Err(CommandBuildError::InvalidConfiguredExecutable {
-                variable: Self::BINARY_ENV_VAR,
-                path: path.to_string_lossy().into_owned(),
-            });
-        }
-
-        let path = path.to_string_lossy();
-        #[cfg(windows)]
-        let command = format!("\"{}\"", path.replace('"', "\\\""));
-        #[cfg(not(windows))]
-        let command = shlex::try_quote(&path)?.into_owned();
-        Ok(command)
-    }
-
-    fn is_executable_file(path: &Path) -> bool {
-        let Ok(metadata) = path.metadata() else {
-            return false;
-        };
-        if !metadata.is_file() {
-            return false;
-        }
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            metadata.permissions().mode() & 0o111 != 0
-        }
-        #[cfg(not(unix))]
-        {
-            true
-        }
+        "npx -y @openai/codex@0.124.0"
     }
 
     fn build_command_builder(&self) -> Result<CommandBuilder, CommandBuildError> {
-        let mut builder = CommandBuilder::new(self.selected_base_command()?);
+        let mut builder = CommandBuilder::new(Self::base_command());
         builder = builder.extend_params(["app-server"]);
         if self.oss.unwrap_or(false) {
             builder = builder.extend_params(["--oss"]);
         }
 
         apply_overrides(builder, &self.cmd)
-    }
-
-    fn build_model_catalog_command_builder(&self) -> Result<CommandBuilder, CommandBuildError> {
-        Ok(
-            CommandBuilder::new(self.selected_base_command()?).extend_params([
-                "debug",
-                "models",
-                "--bundled",
-            ]),
-        )
-    }
-
-    async fn discover_model_selector_from_bundled_catalog(
-        &self,
-    ) -> Result<ModelSelectorConfig, ExecutorError> {
-        const CODEX_MODEL_CATALOG_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
-
-        let command_parts = self
-            .build_model_catalog_command_builder()?
-            .build_initial()
-            .map_err(ExecutorError::from)?;
-        let (executable, args) = command_parts.into_resolved().await?;
-        let mut command = Command::new(executable);
-        command.env("CODEX_SQLITE_LOGS", "off").args(args);
-        if let Some(env) = &self.cmd.env {
-            command.envs(env);
-        }
-
-        let output = tokio::time::timeout(CODEX_MODEL_CATALOG_TIMEOUT, command.output())
-            .await
-            .map_err(|_| {
-                ExecutorError::Io(std::io::Error::new(
-                    std::io::ErrorKind::TimedOut,
-                    "timed out running codex debug models --bundled",
-                ))
-            })?
-            .map_err(ExecutorError::Io)?;
-
-        if !output.status.success() {
-            return Err(ExecutorError::Io(std::io::Error::other(format!(
-                "codex debug models --bundled exited with status {}",
-                output.status
-            ))));
-        }
-
-        model_catalog::model_selector_from_catalog_slice(&output.stdout)
-            .map_err(|error| ExecutorError::Io(std::io::Error::other(error)))
     }
 
     fn build_thread_start_params(&self, cwd: &Path) -> ThreadStartParams {
@@ -656,7 +482,7 @@ impl Codex {
             }
             None => None,
             Some(AskForApproval::UnlessTrusted) => Some(V2AskForApproval::UnlessTrusted),
-            Some(AskForApproval::OnFailure) => Some(V2AskForApproval::OnRequest),
+            Some(AskForApproval::OnFailure) => Some(V2AskForApproval::OnFailure),
             Some(AskForApproval::OnRequest) => Some(V2AskForApproval::OnRequest),
             Some(AskForApproval::Never) => Some(V2AskForApproval::Never),
         };
@@ -692,7 +518,7 @@ impl Codex {
 
         let (model, is_fast) = resolve_model(self.model.as_deref());
         let service_tier = if is_fast {
-            Some(Some(ServiceTier::Fast.request_value().to_string()))
+            Some(Some(ServiceTier::Fast))
         } else {
             None
         };
@@ -890,12 +716,16 @@ impl Codex {
             .env("NODE_NO_WARNINGS", "1")
             .env("NO_COLOR", "1")
             .env("RUST_LOG", "error")
-            .env("CODEX_SQLITE_LOGS", "off")
             .args(&args);
 
         env.clone()
             .with_profile(&self.cmd)
             .apply_to_command(&mut process);
+        // VK runs short-lived Codex app-server children and relies on OTEL/stderr
+        // for diagnostics. SQLite-backed Codex logs are non-critical and can
+        // contend heavily on hosts with many sessions, so force them off for
+        // VK-spawned Codex processes even if profile env overrides are present.
+        process.env("CODEX_SQLITE_LOGS", "off");
 
         let mut child = {
             let _span = tracing::debug_span!(
@@ -1015,177 +845,21 @@ impl Codex {
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsString;
-
-    use codex_app_server_protocol::AskForApproval as V2AskForApproval;
-    use futures::StreamExt;
-
-    use super::{AskForApproval, Codex, resolve_model};
-    use crate::{
-        command::CommandBuildError,
-        executor_discovery::ExecutorDiscoveredOptions,
-        executors::{BaseCodingAgent, CodingAgent, StandardCodingAgentExecutor},
-        profile::{ExecutorConfigs, ExecutorProfileId},
-    };
-
-    fn test_codex() -> Codex {
-        Codex {
-            append_prompt: Default::default(),
-            sandbox: None,
-            ask_for_approval: None,
-            oss: None,
-            model: None,
-            model_reasoning_effort: None,
-            model_reasoning_summary: None,
-            model_reasoning_summary_format: None,
-            profile: None,
-            base_instructions: None,
-            include_apply_patch_tool: None,
-            model_provider: None,
-            compact_prompt: None,
-            developer_instructions: None,
-            plan: false,
-            cmd: Default::default(),
-            approvals: None,
-        }
-    }
-
-    fn options_from_patch(patch: json_patch::Patch) -> ExecutorDiscoveredOptions {
-        let value = serde_json::to_value(patch).unwrap();
-        serde_json::from_value(value[0]["value"].clone()).unwrap()
-    }
+    use super::resolve_model;
 
     #[test]
     fn resolve_model_detects_fast_suffix() {
-        assert_eq!(
-            resolve_model(Some("gpt-5.6-sol-fast")),
-            (Some("gpt-5.6-sol"), true)
-        );
         assert_eq!(resolve_model(Some("gpt-5.5-fast")), (Some("gpt-5.5"), true));
         assert_eq!(resolve_model(Some("gpt-5.4-fast")), (Some("gpt-5.4"), true));
     }
 
     #[test]
     fn resolve_model_leaves_non_fast_models_unchanged() {
-        assert_eq!(resolve_model(Some("gpt-5.6")), (Some("gpt-5.6"), false));
         assert_eq!(resolve_model(Some("gpt-5.5")), (Some("gpt-5.5"), false));
         assert_eq!(
             resolve_model(Some("gpt-5.4-mini")),
             (Some("gpt-5.4-mini"), false)
         );
         assert_eq!(resolve_model(None), (None, false));
-    }
-
-    #[test]
-    fn user_command_override_takes_precedence_over_configured_binary() {
-        let selected = Codex::select_base_command(
-            Some("custom-codex --flag"),
-            Some(OsString::from("/missing/deployment/codex")),
-        )
-        .unwrap();
-
-        assert_eq!(selected, "custom-codex --flag");
-    }
-
-    #[test]
-    fn configured_binary_takes_precedence_over_builtin_command() {
-        let executable = std::env::current_exe().unwrap();
-        let selected =
-            Codex::select_base_command(None, Some(executable.clone().into_os_string())).unwrap();
-
-        #[cfg(not(windows))]
-        assert_eq!(
-            shlex::split(&selected),
-            Some(vec![executable.to_string_lossy().into_owned()])
-        );
-        #[cfg(windows)]
-        assert!(selected.contains(&executable.to_string_lossy().to_string()));
-    }
-
-    #[test]
-    fn builtin_command_is_used_without_overrides() {
-        assert_eq!(
-            Codex::select_base_command(None, None).unwrap(),
-            Codex::base_command()
-        );
-    }
-
-    #[test]
-    fn configured_binary_must_be_an_existing_absolute_file() {
-        let error =
-            Codex::select_base_command(None, Some(OsString::from("/missing/deployment/codex")))
-                .unwrap_err();
-
-        assert!(matches!(
-            error,
-            CommandBuildError::InvalidConfiguredExecutable {
-                variable: "VK_CODEX_BINARY",
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn codex_defaults_disable_sqlite_logs() {
-        let config = ExecutorConfigs::from_defaults()
-            .get_coding_agent(&ExecutorProfileId::new(BaseCodingAgent::Codex));
-        let Some(CodingAgent::Codex(codex)) = config else {
-            panic!("missing default Codex profile");
-        };
-
-        assert_eq!(
-            codex
-                .cmd
-                .env
-                .as_ref()
-                .and_then(|env| env.get("CODEX_SQLITE_LOGS"))
-                .map(String::as_str),
-            Some("off")
-        );
-    }
-
-    #[test]
-    fn on_failure_approval_maps_to_on_request() {
-        let mut codex = test_codex();
-        codex.ask_for_approval = Some(AskForApproval::OnFailure);
-
-        let params = codex.build_thread_start_params(std::path::Path::new("/tmp/test-worktree"));
-
-        assert_eq!(params.approval_policy, Some(V2AskForApproval::OnRequest));
-    }
-
-    #[tokio::test]
-    async fn discover_options_falls_back_when_bundled_catalog_command_fails() {
-        let mut codex = test_codex();
-        codex.cmd.base_command_override = Some("__vk_missing_codex_for_catalog_test__".to_string());
-
-        let mut stream = codex.discover_options(None, None).await.unwrap();
-        let initial_options = options_from_patch(stream.next().await.unwrap());
-        let fallback_options = options_from_patch(stream.next().await.unwrap());
-
-        assert!(initial_options.loading_models);
-        let initial_model_ids: Vec<_> = initial_options
-            .model_selector
-            .models
-            .iter()
-            .map(|model| model.id.as_str())
-            .collect();
-        let fallback_model_ids: Vec<_> = fallback_options
-            .model_selector
-            .models
-            .iter()
-            .map(|model| model.id.as_str())
-            .collect();
-        assert_eq!(initial_model_ids, fallback_model_ids);
-        assert_eq!(
-            fallback_options
-                .model_selector
-                .models
-                .first()
-                .map(|model| model.id.as_str()),
-            Some("gpt-5.6")
-        );
-        assert!(!fallback_options.loading_models);
-        assert!(stream.next().await.is_none());
     }
 }

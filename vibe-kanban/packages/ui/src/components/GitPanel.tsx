@@ -26,6 +26,8 @@ interface GitPanelProps {
   repos: RepoInfo[];
   repoSelectedActions?: Record<string, RepoAction>;
   workingBranchName: string;
+  workingBranchEditable?: boolean;
+  workingBranchHelp?: string;
   onWorkingBranchNameChange: (name: string) => void;
   onActionsClick?: (repoId: string, action: RepoAction) => void;
   onRepoActionChange?: (repoId: string, action: RepoAction) => void;
@@ -40,6 +42,8 @@ export function GitPanel({
   repos,
   repoSelectedActions,
   workingBranchName,
+  workingBranchEditable = true,
+  workingBranchHelp,
   onWorkingBranchNameChange,
   onActionsClick,
   onRepoActionChange,
@@ -104,12 +108,25 @@ export function GitPanel({
               {t('common:sections.workingBranch')}
             </p>
           </div>
-          <InputField
-            variant="editable"
-            value={workingBranchName}
-            onChange={onWorkingBranchNameChange}
-            placeholder={t('gitPanel.advanced.placeholder')}
-          />
+          {workingBranchEditable ? (
+            <InputField
+              variant="editable"
+              value={workingBranchName}
+              onChange={onWorkingBranchNameChange}
+              placeholder={t('gitPanel.advanced.placeholder')}
+            />
+          ) : (
+            <div className="bg-secondary border border-border rounded-sm px-base py-half">
+              <span className="block truncate text-sm text-normal">
+                {workingBranchName || t('gitPanel.advanced.placeholder')}
+              </span>
+              {workingBranchHelp && (
+                <p className="mt-quarter text-xs text-low">
+                  {workingBranchHelp}
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

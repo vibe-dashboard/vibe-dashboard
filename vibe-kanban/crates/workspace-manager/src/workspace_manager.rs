@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
 use db::{
     DBService,
@@ -8,7 +11,10 @@ use db::{
         requests::WorkspaceRepoInput,
         session::Session,
         workspace::Workspace as DbWorkspace,
-        workspace_repo::{CreateWorkspaceRepo, RepoWithTargetBranch, WorkspaceRepo},
+        workspace_repo::{
+            CreateWorkspaceRepo, RepoWithTargetBranch, WorkspaceRepo,
+            branch_names_conflict_as_self_target,
+        },
     },
 };
 use git::{GitService, GitServiceError};
@@ -21,13 +27,30 @@ use worktree_manager::{WorktreeCleanup, WorktreeError, WorktreeManager};
 pub struct RepoWorkspaceInput {
     pub repo: Repo,
     pub target_branch: String,
+    pub create_branch: bool,
+    pub checkout_branch: Option<String>,
 }
 
 impl RepoWorkspaceInput {
-    pub fn new(repo: Repo, target_branch: String) -> Self {
+    pub fn new(
+        repo: Repo,
+        target_branch: String,
+        create_branch: bool,
+        checkout_branch: Option<String>,
+    ) -> Self {
         Self {
             repo,
             target_branch,
+            create_branch,
+            checkout_branch,
+        }
+    }
+
+    fn branch_name<'a>(&'a self, workspace_branch: &'a str) -> &'a str {
+        if self.create_branch {
+            workspace_branch
+        } else {
+            self.checkout_branch.as_deref().unwrap_or(workspace_branch)
         }
     }
 }
@@ -52,6 +75,34 @@ pub enum WorkspaceError {
     RepoNameAlreadyAttached { repo_name: String },
     #[error("Branch '{branch}' does not exist in repository '{repo_name}'")]
     BranchNotFound { repo_name: String, branch: String },
+    #[error("Direct checkout mode requires an existing local branch in repository '{repo_name}'")]
+    DirectCheckoutBranchRequired { repo_name: String },
+    #[error("Direct checkout branch '{branch}' in repository '{repo_name}' must be a local branch")]
+    DirectCheckoutBranchNotLocal { repo_name: String, branch: String },
+    #[error(
+        "Direct checkout branch '{branch}' in repository '{repo_name}' is already checked out at {path}"
+    )]
+    DirectCheckoutBranchAlreadyCheckedOut {
+        repo_name: String,
+        branch: String,
+        path: PathBuf,
+    },
+    #[error(
+        "Direct checkout branch and target/base branch must be different for repository '{repo_name}'"
+    )]
+    DirectCheckoutBranchMatchesTarget { repo_name: String },
+    #[error("Workspace branch name '{branch}' is not a valid git branch name")]
+    InvalidWorkspaceBranchName { branch: String },
+    #[error("Workspace branch '{branch}' already exists in repository '{repo_name}'")]
+    WorkspaceBranchAlreadyExists { repo_name: String, branch: String },
+    #[error(
+        "Workspace branch '{branch}' in repository '{repo_name}' is already checked out at {path}"
+    )]
+    WorkspaceBranchAlreadyCheckedOut {
+        repo_name: String,
+        branch: String,
+        path: PathBuf,
+    },
     #[error("No repositories provided")]
     NoRepositories,
     #[error("Partial workspace creation failed: {0}")]
@@ -72,6 +123,110 @@ pub struct RepoWorktree {
 pub struct WorktreeContainer {
     pub workspace_dir: PathBuf,
     pub worktrees: Vec<RepoWorktree>,
+}
+
+#[cfg(test)]
+mod direct_branch_tests {
+    use chrono::Utc;
+    use db::models::repo::Repo;
+    use uuid::Uuid;
+
+    use super::RepoWorkspaceInput;
+
+    fn repo(name: &str) -> Repo {
+        Repo {
+            id: Uuid::new_v4(),
+            path: format!("/tmp/{name}").into(),
+            name: name.to_string(),
+            display_name: name.to_string(),
+            setup_script: None,
+            cleanup_script: None,
+            archive_script: None,
+            copy_files: None,
+            parallel_setup_script: false,
+            dev_server_script: None,
+            dev_server_scripts: Vec::new(),
+            default_target_branch: None,
+            default_working_dir: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn direct_mode_inputs_allow_different_checkout_branch_names() {
+        let repo_a = RepoWorkspaceInput::new(
+            repo("repo-a"),
+            "main".to_string(),
+            false,
+            Some("feature-a".to_string()),
+        );
+        let repo_b = RepoWorkspaceInput::new(
+            repo("repo-b"),
+            "main".to_string(),
+            false,
+            Some("feature-b".to_string()),
+        );
+
+        assert_eq!(repo_a.branch_name("vk/workspace"), "feature-a");
+        assert_eq!(repo_b.branch_name("vk/workspace"), "feature-b");
+    }
+
+    #[test]
+    fn create_branch_inputs_continue_to_use_workspace_branch() {
+        let repo = RepoWorkspaceInput::new(
+            repo("repo"),
+            "main".to_string(),
+            true,
+            Some("ignored-direct-branch".to_string()),
+        );
+
+        assert_eq!(repo.branch_name("vk/workspace"), "vk/workspace");
+    }
+
+    #[test]
+    fn direct_mode_checkout_branch_does_not_replace_workspace_branch_for_deletion() {
+        let repo = RepoWorkspaceInput::new(
+            repo("repo"),
+            "main".to_string(),
+            false,
+            Some("user-owned-feature".to_string()),
+        );
+        let workspace_branch = "vk/generated-workspace-branch";
+
+        assert_eq!(repo.branch_name(workspace_branch), "user-owned-feature");
+
+        let deletion_context = super::WorkspaceDeletionContext {
+            workspace_id: Uuid::new_v4(),
+            branch_name: workspace_branch.to_string(),
+            workspace_dir: None,
+            repositories: vec![],
+            repo_paths: vec![],
+            session_ids: vec![],
+        };
+
+        assert_eq!(deletion_context.branch_name, workspace_branch);
+        assert_ne!(
+            deletion_context.branch_name,
+            repo.branch_name(workspace_branch)
+        );
+    }
+
+    #[test]
+    fn direct_checkout_rejects_self_targeting_before_git_lookup() {
+        let repo = repo("repo");
+        let git = git::GitService::new();
+
+        let err = super::WorkspaceManager::validate_direct_checkout_branch(
+            &repo, "feature", "feature", &git,
+        )
+        .expect_err("direct checkout branch must not match target/base branch");
+
+        assert!(matches!(
+            err,
+            super::WorkspaceError::DirectCheckoutBranchMatchesTarget { .. }
+        ));
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -107,6 +262,8 @@ impl ManagedWorkspace {
         let create_repo = CreateWorkspaceRepo {
             repo_id: repo.repo_id,
             target_branch: repo.target_branch.clone(),
+            create_branch: repo.create_branch,
+            checkout_branch: repo.checkout_branch.clone(),
         };
 
         WorkspaceRepo::create_many(
@@ -135,9 +292,8 @@ impl ManagedWorkspace {
         repo_ref: &WorkspaceRepoInput,
         git: &GitService,
     ) -> Result<WorkspaceRepo, WorkspaceError> {
-        let repo = Repo::find_by_id(&self.db.pool, repo_ref.repo_id)
-            .await?
-            .ok_or(RepoError::NotFound)?;
+        let repo =
+            WorkspaceManager::validate_repository_input(&self.db.pool, repo_ref, git).await?;
 
         if WorkspaceRepo::find_by_workspace_and_repo_id(
             &self.db.pool,
@@ -220,6 +376,122 @@ pub struct WorkspaceManager {
 impl WorkspaceManager {
     pub fn new(db: DBService) -> Self {
         Self { db }
+    }
+
+    pub async fn validate_repository_inputs(
+        &self,
+        repos: &[WorkspaceRepoInput],
+        git: &GitService,
+    ) -> Result<(), WorkspaceError> {
+        let mut seen_repo_ids = HashSet::new();
+        for repo_ref in repos {
+            if !seen_repo_ids.insert(repo_ref.repo_id) {
+                return Err(WorkspaceError::RepoAlreadyAttached);
+            }
+            Self::validate_repository_input(&self.db.pool, repo_ref, git).await?;
+        }
+        Ok(())
+    }
+
+    pub async fn validate_new_workspace_branch_name(
+        &self,
+        repos: &[WorkspaceRepoInput],
+        branch_name: &str,
+        git: &GitService,
+    ) -> Result<(), WorkspaceError> {
+        if !git.is_branch_name_valid(branch_name) {
+            return Err(WorkspaceError::InvalidWorkspaceBranchName {
+                branch: branch_name.to_string(),
+            });
+        }
+
+        for repo_ref in repos.iter().filter(|repo_ref| repo_ref.create_branch) {
+            let repo = Repo::find_by_id(&self.db.pool, repo_ref.repo_id)
+                .await?
+                .ok_or(RepoError::NotFound)?;
+
+            if git.is_local_branch(&repo.path, branch_name)? {
+                if let Some(path) = git.find_checkout_path_for_branch(&repo.path, branch_name)? {
+                    return Err(WorkspaceError::WorkspaceBranchAlreadyCheckedOut {
+                        repo_name: repo.name,
+                        branch: branch_name.to_string(),
+                        path,
+                    });
+                }
+                return Err(WorkspaceError::WorkspaceBranchAlreadyExists {
+                    repo_name: repo.name,
+                    branch: branch_name.to_string(),
+                });
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn validate_repository_input(
+        pool: &sqlx::SqlitePool,
+        repo_ref: &WorkspaceRepoInput,
+        git: &GitService,
+    ) -> Result<Repo, WorkspaceError> {
+        let repo = Repo::find_by_id(pool, repo_ref.repo_id)
+            .await?
+            .ok_or(RepoError::NotFound)?;
+
+        if !git.check_branch_exists(&repo.path, &repo_ref.target_branch)? {
+            return Err(WorkspaceError::BranchNotFound {
+                repo_name: repo.name.clone(),
+                branch: repo_ref.target_branch.clone(),
+            });
+        }
+
+        if !repo_ref.create_branch {
+            let checkout_branch = repo_ref.checkout_branch.as_deref().ok_or_else(|| {
+                WorkspaceError::DirectCheckoutBranchRequired {
+                    repo_name: repo.name.clone(),
+                }
+            })?;
+
+            Self::validate_direct_checkout_branch(
+                &repo,
+                checkout_branch,
+                &repo_ref.target_branch,
+                git,
+            )?;
+        }
+
+        Ok(repo)
+    }
+
+    fn validate_direct_checkout_branch(
+        repo: &Repo,
+        checkout_branch: &str,
+        target_branch: &str,
+        git: &GitService,
+    ) -> Result<(), WorkspaceError> {
+        let target_is_remote =
+            checkout_branch != target_branch && git.is_remote_branch(&repo.path, target_branch)?;
+        if branch_names_conflict_as_self_target(checkout_branch, target_branch, target_is_remote) {
+            return Err(WorkspaceError::DirectCheckoutBranchMatchesTarget {
+                repo_name: repo.name.clone(),
+            });
+        }
+
+        if !git.is_local_branch(&repo.path, checkout_branch)? {
+            return Err(WorkspaceError::DirectCheckoutBranchNotLocal {
+                repo_name: repo.name.clone(),
+                branch: checkout_branch.to_string(),
+            });
+        }
+
+        if let Some(path) = git.find_checkout_path_for_branch(&repo.path, checkout_branch)? {
+            return Err(WorkspaceError::DirectCheckoutBranchAlreadyCheckedOut {
+                repo_name: repo.name.clone(),
+                branch: checkout_branch.to_string(),
+                path,
+            });
+        }
+
+        Ok(())
     }
 
     pub async fn load_managed_workspace(
@@ -337,10 +609,10 @@ impl WorkspaceManager {
 
             match WorktreeManager::create_worktree(
                 &input.repo.path,
-                branch_name,
+                input.branch_name(branch_name),
                 &worktree_path,
                 &input.target_branch,
-                true,
+                input.create_branch,
             )
             .await
             {
@@ -420,6 +692,8 @@ impl WorkspaceManager {
                 worktree_path.display()
             );
 
+            let branch_name = input.branch_name(branch_name);
+
             if git.check_branch_exists(&repo.path, branch_name)? {
                 WorktreeManager::ensure_worktree_exists(&repo.path, branch_name, &worktree_path)
                     .await?;
@@ -433,7 +707,7 @@ impl WorkspaceManager {
                     branch_name,
                     &worktree_path,
                     &input.target_branch,
-                    true,
+                    input.create_branch,
                 )
                 .await?;
             }
@@ -671,8 +945,11 @@ impl WorkspaceManager {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::path::{Path, PathBuf};
+mod repository_attachment_tests {
+    use std::{
+        path::{Path, PathBuf},
+        process::Command,
+    };
 
     use db::{
         DBService,
@@ -737,6 +1014,8 @@ mod tests {
                 workspace_id BLOB NOT NULL,
                 repo_id BLOB NOT NULL,
                 target_branch TEXT NOT NULL,
+                create_branch BOOLEAN NOT NULL DEFAULT TRUE,
+                checkout_branch TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
                 UNIQUE (workspace_id, repo_id)
@@ -767,6 +1046,12 @@ mod tests {
             .unwrap();
     }
 
+    fn create_branch(path: &Path, branch: &str) {
+        GitService::new()
+            .create_branch(path, branch, "main")
+            .unwrap();
+    }
+
     async fn create_repo(db: &DBService, path: PathBuf) -> Repo {
         Repo::find_or_create(&db.pool, &path, path.file_name().unwrap().to_str().unwrap())
             .await
@@ -784,6 +1069,121 @@ mod tests {
         )
         .await
         .unwrap()
+    }
+
+    #[tokio::test]
+    async fn exact_workspace_branch_name_allows_any_valid_git_ref() {
+        let db = test_db().await;
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path().join("repo");
+        init_git_repo(&repo_path);
+        let repo = create_repo(&db, repo_path).await;
+
+        WorkspaceManager::new(db)
+            .validate_new_workspace_branch_name(
+                &[WorkspaceRepoInput {
+                    repo_id: repo.id,
+                    target_branch: "main".to_string(),
+                    create_branch: true,
+                    checkout_branch: None,
+                }],
+                "feature/human-picked-name",
+                &GitService::new(),
+            )
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn exact_workspace_branch_name_rejects_invalid_ref() {
+        let db = test_db().await;
+        let error = WorkspaceManager::new(db)
+            .validate_new_workspace_branch_name(&[], "bad..branch", &GitService::new())
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            WorkspaceError::InvalidWorkspaceBranchName { branch } if branch == "bad..branch"
+        ));
+    }
+
+    #[tokio::test]
+    async fn exact_workspace_branch_name_rejects_collision() {
+        let db = test_db().await;
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path().join("repo");
+        init_git_repo(&repo_path);
+        create_branch(&repo_path, "feature/existing");
+        let repo = create_repo(&db, repo_path).await;
+
+        let error = WorkspaceManager::new(db)
+            .validate_new_workspace_branch_name(
+                &[WorkspaceRepoInput {
+                    repo_id: repo.id,
+                    target_branch: "main".to_string(),
+                    create_branch: true,
+                    checkout_branch: None,
+                }],
+                "feature/existing",
+                &GitService::new(),
+            )
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            WorkspaceError::WorkspaceBranchAlreadyExists { repo_name, branch }
+                if repo_name == "repo" && branch == "feature/existing"
+        ));
+    }
+
+    #[tokio::test]
+    async fn exact_workspace_branch_name_rejects_checked_out_elsewhere() {
+        let db = test_db().await;
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path().join("repo");
+        let worktree_path = temp_dir.path().join("other-worktree");
+        init_git_repo(&repo_path);
+        create_branch(&repo_path, "feature/in-use");
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(&repo_path)
+            .arg("worktree")
+            .arg("add")
+            .arg(&worktree_path)
+            .arg("feature/in-use")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git worktree add failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let repo = create_repo(&db, repo_path).await;
+
+        let error = WorkspaceManager::new(db)
+            .validate_new_workspace_branch_name(
+                &[WorkspaceRepoInput {
+                    repo_id: repo.id,
+                    target_branch: "main".to_string(),
+                    create_branch: true,
+                    checkout_branch: None,
+                }],
+                "feature/in-use",
+                &GitService::new(),
+            )
+            .await
+            .unwrap_err();
+
+        match error {
+            WorkspaceError::WorkspaceBranchAlreadyCheckedOut { repo_name, branch, path } => {
+                assert_eq!(repo_name, "repo");
+                assert_eq!(branch, "feature/in-use");
+                assert_eq!(path.canonicalize().unwrap(), worktree_path.canonicalize().unwrap());
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
     }
 
     #[tokio::test]
@@ -810,6 +1210,8 @@ mod tests {
                 &WorkspaceRepoInput {
                     repo_id: first_repo.id,
                     target_branch: "main".to_string(),
+                    create_branch: true,
+                    checkout_branch: None,
                 },
                 &GitService::new(),
             )
@@ -821,6 +1223,8 @@ mod tests {
                 &WorkspaceRepoInput {
                     repo_id: second_repo.id,
                     target_branch: "main".to_string(),
+                    create_branch: true,
+                    checkout_branch: None,
                 },
                 &GitService::new(),
             )
@@ -867,6 +1271,8 @@ mod tests {
                 &WorkspaceRepoInput {
                     repo_id: first_repo.id,
                     target_branch: "main".to_string(),
+                    create_branch: true,
+                    checkout_branch: None,
                 },
                 &GitService::new(),
             )
@@ -878,6 +1284,8 @@ mod tests {
                 &WorkspaceRepoInput {
                     repo_id: second_repo.id,
                     target_branch: "main".to_string(),
+                    create_branch: true,
+                    checkout_branch: None,
                 },
                 &GitService::new(),
             )
@@ -894,5 +1302,103 @@ mod tests {
                 .unwrap();
         assert_eq!(attached.len(), 1);
         assert_eq!(attached[0].repo_id, first_repo.id);
+    }
+
+    #[tokio::test]
+    async fn validate_new_workspace_branch_rejects_invalid_ref() {
+        let db = test_db().await;
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path().join("repo");
+        init_git_repo(&repo_path);
+        let repo = create_repo(&db, repo_path).await;
+
+        let error = WorkspaceManager::new(db)
+            .validate_new_workspace_branch_name(
+                &[WorkspaceRepoInput {
+                    repo_id: repo.id,
+                    target_branch: "main".to_string(),
+                    create_branch: true,
+                    checkout_branch: None,
+                }],
+                "bad..branch",
+                &GitService::new(),
+            )
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            WorkspaceError::InvalidWorkspaceBranchName { branch } if branch == "bad..branch"
+        ));
+    }
+
+    #[tokio::test]
+    async fn validate_new_workspace_branch_rejects_existing_branch() {
+        let db = test_db().await;
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path().join("repo");
+        let git = GitService::new();
+        init_git_repo(&repo_path);
+        git.create_branch(&repo_path, "feature/exact", "main")
+            .unwrap();
+        let repo = create_repo(&db, repo_path).await;
+
+        let error = WorkspaceManager::new(db)
+            .validate_new_workspace_branch_name(
+                &[WorkspaceRepoInput {
+                    repo_id: repo.id,
+                    target_branch: "main".to_string(),
+                    create_branch: true,
+                    checkout_branch: None,
+                }],
+                "feature/exact",
+                &git,
+            )
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            WorkspaceError::WorkspaceBranchAlreadyExists { repo_name, branch }
+                if repo_name == "repo" && branch == "feature/exact"
+        ));
+    }
+
+    #[tokio::test]
+    async fn validate_new_workspace_branch_rejects_checked_out_branch() {
+        let db = test_db().await;
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path().join("repo");
+        let worktree_path = temp_dir.path().join("worktree");
+        let git = GitService::new();
+        init_git_repo(&repo_path);
+        git.create_branch(&repo_path, "feature/exact", "main")
+            .unwrap();
+        git.add_worktree(&repo_path, &worktree_path, "feature/exact", false)
+            .unwrap();
+        let repo = create_repo(&db, repo_path).await;
+
+        let error = WorkspaceManager::new(db)
+            .validate_new_workspace_branch_name(
+                &[WorkspaceRepoInput {
+                    repo_id: repo.id,
+                    target_branch: "main".to_string(),
+                    create_branch: true,
+                    checkout_branch: None,
+                }],
+                "feature/exact",
+                &git,
+            )
+            .await
+            .unwrap_err();
+
+        match error {
+            WorkspaceError::WorkspaceBranchAlreadyCheckedOut { repo_name, branch, path } => {
+                assert_eq!(repo_name, "repo");
+                assert_eq!(branch, "feature/exact");
+                assert_eq!(path.canonicalize().unwrap(), worktree_path.canonicalize().unwrap());
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
     }
 }

@@ -1,0 +1,2 @@
+ALTER TABLE workspace_repos
+ADD COLUMN create_branch BOOLEAN NOT NULL DEFAULT 1;

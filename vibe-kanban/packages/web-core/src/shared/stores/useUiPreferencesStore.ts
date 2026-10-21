@@ -558,25 +558,23 @@ export const useUiPreferencesStore = create<State>()((set, get) => ({
     const state = get();
     const wsState =
       state.workspacePanelStates[workspaceId] ?? DEFAULT_WORKSPACE_PANEL_STATE;
+    const isCurrentlyActive = wsState.rightMainPanelMode === mode;
     const isMobile = window.matchMedia('(max-width: 767px)').matches;
-    const isCurrentlyVisible =
-      wsState.rightMainPanelMode === mode &&
-      (!isMobile || state.mobileActiveTab === mode);
     set({
       workspacePanelStates: {
         ...state.workspacePanelStates,
         [workspaceId]: {
           ...wsState,
-          rightMainPanelMode: isCurrentlyVisible ? null : mode,
+          rightMainPanelMode: isCurrentlyActive ? null : mode,
         },
       },
-      isLeftSidebarVisible: isCurrentlyVisible
+      isLeftSidebarVisible: isCurrentlyActive
         ? true
         : isWideScreen()
           ? state.isLeftSidebarVisible
           : false,
       ...(isMobile &&
-        !isCurrentlyVisible && { mobileActiveTab: mode as MobileTab }),
+        !isCurrentlyActive && { mobileActiveTab: mode as MobileTab }),
     });
   },
 

@@ -7,6 +7,10 @@ use thiserror::Error;
 use ts_rs::TS;
 use uuid::Uuid;
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Error)]
 pub enum ScratchError {
     #[error(transparent)]
@@ -203,6 +207,11 @@ pub struct DraftWorkspaceData {
 pub struct DraftWorkspaceRepo {
     pub repo_id: Uuid,
     pub target_branch: String,
+    #[serde(default = "default_true")]
+    pub create_branch: bool,
+    #[serde(default)]
+    #[ts(optional, type = "string | null")]
+    pub checkout_branch: Option<String>,
 }
 
 /// Data for project repo defaults scratch (default repos/branches per project)

@@ -22,6 +22,13 @@ export interface Workspace {
   name: string | null;
 }
 
+export interface Repo {
+  id: string;
+  name: string;
+  display_name: string;
+  path: string;
+}
+
 export interface RepoWithBranch {
   id: string;
   name: string;
@@ -85,7 +92,13 @@ export interface UserSystemInfo {
 
 export interface CreateAndStartWorkspaceRequest {
   name: string | null;
-  repos: Array<{ repo_id: string; target_branch: string }>;
+  branch_name?: string | null;
+  repos: Array<{
+    repo_id: string;
+    target_branch: string;
+    create_branch?: boolean;
+    checkout_branch?: string | null;
+  }>;
   linked_issue: { remote_project_id: string; issue_id: string } | null;
   executor_config: ExecutorConfig;
   prompt: string;
@@ -233,6 +246,11 @@ export interface PreviewSlotUrlResponse extends PreviewSlotUrlParts {
   url: string;
 }
 
+export interface RegisterRepoBody {
+  path: string;
+  display_name?: string | null;
+}
+
 export interface CreateSessionBody {
   workspace_id: string;
   executor: Executor;
@@ -299,6 +317,14 @@ export class VibeKanbanServerClient {
     return this.get(`/workspaces/${encodeURIComponent(workspaceId)}`);
   }
 
+  getRepos(): Promise<Repo[]> {
+    return this.get('/repos');
+  }
+
+  registerRepo(body: RegisterRepoBody): Promise<Repo> {
+    return this.post('/repos', body);
+  }
+
   getWorkspaceRepos(workspaceId: string): Promise<RepoWithBranch[]> {
     return this.get(`/workspaces/${encodeURIComponent(workspaceId)}/repos`);
   }
@@ -327,10 +353,6 @@ export class VibeKanbanServerClient {
     return this.get('/repos');
   }
 
-  registerRepo(body: { path: string; display_name?: string }): Promise<Repo> {
-    return this.post('/repos', body);
-  }
-
   listDirectory(path: string): Promise<DirectoryListResponse> {
     return this.get(`/filesystem/directory?path=${encodeURIComponent(path)}`);
   }
@@ -345,6 +367,13 @@ export class VibeKanbanServerClient {
 
   createOnlyWorkspace(body: CreateOnlyWorkspaceRequest): Promise<CreateOnlyWorkspaceResponse> {
     return this.post('/workspaces/create-only', body);
+  }
+
+  updateWorkspace(
+    workspaceId: string,
+    body: { archived?: boolean; pinned?: boolean; name?: string },
+  ): Promise<Workspace> {
+    return this.put(`/workspaces/${encodeURIComponent(workspaceId)}`, body);
   }
 
   getExecutionProcess(processId: string): Promise<ExecutionProcess> {
@@ -425,6 +454,13 @@ export class VibeKanbanServerClient {
   private post<T>(path: string, body: unknown): Promise<T> {
     return this.request<T>(path, {
       method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  private put<T>(path: string, body: unknown): Promise<T> {
+    return this.request<T>(path, {
+      method: 'PUT',
       body: JSON.stringify(body),
     });
   }

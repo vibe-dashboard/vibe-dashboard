@@ -35,6 +35,7 @@ services:
       ENABLE_VIBE_KANBAN: ${ENABLE_VIBE_KANBAN:-true}
       VK_CODEX_BINARY: ${VK_CODEX_BINARY:-/usr/local/bin/codex}
       CODEX_SQLITE_LOGS: ${CODEX_SQLITE_LOGS:-off}
+      VK_QA_SEED_DEFAULTS: ${VK_QA_SEED_DEFAULTS:-true}
       VK_SETTINGS_DIRECTORY: ${VK_SETTINGS_DIRECTORY:-/var/lib/vd/vk-config}
       VD_BEADS_DIRECTORY: ${VD_BEADS_DIRECTORY:-/var/lib/vd/beads}
 
@@ -84,6 +85,12 @@ services:
       - claude-data:/home/vkuser/.claude
       - codex-data:/home/vkuser/.codex
       - opencode-data:/home/vkuser/.local/share/opencode
+      - type: bind
+        source: ${QA_OPENCODE_AUTH_FILE:-${HOME}/.local/share/opencode/auth.json}
+        target: /home/vkuser/.local/share/opencode/auth.json
+        read_only: true
+        bind:
+          create_host_path: false
       - user-config:/home/vkuser/.config
       - beads-data:/home/vkuser/.beads
       - npm-cache:/home/vkuser/.npm

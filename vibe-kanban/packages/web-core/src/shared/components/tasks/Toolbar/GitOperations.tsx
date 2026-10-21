@@ -26,6 +26,7 @@ import { useTranslation } from 'react-i18next';
 import { useWorkspaceRepo } from '@/shared/hooks/useWorkspaceRepo';
 import { useGitOperations } from '@/shared/hooks/useGitOperations';
 import { useRepoBranches } from '@/shared/hooks/useRepoBranches';
+import { filterSelfTargetBranches } from '@/shared/lib/branchNames';
 
 interface GitOperationsProps {
   selectedAttempt: Workspace;
@@ -77,7 +78,7 @@ function GitOperations({
   const handleChangeTargetBranchDialogOpen = async () => {
     try {
       const result = await ChangeTargetBranchDialog.show({
-        branches,
+        branches: targetBranchOptions,
         isChangingTargetBranch: isChangingTargetBranch,
       });
 
@@ -97,6 +98,24 @@ function GitOperations({
     const repoId = getSelectedRepoId();
     return branchStatus?.find((r) => r.repo_id === repoId);
   }, [branchStatus, getSelectedRepoId]);
+
+  const getSelectedWorkspaceRepo = useCallback(() => {
+    const repoId = getSelectedRepoId();
+    return repos.find((repo) => repo.id === repoId);
+  }, [getSelectedRepoId, repos]);
+
+  const selectedSourceBranch = useMemo(() => {
+    const repo = getSelectedWorkspaceRepo();
+    if (!repo) return selectedAttempt.branch;
+    return repo.create_branch === false
+      ? (repo.checkout_branch ?? selectedAttempt.branch)
+      : selectedAttempt.branch;
+  }, [getSelectedWorkspaceRepo, selectedAttempt.branch]);
+
+  const targetBranchOptions = useMemo(
+    () => filterSelfTargetBranches(branches, selectedSourceBranch),
+    [branches, selectedSourceBranch]
+  );
 
   // Memoize the selected repo status for use in button disabled states
   const selectedRepoStatus = useMemo(
@@ -366,7 +385,7 @@ function GitOperations({
           <TooltipTrigger asChild>
             <span className="hidden sm:inline-flex items-center gap-1.5 max-w-[280px] px-2 py-0.5 rounded-full bg-muted text-xs font-medium min-w-0">
               <GitBranchIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-              <span className="truncate">{selectedAttempt.branch}</span>
+              <span className="truncate">{selectedSourceBranch}</span>
             </span>
           </TooltipTrigger>
           <TooltipContent side="bottom">

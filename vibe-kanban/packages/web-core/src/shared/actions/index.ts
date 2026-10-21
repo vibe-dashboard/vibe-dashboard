@@ -75,6 +75,7 @@ import { WorkspacesGuideDialog } from '@/shared/dialogs/shared/WorkspacesGuideDi
 import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
 import { CreateWorkspaceFromPrDialog } from '@/shared/dialogs/command-bar/CreateWorkspaceFromPrDialog';
 import { buildWorkspaceCreateInitialState } from '@/shared/lib/workspaceCreateState';
+import { filterSelfTargetBranches } from '@/shared/lib/branchNames';
 import { setCreateModeSeedState } from '@/features/create-mode/model/createModeSeedStore';
 
 // Mirrored sidebar icon for right sidebar toggle
@@ -127,6 +128,15 @@ async function getWorkspace(
   }
   // Fetch from API if not in cache
   return workspacesApi.get(workspaceId);
+}
+
+function getEffectiveWorkspaceRepoSourceBranch(
+  workspace: Workspace,
+  repo: { create_branch?: boolean; checkout_branch?: string | null }
+): string {
+  return repo.create_branch === false
+    ? (repo.checkout_branch ?? workspace.branch)
+    : workspace.branch;
 }
 
 function getRepoDisplayName(repo: Repo): string {
@@ -361,6 +371,8 @@ export const Actions = {
             preferredRepos: repos.map((r) => ({
               repo_id: r.id,
               target_branch: r.target_branch,
+              create_branch: r.create_branch ?? true,
+              checkout_branch: r.checkout_branch ?? null,
             })),
           },
           linkedIssue,
@@ -500,7 +512,9 @@ export const Actions = {
     label: 'Start Review',
     icon: HighlighterIcon,
     requiresTarget: ActionTargetType.WORKSPACE,
-    isVisible: (ctx) => ctx.hasWorkspace,
+    // VD owns the replacement review workflows. Keep the backend action for
+    // compatibility, but do not expose this legacy VK entry point.
+    isVisible: () => false,
     getTooltip: () => 'Review changes with agent',
     execute: async (_ctx, workspaceId) => {
       await StartReviewDialog.show({
@@ -532,6 +546,8 @@ export const Actions = {
             preferredRepos: repos.map((r) => ({
               repo_id: r.id,
               target_branch: workspace.branch,
+              create_branch: true,
+              checkout_branch: null,
             })),
           },
           linkedIssue,
@@ -1248,12 +1264,22 @@ export const Actions = {
     requiresTarget: ActionTargetType.GIT,
     isVisible: (ctx) => ctx.hasWorkspace && ctx.hasGitRepos,
     execute: async (ctx, workspaceId, repoId) => {
-      const branches = await repoApi.getBranches(repoId);
+      const [branches, workspace, workspaceRepos] = await Promise.all([
+        repoApi.getBranches(repoId),
+        getWorkspace(ctx.queryClient, workspaceId),
+        workspacesApi.getRepos(workspaceId),
+      ]);
+      const workspaceRepo = workspaceRepos.find((repo) => repo.id === repoId);
+      const sourceBranch = workspaceRepo
+        ? getEffectiveWorkspaceRepoSourceBranch(workspace, workspaceRepo)
+        : workspace.branch;
       await ChangeTargetDialog.show({
-        branches: branches.map((branch) => ({
-          name: branch.name,
-          isCurrent: branch.is_current,
-        })),
+        branches: filterSelfTargetBranches(branches, sourceBranch).map(
+          (branch) => ({
+            name: branch.name,
+            isCurrent: branch.is_current,
+          })
+        ),
         onChangeTargetBranch: async (newTargetBranch) => {
           await workspacesApi.change_target_branch(workspaceId, {
             new_target_branch: newTargetBranch,

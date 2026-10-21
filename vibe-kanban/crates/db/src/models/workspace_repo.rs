@@ -8,12 +8,27 @@ use uuid::Uuid;
 
 use super::{repo::Repo, repo_dev_server_script::RepoDevServerScript};
 
+pub fn branch_names_conflict_as_self_target(
+    source_branch: &str,
+    target_branch: &str,
+    target_is_remote: bool,
+) -> bool {
+    source_branch == target_branch
+        || (target_is_remote
+            && target_branch
+                .split_once('/')
+                .is_some_and(|(_, short_target)| short_target == source_branch))
+}
+
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
 pub struct WorkspaceRepo {
     pub id: Uuid,
     pub workspace_id: Uuid,
     pub repo_id: Uuid,
     pub target_branch: String,
+    pub create_branch: bool,
+    #[ts(optional, type = "string | null")]
+    pub checkout_branch: Option<String>,
     #[ts(type = "Date")]
     pub created_at: DateTime<Utc>,
     #[ts(type = "Date")]
@@ -24,6 +39,9 @@ pub struct WorkspaceRepo {
 pub struct CreateWorkspaceRepo {
     pub repo_id: Uuid,
     pub target_branch: String,
+    pub create_branch: bool,
+    #[ts(optional, type = "string | null")]
+    pub checkout_branch: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -31,6 +49,19 @@ pub struct RepoWithTargetBranch {
     #[serde(flatten)]
     pub repo: Repo,
     pub target_branch: String,
+    pub create_branch: bool,
+    #[ts(optional, type = "string | null")]
+    pub checkout_branch: Option<String>,
+}
+
+impl RepoWithTargetBranch {
+    pub fn branch_name<'a>(&'a self, workspace_branch: &'a str) -> &'a str {
+        if self.create_branch {
+            workspace_branch
+        } else {
+            self.checkout_branch.as_deref().unwrap_or(workspace_branch)
+        }
+    }
 }
 
 /// Repo info with copy_files configuration.
@@ -43,6 +74,14 @@ pub struct RepoWithCopyFiles {
 }
 
 impl WorkspaceRepo {
+    pub fn branch_name<'a>(&'a self, workspace_branch: &'a str) -> &'a str {
+        if self.create_branch {
+            workspace_branch
+        } else {
+            self.checkout_branch.as_deref().unwrap_or(workspace_branch)
+        }
+    }
+
     pub async fn create_many(
         pool: &SqlitePool,
         workspace_id: Uuid,
@@ -62,18 +101,22 @@ impl WorkspaceRepo {
             let id = Uuid::new_v4();
             let workspace_repo = sqlx::query_as!(
                 WorkspaceRepo,
-                r#"INSERT INTO workspace_repos (id, workspace_id, repo_id, target_branch)
-                   VALUES ($1, $2, $3, $4)
+                r#"INSERT INTO workspace_repos (id, workspace_id, repo_id, target_branch, create_branch, checkout_branch)
+                   VALUES ($1, $2, $3, $4, $5, $6)
                    RETURNING id as "id!: Uuid",
                              workspace_id as "workspace_id!: Uuid",
                              repo_id as "repo_id!: Uuid",
                              target_branch,
+                             create_branch as "create_branch!: bool",
+                             checkout_branch,
                              created_at as "created_at!: DateTime<Utc>",
                              updated_at as "updated_at!: DateTime<Utc>""#,
                 id,
                 workspace_id,
                 repo.repo_id,
-                repo.target_branch
+                repo.target_branch,
+                repo.create_branch,
+                repo.checkout_branch
             )
             .fetch_one(&mut *tx)
             .await?;
@@ -94,6 +137,8 @@ impl WorkspaceRepo {
                       workspace_id as "workspace_id!: Uuid",
                       repo_id as "repo_id!: Uuid",
                       target_branch,
+                      create_branch as "create_branch!: bool",
+                      checkout_branch,
                       created_at as "created_at!: DateTime<Utc>",
                       updated_at as "updated_at!: DateTime<Utc>"
                FROM workspace_repos
@@ -179,7 +224,9 @@ impl WorkspaceRepo {
                       r.default_working_dir,
                       r.created_at as "created_at!: DateTime<Utc>",
                       r.updated_at as "updated_at!: DateTime<Utc>",
-                      wr.target_branch
+                      wr.target_branch,
+                      wr.create_branch as "create_branch!: bool",
+                      wr.checkout_branch
                FROM repos r
                JOIN workspace_repos wr ON r.id = wr.repo_id
                WHERE wr.workspace_id = $1
@@ -216,6 +263,8 @@ impl WorkspaceRepo {
                     updated_at: row.updated_at,
                 },
                 target_branch: row.target_branch,
+                create_branch: row.create_branch,
+                checkout_branch: row.checkout_branch,
             })
             .collect())
     }
@@ -231,6 +280,8 @@ impl WorkspaceRepo {
                       workspace_id as "workspace_id!: Uuid",
                       repo_id as "repo_id!: Uuid",
                       target_branch,
+                      create_branch as "create_branch!: bool",
+                      checkout_branch,
                       created_at as "created_at!: DateTime<Utc>",
                       updated_at as "updated_at!: DateTime<Utc>"
                FROM workspace_repos
@@ -253,6 +304,8 @@ impl WorkspaceRepo {
                       wr.workspace_id as "workspace_id!: Uuid",
                       wr.repo_id as "repo_id!: Uuid",
                       wr.target_branch,
+                      wr.create_branch as "create_branch!: bool",
+                      wr.checkout_branch,
                       wr.created_at as "created_at!: DateTime<Utc>",
                       wr.updated_at as "updated_at!: DateTime<Utc>"
                FROM workspace_repos wr
@@ -337,5 +390,70 @@ impl WorkspaceRepo {
                 copy_files: row.copy_files,
             })
             .collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use uuid::Uuid;
+
+    use super::WorkspaceRepo;
+
+    fn workspace_repo(create_branch: bool, checkout_branch: Option<&str>) -> WorkspaceRepo {
+        WorkspaceRepo {
+            id: Uuid::new_v4(),
+            workspace_id: Uuid::new_v4(),
+            repo_id: Uuid::new_v4(),
+            target_branch: "main".to_string(),
+            create_branch,
+            checkout_branch: checkout_branch.map(str::to_string),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn create_branch_repos_use_workspace_branch() {
+        let repo = workspace_repo(true, Some("ignored-direct-branch"));
+
+        assert_eq!(repo.branch_name("vk/workspace"), "vk/workspace");
+    }
+
+    #[test]
+    fn direct_mode_repos_use_per_repo_checkout_branch() {
+        let repo_a = workspace_repo(false, Some("feature-a"));
+        let repo_b = workspace_repo(false, Some("feature-b"));
+
+        assert_eq!(repo_a.branch_name("vk/workspace"), "feature-a");
+        assert_eq!(repo_b.branch_name("vk/workspace"), "feature-b");
+    }
+
+    #[test]
+    fn direct_mode_keeps_source_branch_distinct_from_target_branch() {
+        let repo = workspace_repo(false, Some("feature"));
+
+        assert_eq!(repo.branch_name("vk/workspace"), "feature");
+        assert_eq!(repo.target_branch, "main");
+        assert_ne!(repo.branch_name("vk/workspace"), repo.target_branch);
+    }
+
+    #[test]
+    fn self_target_detection_handles_remote_tracking_branch_names() {
+        assert!(super::branch_names_conflict_as_self_target(
+            "main",
+            "origin/main",
+            true
+        ));
+        assert!(!super::branch_names_conflict_as_self_target(
+            "feature",
+            "origin/main",
+            true
+        ));
+        assert!(!super::branch_names_conflict_as_self_target(
+            "bar/baz",
+            "foo/bar/baz",
+            false
+        ));
     }
 }
