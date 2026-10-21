@@ -9,7 +9,7 @@ import type {
 import type { WorkspaceActions, SessionActions } from './WorkspaceShell';
 import { BUILT_IN_AGENT_TAB_ID } from '../modules/plugins/vibe-dashboard/craft-surfaces';
 import { getPreviewServerTabId } from '../modules/plugins/vibe-dashboard/react-craft-surfaces';
-import { loadVkWorkspaceRecord } from '../lib/vkWorkspaceRecord';
+import type { WorkspaceCreationOrigin } from '../lib/workspaceCreationTransition';
 
 interface UnifiedTabViewProps {
   tabGroups: TabGroup[];
@@ -33,6 +33,7 @@ interface UnifiedTabViewProps {
     spaceId: string,
   ) => Promise<void>;
   onOpenCraft: () => void;
+  onWorkspaceCreated: (origin: WorkspaceCreationOrigin) => Promise<void>;
 }
 
 export function UnifiedTabView({
@@ -52,6 +53,7 @@ export function UnifiedTabView({
   onNavigateToTabGroup,
   onOpenVKWorkspace,
   onOpenCraft,
+  onWorkspaceCreated,
 }: UnifiedTabViewProps) {
   const activeTabGroup = tabGroups.find((tg) => tg.id === activeTabGroupId);
   const activeItemId = activeTabGroup
@@ -120,18 +122,17 @@ export function UnifiedTabView({
             }}
             onWorkspaceCreated={(workspaceId) => {
               void (async () => {
-                const created = await loadVkWorkspaceRecord(workspaceId);
                 const spaceId =
                   workspace.spaces.find((space) =>
                     space.tabGroupIds.includes(activeTabGroup.id),
                   )?.id ?? workspace.spaces[0]?.id;
                 if (!spaceId) throw new Error('No voyage space is available');
-                await onOpenVKWorkspace(
-                  created.id,
-                  created.name ?? created.branch,
-                  created.container_ref ?? '',
+                await onWorkspaceCreated({
+                  workspaceId,
+                  sourceTabGroupId: activeTabGroup.id,
                   spaceId,
-                );
+                  sessionId: currentSessionId,
+                });
               })().catch((error) => {
                 console.error('Failed to open the created workspace', error);
               });

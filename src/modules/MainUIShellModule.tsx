@@ -879,6 +879,7 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
       },
       openVKWorkspaceInSavedSession: async (args: {
         sessionId: string;
+        select?: boolean;
         taskAttemptId: string;
         name: string;
         containerRef: string;

@@ -1122,6 +1122,7 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
 
     openVKWorkspaceInSavedSession: async (args: {
       sessionId: string;
+      select?: boolean;
       taskAttemptId: string;
       name: string;
       containerRef: string;
@@ -1182,9 +1183,11 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         target.voyageEntries = existingEntry
           ? target.voyageEntries
           : [...target.voyageEntries, activeEntry];
-        target.activeVoyageEntryId = activeEntry.id;
-        target.activeSpaceId = selection!.spaceId;
-        target.activeTabGroupId = selection!.tabGroupId;
+        if (args.select !== false) {
+          target.activeVoyageEntryId = activeEntry.id;
+          target.activeSpaceId = selection!.spaceId;
+          target.activeTabGroupId = selection!.tabGroupId;
+        }
         target.activeItemsByVoyageEntryId = {
           ...target.activeItemsByVoyageEntryId,
           [activeEntry.id]: activeItemId,

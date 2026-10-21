@@ -154,11 +154,17 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
     await createWorkspaceFrame
       .getByRole('textbox', { name: 'Markdown editor' })
       .fill(`${promptTitle}\n\n${promptBody}`);
+    const creationCraft = page.getByRole('button', {
+      name: /^Open Create Workspace in /,
+    });
+    await expect(creationCraft.first()).toBeVisible();
     await createWorkspaceFrame
       .getByRole('button', { name: 'Create' })
       .click();
 
     const agentChat = page.getByTestId('inline-vk-agent-chat').last();
+    await expect(agentChat).toBeVisible();
+    await expect(creationCraft).toHaveCount(0);
     await expect(agentChat).toContainText(
       'System initialized with model: qa-mock',
       { timeout: 60_000 },

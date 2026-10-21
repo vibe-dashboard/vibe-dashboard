@@ -40,6 +40,7 @@ import {
   tabGroupHasEphemeralCraftSurfaceTab,
 } from "../modules/plugins/vibe-dashboard/craft-surfaces";
 import { getVoyageEntryIdAfterClosingCraft } from "../lib/voyageFallback";
+import { useWorkspaceCreationTransition } from "../hooks/useWorkspaceCreationTransition";
 
 const MOBILE_TAB_EMOJI_CHOICES = [
   "🚀",
@@ -192,6 +193,7 @@ export type WorkspaceActions = {
   >;
   openVKWorkspaceInSavedSession: (args: {
     sessionId: string;
+    select?: boolean;
     taskAttemptId: string;
     name: string;
     containerRef: string;
@@ -1193,6 +1195,16 @@ export function WorkspaceShell({
       containerRef,
     });
   };
+
+  const handleWorkspaceCreated = useWorkspaceCreationTransition({
+    workspace: effectiveWorkspace,
+    currentSessionId,
+    activeTabGroupId: session.activeTabGroupId,
+    savedSessions,
+    actions,
+    sessionActions,
+    resolveComposition: resolveVKWorkspaceComposition,
+  });
 
   const handleWorkspaceSearchAddToSpace = async (
     workspaceId: string,
@@ -2355,6 +2367,7 @@ export function WorkspaceShell({
             }}
             onNavigateToTabGroup={handleNavigateToWorkspaceTabGroup}
             onOpenVKWorkspace={handleWorkspaceSearchAddToSpace}
+            onWorkspaceCreated={handleWorkspaceCreated}
             onOpenCraft={() => {
               setPendingOpenCraftSessionId(null);
               setWorkspaceSearchMode("session-add");

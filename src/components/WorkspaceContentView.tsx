@@ -2,6 +2,7 @@ import React from 'react';
 import { UnifiedTabView } from './UnifiedTabView';
 import type { TabGroup, WorkspaceState, SavedWorkspaceSession } from '../types';
 import type { WorkspaceActions, SessionActions } from './WorkspaceShell';
+import type { WorkspaceCreationOrigin } from '../lib/workspaceCreationTransition';
 
 interface WorkspaceContentViewProps {
   activeTabGroups: TabGroup[];
@@ -28,6 +29,7 @@ interface WorkspaceContentViewProps {
     spaceId: string,
   ) => Promise<void>;
   onOpenCraft: () => void;
+  onWorkspaceCreated: (origin: WorkspaceCreationOrigin) => Promise<void>;
 }
 
 export function WorkspaceContentView({
@@ -50,6 +52,7 @@ export function WorkspaceContentView({
   onNavigateToTabGroup,
   onOpenVKWorkspace,
   onOpenCraft,
+  onWorkspaceCreated,
 }: WorkspaceContentViewProps) {
   if (activeTabGroups.length === 0) {
     return (
@@ -79,6 +82,7 @@ export function WorkspaceContentView({
       onNavigateToTabGroup={onNavigateToTabGroup}
       onOpenVKWorkspace={onOpenVKWorkspace}
       onOpenCraft={onOpenCraft}
+      onWorkspaceCreated={onWorkspaceCreated}
     />
   );
 }
