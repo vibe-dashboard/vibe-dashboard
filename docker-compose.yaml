@@ -116,6 +116,8 @@ services:
       - claude-data:/home/vkuser/.claude
       # Persist Codex CLI/IDE auth cache (~/.codex/auth.json)
       - codex-data:/home/vkuser/.codex
+      # Persist OpenCode credentials and session data
+      - opencode-data:/home/vkuser/.local/share/opencode
       # Persist agent skills/configuration
       - agents-data:/home/vkuser/.agents
       # Persist per-instance XDG configuration, including Git, GitHub CLI,
@@ -235,6 +237,7 @@ volumes:
   user-config:
   beads-data:
   codex-data:
+  opencode-data:
   npm-global:
   npm-cache:
   pnpm-store:

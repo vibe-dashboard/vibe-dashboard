@@ -300,6 +300,7 @@ RUN groupadd -f vkadmin && \
     printf 'Defaults:vkuser umask=0002\nDefaults:vkuser umask_override\nvkuser ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/vkuser && \
     chmod 0440 /etc/sudoers.d/vkuser && \
     mkdir -p /home/vkuser/.local/share/vibe-kanban \
+             /home/vkuser/.local/share/opencode \
              /home/vkuser/.local/share/pnpm \
              /home/vkuser/.local/share/code-server \
              /home/vkuser/.config/code-server \

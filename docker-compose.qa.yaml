@@ -83,6 +83,7 @@ services:
       - code-server-data:/home/vkuser/.local/share/code-server
       - claude-data:/home/vkuser/.claude
       - codex-data:/home/vkuser/.codex
+      - opencode-data:/home/vkuser/.local/share/opencode
       - user-config:/home/vkuser/.config
       - beads-data:/home/vkuser/.beads
       - npm-cache:/home/vkuser/.npm
@@ -110,6 +111,8 @@ volumes:
     name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-claude-data
   codex-data:
     name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-codex-data
+  opencode-data:
+    name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-opencode-data
   user-config:
     name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-user-config
   beads-data:
