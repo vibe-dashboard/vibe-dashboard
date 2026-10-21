@@ -1177,6 +1177,40 @@ pub trait ContainerService {
         executor_action: &ExecutorAction,
         run_reason: &ExecutionProcessRunReason,
     ) -> Result<ExecutionProcess, ContainerError> {
+        self.start_execution_with_queue_id(
+            workspace,
+            session,
+            executor_action,
+            run_reason,
+            None,
+        )
+        .await
+    }
+
+    async fn start_execution_with_queue_id(
+        &self,
+        workspace: &Workspace,
+        session: &Session,
+        executor_action: &ExecutorAction,
+        run_reason: &ExecutionProcessRunReason,
+        queue_id: Option<Uuid>,
+    ) -> Result<ExecutionProcess, ContainerError> {
+        if let Some(queue_id) = queue_id
+            && let Some(existing) = ExecutionProcess::find_by_queue_id(&self.db().pool, queue_id).await?
+        {
+            let same_action = existing
+                .executor_action()
+                .ok()
+                .and_then(|action| serde_json::to_value(action).ok())
+                == serde_json::to_value(executor_action).ok();
+            if existing.session_id == session.id
+                && existing.run_reason == *run_reason
+                && same_action
+            {
+                return Ok(existing);
+            }
+            return Err(ExecutionProcessError::QueueEffectConflict { queue_id }.into());
+        }
         // Create new execution process record
         // Capture current HEAD per repository as the "before" commit for this execution
         let repositories =
@@ -1215,6 +1249,7 @@ pub trait ContainerService {
             &create_execution_process,
             Uuid::new_v4(),
             &repo_states,
+            queue_id,
         )
         .await?;
         self.msg_stores()
@@ -1228,6 +1263,13 @@ pub trait ContainerService {
                 .write()
                 .await
                 .remove(&execution_process.id);
+            let _ = ExecutionProcess::update_completion(
+                &self.db().pool,
+                execution_process.id,
+                ExecutionProcessStatus::Failed,
+                None,
+            )
+            .await;
             return Err(e.into());
         }
 
@@ -1264,6 +1306,13 @@ pub trait ContainerService {
                     .write()
                     .await
                     .remove(&execution_process.id);
+                let _ = ExecutionProcess::update_completion(
+                    &self.db().pool,
+                    execution_process.id,
+                    ExecutionProcessStatus::Failed,
+                    None,
+                )
+                .await;
                 return Err(e.into());
             }
         }

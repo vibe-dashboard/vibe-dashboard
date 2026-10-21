@@ -47,10 +47,9 @@ export function useSessionQueueInteraction({
       enabled: !!sessionId,
     });
 
-  const isQueued = queueStatus.status === 'queued';
-  const queuedMessageData = isQueued
-    ? (queueStatus as Extract<QueueStatus, { status: 'queued' }>).message
-    : null;
+  const isQueued = queueStatus.status !== 'empty';
+  const queuedMessageData =
+    queueStatus.status === 'empty' ? null : queueStatus.message;
   const queuedMessage = queuedMessageData?.data.message ?? null;
   const queuedConfig: ExecutorConfig | null =
     queuedMessageData?.data.executor_config ?? null;
@@ -65,6 +64,8 @@ export function useSessionQueueInteraction({
       executorConfig: ExecutorConfig;
     }) =>
       queueApi.queue(sessionId!, {
+        queue_id: crypto.randomUUID(),
+        owner: 'ui',
         message,
         executor_config: executorConfig,
         session_command: null,
@@ -76,7 +77,14 @@ export function useSessionQueueInteraction({
 
   // Mutation for cancelling the queue
   const cancelMutation = useMutation({
-    mutationFn: () => queueApi.cancel(sessionId!),
+    mutationFn: () => {
+      if (!queuedMessageData) throw new Error('No queued message to cancel');
+      return queueApi.cancel(
+        sessionId!,
+        queuedMessageData.id,
+        queuedMessageData.owner
+      );
+    },
     onSuccess: (status) => {
       queryClient.setQueryData([QUEUE_STATUS_KEY, sessionId], status);
     },

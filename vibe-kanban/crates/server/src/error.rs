@@ -372,6 +372,18 @@ impl IntoResponse for ApiError {
             ApiError::ExecutionProcess(ExecutionProcessError::ExecutionProcessNotFound) => {
                 ErrorInfo::not_found("ExecutionProcessError", "Execution process not found.")
             }
+            ApiError::ExecutionProcess(ExecutionProcessError::SessionBusy { session_id }) => {
+                ErrorInfo::conflict(
+                    "SessionBusy",
+                    format!("Session {session_id} already has an active coding-agent turn"),
+                )
+            }
+            ApiError::ExecutionProcess(ExecutionProcessError::QueueEffectConflict { queue_id }) => {
+                ErrorInfo::conflict(
+                    "QueueEffectConflict",
+                    format!("Queue effect {queue_id} is already correlated to different work"),
+                )
+            }
             ApiError::ExecutionProcess(_) => ErrorInfo::internal("ExecutionProcessError"),
 
             ApiError::GitService(GitServiceError::MergeConflicts { message, .. }) => {

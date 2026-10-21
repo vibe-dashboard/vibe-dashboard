@@ -1563,7 +1563,7 @@ export const queueApi = {
    */
   queue: async (
     sessionId: string,
-    data: DraftFollowUpData
+    data: DraftFollowUpData & { queue_id: string; owner: string }
   ): Promise<QueueStatus> => {
     const response = await makeRequest(`/api/sessions/${sessionId}/queue`, {
       method: 'POST',
@@ -1575,10 +1575,18 @@ export const queueApi = {
   /**
    * Cancel a queued follow-up message
    */
-  cancel: async (sessionId: string): Promise<QueueStatus> => {
-    const response = await makeRequest(`/api/sessions/${sessionId}/queue`, {
-      method: 'DELETE',
-    });
+  cancel: async (
+    sessionId: string,
+    queueId: string,
+    owner: string
+  ): Promise<QueueStatus> => {
+    const query = new URLSearchParams({ queue_id: queueId, owner });
+    const response = await makeRequest(
+      `/api/sessions/${sessionId}/queue?${query}`,
+      {
+        method: 'DELETE',
+      }
+    );
     return handleApiResponse<QueueStatus>(response);
   },
 

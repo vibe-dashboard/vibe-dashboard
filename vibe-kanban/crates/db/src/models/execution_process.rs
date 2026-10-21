@@ -34,6 +34,10 @@ pub enum ExecutionProcessError {
     InvalidExecutorAction,
     #[error("Validation error: {0}")]
     ValidationError(String),
+    #[error("Session {session_id} already has an active coding-agent turn")]
+    SessionBusy { session_id: Uuid },
+    #[error("Queue effect {queue_id} is already correlated to different work")]
+    QueueEffectConflict { queue_id: Uuid },
 }
 
 #[derive(Debug, Clone, Type, Serialize, Deserialize, PartialEq, TS)]
@@ -385,11 +389,12 @@ impl ExecutionProcess {
         data: &CreateExecutionProcess,
         process_id: Uuid,
         repo_states: &[CreateExecutionProcessRepoState],
-    ) -> Result<Self, sqlx::Error> {
+        queue_id: Option<Uuid>,
+    ) -> Result<Self, ExecutionProcessError> {
         let now = Utc::now();
         let executor_action_json = sqlx::types::Json(&data.executor_action);
 
-        sqlx::query!(
+        if let Err(error) = sqlx::query!(
             r#"INSERT INTO execution_processes (
                     id, session_id, run_reason, executor_action,
                     status, exit_code, started_at, completed_at, created_at, updated_at
@@ -406,13 +411,87 @@ impl ExecutionProcess {
             now
         )
         .execute(pool)
+        .await
+        {
+            if data.run_reason == ExecutionProcessRunReason::CodingAgent
+                && is_single_active_turn_violation(&error)
+            {
+                return Err(ExecutionProcessError::SessionBusy {
+                    session_id: data.session_id,
+                });
+            }
+            return Err(error.into());
+        }
+
+        if let Err(error) =
+            ExecutionProcessRepoState::create_many(pool, process_id, repo_states).await
+        {
+            let _ = Self::update_completion(pool, process_id, ExecutionProcessStatus::Failed, None)
+                .await;
+            return Err(error.into());
+        }
+
+        if let Some(queue_id) = queue_id
+            && let Err(error) = sqlx::query(
+                "INSERT INTO execution_process_queue_effects (queue_id, execution_process_id) VALUES (?, ?)",
+            )
+            .bind(queue_id)
+            .bind(process_id)
+            .execute(pool)
+            .await
+        {
+            let _ = Self::update_completion(
+                pool,
+                process_id,
+                ExecutionProcessStatus::Failed,
+                None,
+            )
+            .await;
+            if error.as_database_error().is_some_and(|database| database.is_unique_violation()) {
+                return Err(ExecutionProcessError::QueueEffectConflict { queue_id });
+            }
+            return Err(error.into());
+        }
+
+        match Self::find_by_id(pool, process_id).await {
+            Ok(Some(process)) => Ok(process),
+            Ok(None) => {
+                let _ = Self::update_completion(
+                    pool,
+                    process_id,
+                    ExecutionProcessStatus::Failed,
+                    None,
+                )
+                .await;
+                Err(ExecutionProcessError::ExecutionProcessNotFound)
+            }
+            Err(error) => {
+                let _ = Self::update_completion(
+                    pool,
+                    process_id,
+                    ExecutionProcessStatus::Failed,
+                    None,
+                )
+                .await;
+                Err(error.into())
+            }
+        }
+    }
+
+    pub async fn find_by_queue_id(
+        pool: &SqlitePool,
+        queue_id: Uuid,
+    ) -> Result<Option<Self>, sqlx::Error> {
+        let process_id = sqlx::query_scalar::<_, Uuid>(
+            "SELECT execution_process_id FROM execution_process_queue_effects WHERE queue_id = ?",
+        )
+        .bind(queue_id)
+        .fetch_optional(pool)
         .await?;
-
-        ExecutionProcessRepoState::create_many(pool, process_id, repo_states).await?;
-
-        Self::find_by_id(pool, process_id)
-            .await?
-            .ok_or(sqlx::Error::RowNotFound)
+        match process_id {
+            Some(process_id) => Self::find_by_id(pool, process_id).await,
+            None => Ok(None),
+        }
     }
 
     pub async fn was_stopped(pool: &SqlitePool, id: Uuid) -> bool {
@@ -681,5 +760,139 @@ impl ExecutionProcess {
         .await?;
 
         Ok(rows.into_iter().collect())
+    }
+}
+
+fn is_single_active_turn_violation(error: &sqlx::Error) -> bool {
+    error.as_database_error().is_some_and(|database| {
+        database.is_unique_violation()
+            && database
+                .message()
+                .contains("execution_processes.session_id")
+    })
+}
+
+#[cfg(test)]
+mod admission_tests {
+    use sqlx::{Executor, sqlite::SqlitePoolOptions};
+
+    use super::*;
+
+    async fn pool() -> SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        pool.execute(
+            "CREATE TABLE execution_processes (
+                id BLOB PRIMARY KEY,
+                session_id BLOB NOT NULL,
+                status TEXT NOT NULL,
+                run_reason TEXT NOT NULL
+            )",
+        )
+        .await
+        .unwrap();
+        pool
+    }
+
+    async fn apply_admission_migration(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+        sqlx::raw_sql(include_str!(
+            "../../migrations/20261020000000_enforce_single_active_coding_agent.sql"
+        ))
+        .execute(pool)
+        .await
+        .map(|_| ())
+    }
+
+    async fn insert(
+        pool: &SqlitePool,
+        id: Uuid,
+        session_id: Uuid,
+        status: &str,
+        run_reason: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "INSERT INTO execution_processes (id, session_id, status, run_reason)
+             VALUES (?, ?, ?, ?)",
+        )
+        .bind(id)
+        .bind(session_id)
+        .bind(status)
+        .bind(run_reason)
+        .execute(pool)
+        .await
+        .map(|_| ())
+    }
+
+    #[tokio::test]
+    async fn database_admission_allows_only_one_running_coding_agent() {
+        let pool = pool().await;
+        apply_admission_migration(&pool).await.unwrap();
+        let session = Uuid::new_v4();
+
+        insert(
+            &pool,
+            Uuid::new_v4(),
+            session,
+            "running",
+            "codingagent",
+        )
+        .await
+        .unwrap();
+        let conflict = insert(
+            &pool,
+            Uuid::new_v4(),
+            session,
+            "running",
+            "codingagent",
+        )
+        .await
+        .unwrap_err();
+        assert!(is_single_active_turn_violation(&conflict));
+
+        insert(
+            &pool,
+            Uuid::new_v4(),
+            session,
+            "running",
+            "setupscript",
+        )
+        .await
+        .unwrap();
+        sqlx::query("UPDATE execution_processes SET status = 'completed' WHERE run_reason = 'codingagent'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        insert(
+            &pool,
+            Uuid::new_v4(),
+            session,
+            "running",
+            "codingagent",
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn migration_fails_closed_on_preexisting_overlap() {
+        let pool = pool().await;
+        let session = Uuid::new_v4();
+        for _ in 0..2 {
+            insert(
+                &pool,
+                Uuid::new_v4(),
+                session,
+                "running",
+                "codingagent",
+            )
+            .await
+            .unwrap();
+        }
+
+        let error = apply_admission_migration(&pool).await.unwrap_err();
+        assert!(error.as_database_error().is_some_and(|db| db.is_unique_violation()));
     }
 }

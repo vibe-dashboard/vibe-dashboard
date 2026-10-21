@@ -48,7 +48,7 @@ use services::services::{
     diff_stream::{self, DiffStreamHandle},
     file::FileService,
     notification::NotificationService,
-    queued_message::QueuedMessageService,
+    queued_message::{QueuedMessage, QueuedMessageService},
     remote_client::RemoteClient,
     remote_sync,
 };
@@ -741,17 +741,18 @@ impl LocalContainerService {
                         .is_some();
                     let mut started_queued_follow_up = false;
 
-                    // Only execute queued messages if the execution succeeded
-                    // If it failed or was killed, just clear the queue and finalize
+                    // Failed/killed predecessors leave the slot intact for explicit
+                    // cancellation or a later retry; never discard caller intent.
                     let should_execute_queued = !matches!(
                         ctx.execution_process.status,
                         ExecutionProcessStatus::Failed | ExecutionProcessStatus::Killed
                     );
 
-                    if let Some(queued_msg) =
-                        container.queued_message_service.take_queued(ctx.session.id)
-                    {
-                        if should_execute_queued {
+                    if should_execute_queued {
+                        if let Some(queued_msg) = container
+                            .queued_message_service
+                            .claim_queued(ctx.session.id)
+                        {
                             tracing::info!(
                                 "Found queued message for session {}, starting follow-up execution",
                                 ctx.session.id
@@ -772,26 +773,38 @@ impl LocalContainerService {
                             }
 
                             // Execute the queued follow-up
-                            if let Err(e) = container
-                                .start_queued_follow_up(&ctx, &queued_msg.data)
-                                .await
+                            if let Err(e) =
+                                container.start_queued_follow_up(&ctx, &queued_msg).await
                             {
                                 tracing::error!("Failed to start queued follow-up: {}", e);
-                                // Fall back to finalization if follow-up fails
+                                container
+                                    .queued_message_service
+                                    .release_claim(ctx.session.id, queued_msg.id);
                                 container.finalize_task(&ctx).await;
                             } else {
+                                if let Err(error) = container
+                                    .queued_message_service
+                                    .complete_claim(ctx.session.id, queued_msg.id)
+                                {
+                                    tracing::error!(
+                                        "Queued follow-up {} started but its slot could not be completed: {}",
+                                        queued_msg.id,
+                                        error
+                                    );
+                                }
                                 started_queued_follow_up = true;
                             }
                         } else {
-                            // Execution failed or was killed - discard the queued message and finalize
-                            tracing::info!(
-                                "Discarding queued message for session {} due to execution status {:?}",
-                                ctx.session.id,
-                                ctx.execution_process.status
-                            );
                             container.finalize_task(&ctx).await;
                         }
                     } else {
+                        if container.queued_message_service.has_queued(ctx.session.id) {
+                            tracing::info!(
+                                "Preserving queued message for session {} after execution status {:?}",
+                                ctx.session.id,
+                                ctx.execution_process.status
+                            );
+                        }
                         container.finalize_task(&ctx).await;
                     }
 
@@ -831,8 +844,9 @@ impl LocalContainerService {
                     .unwrap_or(true);
 
                     if !has_running_agent
-                        && let Some(queued_msg) =
-                            container.queued_message_service.take_queued(ctx.session.id)
+                        && let Some(queued_msg) = container
+                            .queued_message_service
+                            .claim_queued(ctx.session.id)
                     {
                         tracing::info!(
                             "Parallel setup script finished with queued message for session {}, starting follow-up",
@@ -849,13 +863,22 @@ impl LocalContainerService {
                             );
                         }
 
-                        if let Err(e) = container
-                            .start_queued_follow_up(&ctx, &queued_msg.data)
-                            .await
-                        {
+                        if let Err(e) = container.start_queued_follow_up(&ctx, &queued_msg).await {
+                            container
+                                .queued_message_service
+                                .release_claim(ctx.session.id, queued_msg.id);
                             tracing::error!(
                                 "Failed to start queued follow-up from setup script completion: {}",
                                 e
+                            );
+                        } else if let Err(error) = container
+                            .queued_message_service
+                            .complete_claim(ctx.session.id, queued_msg.id)
+                        {
+                            tracing::error!(
+                                "Queued follow-up {} started but its slot could not be completed: {}",
+                                queued_msg.id,
+                                error
                             );
                         }
                     }
@@ -1257,8 +1280,9 @@ impl LocalContainerService {
     async fn start_queued_follow_up(
         &self,
         ctx: &ExecutionContext,
-        queued_data: &DraftFollowUpData,
+        queued: &QueuedMessage,
     ) -> Result<ExecutionProcess, ContainerError> {
+        let queued_data = &queued.data;
         let executor_profile_id = queued_data.executor_config.profile_id();
 
         // Validate executor matches session if session has prior executions
@@ -1341,11 +1365,12 @@ impl LocalContainerService {
         };
         let action = ExecutorAction::new(action_type, cleanup_action.map(Box::new));
 
-        self.start_execution(
+        self.start_execution_with_queue_id(
             &ctx.workspace,
             &ctx.session,
             &action,
             &ExecutionProcessRunReason::CodingAgent,
+            Some(queued.id),
         )
         .await
     }
@@ -1673,9 +1698,6 @@ impl ContainerService for LocalContainerService {
             None
         };
 
-        ExecutionProcess::update_completion(&self.db.pool, execution_process.id, status, exit_code)
-            .await?;
-
         // Try graceful cancellation first, then force kill
         if let Some(cancel) = self.take_cancellation_token(&execution_process.id).await {
             cancel.cancel();
@@ -1708,6 +1730,10 @@ impl ContainerService for LocalContainerService {
                 return Err(e);
             }
         }
+        // Keep DB admission occupied until the OS child is confirmed stopped.
+        // Releasing it before kill/wait permits a replacement turn to overlap.
+        ExecutionProcess::update_completion(&self.db.pool, execution_process.id, status, exit_code)
+            .await?;
         self.remove_child_from_store(&execution_process.id).await;
 
         // Mark the process finished in the MsgStore and wait for DB persistence
