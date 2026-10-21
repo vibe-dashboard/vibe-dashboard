@@ -37,7 +37,7 @@ fi
 echo "::endgroup::"
 
 echo "Starting VK mocked sandbox; log: $SANDBOX_LOG"
-VK_MOCKED_SKIP_SETUP_COMMANDS=1 npm run dev:vk-mocked-sandbox >"$SANDBOX_LOG" 2>&1 &
+VK_MOCKED_SKIP_SETUP_COMMANDS=1 node --experimental-strip-types scripts/vk-mocked-sandbox.ts start >"$SANDBOX_LOG" 2>&1 &
 sandbox_pid=$!
 
 deadline=$((SECONDS + READY_TIMEOUT_SECONDS))
