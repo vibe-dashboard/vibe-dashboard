@@ -159,6 +159,10 @@ E2E_PORT=4273 npm run test:e2e
 
 Codex caches credentials in `~/.codex/auth.json` when configured for file-based storage; this is persisted via the `codex-data` Docker volume mounted at `/home/vkuser/.codex`.
 
+## OpenCode auth
+
+OpenCode stores credentials and session data in `~/.local/share/opencode`; this is persisted via the `opencode-data` Docker volume mounted at `/home/vkuser/.local/share/opencode`.
+
 ## Docker-in-Docker support
 
 The default workspace uses the normal `runc` runtime, so developers can start the editor and dashboard without installing Sysbox. Docker-in-Docker is disabled in that mode, and the host Docker socket is not exposed.
