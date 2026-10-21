@@ -86,10 +86,29 @@ To preview the plan without starting the servers:
 npm run prepare:vk-mocked-sandbox
 ```
 
-When validating VD against a VK release artifact from CI, use the CI-release
-convenience commands instead. They require an exact VK commit SHA and a
-successful `Release Binaries` run. They fail with source-mode guidance if no
-matching release exists and never fall back to local VK builds automatically.
+For remotely built VK servers, use the CI-release convenience commands below.
+They calculate the current checkout's VK content hash with
+`.github/scripts/vk-content-hash.sh` and download the matching
+`vk-assets-sha256-<hash>` GitHub Release from `vibe-dashboard/vibe-kanban`.
+Archives include the frontend. Manifest identity and archive checksums are
+verified before extraction. Missing releases fail without falling back to local
+builds. Normal runtime binaries support mocked responses with `VK_QA_MODE=1`;
+the compile-time `qa-mode` feature is not needed.
+
+```bash
+VK_CHECKOUT=vibe-kanban npm run prepare:vk-mocked-sandbox:ci-release
+VK_CHECKOUT=vibe-kanban npm run dev:vk-mocked-sandbox:ci-release
+scripts/ci-run-vk-mocked-sandbox-e2e.sh
+```
+
+The CI-style e2e wrapper defaults to remote mode. Set
+`VK_MOCKED_VK_BACKEND=source` explicitly for local builds. To pin a different
+release, set `VK_MOCKED_CONTENT_HASH=<64-character-sha256>`; only the default
+checkout-derived hash guarantees matching local VK content. Release files are
+stored under `.vk-mocked-sandbox/vk-runtime-releases/<tag>/<platform>`.
+
+Legacy standalone `Release Binaries` Actions artifacts remain available when
+an explicit `VK_MOCKED_RELEASE_SHA` is supplied:
 
 ```bash
 VK_MOCKED_RELEASE_SHA=ff79144e3842e5454ffc36b5546a1336ab4da993 \

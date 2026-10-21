@@ -5,6 +5,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { promisify } from 'node:util';
+import { VkRuntimeRelease } from './vk-runtime-release.ts';
 
 export interface SandboxPorts {
   vkBackend: number;
@@ -544,8 +545,12 @@ export function createSandboxPlan(input: {
   const vdRoot = resolve(workspaceRoot, 'vibe-kanban-vscode-web');
   const configuredVkCheckout = env.VK_CHECKOUT?.trim();
   const vkRoot = resolveVkCheckoutPath(workspaceRoot, vdRoot, configuredVkCheckout);
-  const ciReleaseArtifact = ciReleaseArtifactFromEnv(vdRoot, env);
-  if (ciReleaseArtifact && env.VK_MOCKED_PREBUILD_BACKEND === '1') {
+  const runtimeRelease = isCiReleaseBackend(env) && env.VK_MOCKED_CONTENT_HASH
+    ? new VkRuntimeRelease(vdRoot, env.VK_MOCKED_CONTENT_HASH)
+    : undefined;
+  const ciReleaseArtifact = runtimeRelease ? undefined : ciReleaseArtifactFromEnv(vdRoot, env);
+  const releaseArtifact = runtimeRelease ?? ciReleaseArtifact;
+  if (releaseArtifact && env.VK_MOCKED_PREBUILD_BACKEND === '1') {
     throw new Error(
       [
         'VK_MOCKED_PREBUILD_BACKEND is not supported in ci-release mode because it would locally build VK.',
@@ -556,7 +561,7 @@ export function createSandboxPlan(input: {
   const runDir = resolve(
     input.runDir ?? join(vdRoot, '.vk-mocked-sandbox', 'current'),
   );
-  const caddyfile = ciReleaseArtifact
+  const caddyfile = releaseArtifact
     ? caddyfileWithCiReleaseAssetRouting(input.caddyfile)
     : input.caddyfile;
   const vdUrl = `http://localhost:${input.ports.vdCaddy}`;
@@ -587,11 +592,23 @@ export function createSandboxPlan(input: {
   ].join(',');
 
   const canUsePrebuiltLocalWeb =
-    Boolean(ciReleaseArtifact) ||
+    Boolean(releaseArtifact) ||
     (env.VK_MOCKED_SKIP_LOCAL_WEB_BUILD === '1' &&
       existsSync(join(vkRoot, 'packages/local-web/dist/index.html')));
   const setupCommands: CommandSpec[] = [];
-  if (ciReleaseArtifact) {
+  if (runtimeRelease) {
+    setupCommands.push({
+      name: 'vk-download-runtime-release',
+      cwd: vdRoot,
+      command: 'node',
+      args: ['--experimental-strip-types', 'scripts/vk-mocked-sandbox.ts', 'download-runtime-release'],
+      env: {
+        ...commonEnv,
+        VK_MOCKED_CONTENT_HASH: runtimeRelease.contentHash,
+        VK_MOCKED_GH_REPO: env.VK_MOCKED_GH_REPO ?? DEFAULT_VK_GH_REPO,
+      },
+    });
+  } else if (ciReleaseArtifact) {
     setupCommands.push({
       name: 'vk-download-release-artifact',
       cwd: vdRoot,
@@ -647,11 +664,11 @@ export function createSandboxPlan(input: {
     });
   }
 
-  const vkBackendCommand: CommandSpec = ciReleaseArtifact
+  const vkBackendCommand: CommandSpec = releaseArtifact
     ? {
         name: 'vk-backend-ci-release',
         cwd: vkRoot,
-        command: ciReleaseArtifact.binaryPath,
+        command: releaseArtifact.binaryPath,
         args: [],
         env: {
           ...commonEnv,
@@ -874,6 +891,11 @@ async function stopChild(
 
 async function main(): Promise<void> {
   const mode = process.argv[2] ?? 'prepare';
+  if (mode === 'download-runtime-release') {
+    const release = await VkRuntimeRelease.forCheckout(process.cwd(), process.env);
+    await release.download(process.env.VK_MOCKED_GH_REPO);
+    return;
+  }
   if (mode === 'download-ci-release') {
     const workspaceRoot = resolve(process.cwd(), '..');
     const vdRoot = resolve(workspaceRoot, 'vibe-kanban-vscode-web');
@@ -889,7 +911,10 @@ async function main(): Promise<void> {
   const configuredVkCheckout = process.env.VK_CHECKOUT?.trim();
   const vkRoot = resolveVkCheckoutPath(workspaceRoot, vdRoot, configuredVkCheckout);
   let env = process.env;
-  if (isCiReleaseBackend(process.env)) {
+  if (isCiReleaseBackend(process.env) && !process.env.VK_MOCKED_RELEASE_SHA) {
+    const release = await VkRuntimeRelease.forCheckout(vdRoot, process.env);
+    env = { ...process.env, VK_MOCKED_CONTENT_HASH: release.contentHash };
+  } else if (isCiReleaseBackend(process.env)) {
     const artifact = await resolveCiReleaseArtifact(vdRoot, vkRoot, process.env);
     env = {
       ...process.env,

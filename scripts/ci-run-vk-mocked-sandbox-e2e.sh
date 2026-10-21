@@ -12,6 +12,8 @@ export VK_MOCKED_PREVIEW_PROXY_PORT="${VK_MOCKED_PREVIEW_PROXY_PORT:-50002}"
 export VK_MOCKED_VD_DASHBOARD_PORT="${VK_MOCKED_VD_DASHBOARD_PORT:-50003}"
 export VK_MOCKED_VD_SERVER_PORT="${VK_MOCKED_VD_SERVER_PORT:-50004}"
 export VK_MOCKED_CADDY_PORT="${VK_MOCKED_CADDY_PORT:-50005}"
+export VK_CHECKOUT="${VK_CHECKOUT:-vibe-kanban}"
+export VK_MOCKED_VK_BACKEND="${VK_MOCKED_VK_BACKEND:-ci-release}"
 
 cleanup() {
   if [[ -n "${sandbox_pid:-}" ]] && kill -0 "$sandbox_pid" 2>/dev/null; then
@@ -26,7 +28,11 @@ mkdir -p "$RUN_DIR"
 npm run e2e:vk-mocked-sandbox:reset -- --variant basic-seeded
 
 echo "::group::Prepare VK mocked sandbox"
-VK_MOCKED_PREBUILD_BACKEND=1 node --experimental-strip-types scripts/vk-mocked-sandbox.ts setup
+if [[ "$VK_MOCKED_VK_BACKEND" == "ci-release" ]]; then
+  node --experimental-strip-types scripts/vk-mocked-sandbox.ts setup
+else
+  VK_MOCKED_PREBUILD_BACKEND=1 node --experimental-strip-types scripts/vk-mocked-sandbox.ts setup
+fi
 echo "::endgroup::"
 
 echo "Starting VK mocked sandbox; log: $SANDBOX_LOG"
