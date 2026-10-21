@@ -15,8 +15,8 @@ use db::{
     models::{
         coding_agent_turn::CodingAgentTurn,
         execution_process::{
-            ExecutionContext, ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus,
-            QueueEffectLifecycle, QueueEffectReconciliation,
+            ExecutionContext, ExecutionProcess, ExecutionProcessError, ExecutionProcessRunReason,
+            ExecutionProcessStatus, QueueEffectLifecycle, QueueEffectReconciliation,
         },
         execution_process_repo_state::ExecutionProcessRepoState,
         repo::Repo,
@@ -106,6 +106,19 @@ fn classify_queued_start_error(
         QueueEffectLifecycle::Reserved | QueueEffectLifecycle::Indeterminate => {
             QueuedStartResult::Indeterminate(error)
         }
+    }
+}
+
+fn classify_queued_start_reconciliation(
+    queue_id: Uuid,
+    error: ContainerError,
+    reconciliation: Result<Option<QueueEffectReconciliation>, ExecutionProcessError>,
+) -> QueuedStartResult {
+    match reconciliation {
+        Ok(reconciliation) => classify_queued_start_error(queue_id, error, reconciliation),
+        Err(reconcile_error) => QueuedStartResult::Indeterminate(ContainerError::Other(anyhow!(
+            "queued execution failed and reconciliation also failed: {reconcile_error}; original error: {error}"
+        ))),
     }
 }
 
@@ -276,7 +289,10 @@ mod start_outcome_tests {
             classify_queued_start_error(
                 queue_id,
                 error(),
-                Some(reconciliation(QueueEffectLifecycle::FailedBeforeStart, None)),
+                Some(reconciliation(
+                    QueueEffectLifecycle::FailedBeforeStart,
+                    None
+                )),
             ),
             QueuedStartResult::NotAccepted(_)
         ));
@@ -293,6 +309,14 @@ mod start_outcome_tests {
                 queue_id,
                 error(),
                 Some(reconciliation(QueueEffectLifecycle::Started, None)),
+            ),
+            QueuedStartResult::Indeterminate(_)
+        ));
+        assert!(matches!(
+            classify_queued_start_reconciliation(
+                queue_id,
+                error(),
+                Err(ExecutionProcessError::ExecutionProcessNotFound),
             ),
             QueuedStartResult::Indeterminate(_)
         ));
@@ -1543,20 +1567,11 @@ impl LocalContainerService {
     ) -> QueuedStartResult {
         match self.start_queued_follow_up_inner(ctx, queued).await {
             Ok(process) => QueuedStartResult::Accepted(process),
-            Err(error) => match ExecutionProcess::reconcile_queue_effect(&self.db.pool, queued.id)
-                .await
-            {
-                Ok(reconciliation) => {
-                    classify_queued_start_error(queued.id, error, reconciliation)
-                }
-                Err(reconcile_error) => {
-                    QueuedStartResult::Indeterminate(ContainerError::Other(anyhow!(
-                        "queued execution failed and reconciliation also failed: {}; original error: {}",
-                        reconcile_error,
-                        error
-                    )))
-                }
-            },
+            Err(error) => classify_queued_start_reconciliation(
+                queued.id,
+                error,
+                ExecutionProcess::reconcile_queue_effect(&self.db.pool, queued.id).await,
+            ),
         }
     }
 

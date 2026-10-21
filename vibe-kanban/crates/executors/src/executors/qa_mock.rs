@@ -43,6 +43,14 @@ impl StandardCodingAgentExecutor for QaMockExecutor {
     ) -> Result<SpawnedChild, ExecutorError> {
         info!("QA Mock Executor: spawning mock execution");
 
+        if let Some(delay_ms) = prompt
+            .lines()
+            .find_map(|line| line.strip_prefix("QA_DELAY_BEFORE_SPAWN_MS="))
+            .and_then(|value| value.parse::<u64>().ok())
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(delay_ms.min(10_000))).await;
+        }
+
         // 1. Perform file operations before spawning the log output process
         perform_file_operations(current_dir).await;
 

@@ -124,6 +124,39 @@ test.describe.serial('auto-nudge compatibility with real VK QA-mode contracts', 
     } finally { await rm(value.dir, { recursive: true, force: true }); }
   });
 
+  test('queue cancellation and amendment lose once real consumption starts', async () => {
+    test.setTimeout(90_000); const value = await context();
+    try {
+      const target = await client.createSession({ workspace_id: value.workspace.id, executor: 'CODEX', name: `queue-consuming-${Date.now()}` });
+      const active = await client.sendMessage(target.id, body(`queue race predecessor ${Date.now()}`, target));
+      const queueId = randomUUID();
+      const owner = 'qa-consuming-race';
+      const queueBody = { queue_id: queueId, owner, message: 'QA_DELAY_BEFORE_SPAWN_MS=2000\nconsume once', executor_config: { executor: target.executor } };
+      expect((await api(`/api/sessions/${target.id}/queue`, { method: 'POST', body: JSON.stringify(queueBody) })).status).toBe(200);
+
+      await terminal(active.id);
+      await expect.poll(async () => {
+        const payload = await (await api(`/api/sessions/${target.id}/queue`)).json() as { data: { status: string } };
+        return payload.data.status;
+      }, { timeout: 15_000, intervals: [10, 20, 50] }).toBe('consuming');
+
+      const replay = await api(`/api/sessions/${target.id}/queue`, { method: 'POST', body: JSON.stringify(queueBody) });
+      expect(replay.status).toBe(200);
+      await expect(replay.json()).resolves.toMatchObject({ data: { status: 'consuming', message: { id: queueId, owner } } });
+      const cancel = await api(`/api/sessions/${target.id}/queue?queue_id=${queueId}&owner=${owner}`, { method: 'DELETE' });
+      expect(cancel.status).toBe(409);
+      await expect(cancel.text()).resolves.toContain('TooLate');
+      const amend = await api(`/api/sessions/${target.id}/queue`, { method: 'PUT', body: JSON.stringify({ ...queueBody, message: 'changed too late' }) });
+      expect(amend.status).toBe(409);
+      await expect(amend.text()).resolves.toContain('TooLate');
+
+      await expect.poll(async () => {
+        const payload = await (await api(`/api/sessions/${target.id}/queue/${queueId}/process`)).json() as { data: { lifecycle: string; process: ExecutionProcess | null } | null };
+        return payload.data && { lifecycle: payload.data.lifecycle, processId: payload.data.process?.id ?? null };
+      }, { timeout: 20_000 }).toEqual({ lifecycle: 'started', processId: expect.any(String) });
+    } finally { await rm(value.dir, { recursive: true, force: true }); }
+  });
+
   test('active QA work is visible through the real snapshot stream and suppresses monitor action', async () => {
     test.setTimeout(60_000); const value = await context();
     try {

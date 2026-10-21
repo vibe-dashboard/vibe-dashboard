@@ -35,9 +35,7 @@ impl CommandParts {
         let CommandParts { program, args } = self;
         let executable = resolve_executable_path(&program)
             .await
-            .ok_or_else(|| {
-                ExecutorError::ExecutableNotFound { program }.proven_not_spawned()
-            })?;
+            .ok_or_else(|| ExecutorError::ExecutableNotFound { program }.proven_not_spawned())?;
         Ok((executable, args))
     }
 }
@@ -191,5 +189,37 @@ pub fn apply_overrides(
         builder.extend_shell_params(extra.clone())
     } else {
         Ok(builder)
+    }
+}
+
+#[cfg(test)]
+mod spawn_boundary_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn missing_executable_is_proven_not_spawned_at_resolution_boundary() {
+        let missing = format!("vk-definitely-missing-{}", uuid::Uuid::new_v4());
+        let error = CommandParts::new(missing.clone(), vec![])
+            .into_resolved()
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            error.into_proven_not_spawned(),
+            Ok(ExecutorError::ExecutableNotFound { program }) if program == missing
+        ));
+    }
+
+    #[test]
+    fn command_build_failure_is_proven_not_spawned_before_resolution() {
+        let error = CommandBuilder::new("")
+            .build_initial()
+            .map_err(ExecutorError::from)
+            .unwrap_err();
+
+        assert!(matches!(
+            error.into_proven_not_spawned(),
+            Ok(ExecutorError::CommandBuild(CommandBuildError::EmptyCommand))
+        ));
     }
 }
