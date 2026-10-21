@@ -34,7 +34,14 @@ const execFileAsync = promisify(execFile);
 
 const repoRoot = process.cwd();
 const workspaceRoot = path.resolve(repoRoot, '..');
-const vkRoot = path.join(workspaceRoot, 'Vktest');
+export function resolveFixtureVkRoot(
+  root: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return path.resolve(root, env.VK_CHECKOUT?.trim() || 'Vktest');
+}
+
+const vkRoot = resolveFixtureVkRoot(workspaceRoot);
 const fixtureRoot = path.join(
   repoRoot,
   'tests/e2e/fixtures/vk-mocked-sandbox',

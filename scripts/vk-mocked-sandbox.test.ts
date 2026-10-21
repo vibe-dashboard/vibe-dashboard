@@ -26,9 +26,19 @@ import {
 import {
   isSandboxRuntimeProcessLine,
   isSandboxRuntimeProcessLineForWorkspace,
+  resolveFixtureVkRoot,
 } from './e2e-vk-mocked-sandbox-fixtures';
 
 describe('VK mocked sandbox helpers', () => {
+  it('resets fixtures in the same configured VK checkout used by the sandbox', () => {
+    expect(resolveFixtureVkRoot('/tmp/worktrees/example', {
+      VK_CHECKOUT: 'vibe-kanban-vscode-web/vibe-kanban',
+    })).toBe('/tmp/worktrees/example/vibe-kanban-vscode-web/vibe-kanban');
+    expect(resolveFixtureVkRoot('/tmp/worktrees/example', {
+      VK_CHECKOUT: '  ',
+    })).toBe('/tmp/worktrees/example/Vktest');
+  });
+
   it('terminates a timed-out setup command instead of orphaning it', async () => {
     const runDir = await mkdtemp(join(tmpdir(), 'vk-mocked-setup-timeout-'));
     const pidFile = join(runDir, 'pid');

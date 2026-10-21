@@ -67,8 +67,10 @@ pub enum BaseAgentCapability {
 pub enum ExecutorError {
     #[error("Follow-up is not supported: {0}")]
     FollowUpNotSupported(String),
+    #[error("process was proven not to have started: {0}")]
+    ProvenNotSpawned(Box<ExecutorError>),
     #[error(transparent)]
-    SpawnError(#[from] FuturesIoError),
+    SpawnError(FuturesIoError),
     #[error("Unknown executor type: {0}")]
     UnknownExecutorType(String),
     #[error("I/O error: {0}")]
@@ -82,13 +84,38 @@ pub enum ExecutorError {
     #[error(transparent)]
     ExecutorApprovalError(#[from] crate::approvals::ExecutorApprovalError),
     #[error(transparent)]
-    CommandBuild(#[from] CommandBuildError),
+    CommandBuild(CommandBuildError),
     #[error("Executable `{program}` not found in PATH")]
     ExecutableNotFound { program: String },
     #[error("Setup helper not supported")]
     SetupHelperNotSupported,
     #[error("Auth required: {0}")]
     AuthRequired(String),
+}
+
+impl ExecutorError {
+    pub fn proven_not_spawned(self) -> Self {
+        Self::ProvenNotSpawned(Box::new(self))
+    }
+
+    pub fn into_proven_not_spawned(self) -> Result<Self, Self> {
+        match self {
+            Self::ProvenNotSpawned(source) => Ok(*source),
+            other => Err(other),
+        }
+    }
+}
+
+impl From<FuturesIoError> for ExecutorError {
+    fn from(error: FuturesIoError) -> Self {
+        Self::SpawnError(error).proven_not_spawned()
+    }
+}
+
+impl From<CommandBuildError> for ExecutorError {
+    fn from(error: CommandBuildError) -> Self {
+        Self::CommandBuild(error).proven_not_spawned()
+    }
 }
 
 #[enum_dispatch]

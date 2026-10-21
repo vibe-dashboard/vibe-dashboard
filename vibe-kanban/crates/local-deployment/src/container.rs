@@ -81,9 +81,10 @@ where
 {
     match tokio::time::timeout(duration, spawn).await {
         Ok(Ok(spawned)) => Ok(spawned),
-        Ok(Err(error)) => Err(StartExecutionOutcome::Uncertain(ContainerError::from(
-            error,
-        ))),
+        Ok(Err(error)) => Err(match error.into_proven_not_spawned() {
+            Ok(error) => StartExecutionOutcome::NotSpawned(ContainerError::from(error)),
+            Err(error) => StartExecutionOutcome::Uncertain(ContainerError::from(error)),
+        }),
         Err(_) => Err(StartExecutionOutcome::Uncertain(ContainerError::Other(
             anyhow!(
                 "Timeout: process may have started but did not return within {} seconds",
@@ -171,6 +172,54 @@ mod start_outcome_tests {
         let _ = std::process::Command::new("kill")
             .args(["-KILL", &format!("-{pid}")])
             .status();
+    }
+
+    #[tokio::test]
+    async fn proven_pre_spawn_errors_are_retryable() {
+        let executable = spawn_with_timeout(
+            async {
+                Err(ExecutorError::ExecutableNotFound {
+                    program: "missing-agent".to_string(),
+                }
+                .proven_not_spawned())
+            },
+            Duration::from_secs(1),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(
+            executable,
+            StartExecutionOutcome::NotSpawned(ContainerError::ExecutorError(
+                ExecutorError::ExecutableNotFound { .. }
+            ))
+        ));
+
+        let command_build = spawn_with_timeout(
+            async {
+                Err(ExecutorError::from(
+                    executors::command::CommandBuildError::EmptyCommand,
+                ))
+            },
+            Duration::from_secs(1),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(
+            command_build,
+            StartExecutionOutcome::NotSpawned(ContainerError::ExecutorError(
+                ExecutorError::CommandBuild(_)
+            ))
+        ));
+    }
+
+    #[tokio::test]
+    async fn successful_spawn_is_started() {
+        let mut spawned = spawn_with_timeout(async { Ok(sleeping_child()) }, Duration::from_secs(1))
+            .await
+            .unwrap();
+        command::kill_process_group_confirmed(&mut spawned.child)
+            .await
+            .unwrap();
     }
 }
 
