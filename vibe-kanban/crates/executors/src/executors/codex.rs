@@ -675,7 +675,9 @@ impl Codex {
             .with_profile(&self.cmd)
             .apply_to_command(&mut process);
 
-        let mut child = process.group_spawn_no_window()?;
+        let mut child = process
+            .group_spawn_no_window()
+            .map_err(|error| ExecutorError::SpawnError(error).proven_not_spawned())?;
 
         let child_stdout = child.inner().stdout.take().ok_or_else(|| {
             ExecutorError::Io(std::io::Error::other("Codex app server missing stdout"))

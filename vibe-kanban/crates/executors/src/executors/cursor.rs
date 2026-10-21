@@ -211,7 +211,9 @@ impl StandardCodingAgentExecutor for CursorAgent {
             .with_profile(&self.cmd)
             .apply_to_command(&mut command);
 
-        let mut child = command.group_spawn_no_window()?;
+        let mut child = command
+            .group_spawn_no_window()
+            .map_err(|error| ExecutorError::SpawnError(error).proven_not_spawned())?;
 
         if let Some(mut stdin) = child.inner().stdin.take() {
             stdin.write_all(combined_prompt.as_bytes()).await?;
@@ -252,7 +254,9 @@ impl StandardCodingAgentExecutor for CursorAgent {
             .with_profile(&self.cmd)
             .apply_to_command(&mut command);
 
-        let mut child = command.group_spawn_no_window()?;
+        let mut child = command
+            .group_spawn_no_window()
+            .map_err(|error| ExecutorError::SpawnError(error).proven_not_spawned())?;
 
         if let Some(mut stdin) = child.inner().stdin.take() {
             stdin.write_all(combined_prompt.as_bytes()).await?;

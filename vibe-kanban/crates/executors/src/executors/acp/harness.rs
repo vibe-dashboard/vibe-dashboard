@@ -106,7 +106,9 @@ impl AcpAgentHarness {
             .with_profile(cmd_overrides)
             .apply_to_command(&mut command);
 
-        let mut child = command.group_spawn_no_window()?;
+        let mut child = command
+            .group_spawn_no_window()
+            .map_err(|error| ExecutorError::SpawnError(error).proven_not_spawned())?;
 
         let (exit_tx, exit_rx) = tokio::sync::oneshot::channel::<ExecutorExitResult>();
         let cancel = CancellationToken::new();
@@ -159,7 +161,9 @@ impl AcpAgentHarness {
             .with_profile(cmd_overrides)
             .apply_to_command(&mut command);
 
-        let mut child = command.group_spawn_no_window()?;
+        let mut child = command
+            .group_spawn_no_window()
+            .map_err(|error| ExecutorError::SpawnError(error).proven_not_spawned())?;
 
         let (exit_tx, exit_rx) = tokio::sync::oneshot::channel::<ExecutorExitResult>();
         let cancel = CancellationToken::new();

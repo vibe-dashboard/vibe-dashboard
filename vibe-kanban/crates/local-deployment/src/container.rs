@@ -1567,11 +1567,25 @@ impl LocalContainerService {
     ) -> QueuedStartResult {
         match self.start_queued_follow_up_inner(ctx, queued).await {
             Ok(process) => QueuedStartResult::Accepted(process),
-            Err(error) => classify_queued_start_reconciliation(
-                queued.id,
-                error,
-                ExecutionProcess::reconcile_queue_effect(&self.db.pool, queued.id).await,
-            ),
+            Err(error) => {
+                #[cfg(feature = "qa-mode")]
+                let reconciliation = if queued
+                    .data
+                    .message
+                    .lines()
+                    .any(|line| line == "QA_FAIL_QUEUE_RECONCILIATION")
+                {
+                    Err(ExecutionProcessError::CreateFailed(
+                        "QA fault: queue reconciliation failed".into(),
+                    ))
+                } else {
+                    ExecutionProcess::reconcile_queue_effect(&self.db.pool, queued.id).await
+                };
+                #[cfg(not(feature = "qa-mode"))]
+                let reconciliation =
+                    ExecutionProcess::reconcile_queue_effect(&self.db.pool, queued.id).await;
+                classify_queued_start_reconciliation(queued.id, error, reconciliation)
+            }
         }
     }
 

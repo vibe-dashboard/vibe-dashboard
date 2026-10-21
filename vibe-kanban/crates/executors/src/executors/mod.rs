@@ -108,7 +108,7 @@ impl ExecutorError {
 
 impl From<FuturesIoError> for ExecutorError {
     fn from(error: FuturesIoError) -> Self {
-        Self::SpawnError(error).proven_not_spawned()
+        Self::SpawnError(error)
     }
 }
 

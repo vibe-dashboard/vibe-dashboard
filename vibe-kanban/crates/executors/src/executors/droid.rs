@@ -130,7 +130,9 @@ async fn spawn_droid(
         .with_profile(cmd_overrides)
         .apply_to_command(&mut command);
 
-    let mut child = command.group_spawn_no_window()?;
+    let mut child = command
+        .group_spawn_no_window()
+        .map_err(|error| ExecutorError::SpawnError(error).proven_not_spawned())?;
 
     if let Some(mut stdin) = child.inner().stdin.take() {
         stdin.write_all(prompt.as_bytes()).await?;

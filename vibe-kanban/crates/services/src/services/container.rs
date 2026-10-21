@@ -92,6 +92,18 @@ pub enum StartExecutionOutcome {
     Uncertain(ContainerError),
 }
 
+#[cfg(feature = "qa-mode")]
+fn qa_action_has_marker(action: &ExecutorAction, marker: &str) -> bool {
+    let prompt = match action.typ() {
+        ExecutorActionType::CodingAgentInitialRequest(request) => request.prompt.as_str(),
+        ExecutorActionType::CodingAgentFollowUpRequest(request) => request.prompt.as_str(),
+        ExecutorActionType::CodingAgentSessionCommandRequest(request) => request.prompt.as_str(),
+        ExecutorActionType::ReviewRequest(request) => request.prompt.as_str(),
+        ExecutorActionType::ScriptRequest(_) => return false,
+    };
+    prompt.lines().any(|line| line == marker)
+}
+
 async fn persist_queue_start_outcome(
     pool: &sqlx::SqlitePool,
     queue_effect: Option<(Uuid, Uuid)>,
@@ -1526,13 +1538,35 @@ pub trait ContainerService {
         let start_outcome = self
             .start_execution_inner(workspace, &execution_process, executor_action)
             .await;
-        let start_error = match persist_queue_start_outcome(
+
+        #[cfg(feature = "qa-mode")]
+        if queue_effect.is_some()
+            && matches!(start_outcome, StartExecutionOutcome::Started)
+            && qa_action_has_marker(executor_action, "QA_FAIL_STARTED_PERSISTENCE")
+        {
+            return Err(ContainerError::Other(anyhow!(
+                "QA fault: failed to persist durable started lifecycle"
+            )));
+        }
+
+        let persisted_outcome = persist_queue_start_outcome(
             &self.db().pool,
             queue_effect.map(|(queue_id, _)| (queue_id, process_id)),
             start_outcome,
         )
-        .await?
+        .await?;
+
+        #[cfg(feature = "qa-mode")]
+        if queue_effect.is_some()
+            && matches!(persisted_outcome, StartExecutionOutcome::Started)
+            && qa_action_has_marker(executor_action, "QA_FAIL_POST_START_SETUP")
         {
+            return Err(ContainerError::Other(anyhow!(
+                "QA fault: post-start setup failed after durable acceptance"
+            )));
+        }
+
+        let start_error = match persisted_outcome {
             StartExecutionOutcome::Started => None,
             StartExecutionOutcome::NotSpawned(error) => Some((error, true)),
             StartExecutionOutcome::Uncertain(error) => Some((error, false)),

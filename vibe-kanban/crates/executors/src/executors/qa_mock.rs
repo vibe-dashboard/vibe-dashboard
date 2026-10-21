@@ -11,6 +11,7 @@ use async_trait::async_trait;
 use rand::seq::SliceRandom as _;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tracing::{info, warn};
 use ts_rs::TS;
 use workspace_utils::{command_ext::GroupSpawnNoWindowExt, msg_store::MsgStore};
@@ -51,6 +52,38 @@ impl StandardCodingAgentExecutor for QaMockExecutor {
             tokio::time::sleep(std::time::Duration::from_millis(delay_ms.min(10_000))).await;
         }
 
+        if prompt
+            .lines()
+            .any(|line| line == "QA_FAIL_STDIN_AFTER_SPAWN")
+        {
+            let mut command = tokio::process::Command::new("sh");
+            command
+                .arg("-c")
+                .arg("exec 0<&-; echo ready; sleep 10")
+                .current_dir(current_dir)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            let mut child = command
+                .group_spawn_no_window()
+                .map_err(|error| ExecutorError::SpawnError(error).proven_not_spawned())?;
+            let stdout = child.inner().stdout.take().ok_or_else(|| {
+                ExecutorError::Io(std::io::Error::other("QA child missing stdout after spawn"))
+            })?;
+            let mut ready = String::new();
+            BufReader::new(stdout).read_line(&mut ready).await?;
+            let mut stdin = child.inner().stdin.take().ok_or_else(|| {
+                ExecutorError::Io(std::io::Error::other("QA child missing stdin after spawn"))
+            })?;
+            stdin
+                .write_all(b"must fail after child closed stdin")
+                .await?;
+            stdin.shutdown().await?;
+            return Err(ExecutorError::Io(std::io::Error::other(
+                "QA stdin fault did not fail",
+            )));
+        }
+
         // 1. Perform file operations before spawning the log output process
         perform_file_operations(current_dir).await;
 
@@ -80,7 +113,9 @@ impl StandardCodingAgentExecutor for QaMockExecutor {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        let child = cmd.group_spawn_no_window().map_err(ExecutorError::Io)?;
+        let child = cmd
+            .group_spawn_no_window()
+            .map_err(|error| ExecutorError::SpawnError(error).proven_not_spawned())?;
         Ok(SpawnedChild::from(child))
     }
 

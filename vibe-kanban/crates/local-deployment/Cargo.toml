@@ -3,6 +3,9 @@ name = "local-deployment"
 version = "0.1.44"
 edition = "2024"
 
+[features]
+qa-mode = []
+
 [dependencies]
 api-types = { path = "../api-types" }
 db = { path = "../db" }

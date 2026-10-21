@@ -130,7 +130,9 @@ impl Opencode {
             .with_profile(&self.cmd)
             .apply_to_command(&mut command);
 
-        let child = command.group_spawn_no_window()?;
+        let child = command
+            .group_spawn_no_window()
+            .map_err(|error| ExecutorError::SpawnError(error).proven_not_spawned())?;
 
         Ok((child, server_password))
     }

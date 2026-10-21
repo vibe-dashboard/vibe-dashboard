@@ -244,7 +244,9 @@ impl ClaudeCode {
             command.env_remove("ANTHROPIC_API_KEY");
         }
 
-        let mut child = command.group_spawn_no_window()?;
+        let mut child = command
+            .group_spawn_no_window()
+            .map_err(|error| ExecutorError::SpawnError(error).proven_not_spawned())?;
         let stdout = child.inner().stdout.take().ok_or_else(|| {
             ExecutorError::Io(std::io::Error::other("Claude Code missing stdout"))
         })?;

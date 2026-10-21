@@ -75,4 +75,4 @@ tempfile = "3"
 
 [features]
 default = []
-qa-mode = ["services/qa-mode", "executors/qa-mode"]
+qa-mode = ["services/qa-mode", "executors/qa-mode", "local-deployment/qa-mode"]
