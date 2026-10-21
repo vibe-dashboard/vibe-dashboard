@@ -1,6 +1,5 @@
 use std::{
     collections::{HashMap, HashSet},
-    future::Future,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -86,13 +85,37 @@ pub enum ContainerError {
     Other(#[from] AnyhowError), // Catches any unclassified errors
 }
 
+#[derive(Debug)]
+pub enum StartExecutionOutcome {
+    NotSpawned(ContainerError),
+    Started,
+    Uncertain(ContainerError),
+}
+
+async fn persist_queue_start_outcome(
+    pool: &sqlx::SqlitePool,
+    queue_effect: Option<(Uuid, Uuid)>,
+    outcome: StartExecutionOutcome,
+) -> Result<StartExecutionOutcome, ContainerError> {
+    let Some((queue_id, process_id)) = queue_effect else {
+        return Ok(outcome);
+    };
+    let lifecycle = match outcome {
+        StartExecutionOutcome::Started => QueueEffectLifecycle::Started,
+        StartExecutionOutcome::NotSpawned(_) => QueueEffectLifecycle::FailedBeforeStart,
+        StartExecutionOutcome::Uncertain(_) => return Ok(outcome),
+    };
+    ExecutionProcess::set_queue_effect_lifecycle(pool, queue_id, process_id, lifecycle).await?;
+    Ok(outcome)
+}
+
 #[cfg(test)]
-mod queue_effect_start_tests {
+mod queue_start_outcome_tests {
     use sqlx::{Executor, sqlite::SqlitePoolOptions};
 
     use super::*;
 
-    async fn pool() -> sqlx::SqlitePool {
+    async fn setup() -> (sqlx::SqlitePool, CreateExecutionProcess) {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect("sqlite::memory:")
@@ -118,15 +141,17 @@ mod queue_effect_start_tests {
         .execute(&pool)
         .await
         .unwrap();
-        pool
-    }
-
-    fn data(session_id: Uuid, script: &str) -> CreateExecutionProcess {
-        CreateExecutionProcess {
+        let session_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO sessions (id) VALUES (?)")
+            .bind(session_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let data = CreateExecutionProcess {
             session_id,
             executor_action: ExecutorAction::new(
                 ExecutorActionType::ScriptRequest(ScriptRequest {
-                    script: script.to_string(),
+                    script: "echo queue start".into(),
                     language: ScriptRequestLanguage::Bash,
                     context: ScriptContext::SetupScript,
                     working_dir: None,
@@ -135,7 +160,8 @@ mod queue_effect_start_tests {
                 None,
             ),
             run_reason: ExecutionProcessRunReason::SetupScript,
-        }
+        };
+        (pool, data)
     }
 
     async fn reserve(
@@ -144,139 +170,78 @@ mod queue_effect_start_tests {
         process_id: Uuid,
         data: &CreateExecutionProcess,
     ) {
-        sqlx::query("INSERT INTO sessions (id) VALUES (?) ON CONFLICT DO NOTHING")
-            .bind(data.session_id)
-            .execute(pool)
-            .await
-            .unwrap();
         assert!(matches!(
-            ExecutionProcess::reserve_queue_effect(pool, queue_id, "workflow", process_id, data,)
+            ExecutionProcess::reserve_queue_effect(pool, queue_id, "workflow", process_id, data)
                 .await
                 .unwrap(),
             QueueEffectReservation::Proceed
         ));
     }
 
-    async fn lifecycle(pool: &sqlx::SqlitePool, queue_id: Uuid) -> String {
-        sqlx::query_scalar(
-            "SELECT lifecycle FROM execution_process_queue_effects WHERE queue_id = ?",
-        )
-        .bind(queue_id)
-        .fetch_one(pool)
-        .await
-        .unwrap()
-    }
-
     #[tokio::test]
-    async fn deterministic_start_failure_is_retryable_but_interrupted_start_is_not() {
-        let pool = pool().await;
-        let session_id = Uuid::new_v4();
-        let failed_queue = Uuid::new_v4();
-        let failed_process = Uuid::new_v4();
-        let failed_data = data(session_id, "echo retry");
-        reserve(&pool, failed_queue, failed_process, &failed_data).await;
-
-        let result = start_execution_with_queue_guard(
+    async fn only_not_spawned_allows_same_identity_retry() {
+        let (pool, data) = setup().await;
+        let retryable_id = Uuid::new_v4();
+        let retryable_process = Uuid::new_v4();
+        reserve(&pool, retryable_id, retryable_process, &data).await;
+        ExecutionProcess::set_queue_effect_lifecycle(
             &pool,
-            Some((failed_queue, failed_process)),
-            || async {
-                Err(ContainerError::Other(anyhow!(
-                    "deterministic spawn failure"
-                )))
-            },
-        )
-        .await;
-        assert!(result.is_err());
-        assert_eq!(lifecycle(&pool, failed_queue).await, "failed_before_start");
-
-        let retry = ExecutionProcess::reserve_queue_effect(
-            &pool,
-            failed_queue,
-            "workflow",
-            Uuid::new_v4(),
-            &failed_data,
+            retryable_id,
+            retryable_process,
+            QueueEffectLifecycle::Indeterminate,
         )
         .await
         .unwrap();
-        assert!(matches!(retry, QueueEffectReservation::Proceed));
-
-        let interrupted_queue = Uuid::new_v4();
-        let interrupted_process = Uuid::new_v4();
-        let interrupted_data = data(session_id, "echo never resend");
-        reserve(
+        persist_queue_start_outcome(
             &pool,
-            interrupted_queue,
-            interrupted_process,
-            &interrupted_data,
+            Some((retryable_id, retryable_process)),
+            StartExecutionOutcome::NotSpawned(ContainerError::Other(anyhow!("not spawned"))),
         )
-        .await;
-        let task_pool = pool.clone();
-        let task = tokio::spawn(async move {
-            start_execution_with_queue_guard(
-                &task_pool,
-                Some((interrupted_queue, interrupted_process)),
-                || std::future::pending::<Result<(), ContainerError>>(),
-            )
-            .await
-        });
-        tokio::time::timeout(std::time::Duration::from_secs(1), async {
-            loop {
-                if lifecycle(&pool, interrupted_queue).await == "indeterminate" {
-                    break;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
         .await
         .unwrap();
-        task.abort();
         assert!(matches!(
             ExecutionProcess::reserve_queue_effect(
                 &pool,
-                interrupted_queue,
+                retryable_id,
                 "workflow",
                 Uuid::new_v4(),
-                &interrupted_data,
+                &data,
+            )
+            .await
+            .unwrap(),
+            QueueEffectReservation::Proceed
+        ));
+
+        let uncertain_id = Uuid::new_v4();
+        let uncertain_process = Uuid::new_v4();
+        reserve(&pool, uncertain_id, uncertain_process, &data).await;
+        ExecutionProcess::set_queue_effect_lifecycle(
+            &pool,
+            uncertain_id,
+            uncertain_process,
+            QueueEffectLifecycle::Indeterminate,
+        )
+        .await
+        .unwrap();
+        persist_queue_start_outcome(
+            &pool,
+            Some((uncertain_id, uncertain_process)),
+            StartExecutionOutcome::Uncertain(ContainerError::Other(anyhow!("maybe spawned"))),
+        )
+        .await
+        .unwrap();
+        assert!(matches!(
+            ExecutionProcess::reserve_queue_effect(
+                &pool,
+                uncertain_id,
+                "workflow",
+                Uuid::new_v4(),
+                &data,
             )
             .await,
             Err(ExecutionProcessError::QueueEffectIndeterminate { .. })
         ));
     }
-}
-
-async fn start_execution_with_queue_guard<F, Fut>(
-    pool: &sqlx::SqlitePool,
-    queue_effect: Option<(Uuid, Uuid)>,
-    start: F,
-) -> Result<(), ContainerError>
-where
-    F: FnOnce() -> Fut,
-    Fut: Future<Output = Result<(), ContainerError>>,
-{
-    if let Some((queue_id, process_id)) = queue_effect {
-        ExecutionProcess::set_queue_effect_lifecycle(
-            pool,
-            queue_id,
-            process_id,
-            QueueEffectLifecycle::Indeterminate,
-        )
-        .await?;
-    }
-
-    if let Err(error) = start().await {
-        if let Some((queue_id, process_id)) = queue_effect {
-            let _ = ExecutionProcess::set_queue_effect_lifecycle(
-                pool,
-                queue_id,
-                process_id,
-                QueueEffectLifecycle::FailedBeforeStart,
-            )
-            .await;
-        }
-        return Err(error);
-    }
-
-    Ok(())
 }
 
 #[async_trait]
@@ -960,7 +925,7 @@ pub trait ContainerService {
         workspace: &Workspace,
         execution_process: &ExecutionProcess,
         executor_action: &ExecutorAction,
-    ) -> Result<(), ContainerError>;
+    ) -> StartExecutionOutcome;
 
     async fn stop_execution(
         &self,
@@ -1548,13 +1513,39 @@ pub trait ContainerService {
             )
         );
 
-        if let Err(start_error) = start_execution_with_queue_guard(
+        if let Some((queue_id, _)) = queue_effect {
+            ExecutionProcess::set_queue_effect_lifecycle(
+                &self.db().pool,
+                queue_id,
+                process_id,
+                QueueEffectLifecycle::Indeterminate,
+            )
+            .await?;
+        }
+
+        let start_outcome = self
+            .start_execution_inner(workspace, &execution_process, executor_action)
+            .await;
+        let start_error = match persist_queue_start_outcome(
             &self.db().pool,
             queue_effect.map(|(queue_id, _)| (queue_id, process_id)),
-            || self.start_execution_inner(workspace, &execution_process, executor_action),
+            start_outcome,
         )
-        .await
+        .await?
         {
+            StartExecutionOutcome::Started => None,
+            StartExecutionOutcome::NotSpawned(error) => Some((error, true)),
+            StartExecutionOutcome::Uncertain(error) => Some((error, false)),
+        };
+
+        if let Some((start_error, safe_to_release_admission)) = start_error {
+            if !safe_to_release_admission {
+                tracing::error!(
+                    execution_process_id = %execution_process.id,
+                    "Execution start is indeterminate; preserving running admission and queue effect"
+                );
+                return Err(start_error);
+            }
             self.msg_stores()
                 .write()
                 .await
@@ -1619,16 +1610,6 @@ pub trait ContainerService {
                 }
             };
             return Err(start_error);
-        }
-
-        if let Some((queue_id, _)) = queue_effect {
-            ExecutionProcess::set_queue_effect_lifecycle(
-                &self.db().pool,
-                queue_id,
-                process_id,
-                QueueEffectLifecycle::Started,
-            )
-            .await?;
         }
 
         if is_clear_session_command

@@ -1160,4 +1160,56 @@ mod admission_tests {
         assert_eq!(reconciliation.lifecycle, QueueEffectLifecycle::Started);
         assert_eq!(reconciliation.process.unwrap().id, created.id);
     }
+
+    #[tokio::test]
+    async fn indeterminate_tracked_process_holds_admission_and_refuses_replay() {
+        let pool = pool().await;
+        apply_admission_migration(&pool).await.unwrap();
+        let queue_id = Uuid::new_v4();
+        let session_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO sessions (id) VALUES (?)")
+            .bind(session_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let process_id = Uuid::new_v4();
+        let data = CreateExecutionProcess {
+            session_id,
+            executor_action: script_action("sleep 30"),
+            run_reason: ExecutionProcessRunReason::CodingAgent,
+        };
+        assert!(matches!(
+            ExecutionProcess::reserve_queue_effect(&pool, queue_id, "workflow", process_id, &data)
+                .await
+                .unwrap(),
+            QueueEffectReservation::Proceed
+        ));
+        ExecutionProcess::create(&pool, &data, process_id, &[])
+            .await
+            .unwrap();
+        ExecutionProcess::set_queue_effect_lifecycle(
+            &pool,
+            queue_id,
+            process_id,
+            QueueEffectLifecycle::Indeterminate,
+        )
+        .await
+        .unwrap();
+
+        assert!(matches!(
+            ExecutionProcess::create(&pool, &data, Uuid::new_v4(), &[]).await,
+            Err(ExecutionProcessError::SessionBusy { .. })
+        ));
+        assert!(matches!(
+            ExecutionProcess::reserve_queue_effect(
+                &pool,
+                queue_id,
+                "workflow",
+                Uuid::new_v4(),
+                &data,
+            )
+            .await,
+            Err(ExecutionProcessError::QueueEffectIndeterminate { .. })
+        ));
+    }
 }

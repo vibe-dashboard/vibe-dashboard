@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    future::Future,
     io,
     path::{Path, PathBuf},
     sync::Arc,
@@ -34,7 +35,10 @@ use executors::{
     },
     approvals::{ExecutorApprovalService, NoopExecutorApprovalService},
     env::{ExecutionEnv, RepoContext},
-    executors::{BaseCodingAgent, CancellationToken, ExecutorExitResult, ExecutorExitSignal},
+    executors::{
+        BaseCodingAgent, CancellationToken, ExecutorError, ExecutorExitResult, ExecutorExitSignal,
+        SpawnedChild,
+    },
     logs::{NormalizedEntryType, utils::patch::extract_normalized_entry_from_patch},
 };
 use futures::{FutureExt, TryStreamExt, stream::select};
@@ -44,7 +48,7 @@ use services::services::{
     analytics::AnalyticsContext,
     approvals::{Approvals, executor_approvals::ExecutorApprovalBridge},
     config::{Config, DEFAULT_COMMIT_REMINDER_PROMPT},
-    container::{ContainerError, ContainerRef, ContainerService},
+    container::{ContainerError, ContainerRef, ContainerService, StartExecutionOutcome},
     diff_stream::{self, DiffStreamHandle},
     file::FileService,
     notification::NotificationService,
@@ -67,6 +71,108 @@ use crate::{command, copy};
 const WORKSPACE_TOUCH_DEBOUNCE: Duration = Duration::from_mins(2);
 const WORKSPACE_SETUP_CONFIG_FILE: &str = "workspace-setup.toml";
 const DEFAULT_WORKSPACE_SETUP_TIMEOUT_SECONDS: u64 = 120;
+
+async fn spawn_with_timeout<F>(
+    spawn: F,
+    duration: Duration,
+) -> Result<SpawnedChild, StartExecutionOutcome>
+where
+    F: Future<Output = Result<SpawnedChild, ExecutorError>>,
+{
+    match tokio::time::timeout(duration, spawn).await {
+        Ok(Ok(spawned)) => Ok(spawned),
+        Ok(Err(error)) => Err(StartExecutionOutcome::Uncertain(ContainerError::from(
+            error,
+        ))),
+        Err(_) => Err(StartExecutionOutcome::Uncertain(ContainerError::Other(
+            anyhow!(
+                "Timeout: process may have started but did not return within {} seconds",
+                duration.as_secs()
+            ),
+        ))),
+    }
+}
+
+fn tracking_failure_outcome(
+    tracking_error: ContainerError,
+    termination: Result<(), ContainerError>,
+) -> StartExecutionOutcome {
+    match termination {
+        Ok(()) => StartExecutionOutcome::NotSpawned(tracking_error),
+        Err(cleanup_error) => StartExecutionOutcome::Uncertain(ContainerError::Other(anyhow!(
+            "failed to track spawned child: {tracking_error}; termination unconfirmed: {cleanup_error}"
+        ))),
+    }
+}
+
+#[cfg(test)]
+mod start_outcome_tests {
+    use std::{io, process::Stdio};
+
+    use utils::command_ext::GroupSpawnNoWindowExt;
+
+    use super::*;
+
+    fn sleeping_child() -> SpawnedChild {
+        let mut command = Command::new("sh");
+        command
+            .arg("-c")
+            .arg("sleep 30")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        command.group_spawn_no_window().unwrap().into()
+    }
+
+    #[tokio::test]
+    async fn tracking_failure_is_retryable_only_after_confirmed_termination() {
+        let mut terminated = sleeping_child();
+        let termination = command::kill_process_group_confirmed(&mut terminated.child).await;
+        assert!(matches!(
+            tracking_failure_outcome(ContainerError::Other(anyhow!("track failed")), termination),
+            StartExecutionOutcome::NotSpawned(_)
+        ));
+        assert!(terminated.child.try_wait().unwrap().is_some());
+
+        let mut uncertain = sleeping_child();
+        assert!(matches!(
+            tracking_failure_outcome(
+                ContainerError::Other(anyhow!("track failed")),
+                Err(ContainerError::KillFailed(io::Error::other("kill failed"))),
+            ),
+            StartExecutionOutcome::Uncertain(_)
+        ));
+        command::kill_process_group_confirmed(&mut uncertain.child)
+            .await
+            .unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn timeout_after_possible_spawn_is_uncertain() {
+        let (pid_tx, pid_rx) = tokio::sync::oneshot::channel();
+        let spawn = async move {
+            let mut child = sleeping_child();
+            pid_tx.send(child.child.inner().id().unwrap()).unwrap();
+            std::future::pending::<Result<SpawnedChild, ExecutorError>>().await
+        };
+        let outcome = spawn_with_timeout(spawn, Duration::from_millis(20))
+            .await
+            .unwrap_err();
+        assert!(matches!(outcome, StartExecutionOutcome::Uncertain(_)));
+
+        let pid = pid_rx.await.unwrap();
+        assert!(
+            std::process::Command::new("kill")
+                .args(["-0", &pid.to_string()])
+                .status()
+                .unwrap()
+                .success()
+        );
+        let _ = std::process::Command::new("kill")
+            .args(["-KILL", &format!("-{pid}")])
+            .status();
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct WorkspaceSetupConfig {
@@ -1596,73 +1702,75 @@ impl ContainerService for LocalContainerService {
         workspace: &Workspace,
         execution_process: &ExecutionProcess,
         executor_action: &ExecutorAction,
-    ) -> Result<(), ContainerError> {
-        // Get the worktree path
-        let container_ref = workspace
-            .container_ref
-            .as_ref()
-            .ok_or(ContainerError::Other(anyhow!(
-                "Container ref not found for workspace"
-            )))?;
-        let current_dir = PathBuf::from(container_ref);
+    ) -> StartExecutionOutcome {
+        let prepared = async {
+            let container_ref = workspace
+                .container_ref
+                .as_ref()
+                .ok_or(ContainerError::Other(anyhow!(
+                    "Container ref not found for workspace"
+                )))?;
+            let current_dir = PathBuf::from(container_ref);
+            let approvals_service: Arc<dyn ExecutorApprovalService> =
+                match executor_action.base_executor() {
+                    Some(
+                        BaseCodingAgent::Codex
+                        | BaseCodingAgent::ClaudeCode
+                        | BaseCodingAgent::Gemini
+                        | BaseCodingAgent::QwenCode
+                        | BaseCodingAgent::Opencode,
+                    ) => ExecutorApprovalBridge::new(
+                        self.approvals.clone(),
+                        self.db.clone(),
+                        self.notification_service.clone(),
+                        execution_process.id,
+                    ),
+                    _ => Arc::new(NoopExecutorApprovalService {}),
+                };
+            let repos =
+                WorkspaceRepo::find_repos_for_workspace(&self.db.pool, workspace.id).await?;
+            let repo_names: Vec<String> = repos.iter().map(|r| r.name.clone()).collect();
+            let repo_context = RepoContext::new(current_dir.clone(), repo_names);
+            let config = self.config.read().await;
+            let commit_reminder_enabled = config.commit_reminder_enabled;
+            let commit_reminder_prompt = config
+                .commit_reminder_prompt
+                .clone()
+                .unwrap_or_else(|| DEFAULT_COMMIT_REMINDER_PROMPT.to_string());
+            drop(config);
+            let mut env = ExecutionEnv::new(
+                repo_context,
+                commit_reminder_enabled,
+                commit_reminder_prompt,
+            );
+            env.insert("VK_WORKSPACE_ID", workspace.id.to_string());
+            env.insert("VK_WORKSPACE_BRANCH", &workspace.branch);
+            env.insert("VK_SESSION_ID", execution_process.session_id.to_string());
+            Ok::<_, ContainerError>((current_dir, approvals_service, env))
+        }
+        .await;
+        let (current_dir, approvals_service, env) = match prepared {
+            Ok(prepared) => prepared,
+            Err(error) => return StartExecutionOutcome::NotSpawned(error),
+        };
 
-        let approvals_service: Arc<dyn ExecutorApprovalService> =
-            match executor_action.base_executor() {
-                Some(
-                    BaseCodingAgent::Codex
-                    | BaseCodingAgent::ClaudeCode
-                    | BaseCodingAgent::Gemini
-                    | BaseCodingAgent::QwenCode
-                    | BaseCodingAgent::Opencode,
-                ) => ExecutorApprovalBridge::new(
-                    self.approvals.clone(),
-                    self.db.clone(),
-                    self.notification_service.clone(),
-                    execution_process.id,
-                ),
-                _ => Arc::new(NoopExecutorApprovalService {}),
-            };
-
-        let repos = WorkspaceRepo::find_repos_for_workspace(&self.db.pool, workspace.id).await?;
-        let repo_names: Vec<String> = repos.iter().map(|r| r.name.clone()).collect();
-        let repo_context = RepoContext::new(current_dir.clone(), repo_names);
-
-        let config = self.config.read().await;
-        let commit_reminder_enabled = config.commit_reminder_enabled;
-        let commit_reminder_prompt = config
-            .commit_reminder_prompt
-            .clone()
-            .unwrap_or_else(|| DEFAULT_COMMIT_REMINDER_PROMPT.to_string());
-        drop(config);
-        let mut env = ExecutionEnv::new(
-            repo_context,
-            commit_reminder_enabled,
-            commit_reminder_prompt,
-        );
-
-        // Always inject workspace/session context
-        env.insert("VK_WORKSPACE_ID", workspace.id.to_string());
-        env.insert("VK_WORKSPACE_BRANCH", &workspace.branch);
-        env.insert("VK_SESSION_ID", execution_process.session_id.to_string());
-
-        // Create the child and stream, add to execution tracker with timeout
-        let mut spawned = tokio::time::timeout(
-            Duration::from_secs(30),
+        // Once spawn has been polled, an error cannot prove that no child exists.
+        let mut spawned = match spawn_with_timeout(
             executor_action.spawn(&current_dir, approvals_service, &env),
+            Duration::from_secs(30),
         )
         .await
-        .map_err(|_| {
-            ContainerError::Other(anyhow!(
-                "Timeout: process took more than 30 seconds to start"
-            ))
-        })??;
+        {
+            Ok(spawned) => spawned,
+            Err(outcome) => return outcome,
+        };
 
         if let Err(e) = self
             .track_child_msgs_in_store(execution_process.id, &mut spawned.child)
             .await
         {
-            let _ = command::kill_process_group(&mut spawned.child).await;
-            return Err(e);
+            let termination = command::kill_process_group_confirmed(&mut spawned.child).await;
+            return tracking_failure_outcome(e, termination);
         }
 
         self.add_child_to_store(execution_process.id, spawned.child)
@@ -1678,7 +1786,7 @@ impl ContainerService for LocalContainerService {
         let hn = self.spawn_exit_monitor(&execution_process.id, spawned.exit_signal);
         self.add_exit_monitor_handle(execution_process.id, hn).await;
 
-        Ok(())
+        StartExecutionOutcome::Started
     }
 
     async fn stop_execution(
