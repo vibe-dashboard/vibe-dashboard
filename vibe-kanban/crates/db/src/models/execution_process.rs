@@ -1028,8 +1028,8 @@ mod admission_tests {
                 first_process,
                 &data,
             )
-                .await
-                .unwrap(),
+            .await
+            .unwrap(),
             QueueEffectReservation::Proceed
         ));
         assert!(matches!(
@@ -1061,8 +1061,8 @@ mod admission_tests {
                 retry_process,
                 &data,
             )
-                .await
-                .unwrap(),
+            .await
+            .unwrap(),
             QueueEffectReservation::Proceed
         ));
         ExecutionProcess::set_queue_effect_lifecycle(
