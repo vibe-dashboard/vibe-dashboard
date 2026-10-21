@@ -10,8 +10,12 @@ vi.mock('../core/context.js', () => ({ getSessionForRole: vi.fn() }));
 vi.mock('../core/session-file.js', () => ({ registerSession: vi.fn() }));
 
 const profiles: ExecutorProfiles = {
-  OPENCODE: { configurations: { DEFAULT: {}, DEEP_REVIEW: {} } },
-  CODEX: { configurations: { DEFAULT: {}, HIGH: {} } },
+  OPENCODE: {
+    DEFAULT: { OPENCODE: { auto_approve: true } },
+    DEEP_REVIEW: { OPENCODE: { auto_approve: true, variant: 'high' } },
+    recently_used_models: { models: ['openai/gpt-5'] },
+  },
+  CODEX: { DEFAULT: { CODEX: {} }, HIGH: { CODEX: {} } },
 };
 const catchUp = 'Use `vibe-agent full_summary` as a standalone command to catch up.';
 const session: Session = {
@@ -36,12 +40,12 @@ describe('send profile resolution', () => {
     expect(resolveSendProfile(profiles, 'Codex,High')).toEqual({ executor: 'CODEX', variant: 'HIGH' });
   });
 
-  it.each(['OpenCode', 'OpenCode,', ',Default', 'OpenCode,Default,extra', 'Missing,Default', 'OpenCode,Missing'])('rejects invalid selection %j', value => {
+  it.each(['OpenCode', 'OpenCode,', ',Default', 'OpenCode,Default,extra', 'Missing,Default', 'OpenCode,Missing', 'OpenCode,recently_used_models'])('rejects invalid selection %j', value => {
     expect(() => resolveSendProfile(profiles, value)).toThrow();
   });
 
   it('rejects ambiguous saved names', () => {
-    expect(() => resolveSendProfile({ OPENCODE: { configurations: { DEEP_REVIEW: {}, DEEPREVIEW: {} } } }, 'OpenCode,Deep Review')).toThrow(/ambiguous/);
+    expect(() => resolveSendProfile({ OPENCODE: { DEEP_REVIEW: {}, DEEPREVIEW: {} } }, 'OpenCode,Deep Review')).toThrow(/ambiguous/);
   });
 
   it('reads configurations from the live VK info response', async () => {
@@ -74,7 +78,7 @@ describe('send routing', () => {
     expect(registerSession).toHaveBeenCalledWith('workspace', 'new-session', 'reviewer');
     expect(client.sendMessage).toHaveBeenCalledExactlyOnceWith('new-session', expect.objectContaining({
       prompt: `Original message\n\n${catchUp}`,
-      executor_config: { executor: 'OPENCODE', variant: 'DEFAULT' },
+      executor_config: { executor: 'OPENCODE', variant: 'DEFAULT', reasoning_id: 'medium' },
     }));
   });
 
@@ -86,7 +90,7 @@ describe('send routing', () => {
     expect(registerSession).not.toHaveBeenCalled();
     expect(client.sendMessage).toHaveBeenCalledWith('existing-session', expect.objectContaining({
       prompt: 'Original message',
-      executor_config: { executor: 'OPENCODE', variant: selection.endsWith('Default') ? 'DEFAULT' : 'DEEP_REVIEW' },
+      executor_config: { executor: 'OPENCODE', variant: selection.endsWith('Default') ? 'DEFAULT' : 'DEEP_REVIEW', reasoning_id: 'medium' },
     }));
   });
 
@@ -94,7 +98,7 @@ describe('send routing', () => {
     vi.stubEnv('VIBE_AGENT_EXECUTOR_PROFILE', 'Codex,High');
     vi.mocked(getSessionForRole).mockResolvedValue({ ...session, executor: 'CODEX', name: role });
     await send([role, 'Review', '--json']);
-    expect(client.sendMessage).toHaveBeenCalledWith('existing-session', expect.objectContaining({ executor_config: { executor: 'CODEX', variant: 'HIGH' } }));
+    expect(client.sendMessage).toHaveBeenCalledWith('existing-session', expect.objectContaining({ executor_config: { executor: 'CODEX', variant: 'HIGH', reasoning_id: 'medium' } }));
   });
 
   it('fails invalid selection before session lookup or mutations', async () => {

@@ -111,9 +111,8 @@ export interface ApiResponse<T> {
 }
 
 // Request bodies
-export type ExecutorProfiles = Partial<Record<Executor, {
-  configurations: Record<string, unknown>;
-}>>;
+// VK flattens saved configuration names alongside recently_used_models metadata.
+export type ExecutorProfiles = Partial<Record<Executor, Record<string, unknown>>>;
 
 export interface CreateTaskBody {
   project_id: string;
@@ -154,6 +153,7 @@ export interface SendMessageBody {
   executor_config?: {
     executor: Executor;
     variant?: string;
+    reasoning_id?: string;
   };
   retry_process_id?: string | null;
   force_when_dirty?: boolean | null;

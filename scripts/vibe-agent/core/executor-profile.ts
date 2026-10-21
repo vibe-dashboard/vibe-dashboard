@@ -23,7 +23,7 @@ export function resolveSendProfile(
     throw new Error(`Unknown or ambiguous agent "${parts[0]}" in VIBE_AGENT_EXECUTOR_PROFILE. Available agents: ${Object.keys(profiles).join(', ')}`);
   }
   const executor = executors[0] as Executor;
-  const configurations = Object.keys(profiles[executor]!.configurations);
+  const configurations = Object.keys(profiles[executor]!).filter(key => key !== 'recently_used_models');
   const variants = configurations.filter(key => normalizeProfileName(key) === normalizeProfileName(parts[1]));
   if (variants.length !== 1) {
     throw new Error(`Unknown or ambiguous configuration "${parts[1]}" for ${executor}. Available configurations: ${configurations.join(', ')}`);

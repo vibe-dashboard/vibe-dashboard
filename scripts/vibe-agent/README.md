@@ -15,8 +15,10 @@ case-insensitively against VK's saved configurations; spaces, hyphens, and
 underscores are accepted when matching names. Unknown or ambiguous names fail
 before any session changes. An unset or blank value uses `OpenCode,Default`.
 
-VK loads the complete saved configuration, including its model, reasoning,
-prompt, command, and environment settings. Roles identify recipients and do not
+VK loads the saved configuration, including its model, prompt, command, and
+environment settings. Sends request `medium` reasoning through VK's
+`reasoning_id` override, taking precedence over the saved reasoning setting
+for executors/models that support it. Roles identify recipients and do not
 choose profiles. `submit`, `review`, `help`, and delayed `request-review` use the
 same send selection.
 

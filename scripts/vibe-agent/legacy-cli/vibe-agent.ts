@@ -1343,7 +1343,7 @@ export async function send(args: string[]): Promise<void> {
     // Send message using the live follow-up API shape
     const result = await client.sendMessage(session.id, {
       prompt: finalMessage,
-      executor_config: executorConfig,
+      executor_config: { ...executorConfig, reasoning_id: 'medium' },
       retry_process_id: null,
       force_when_dirty: null,
       perform_git_reset: null,
