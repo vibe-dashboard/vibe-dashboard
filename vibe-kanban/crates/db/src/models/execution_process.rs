@@ -456,23 +456,15 @@ impl ExecutionProcess {
         match Self::find_by_id(pool, process_id).await {
             Ok(Some(process)) => Ok(process),
             Ok(None) => {
-                let _ = Self::update_completion(
-                    pool,
-                    process_id,
-                    ExecutionProcessStatus::Failed,
-                    None,
-                )
-                .await;
+                let _ =
+                    Self::update_completion(pool, process_id, ExecutionProcessStatus::Failed, None)
+                        .await;
                 Err(ExecutionProcessError::ExecutionProcessNotFound)
             }
             Err(error) => {
-                let _ = Self::update_completion(
-                    pool,
-                    process_id,
-                    ExecutionProcessStatus::Failed,
-                    None,
-                )
-                .await;
+                let _ =
+                    Self::update_completion(pool, process_id, ExecutionProcessStatus::Failed, None)
+                        .await;
                 Err(error.into())
             }
         }
@@ -832,48 +824,26 @@ mod admission_tests {
         apply_admission_migration(&pool).await.unwrap();
         let session = Uuid::new_v4();
 
-        insert(
-            &pool,
-            Uuid::new_v4(),
-            session,
-            "running",
-            "codingagent",
-        )
-        .await
-        .unwrap();
-        let conflict = insert(
-            &pool,
-            Uuid::new_v4(),
-            session,
-            "running",
-            "codingagent",
-        )
-        .await
-        .unwrap_err();
-        assert!(is_single_active_turn_violation(&conflict));
-
-        insert(
-            &pool,
-            Uuid::new_v4(),
-            session,
-            "running",
-            "setupscript",
-        )
-        .await
-        .unwrap();
-        sqlx::query("UPDATE execution_processes SET status = 'completed' WHERE run_reason = 'codingagent'")
-            .execute(&pool)
+        insert(&pool, Uuid::new_v4(), session, "running", "codingagent")
             .await
             .unwrap();
-        insert(
-            &pool,
-            Uuid::new_v4(),
-            session,
-            "running",
-            "codingagent",
+        let conflict = insert(&pool, Uuid::new_v4(), session, "running", "codingagent")
+            .await
+            .unwrap_err();
+        assert!(is_single_active_turn_violation(&conflict));
+
+        insert(&pool, Uuid::new_v4(), session, "running", "setupscript")
+            .await
+            .unwrap();
+        sqlx::query(
+            "UPDATE execution_processes SET status = 'completed' WHERE run_reason = 'codingagent'",
         )
+        .execute(&pool)
         .await
         .unwrap();
+        insert(&pool, Uuid::new_v4(), session, "running", "codingagent")
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -881,18 +851,16 @@ mod admission_tests {
         let pool = pool().await;
         let session = Uuid::new_v4();
         for _ in 0..2 {
-            insert(
-                &pool,
-                Uuid::new_v4(),
-                session,
-                "running",
-                "codingagent",
-            )
-            .await
-            .unwrap();
+            insert(&pool, Uuid::new_v4(), session, "running", "codingagent")
+                .await
+                .unwrap();
         }
 
         let error = apply_admission_migration(&pool).await.unwrap_err();
-        assert!(error.as_database_error().is_some_and(|db| db.is_unique_violation()));
+        assert!(
+            error
+                .as_database_error()
+                .is_some_and(|db| db.is_unique_violation())
+        );
     }
 }

@@ -291,7 +291,10 @@ mod tests {
             Err(QueueError::TooLate { .. })
         ));
         service.release_claim(session, id);
-        assert_eq!(service.cancel_queued(session, id, "callback").unwrap().id, id);
+        assert_eq!(
+            service.cancel_queued(session, id, "callback").unwrap().id,
+            id
+        );
     }
 
     #[test]
@@ -304,12 +307,7 @@ mod tests {
             let barrier = barrier.clone();
             std::thread::spawn(move || {
                 barrier.wait();
-                service.queue_message(
-                    session,
-                    Uuid::new_v4(),
-                    message.into(),
-                    data(message),
-                )
+                service.queue_message(session, Uuid::new_v4(), message.into(), data(message))
             })
         });
         barrier.wait();

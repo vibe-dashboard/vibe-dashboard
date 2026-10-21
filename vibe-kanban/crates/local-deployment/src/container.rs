@@ -18,7 +18,7 @@ use db::{
         },
         execution_process_repo_state::ExecutionProcessRepoState,
         repo::Repo,
-        scratch::{DraftFollowUpData, Scratch, ScratchType},
+        scratch::{Scratch, ScratchType},
         session::{Session, SessionError},
         workspace::Workspace,
         workspace_repo::WorkspaceRepo,

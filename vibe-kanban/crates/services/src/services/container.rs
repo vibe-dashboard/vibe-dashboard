@@ -1177,14 +1177,8 @@ pub trait ContainerService {
         executor_action: &ExecutorAction,
         run_reason: &ExecutionProcessRunReason,
     ) -> Result<ExecutionProcess, ContainerError> {
-        self.start_execution_with_queue_id(
-            workspace,
-            session,
-            executor_action,
-            run_reason,
-            None,
-        )
-        .await
+        self.start_execution_with_queue_id(workspace, session, executor_action, run_reason, None)
+            .await
     }
 
     async fn start_execution_with_queue_id(
@@ -1196,7 +1190,8 @@ pub trait ContainerService {
         queue_id: Option<Uuid>,
     ) -> Result<ExecutionProcess, ContainerError> {
         if let Some(queue_id) = queue_id
-            && let Some(existing) = ExecutionProcess::find_by_queue_id(&self.db().pool, queue_id).await?
+            && let Some(existing) =
+                ExecutionProcess::find_by_queue_id(&self.db().pool, queue_id).await?
         {
             let same_action = existing
                 .executor_action()
