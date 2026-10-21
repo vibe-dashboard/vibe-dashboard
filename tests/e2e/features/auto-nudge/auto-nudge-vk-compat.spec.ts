@@ -1,5 +1,6 @@
 import { expect, test } from 'playwright/test';
 import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,6 +14,7 @@ const sandboxUrl = process.env.VK_MOCKED_SANDBOX_URL ?? 'http://localhost:50005'
 const client = new VibeClient(sandboxUrl);
 const cliPath = 'dist/vibe-agent/legacy-cli/vibe-agent.js';
 const body = (prompt: string, session: Session): SendMessageBody => ({ prompt, executor_config: { executor: session.executor }, retry_process_id: null, force_when_dirty: null, perform_git_reset: null });
+const api = (path: string, init?: RequestInit) => fetch(`${sandboxUrl}${path}`, { ...init, headers: { 'content-type': 'application/json', ...init?.headers } });
 async function runVibeAgent(args: string[], env: NodeJS.ProcessEnv): Promise<{ code: number; stdout: string; stderr: string }> {
   return await new Promise(resolve => {
     execFile(process.execPath, [cliPath, ...args], { env: { ...process.env, ...env } }, (error, stdout, stderr) => {
@@ -39,6 +41,58 @@ async function context() {
 }
 
 test.describe.serial('auto-nudge compatibility with real VK QA-mode contracts', () => {
+  test('VK atomically admits one concurrent follow-up and rejects the rest as busy', async () => {
+    test.setTimeout(60_000); const value = await context();
+    try {
+      const target = await client.createSession({ workspace_id: value.workspace.id, executor: 'CODEX', name: `atomic-admission-${Date.now()}` });
+      const requests = Array.from({ length: 4 }, (_, index) => api(`/api/sessions/${target.id}/follow-up`, {
+        method: 'POST',
+        body: JSON.stringify(body(`concurrent follow-up ${index}`, target)),
+      }));
+      const responses = await Promise.all(requests);
+      expect(responses.filter(response => response.status === 200)).toHaveLength(1);
+      expect(responses.filter(response => response.status === 409)).toHaveLength(3);
+      for (const response of responses.filter(response => response.status === 409)) {
+        await expect(response.text()).resolves.toContain('SessionBusy');
+      }
+      const accepted = responses.find(response => response.status === 200)!;
+      const payload = await accepted.json() as { data: ExecutionProcess };
+      await terminal(payload.data.id);
+    } finally { await rm(value.dir, { recursive: true, force: true }); }
+  });
+
+  test('VK queue HTTP API preserves identity and never replaces an occupied slot', async () => {
+    test.setTimeout(60_000); const value = await context();
+    try {
+      const target = await client.createSession({ workspace_id: value.workspace.id, executor: 'CODEX', name: `owned-queue-${Date.now()}` });
+      const queueId = randomUUID();
+      const queueBody = { queue_id: queueId, owner: 'qa-owner', message: 'queued one', executor_config: { executor: target.executor } };
+      const queued = await api(`/api/sessions/${target.id}/queue`, { method: 'POST', body: JSON.stringify(queueBody) });
+      expect(queued.status).toBe(200);
+      await expect(queued.json()).resolves.toMatchObject({ data: { status: 'queued', message: { id: queueId, owner: 'qa-owner' } } });
+
+      const replay = await api(`/api/sessions/${target.id}/queue`, { method: 'POST', body: JSON.stringify(queueBody) });
+      expect(replay.status).toBe(200);
+      await expect(replay.json()).resolves.toMatchObject({ data: { status: 'queued', message: { id: queueId, owner: 'qa-owner' } } });
+
+      const changedPayload = await api(`/api/sessions/${target.id}/queue`, { method: 'POST', body: JSON.stringify({ ...queueBody, message: 'changed' }) });
+      expect(changedPayload.status).toBe(409);
+      const changedOwner = await api(`/api/sessions/${target.id}/queue`, { method: 'POST', body: JSON.stringify({ ...queueBody, owner: 'other-owner' }) });
+      expect(changedOwner.status).toBe(409);
+      const occupied = await api(`/api/sessions/${target.id}/queue`, { method: 'POST', body: JSON.stringify({ ...queueBody, queue_id: randomUUID() }) });
+      expect(occupied.status).toBe(409);
+
+      const amended = await api(`/api/sessions/${target.id}/queue`, { method: 'PUT', body: JSON.stringify({ ...queueBody, message: 'amended' }) });
+      expect(amended.status).toBe(200);
+      await expect(amended.json()).resolves.toMatchObject({ data: { status: 'queued', message: { data: { message: 'amended' } } } });
+      const wrongCancel = await api(`/api/sessions/${target.id}/queue?queue_id=${queueId}&owner=other-owner`, { method: 'DELETE' });
+      expect(wrongCancel.status).toBe(409);
+      const cancelled = await api(`/api/sessions/${target.id}/queue?queue_id=${queueId}&owner=qa-owner`, { method: 'DELETE' });
+      expect(cancelled.status).toBe(200);
+      await expect(cancelled.json()).resolves.toMatchObject({ data: { status: 'empty' } });
+    } finally { await rm(value.dir, { recursive: true, force: true }); }
+  });
+
   test('active QA work is visible through the real snapshot stream and suppresses monitor action', async () => {
     test.setTimeout(60_000); const value = await context();
     try {
