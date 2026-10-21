@@ -16,6 +16,7 @@ use db::{
         coding_agent_turn::CodingAgentTurn,
         execution_process::{
             ExecutionContext, ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus,
+            QueueEffectLifecycle, QueueEffectReconciliation,
         },
         execution_process_repo_state::ExecutionProcessRepoState,
         repo::Repo,
@@ -71,6 +72,42 @@ use crate::{command, copy};
 const WORKSPACE_TOUCH_DEBOUNCE: Duration = Duration::from_mins(2);
 const WORKSPACE_SETUP_CONFIG_FILE: &str = "workspace-setup.toml";
 const DEFAULT_WORKSPACE_SETUP_TIMEOUT_SECONDS: u64 = 120;
+
+enum QueuedStartResult {
+    NotAccepted(ContainerError),
+    Accepted(ExecutionProcess),
+    Indeterminate(ContainerError),
+}
+
+fn classify_queued_start_error(
+    queue_id: Uuid,
+    error: ContainerError,
+    reconciliation: Option<QueueEffectReconciliation>,
+) -> QueuedStartResult {
+    let Some(reconciliation) = reconciliation else {
+        return QueuedStartResult::NotAccepted(error);
+    };
+    match reconciliation.lifecycle {
+        QueueEffectLifecycle::FailedBeforeStart => QueuedStartResult::NotAccepted(error),
+        QueueEffectLifecycle::Started => match reconciliation.process {
+            Some(process) => {
+                tracing::warn!(
+                    queue_id = %queue_id,
+                    process_id = %process.id,
+                    warning = %error,
+                    "Queued execution was durably accepted despite post-start error"
+                );
+                QueuedStartResult::Accepted(process)
+            }
+            None => QueuedStartResult::Indeterminate(ContainerError::Other(anyhow!(
+                "queue {queue_id} is started but its execution process is missing; original error: {error}"
+            ))),
+        },
+        QueueEffectLifecycle::Reserved | QueueEffectLifecycle::Indeterminate => {
+            QueuedStartResult::Indeterminate(error)
+        }
+    }
+}
 
 async fn spawn_with_timeout<F>(
     spawn: F,
@@ -214,12 +251,51 @@ mod start_outcome_tests {
 
     #[tokio::test]
     async fn successful_spawn_is_started() {
-        let mut spawned = spawn_with_timeout(async { Ok(sleeping_child()) }, Duration::from_secs(1))
-            .await
-            .unwrap();
+        let mut spawned =
+            spawn_with_timeout(async { Ok(sleeping_child()) }, Duration::from_secs(1))
+                .await
+                .unwrap();
         command::kill_process_group_confirmed(&mut spawned.child)
             .await
             .unwrap();
+    }
+
+    #[test]
+    fn queued_start_reconciliation_only_releases_proven_not_accepted_work() {
+        let queue_id = Uuid::new_v4();
+        let reconciliation = |lifecycle, process| QueueEffectReconciliation {
+            queue_id,
+            owner: "workflow".to_string(),
+            session_id: Uuid::new_v4(),
+            lifecycle,
+            process,
+        };
+        let error = || ContainerError::Other(anyhow!("injected scheduling error"));
+
+        assert!(matches!(
+            classify_queued_start_error(
+                queue_id,
+                error(),
+                Some(reconciliation(QueueEffectLifecycle::FailedBeforeStart, None)),
+            ),
+            QueuedStartResult::NotAccepted(_)
+        ));
+        assert!(matches!(
+            classify_queued_start_error(
+                queue_id,
+                error(),
+                Some(reconciliation(QueueEffectLifecycle::Indeterminate, None)),
+            ),
+            QueuedStartResult::Indeterminate(_)
+        ));
+        assert!(matches!(
+            classify_queued_start_error(
+                queue_id,
+                error(),
+                Some(reconciliation(QueueEffectLifecycle::Started, None)),
+            ),
+            QueuedStartResult::Indeterminate(_)
+        ));
     }
 }
 
@@ -928,26 +1004,38 @@ impl LocalContainerService {
                             }
 
                             // Execute the queued follow-up
-                            if let Err(e) =
-                                container.start_queued_follow_up(&ctx, &queued_msg).await
-                            {
-                                tracing::error!("Failed to start queued follow-up: {}", e);
-                                container
-                                    .queued_message_service
-                                    .release_claim(ctx.session.id, queued_msg.id);
-                                container.finalize_task(&ctx).await;
-                            } else {
-                                if let Err(error) = container
-                                    .queued_message_service
-                                    .complete_claim(ctx.session.id, queued_msg.id)
-                                {
+                            match container.start_queued_follow_up(&ctx, &queued_msg).await {
+                                QueuedStartResult::NotAccepted(error) => {
+                                    tracing::error!("Failed to start queued follow-up: {}", error);
+                                    container
+                                        .queued_message_service
+                                        .release_claim(ctx.session.id, queued_msg.id);
+                                    container.finalize_task(&ctx).await;
+                                }
+                                QueuedStartResult::Indeterminate(error) => {
                                     tracing::error!(
-                                        "Queued follow-up {} started but its slot could not be completed: {}",
-                                        queued_msg.id,
+                                        "Queued follow-up start is indeterminate; retaining consuming slot: {}",
                                         error
                                     );
                                 }
-                                started_queued_follow_up = true;
+                                QueuedStartResult::Accepted(process) => {
+                                    tracing::info!(
+                                        queue_id = %queued_msg.id,
+                                        process_id = %process.id,
+                                        "Queued follow-up durably accepted"
+                                    );
+                                    if let Err(error) = container
+                                        .queued_message_service
+                                        .complete_claim(ctx.session.id, queued_msg.id)
+                                    {
+                                        tracing::error!(
+                                            "Queued follow-up {} started but its slot could not be completed: {}",
+                                            queued_msg.id,
+                                            error
+                                        );
+                                    }
+                                    started_queued_follow_up = true;
+                                }
                             }
                         } else {
                             container.finalize_task(&ctx).await;
@@ -1018,23 +1106,39 @@ impl LocalContainerService {
                             );
                         }
 
-                        if let Err(e) = container.start_queued_follow_up(&ctx, &queued_msg).await {
-                            container
-                                .queued_message_service
-                                .release_claim(ctx.session.id, queued_msg.id);
-                            tracing::error!(
-                                "Failed to start queued follow-up from setup script completion: {}",
-                                e
-                            );
-                        } else if let Err(error) = container
-                            .queued_message_service
-                            .complete_claim(ctx.session.id, queued_msg.id)
-                        {
-                            tracing::error!(
-                                "Queued follow-up {} started but its slot could not be completed: {}",
-                                queued_msg.id,
-                                error
-                            );
+                        match container.start_queued_follow_up(&ctx, &queued_msg).await {
+                            QueuedStartResult::NotAccepted(error) => {
+                                container
+                                    .queued_message_service
+                                    .release_claim(ctx.session.id, queued_msg.id);
+                                tracing::error!(
+                                    "Failed to start queued follow-up from setup script completion: {}",
+                                    error
+                                );
+                            }
+                            QueuedStartResult::Indeterminate(error) => {
+                                tracing::error!(
+                                    "Queued follow-up from setup completion is indeterminate; retaining consuming slot: {}",
+                                    error
+                                );
+                            }
+                            QueuedStartResult::Accepted(process) => {
+                                tracing::info!(
+                                    queue_id = %queued_msg.id,
+                                    process_id = %process.id,
+                                    "Queued follow-up from setup completion durably accepted"
+                                );
+                                if let Err(error) = container
+                                    .queued_message_service
+                                    .complete_claim(ctx.session.id, queued_msg.id)
+                                {
+                                    tracing::error!(
+                                        "Queued follow-up {} started but its slot could not be completed: {}",
+                                        queued_msg.id,
+                                        error
+                                    );
+                                }
+                            }
                         }
                     }
                 }
@@ -1433,6 +1537,30 @@ impl LocalContainerService {
 
     /// Start a follow-up execution from a queued message
     async fn start_queued_follow_up(
+        &self,
+        ctx: &ExecutionContext,
+        queued: &QueuedMessage,
+    ) -> QueuedStartResult {
+        match self.start_queued_follow_up_inner(ctx, queued).await {
+            Ok(process) => QueuedStartResult::Accepted(process),
+            Err(error) => match ExecutionProcess::reconcile_queue_effect(&self.db.pool, queued.id)
+                .await
+            {
+                Ok(reconciliation) => {
+                    classify_queued_start_error(queued.id, error, reconciliation)
+                }
+                Err(reconcile_error) => {
+                    QueuedStartResult::Indeterminate(ContainerError::Other(anyhow!(
+                        "queued execution failed and reconciliation also failed: {}; original error: {}",
+                        reconcile_error,
+                        error
+                    )))
+                }
+            },
+        }
+    }
+
+    async fn start_queued_follow_up_inner(
         &self,
         ctx: &ExecutionContext,
         queued: &QueuedMessage,

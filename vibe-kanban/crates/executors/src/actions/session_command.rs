@@ -148,7 +148,9 @@ impl Executable for CodingAgentSessionCommandRequest {
             let profile_id = self.executor_config.profile_id();
             let mut agent = ExecutorConfigs::get_cached()
                 .get_coding_agent(&profile_id)
-                .ok_or(ExecutorError::UnknownExecutorType(profile_id.to_string()))?;
+                .ok_or_else(|| {
+                    ExecutorError::UnknownExecutorType(profile_id.to_string()).proven_not_spawned()
+                })?;
 
             if self.executor_config.has_overrides() {
                 agent.apply_overrides(&self.executor_config);
