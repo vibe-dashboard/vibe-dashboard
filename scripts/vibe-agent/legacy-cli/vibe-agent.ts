@@ -7,6 +7,7 @@ import * as path from 'path';
 import { execFileSync, spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { client } from '../core/client.js';
+import { resolveSendProfile } from '../core/executor-profile.js';
 import type { ConversationEntry, ExecutionProcess, Session } from '../types.js';
 import {
   WORKSPACE_DATA_DIR,
@@ -17,14 +18,15 @@ import {
 import {
   getAgentContext,
   getSessionForRole,
-  roleToExecutor,
 } from '../core/context.js';
 import { BASE_ROLES, isValidRole } from '../config.js';
 
 // Message helpers
 
-export function buildSendPrompt(message: string): string {
-  return message;
+export function buildSendPrompt(message: string, newSession = false): string {
+  return newSession
+    ? `${message}\n\nUse \`vibe-agent full_summary\` as a standalone command to catch up.`
+    : message;
 }
 
 
@@ -1257,7 +1259,7 @@ async function ensureSessionName(sessionId: string, currentName: string | null |
   await client.updateSession(sessionId, { name: role });
 }
 
-async function send(args: string[]): Promise<void> {
+export async function send(args: string[]): Promise<void> {
   let parsed: ParsedSendArgs;
   try {
     parsed = parseSendArgs(args);
@@ -1272,7 +1274,7 @@ async function send(args: string[]): Promise<void> {
   if (!targetRoleArg || !message) {
     console.error('Usage: vibe-agent send [--respond] <role> "<message>" [--timeout <duration>] [--json]');
     console.error(`Standard roles: ${BASE_ROLES.join(', ')} (or with suffix: reviewer-2, etc.), human`);
-    console.error('Custom roles are also allowed (use CODEX by default)');
+    console.error('Custom roles are also allowed (use the configured send profile)');
     process.exit(1);
   }
 
@@ -1285,7 +1287,7 @@ async function send(args: string[]): Promise<void> {
   if (!isValidRole(targetRoleArg)) {
     console.error(`Invalid role: ${targetRoleArg}`);
     console.error(`Standard roles: ${BASE_ROLES.join(', ')} (or with suffix: reviewer-2, etc.), human`);
-    console.error('Custom roles are also allowed (use CODEX by default)');
+    console.error('Custom roles are also allowed (use the configured send profile)');
     process.exit(1);
   }
 
@@ -1298,7 +1300,9 @@ async function send(args: string[]): Promise<void> {
   }
 
   try {
-    const executor = roleToExecutor(targetRole);
+    const executorConfig = resolveSendProfile(await client.getExecutorProfiles());
+    const { executor } = executorConfig;
+    let newSession = false;
 
     // Find existing session for target role
     let session = await getSessionForRole(workspaceId, targetRole);
@@ -1311,6 +1315,7 @@ async function send(args: string[]): Promise<void> {
         executor,
         name: targetRole,
       });
+      newSession = true;
       // Register the newly created session with the role
       registerSession(workspaceId, session.id, targetRole);
       if (!jsonOutput) {
@@ -1333,16 +1338,12 @@ async function send(args: string[]): Promise<void> {
       }
     }
 
-    // Send exactly the caller-provided message; do not prepend onboarding,
-    // quick-reference, or response instructions.
-    const finalMessage = buildSendPrompt(message);
+    const finalMessage = buildSendPrompt(message, newSession);
 
     // Send message using the live follow-up API shape
     const result = await client.sendMessage(session.id, {
       prompt: finalMessage,
-      executor_config: {
-        executor: session.executor,
-      },
+      executor_config: executorConfig,
       retry_process_id: null,
       force_when_dirty: null,
       perform_git_reset: null,
@@ -1569,14 +1570,14 @@ async function registerSelf(args: string[]): Promise<void> {
   if (!roleArg) {
     console.error('Usage: vibe-agent register-self <role> [--json]');
     console.error(`Standard roles: ${BASE_ROLES.join(', ')} (or with suffix: reviewer-2, etc.)`);
-    console.error('Custom roles are also allowed (use CODEX by default)');
+    console.error('Custom roles are also allowed');
     process.exit(1);
   }
 
   if (!isValidRole(roleArg)) {
     console.error(`Invalid role: ${roleArg}`);
     console.error(`Standard roles: ${BASE_ROLES.join(', ')} (or with suffix: reviewer-2, etc.)`);
-    console.error('Custom roles are also allowed (use CODEX by default)');
+    console.error('Custom roles are also allowed');
     process.exit(1);
   }
 
@@ -2225,7 +2226,7 @@ Commands:
   onboarding                   Print repo workflow conventions for agents
 
 Standard roles: ${BASE_ROLES.join(', ')} (or with suffix: reviewer-2, pm-3, etc.)
-Custom roles are also allowed (default to CODEX executor)
+Custom roles are also allowed. All send roles use the same configured executor profile.
 
 Environment variables:
   VK_WORKSPACE_ID    Workspace ID (required, set by VK)
@@ -2235,6 +2236,7 @@ Environment variables:
   VK_TASK_ID         Task ID
   VK_WORKSPACE_BRANCH  Workspace branch
   VIBE_API_URL       VK API URL (default: http://localhost:3007)
+  VIBE_AGENT_EXECUTOR_PROFILE  Saved VK agent,configuration (default: OpenCode,Default)
 `);
 }
 

@@ -3,7 +3,7 @@
 import { client } from './client.js';
 import { readSessionFile, getRoleForSession } from './session-file.js';
 import type { AgentContext, Session } from '../types.js';
-import { getRoleProfile, type Executor, type AgentRole } from '../config.js';
+import type { Executor, AgentRole } from '../config.js';
 
 /**
  * Detect the executor type based on environment.
@@ -122,14 +122,4 @@ export async function getSessionForRole(
   }
 
   return null;
-}
-
-/**
- * Map target role to executor type.
- * Uses ROLE_PROFILES to determine the executor for the base role.
- * Handles numbered roles (e.g., reviewer-2) by extracting the base role.
- */
-export function roleToExecutor(role: AgentRole): Executor {
-  const profile = getRoleProfile(role);
-  return profile.executor;
 }

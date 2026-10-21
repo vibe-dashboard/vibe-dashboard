@@ -111,6 +111,10 @@ export interface ApiResponse<T> {
 }
 
 // Request bodies
+export type ExecutorProfiles = Partial<Record<Executor, {
+  configurations: Record<string, unknown>;
+}>>;
+
 export interface CreateTaskBody {
   project_id: string;
   title: string;
@@ -149,6 +153,7 @@ export interface SendMessageBody {
   };
   executor_config?: {
     executor: Executor;
+    variant?: string;
   };
   retry_process_id?: string | null;
   force_when_dirty?: boolean | null;
