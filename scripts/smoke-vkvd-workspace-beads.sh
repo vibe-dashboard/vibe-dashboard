@@ -78,6 +78,7 @@ docker exec "$container_name" runuser -u vkuser -- sh -lc '
 
 repo_response="$(mktemp)"
 workspace_response="$(mktemp)"
+workspace_repo_response="$(mktemp)"
 
 curl -fsS \
   -H 'content-type: application/json' \
@@ -95,23 +96,56 @@ PY
 
 curl -fsS \
   -H 'content-type: application/json' \
-  -d "{\"workspace_id\":\"11111111-2222-4333-8444-555555555555\",\"name\":\"workspace-beads-smoke\",\"repos\":[{\"repo_id\":\"${repo_id}\",\"target_branch\":\"main\"}],\"linked_issue\":null,\"attachment_ids\":null}" \
-  "${api_base}/workspaces/create-only" > "$workspace_response"
+  -d '{"name":"workspace-beads-smoke"}' \
+  "${api_base}/workspaces" > "$workspace_response"
 
-read -r workspace_id workspace_dir < <(
+workspace_id="$(
   python3 - "$workspace_response" <<'PY'
 import json, sys
 payload = json.load(open(sys.argv[1]))
-workspace = payload.get("data", payload)["workspace"]
-print(workspace["id"], workspace["container_ref"])
+workspace = payload.get("data", payload)
+print(workspace["id"])
 PY
-)
+)"
+
+curl -fsS \
+  -H 'content-type: application/json' \
+  -d "{\"repo_id\":\"${repo_id}\",\"target_branch\":\"main\"}" \
+  "${api_base}/workspaces/${workspace_id}/repos" > "$workspace_repo_response"
+
+workspace_dir="$(
+  python3 - "$workspace_repo_response" <<'PY'
+import json, sys
+payload = json.load(open(sys.argv[1]))
+workspace = payload.get("data", payload)["workspace"]
+print(workspace["container_ref"])
+PY
+)"
 
 if [[ -z "$workspace_dir" || "$workspace_dir" == "null" ]]; then
   echo "VK workspace response did not include container_ref" >&2
   cat "$workspace_response" >&2
   exit 1
 fi
+
+echo "Running VD-owned workspace setup..."
+repos_json="$(python3 - "$repo_id" <<'PY'
+import json, sys
+print(json.dumps([{
+    "id": sys.argv[1],
+    "name": "workspace-beads-repo",
+    "displayName": "Workspace Beads Repo",
+    "path": "/home/vkuser/e2e/repos/workspace-beads-repo",
+    "targetBranch": "main",
+}]))
+PY
+)"
+docker exec \
+  -e "VK_WORKSPACE_ID=${workspace_id}" \
+  -e "VK_WORKSPACE_DIR=${workspace_dir}" \
+  -e "VK_WORKSPACE_REPOS_JSON=${repos_json}" \
+  "$container_name" \
+  runuser -u vkuser -- /var/lib/vd/vk-config/workspace-setup.sh
 
 persisted_beads="/var/lib/vd/beads/workspaces/${workspace_id}/.beads"
 aggregate_dir="/var/lib/vd/beads/aggregate-workspaces"
@@ -144,8 +178,9 @@ docker exec "$container_name" grep -Fq 'Workspace root smoke' /tmp/workspace-roo
 
 echo "Asserting aggregate workspace bead has repo metadata..."
 docker exec "$container_name" runuser -u vkuser -- sh -lc "BEADS_DIR='${aggregate_dir}/.beads' /usr/local/bin/bd -C '${aggregate_dir}' show '${aggregate_bead_id}' --json >/tmp/workspace-aggregate-bead.json"
-docker exec "$container_name" python3 - <<'PY'
+docker exec -e "EXPECTED_WORKSPACE_ID=${workspace_id}" "$container_name" python3 - <<'PY'
 import json
+import os
 from pathlib import Path
 
 payload = json.loads(Path('/tmp/workspace-aggregate-bead.json').read_text())
@@ -153,7 +188,7 @@ bead = payload[0] if isinstance(payload, list) else payload
 metadata = bead.get('metadata') or {}
 repos = metadata.get('repos') or []
 assert metadata.get('kind') == 'workspace', metadata
-assert metadata.get('vkWorkspaceId') == '11111111-2222-4333-8444-555555555555', metadata
+assert metadata.get('vkWorkspaceId') == os.environ['EXPECTED_WORKSPACE_ID'], metadata
 assert any(repo.get('name') == 'workspace-beads-repo' and repo.get('targetBranch') == 'main' for repo in repos), repos
 PY
 
