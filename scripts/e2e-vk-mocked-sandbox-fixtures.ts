@@ -43,7 +43,9 @@ const fixtureRoot = path.join(
 const canonicalRepoPath = '/home/vkuser/e2e/repos/basic-seeded-repo';
 const defaultVdDbPath = path.join(repoRoot, 'data/kv.db');
 const vdDbPath = path.resolve(process.env.SQLITE_DATABASE_FILE ?? defaultVdDbPath);
-const vkDevAssetsPath = path.join(vkRoot, 'dev_assets');
+const vkDevAssetsPath = process.env.VK_MOCKED_VK_BACKEND === 'ci-release'
+  ? path.resolve(repoRoot, process.env.VK_MOCKED_SANDBOX_RUN_DIR ?? '.vk-mocked-sandbox/current', 'xdg-data/vibe-kanban')
+  : path.join(vkRoot, 'dev_assets');
 const vkDbPath = path.join(vkDevAssetsPath, 'db.v2.sqlite');
 const vkSessionLogsPath = path.join(vkDevAssetsPath, 'sessions');
 const sandboxPlanPath = path.join(

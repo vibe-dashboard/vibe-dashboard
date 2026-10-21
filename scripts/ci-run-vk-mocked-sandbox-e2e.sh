@@ -14,6 +14,7 @@ export VK_MOCKED_VD_SERVER_PORT="${VK_MOCKED_VD_SERVER_PORT:-50004}"
 export VK_MOCKED_CADDY_PORT="${VK_MOCKED_CADDY_PORT:-50005}"
 export VK_CHECKOUT="${VK_CHECKOUT:-vibe-kanban}"
 export VK_MOCKED_VK_BACKEND="${VK_MOCKED_VK_BACKEND:-ci-release}"
+export VK_MOCKED_RELEASE_WAIT_SECONDS="${VK_MOCKED_RELEASE_WAIT_SECONDS:-2700}"
 
 cleanup() {
   if [[ -n "${sandbox_pid:-}" ]] && kill -0 "$sandbox_pid" 2>/dev/null; then

@@ -559,7 +559,7 @@ export function createSandboxPlan(input: {
     );
   }
   const runDir = resolve(
-    input.runDir ?? join(vdRoot, '.vk-mocked-sandbox', 'current'),
+    input.runDir ?? env.VK_MOCKED_SANDBOX_RUN_DIR ?? join(vdRoot, '.vk-mocked-sandbox', 'current'),
   );
   const caddyfile = releaseArtifact
     ? caddyfileWithCiReleaseAssetRouting(input.caddyfile)
@@ -893,7 +893,7 @@ async function main(): Promise<void> {
   const mode = process.argv[2] ?? 'prepare';
   if (mode === 'download-runtime-release') {
     const release = await VkRuntimeRelease.forCheckout(process.cwd(), process.env);
-    await release.download(process.env.VK_MOCKED_GH_REPO);
+    await release.download(process.env.VK_MOCKED_GH_REPO, Number(process.env.VK_MOCKED_RELEASE_WAIT_SECONDS ?? 0));
     return;
   }
   if (mode === 'download-ci-release') {

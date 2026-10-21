@@ -106,6 +106,13 @@ The CI-style e2e wrapper defaults to remote mode. Set
 release, set `VK_MOCKED_CONTENT_HASH=<64-character-sha256>`; only the default
 checkout-derived hash guarantees matching local VK content. Release files are
 stored under `.vk-mocked-sandbox/vk-runtime-releases/<tag>/<platform>`.
+The wrapper waits up to 45 minutes for the matching release to be published
+(`VK_MOCKED_RELEASE_WAIT_SECONDS` overrides this); direct downloads fail
+immediately by default. Linux release-mode fixture reset/snapshot uses
+`.vk-mocked-sandbox/current/xdg-data/vibe-kanban` rather than the source
+checkout's `dev_assets`, matching the server's isolated `XDG_DATA_HOME`.
+Set `VK_MOCKED_VK_BACKEND=ci-release` when invoking fixture commands directly
+for a release-mode sandbox.
 
 Legacy standalone `Release Binaries` Actions artifacts remain available when
 an explicit `VK_MOCKED_RELEASE_SHA` is supplied:
@@ -244,7 +251,9 @@ is `VK_CHECKOUT` in this sandbox.
 | `VK_MOCKED_VD_SERVER_PORT` | Explicit VD server port. |
 | `VK_MOCKED_CADDY_PORT` | Explicit front-door Caddy port. |
 | `VK_MOCKED_VK_BACKEND` | Set to `ci-release` through `npm run *:vk-mocked-sandbox:ci-release` to run VK from a CI release artifact instead of local source. |
-| `VK_MOCKED_RELEASE_SHA` | Required for CI-release mode; full 40-character VK commit SHA. |
+| `VK_MOCKED_CONTENT_HASH` | Optional exact 64-character content-hash pin. CI-release mode defaults to the current checkout's VK content hash. |
+| `VK_MOCKED_RELEASE_WAIT_SECONDS` | Retry release downloads while publication finishes. Defaults to 2700 in the e2e wrapper and 0 for direct commands. |
+| `VK_MOCKED_RELEASE_SHA` | Legacy standalone Actions artifact mode only; full 40-character VK commit SHA. |
 | `VK_MOCKED_RELEASE_RUN_ID` | Optional CI-release mode override for the `Release Binaries` GitHub Actions run ID. Example smoke run: `31655931916` for `ff79144e3842e5454ffc36b5546a1336ab4da993`. |
 | `VK_MOCKED_GH_REPO` | CI-release mode GitHub repo; defaults to `vibe-dashboard/vibe-kanban`. |
 | `VK_MOCKED_GH_ARTIFACT_NAME` | CI-release mode artifact name; defaults to `release-assets-linux-x64`. |
