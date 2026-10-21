@@ -1,7 +1,7 @@
 # VK mocked sandbox
 
 Use this sandbox to run VD against a real local VK backend without spending
-model-provider tokens. VK runs with Rust feature `qa-mode`, which routes agent
+model-provider tokens. VK runs with `VK_QA_MODE=1`, which routes agent
 work through VK's mocked executor.
 
 The sandbox is intended to exercise VD end-to-end against a real local VK
@@ -15,10 +15,12 @@ and UI flow, not real model-provider behavior.
   `http://localhost:50005`.
 - VD runs in Vite dev mode behind Caddy.
 - Default/source-mode VK backend runs as
-  `cargo run --features qa-mode --bin server`.
+  `cargo run --bin server` with `VK_QA_MODE=1`.
 - CI-release mode runs the downloaded `vibe-kanban` release binary with
   runtime `VK_QA_MODE=1`/`QA_MODE=1`; it does not locally build VK Rust or VK
   frontend assets.
+- Both modes use the standard VK build; no Cargo `qa-mode` feature or separate
+  QA release archive is required.
 - Default/source-mode VK frontend is built once before services start, using Vite base
   `/vk-static/`, then served by the VK backend through Caddy.
 - VK frontend assets load from `/vk-static/assets/...`; VD assets continue to
@@ -117,6 +119,9 @@ When `VK_MOCKED_RELEASE_HASH` is omitted, the command computes it with
 git. The release archive checksum is verified; `manifest.json` content hash is
 also checked when the artifact includes it.
 
+After upgrading from the separate QA archive, rerun sandbox setup before using
+`VK_MOCKED_SKIP_SETUP_COMMANDS=1` so the saved plan points to the standard binary.
+
 Record the printed:
 
 - VD URL
@@ -131,14 +136,14 @@ Record the printed:
 - Node/pnpm dependencies are installed for VD and VK.
 - VK Rust dependencies are installed.
 - Caddy is installed and available on `PATH`.
-- VK `qa-mode` backend has either already been built, or the tester accepts the
+- VK backend has either already been built, or the tester accepts the
   initial Rust compile time.
 
 Optional prebuilds to reduce first sandbox startup delay:
 
 ```bash
 cd "$VK_CHECKOUT"
-cargo build --features qa-mode --bin server
+cargo build --bin server
 NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter @vibe/local-web run build --base /vk-static/
 ```
 
@@ -239,8 +244,8 @@ is `VK_CHECKOUT` in this sandbox.
 | `VK_MOCKED_RELEASE_HASH` | Optional CI-release mode override; full 64-character VK content hash. When omitted, `.github/scripts/vk-content-hash.sh` hashes tracked files under `vibe-kanban`. |
 | `VK_MOCKED_RELEASE_TAG` | Optional CI-release mode release tag override; defaults to `vk-assets-sha256-<VK_MOCKED_RELEASE_HASH>`. |
 | `VK_MOCKED_GH_REPO` | CI-release mode GitHub repo; defaults to `vibe-dashboard/vibe-kanban`. |
-| `VK_MOCKED_GH_ARTIFACT_NAME` | CI-release mode cache directory name; defaults to `release-assets-linux-x64-qa`. |
-| `VK_MOCKED_GH_ARCHIVE_NAME` | CI-release mode archive name; defaults to the qa-mode build `vibe-kanban-linux-x64-qa.tar.gz`. |
+| `VK_MOCKED_GH_ARTIFACT_NAME` | CI-release mode cache directory name; defaults to `release-assets-linux-x64`. |
+| `VK_MOCKED_GH_ARCHIVE_NAME` | CI-release mode archive name; defaults to the standard build `vibe-kanban-linux-x64.tar.gz`. |
 | `RUST_LOG` | VK backend log level; defaults to `debug` in the sandbox. |
 
 Explicit port overrides must be unique. The sandbox rejects duplicate explicit
@@ -468,7 +473,7 @@ Stop the foreground `npm run dev:vk-mocked-sandbox` process with Ctrl-C.
 After stopping, check that no leftover sandbox child processes remain:
 
 ```bash
-pgrep -af 'vk-mocked-sandbox|cargo run --features qa-mode|pnpm --filter @vibe/local-web|caddy run --config .*vk-mocked-sandbox'
+pgrep -af 'vk-mocked-sandbox|cargo run --bin server|pnpm --filter @vibe/local-web|caddy run --config .*vk-mocked-sandbox'
 ```
 
 Expected:

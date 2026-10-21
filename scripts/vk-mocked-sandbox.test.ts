@@ -197,7 +197,7 @@ describe('VK mocked sandbox helpers', () => {
     );
   });
 
-  it('plans qa-mode VK, VD dev, and Caddy commands with matching env', () => {
+  it('plans standard VK, VD dev, and Caddy commands with runtime QA enabled', () => {
     const plan = createSandboxPlan({
       workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
       ports: {
@@ -254,8 +254,9 @@ describe('VK mocked sandbox helpers', () => {
     );
     expect(plan.commands[0]).toMatchObject({
       command: 'cargo',
-      args: ['run', '--features', 'qa-mode', '--bin', 'server'],
+      args: ['run', '--bin', 'server'],
       env: {
+        VK_QA_MODE: '1',
         BACKEND_PORT: '4107',
         FRONTEND_PORT: '4101',
         PREVIEW_PROXY_PORT: '4106',
@@ -344,7 +345,8 @@ describe('VK mocked sandbox helpers', () => {
     expect(plan.setupCommands[1]).toMatchObject({
       cwd: '/tmp/worktrees/example/vibe-kanban-vscode-web/vibe-kanban',
       command: 'cargo',
-      args: ['build', '--features', 'qa-mode', '--bin', 'server'],
+      args: ['build', '--bin', 'server'],
+      env: { VK_QA_MODE: '1' },
     });
     expect(plan.commands[0]).toMatchObject({
       command: '/tmp/worktrees/example/vibe-kanban-vscode-web/vibe-kanban/target/debug/server',
@@ -407,7 +409,7 @@ describe('VK mocked sandbox helpers', () => {
     expect(plan.commands[0]).toMatchObject({
       name: 'vk-backend-ci-release',
       cwd: '/tmp/worktrees/example/vibe-kanban-vscode-web/vibe-kanban',
-      command: `${artifactRoot}/release-assets-linux-x64-qa/extracted/vibe-kanban`,
+      command: `${artifactRoot}/release-assets-linux-x64/extracted/vibe-kanban`,
       args: [],
       env: {
         BACKEND_PORT: '4107',
@@ -518,9 +520,9 @@ describe('VK mocked sandbox helpers', () => {
       root,
       '.vk-mocked-sandbox/vk-release-assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     );
-    const artifactDir = join(artifactRoot, 'release-assets-linux-x64-qa');
+    const artifactDir = join(artifactRoot, 'release-assets-linux-x64');
     const extractDir = join(artifactDir, 'extracted');
-    const archiveName = 'vibe-kanban-linux-x64-qa.tar.gz';
+    const archiveName = 'vibe-kanban-linux-x64.tar.gz';
     const archiveContents = 'cached archive';
     const archiveSha = createHash('sha256').update(archiveContents).digest('hex');
     const originalPath = process.env.PATH;
@@ -534,7 +536,7 @@ describe('VK mocked sandbox helpers', () => {
         [
           '#!/usr/bin/env bash',
           'if [ "$1 $2" = "release view" ]; then',
-          '  printf \'vibe-kanban-linux-x64-qa.tar.gz\\n\'',
+          '  printf \'vibe-kanban-linux-x64.tar.gz\\n\'',
           '  exit 0',
           'fi',
           'echo "unexpected gh call: $*" >&2',

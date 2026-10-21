@@ -61,8 +61,8 @@ const CHILD_SHUTDOWN_TIMEOUT_MS = 5_000;
 const CI_RELEASE_BACKEND_MODE = 'ci-release';
 const VK_CONTENT_HASH_PATTERN = /^[0-9a-f]{64}$/i;
 const DEFAULT_VK_GH_REPO = 'vibe-dashboard/vibe-kanban';
-const DEFAULT_VK_GH_ARTIFACT_NAME = 'release-assets-linux-x64-qa';
-const DEFAULT_VK_GH_ARCHIVE_NAME = 'vibe-kanban-linux-x64-qa.tar.gz';
+const DEFAULT_VK_GH_ARTIFACT_NAME = 'release-assets-linux-x64';
+const DEFAULT_VK_GH_ARCHIVE_NAME = 'vibe-kanban-linux-x64.tar.gz';
 const VIBE_DASHBOARD_CADDY_MARKER = '# Vibe Dashboard app';
 
 const execFileAsync = promisify(execFile);
@@ -247,7 +247,7 @@ async function requireCiReleaseExists(
     `.assets[] | select(.name == "${archiveName}") | .name`,
   ]);
   if (matchingAsset.trim() !== archiveName) {
-    throw new Error(`Release ${releaseTag} is missing required qa-mode asset ${archiveName}.`);
+    throw new Error(`Release ${releaseTag} is missing required runtime asset ${archiveName}.`);
   }
 }
 
@@ -578,7 +578,7 @@ export function createSandboxPlan(input: {
       name: 'vk-build-backend-qa',
       cwd: vkRoot,
       command: 'cargo',
-      args: ['build', '--features', 'qa-mode', '--bin', 'server'],
+      args: ['build', '--bin', 'server'],
       env: commonEnv,
     });
   }
@@ -613,7 +613,7 @@ export function createSandboxPlan(input: {
       args:
         env.VK_MOCKED_PREBUILD_BACKEND === '1'
           ? []
-          : ['run', '--features', 'qa-mode', '--bin', 'server'],
+          : ['run', '--bin', 'server'],
       env: {
         ...commonEnv,
         HOST: '127.0.0.1',
