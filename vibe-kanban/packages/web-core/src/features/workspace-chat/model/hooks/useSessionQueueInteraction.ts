@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { queueApi } from '@/shared/lib/api';
 import type { ExecutorConfig, QueueStatus } from 'shared/types';
+import { queueMutationState } from '../queueEditorTransitions';
 
 interface UseSessionQueueInteractionOptions {
   /** Session ID for queue operations */
@@ -31,13 +32,6 @@ interface UseSessionQueueInteractionResult {
 }
 
 const QUEUE_STATUS_KEY = 'queue-status';
-
-export function queueMutationState(status: QueueStatus['status']) {
-  return {
-    isQueued: status === 'queued',
-    isConsuming: status === 'consuming',
-  };
-}
 
 /**
  * Hook to manage queue interaction for session messages.

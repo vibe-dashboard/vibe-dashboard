@@ -1370,7 +1370,7 @@ impl LocalContainerService {
             &ctx.session,
             &action,
             &ExecutionProcessRunReason::CodingAgent,
-            Some(queued.id),
+            Some((queued.id, &queued.owner)),
         )
         .await
     }

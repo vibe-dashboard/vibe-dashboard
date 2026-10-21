@@ -25,7 +25,13 @@ import { useTodos } from '../model/hooks/useTodos';
 import { getLatestConfigFromProcesses } from '@/shared/lib/executor';
 import { useExecutorConfig } from '@/shared/hooks/useExecutorConfig';
 import { useSessionMessageEditor } from '../model/hooks/useSessionMessageEditor';
-import { useSessionQueueInteraction } from '../model/hooks/useSessionQueueInteraction';
+import {
+  useSessionQueueInteraction,
+} from '../model/hooks/useSessionQueueInteraction';
+import {
+  cancelQueuedForEditor,
+  editQueuedForEditor,
+} from '../model/queueEditorTransitions';
 import { useSessionSend } from '../model/hooks/useSessionSend';
 import { useSessionAttachments } from '../model/hooks/useSessionAttachments';
 import { useMessageEditRetry } from '../model/hooks/useMessageEditRetry';
@@ -594,21 +600,20 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   // Editor change handler
   const handleEditorChange = useCallback(
     async (value: string) => {
-      if (isConsuming) return;
-      if (isQueued) {
-        try {
-          await cancelQueue();
-        } catch {
-          await refreshQueueStatus();
-          return;
-        }
-      }
-      if (executorConfig) {
-        handleMessageChange(value, executorConfig);
-      } else {
-        setLocalMessage(value);
-      }
-      if (sendError) clearError();
+      await editQueuedForEditor({
+        isQueued,
+        isConsuming,
+        cancel: cancelQueue,
+        refresh: refreshQueueStatus,
+        apply: () => {
+          if (executorConfig) {
+            handleMessageChange(value, executorConfig);
+          } else {
+            setLocalMessage(value);
+          }
+          if (sendError) clearError();
+        },
+      });
     },
     [
       isQueued,
@@ -649,19 +654,21 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
   // Handle cancel queue - restore message to editor
   const handleCancelQueue = useCallback(async () => {
-    await cancelQueue();
-    if (queuedMessage) {
-      setLocalMessage(queuedMessage);
-    }
-    if (queuedConfig) {
-      setExecutorOverrides(queuedConfig);
-    }
+    await cancelQueuedForEditor({
+      cancel: cancelQueue,
+      refresh: refreshQueueStatus,
+      restore: () => {
+        if (queuedMessage) setLocalMessage(queuedMessage);
+        if (queuedConfig) setExecutorOverrides(queuedConfig);
+      },
+    });
   }, [
     queuedMessage,
     queuedConfig,
     setLocalMessage,
     setExecutorOverrides,
     cancelQueue,
+    refreshQueueStatus,
   ]);
 
   // Message edit retry mutation

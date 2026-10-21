@@ -102,6 +102,7 @@ pub enum QueueEffectLifecycle {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct QueueEffectReconciliation {
     pub queue_id: Uuid,
+    pub owner: String,
     pub session_id: Uuid,
     pub lifecycle: QueueEffectLifecycle,
     pub process: Option<ExecutionProcess>,
@@ -474,6 +475,7 @@ impl ExecutionProcess {
     pub async fn reserve_queue_effect(
         pool: &SqlitePool,
         queue_id: Uuid,
+        owner: &str,
         process_id: Uuid,
         data: &CreateExecutionProcess,
     ) -> Result<QueueEffectReservation, ExecutionProcessError> {
@@ -482,9 +484,10 @@ impl ExecutionProcess {
         let run_reason = serde_json::to_string(&data.run_reason)
             .map_err(|error| ExecutionProcessError::CreateFailed(error.to_string()))?;
         let inserted = sqlx::query(
-            "INSERT INTO execution_process_queue_effects (queue_id, execution_process_id, session_id, run_reason, executor_action, lifecycle) VALUES (?, ?, ?, ?, ?, 'reserved') ON CONFLICT(queue_id) DO NOTHING",
+            "INSERT INTO execution_process_queue_effects (queue_id, owner, execution_process_id, session_id, run_reason, executor_action, lifecycle) VALUES (?, ?, ?, ?, ?, ?, 'reserved') ON CONFLICT(queue_id) DO NOTHING",
         )
         .bind(queue_id)
+        .bind(owner)
         .bind(process_id)
         .bind(data.session_id)
         .bind(&run_reason)
@@ -495,17 +498,17 @@ impl ExecutionProcess {
             return Ok(QueueEffectReservation::Proceed);
         }
 
-        let row = sqlx::query_as::<_, (Uuid, Uuid, String, String, String)>(
-            "SELECT execution_process_id, session_id, run_reason, executor_action, lifecycle FROM execution_process_queue_effects WHERE queue_id = ?",
+        let row = sqlx::query_as::<_, (String, Uuid, Uuid, String, String, String)>(
+            "SELECT owner, execution_process_id, session_id, run_reason, executor_action, lifecycle FROM execution_process_queue_effects WHERE queue_id = ?",
         )
         .bind(queue_id)
         .fetch_one(pool)
         .await?;
-        if row.1 != data.session_id || row.2 != run_reason || row.3 != action {
+        if row.0 != owner || row.2 != data.session_id || row.3 != run_reason || row.4 != action {
             return Err(ExecutionProcessError::QueueEffectConflict { queue_id });
         }
-        match row.4.as_str() {
-            "started" => Self::find_by_id(pool, row.0)
+        match row.5.as_str() {
+            "started" => Self::find_by_id(pool, row.1)
                 .await?
                 .map(QueueEffectReservation::Started)
                 .ok_or(ExecutionProcessError::ExecutionProcessNotFound),
@@ -558,13 +561,13 @@ impl ExecutionProcess {
         pool: &SqlitePool,
         queue_id: Uuid,
     ) -> Result<Option<QueueEffectReconciliation>, ExecutionProcessError> {
-        let row = sqlx::query_as::<_, (Uuid, Uuid, String)>(
-            "SELECT execution_process_id, session_id, lifecycle FROM execution_process_queue_effects WHERE queue_id = ?",
+        let row = sqlx::query_as::<_, (String, Uuid, Uuid, String)>(
+            "SELECT owner, execution_process_id, session_id, lifecycle FROM execution_process_queue_effects WHERE queue_id = ?",
         )
         .bind(queue_id)
         .fetch_optional(pool)
         .await?;
-        let Some((process_id, session_id, lifecycle)) = row else {
+        let Some((owner, process_id, session_id, lifecycle)) = row else {
             return Ok(None);
         };
         let lifecycle = match lifecycle.as_str() {
@@ -581,6 +584,7 @@ impl ExecutionProcess {
         let process = Self::find_by_id(pool, process_id).await?;
         Ok(Some(QueueEffectReconciliation {
             queue_id,
+            owner,
             session_id,
             lifecycle,
             process,
@@ -1017,13 +1021,26 @@ mod admission_tests {
         };
 
         assert!(matches!(
-            ExecutionProcess::reserve_queue_effect(&pool, queue_id, first_process, &data)
+            ExecutionProcess::reserve_queue_effect(
+                &pool,
+                queue_id,
+                "workflow",
+                first_process,
+                &data,
+            )
                 .await
                 .unwrap(),
             QueueEffectReservation::Proceed
         ));
         assert!(matches!(
-            ExecutionProcess::reserve_queue_effect(&pool, queue_id, Uuid::new_v4(), &data).await,
+            ExecutionProcess::reserve_queue_effect(
+                &pool,
+                queue_id,
+                "workflow",
+                Uuid::new_v4(),
+                &data,
+            )
+            .await,
             Err(ExecutionProcessError::QueueEffectIndeterminate { .. })
         ));
 
@@ -1037,7 +1054,13 @@ mod admission_tests {
         .unwrap();
         let retry_process = Uuid::new_v4();
         assert!(matches!(
-            ExecutionProcess::reserve_queue_effect(&pool, queue_id, retry_process, &data)
+            ExecutionProcess::reserve_queue_effect(
+                &pool,
+                queue_id,
+                "workflow",
+                retry_process,
+                &data,
+            )
                 .await
                 .unwrap(),
             QueueEffectReservation::Proceed
@@ -1051,8 +1074,33 @@ mod admission_tests {
         .await
         .unwrap();
         assert!(matches!(
-            ExecutionProcess::reserve_queue_effect(&pool, queue_id, Uuid::new_v4(), &data).await,
+            ExecutionProcess::reserve_queue_effect(
+                &pool,
+                queue_id,
+                "workflow",
+                Uuid::new_v4(),
+                &data,
+            )
+            .await,
             Err(ExecutionProcessError::QueueEffectIndeterminate { .. })
         ));
+        assert!(matches!(
+            ExecutionProcess::reserve_queue_effect(
+                &pool,
+                queue_id,
+                "other-owner",
+                Uuid::new_v4(),
+                &data,
+            )
+            .await,
+            Err(ExecutionProcessError::QueueEffectConflict { .. })
+        ));
+        let reconciliation = ExecutionProcess::reconcile_queue_effect(&pool, queue_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(reconciliation.owner, "workflow");
+        assert_eq!(reconciliation.queue_id, queue_id);
+        assert_eq!(reconciliation.session_id, session_id);
     }
 }

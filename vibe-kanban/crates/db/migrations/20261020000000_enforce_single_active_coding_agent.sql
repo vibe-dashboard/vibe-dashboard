@@ -9,6 +9,7 @@ WHERE status = 'running' AND run_reason = 'codingagent';
 -- durable effect-to-process identity needed to reconcile uncertain acceptance.
 CREATE TABLE execution_process_queue_effects (
     queue_id BLOB PRIMARY KEY NOT NULL,
+    owner TEXT NOT NULL,
     execution_process_id BLOB NOT NULL UNIQUE,
     session_id BLOB NOT NULL,
     run_reason TEXT NOT NULL,

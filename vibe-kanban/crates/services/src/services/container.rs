@@ -1188,7 +1188,7 @@ pub trait ContainerService {
         session: &Session,
         executor_action: &ExecutorAction,
         run_reason: &ExecutionProcessRunReason,
-        queue_id: Option<Uuid>,
+        queue_effect: Option<(Uuid, &str)>,
     ) -> Result<ExecutionProcess, ContainerError> {
         // Create new execution process record
         // Capture current HEAD per repository as the "before" commit for this execution
@@ -1224,10 +1224,11 @@ pub trait ContainerService {
         };
 
         let process_id = Uuid::new_v4();
-        if let Some(queue_id) = queue_id {
+        if let Some((queue_id, owner)) = queue_effect {
             match ExecutionProcess::reserve_queue_effect(
                 &self.db().pool,
                 queue_id,
+                owner,
                 process_id,
                 &create_execution_process,
             )
@@ -1248,7 +1249,7 @@ pub trait ContainerService {
         {
             Ok(process) => process,
             Err(error) => {
-                if let Some(queue_id) = queue_id {
+                if let Some((queue_id, _)) = queue_effect {
                     let _ = ExecutionProcess::set_queue_effect_lifecycle(
                         &self.db().pool,
                         queue_id,
@@ -1278,7 +1279,7 @@ pub trait ContainerService {
                 None,
             )
             .await;
-            if let Some(queue_id) = queue_id {
+            if let Some((queue_id, _)) = queue_effect {
                 let _ = ExecutionProcess::set_queue_effect_lifecycle(
                     &self.db().pool,
                     queue_id,
@@ -1330,7 +1331,7 @@ pub trait ContainerService {
                     None,
                 )
                 .await;
-                if let Some(queue_id) = queue_id {
+                if let Some((queue_id, _)) = queue_effect {
                     let _ = ExecutionProcess::set_queue_effect_lifecycle(
                         &self.db().pool,
                         queue_id,
@@ -1353,7 +1354,7 @@ pub trait ContainerService {
             )
         );
 
-        if let Some(queue_id) = queue_id {
+        if let Some((queue_id, _)) = queue_effect {
             ExecutionProcess::set_queue_effect_lifecycle(
                 &self.db().pool,
                 queue_id,
@@ -1386,7 +1387,7 @@ pub trait ContainerService {
                     update_error
                 );
             }
-            if let Some(queue_id) = queue_id {
+            if let Some((queue_id, _)) = queue_effect {
                 let _ = ExecutionProcess::set_queue_effect_lifecycle(
                     &self.db().pool,
                     queue_id,
@@ -1442,7 +1443,7 @@ pub trait ContainerService {
             return Err(start_error);
         }
 
-        if let Some(queue_id) = queue_id {
+        if let Some((queue_id, _)) = queue_effect {
             ExecutionProcess::set_queue_effect_lifecycle(
                 &self.db().pool,
                 queue_id,
