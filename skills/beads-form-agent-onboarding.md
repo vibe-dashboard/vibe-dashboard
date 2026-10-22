@@ -2,9 +2,15 @@
 
 Use BeadsForm when you need structured answers from a human before proceeding. Prefer bead-backed forms for real workflow.
 
-## 1. Draft standard form JSON inline
+## Human-readable workspace context
 
-Write standard BeadsForm JSON. Prefer the standard DSL, not raw HTML. The default bead-backed workflow is **inline JSON via stdin** so agents do not need to create a temporary `form.json` file first. Use a file only when the form is large enough that audit/debuggability matters.
+Never present a workspace ID, branch name, bead ID, or generated form URL as the primary human label by itself. When a readable workspace name is known, pair it with every exact identifier you communicate to a human or another agent. Commands and URLs still need exact IDs; surrounding prose and Markdown link text should lead with readable names, for example `Workspace: BeadsForm authoring polish (<workspace-id>)`, `Bead: Configurable Next Instruction prompts (beads-web-p1zl)`, and `[Implementation questions — BeadsForm authoring polish](<generated-url>)`.
+
+Use the existing `vibe-agent sessions list --json` output for `workspace_name` and `workspace_id` (or its non-JSON `Name` line), `VK_WORKSPACE_BRANCH` for the exact branch, and `bd show <bead-id> --json` for the bead title. If no readable workspace name is available, explicitly say **Workspace name unavailable**, then provide the exact ID with known repo/path and branch context. Never invent a display name from an opaque ID.
+
+## 1. Draft standard form JSON in a workspace-local file
+
+Write standard BeadsForm JSON. Use the standard DSL, not raw HTML. The default bead-backed workflow is **file plus pipe**: write the DSL to a repo/workspace-local ignored file, review it, then pipe it into the CLI with `cat ... | beads-form attach --stdin`. This avoids shell escaping mistakes with Markdown, code fences, quotes, and long choice explanations.
 
 Example JSON shape:
 
@@ -12,8 +18,9 @@ Example JSON shape:
 {
   "format": "standard",
   "id": "implementation_questions",
+  "goal": "Decide the next implementation step.",
   "title": "Implementation questions",
-  "description": "Resolve decisions before code changes.",
+  "description": "Resolve **decisions** before code changes.",
   "allowCodeFileChanges": {
     "label": "Allow implementation after this response",
     "description": "Use allow-code only if the next agent may edit code/files.",
@@ -51,30 +58,38 @@ Example JSON shape:
 
 Guidelines:
 - Every question should have a clear title and description.
-- Choice questions are always multi-select checkboxes in the current public DSL; do not add radio/single-select options.
+- Every standard form must include a concise top-level `goal` field: one short sentence saying what the form is trying to get from the human.
+- Treat form `title` and `description` as safe Markdown. Use Markdown for emphasis, lists/context paragraphs, `code`, and safe links; raw HTML is escaped. Long form descriptions are collapsed behind Show more, so include enough context without making the first question unusable.
+- Treat the form as the source of truth for the thinking behind the discussion. If other agents or reviewers already gave pros, cons, risks, recommended fixes, or tradeoffs, carry those points into the form instead of summarizing them away.
+- If review agents provide concerns, blockers, or non-blocking suggestions, parse each coherent item into its own dedicated question. Do not paste one huge unorganized review blob. Preserve exact wording, pros/cons, suggested fixes, and tradeoffs where practical, and explicitly label non-blocking items as non-blocking in the question description.
+- For now, do not rely on automatic extraction tooling for other-agent messages. Use `vibe-agent full_summary` for context, then manually copy the important review/implementation text into dedicated questions so the form is self-contained.
+- Please consider pros and cons for each open point, and preserve concrete tradeoffs in `choice.prosAndCons: { pros?: string[]; cons?: string[] }`. Descriptions should contain only contextual prose that is not a structured pro/con. *Be as detailed as useful.*
+- Preserve exact wording for prior pros/cons or recommendation rationales when practical, especially when the human is deciding between named options. Add attribution/context in descriptions or choice text when it helps.
+- Lean toward "explain more" over excessive brevity. A form should let the human understand the in-depth reasoning, assumptions, and forks in the road without rereading the whole conversation.
+- Choice questions always use checkboxes; do not add radio controls or a radio question type. Use per-group `atMostOne` or `exactlyOne` constraints for mutually exclusive subsets; the UI explains “Select only one.” Add explicit None/Other choices when appropriate.
+- Use `is_recommended_reason` for advice and `assumedTrue: true` only for an author baseline/non-decision assumption. Neither recommendations nor assumptions precheck a box or become a submitted answer until the human clicks. Legacy `defaultValue`/`defaultChoiceId` values are deprecated assumption aliases.
+- Put tradeoffs on a choice with the canonical `choice.prosAndCons: { pros?: string[]; cons?: string[] }` object. Entries may use safe Markdown; omit empty or unhelpful tradeoffs rather than creating separate top-level `pros`/`cons` fields.
 - Choices may include `is_recommended_reason` when the agent recommends an option.
 - Use `allowCodeFileChanges`; if the answer returns `allow_code_file_changes=false`, do not edit files—make another form or continue discussion.
 - Keep `additional_notes` as the master notes field.
 
-## 2. Attach the form to a bead with inline JSON
+## 2. Attach the form to a bead with file-plus-pipe
 
-Create or choose a bead in the repo where the work belongs, then attach the form with `--stdin`:
+Create or choose a bead in the repo where the work belongs. Put authoring files under `.vk-mocked-sandbox/beads-form-authoring/` so they are local, inspectable, and ignored by git:
 
 ```bash
 MY_BEADS_DIR=$PWD/vibe-kanban-vscode-web # just an example
 cd $MY_BEADS_DIR
-bd create "Decide implementation questions" --type task --priority 2
+BEAD_ID=$(bd create --silent "Decide implementation questions" --type task --priority 2)
+mkdir -p .vk-mocked-sandbox/beads-form-authoring
 
-beads-form attach \
-  --bead <bead-id> \
-  --dir $MY_BEADS_DIR \
-  --origin https://jamtools.dev \
-  --stdin <<'JSON'
+cat > .vk-mocked-sandbox/beads-form-authoring/implementation_questions.json <<'JSON'
 {
   "format": "standard",
   "id": "implementation_questions",
+  "goal": "Decide the next implementation step.",
   "title": "Implementation questions",
-  "description": "Resolve decisions before code changes.",
+  "description": "Resolve **decisions** before code changes.",
   "allowCodeFileChanges": {
     "label": "Allow implementation after this response",
     "description": "Use allow-code only if the next agent may edit code/files.",
@@ -90,31 +105,189 @@ beads-form attach \
   ]
 }
 JSON
+
+cat .vk-mocked-sandbox/beads-form-authoring/implementation_questions.json | beads-form attach \
+  --bead "$BEAD_ID" \
+  --dir $MY_BEADS_DIR \
+  --origin https://jamtools.dev \
+  --stdin
 ```
 
-For very small forms, `--json '<raw-json>'` also works. For large forms, `--file form.json` is still supported and can be easier to review/debug.
+Use `bd create --silent` when scripting. The normal pretty output starts with
+a status glyph like `✓`; do not parse it with `awk '{print $1}'` or pass that
+glyph to `beads-form attach`.
 
-`beads-form attach` stamps non-empty `VK_WORKSPACE_ID` and `VK_SESSION_ID` values from the environment into bead metadata. Attach also maintains `metadata.beadFormsSummary` (`hasForms`, `hasPendingAnswer`, `pendingResponseCount`, `formIds`, `pendingFormIds`) so Forms can discover pending work efficiently without bulk `bd show` over every bead.
+`--file .vk-mocked-sandbox/beads-form-authoring/implementation_questions.json` also works, but `cat ... | ... --stdin` matches the same reviewed-file workflow and avoids inline shell-escaping hazards. Avoid `/tmp` for user-facing authoring artifacts because agents/review worktrees can outlive or lose those paths.
+
+After attach, read the CLI's `authoringNextSteps`. Before sharing the URL, refine unclear questions one by one:
+
+```bash
+beads-form show-question --bead <bead-id> --form implementation_questions --index 1 --dir $MY_BEADS_DIR \
+  > .vk-mocked-sandbox/beads-form-authoring/question-1.show.json
+
+# Copy the "question" object from the show-question output, improve it, and save:
+cat > .vk-mocked-sandbox/beads-form-authoring/question-1.refined.json <<'JSON'
+{
+  "operation": "update_question",
+  "question": {
+    "type": "textarea",
+    "id": "additional_notes",
+    "title": "Additional notes",
+    "description": "Anything else the next agent should know? Include blockers, exact file paths, or constraints."
+  }
+}
+JSON
+
+cat .vk-mocked-sandbox/beads-form-authoring/question-1.refined.json | beads-form update-question \
+  --bead <bead-id> \
+  --form implementation_questions \
+  --question additional_notes \
+  --base-hash <formHash-from-show-question> \
+  --dir $MY_BEADS_DIR \
+  --stdin
+```
+
+For very small forms, `--json '<raw-json>'` still works, but prefer a file when the form contains Markdown examples, code fences, complete choice explanations, `prosAndCons`, or more than one short question.
+
+`beads-form attach` stamps non-empty `VK_WORKSPACE_ID` and `VK_SESSION_ID` values from the environment into bead metadata. Attach also maintains `metadata.beadFormsSummary` (`hasForms`, `hasPendingAnswer`, `pendingResponseCount`, `formIds`, `pendingFormIds`) so Forms can discover pending work efficiently without bulk `bd show` over every bead. `show-question` and `update-question` let creators fetch/refine one question without rewriting unrelated form content; `update-question --base-hash` rejects stale edits when another agent changed the form first. If a newly attached/refined form supersedes an older pending form, run `beads-form invalidate --bead <bead-id> --form <old-form-id> --reason "Superseded by <new-form-id>" --dir <repo-dir>` so the valid feed stays current without deleting historical responses.
+Persisted bead metadata stores standard DSL-only form definitions in `metadata.beadForms.forms[]`; responses are stored separately in `metadata.beadFormResponses.responsesByFormId[formId]` so multi-form beads have more room under the Dolt TEXT-column limit. The tool strips stale generated `html`/`controls` from valid standard forms, rejects raw/custom HTML forms, joins definitions/responses at runtime for show/render, compacts older inline responses during mutations, and preflights metadata size before updating a bead.
 
 In the VD Docker/dev runtime, `beads-form` should be available on `PATH` globally and should work from any bead repo directory.
 
-The command prints URLs. Provide the remote one to the user, and use explicit markdown link syntax when doing so.
+The command prints URLs. Provide the remote one to the user with explicit Markdown link syntax whose text includes the form title and readable workspace name when known; do not use the raw URL or workspace ID as the primary label.
 
-## 3. Share the URL with the human
+## 3. Collaborate on one canonical form
+
+Prefer one canonical form when several agents need the same human decision. The
+orchestrator or first form author creates the bead and attaches the initial
+form, then other agents append focused questions to that same form. This keeps
+the human in one flow and usually avoids needing a separate aggregate URL.
+
+### Form creator / orchestrator flow
+
+1. Create or choose the bead that owns the decision.
+2. Create and attach a standard form with a stable, memorable `id`.
+3. Share the readable workspace name and bead title with teammates, followed by
+   the exact form id, bead id, branch, and repo dir needed to add questions.
+4. Tell question adders to append dedicated questions instead of creating
+   separate forms unless there is a specific reason to keep responses separate.
+5. When delegating to a question adder, include a short prompt that points them
+   at this skill and gives the exact repo dir, bead id, and form id to mutate.
+
+Example creator handoff:
+
+```text
+Canonical form:
+- workspace: Release readiness (<workspace-id>)
+- branch: feature/release-readiness — Release readiness
+- repo dir: /path/to/repo
+- bead: Release readiness decisions (beads-web-123)
+- form: release_readiness
+- URL: [Release readiness form — Release readiness](https://jamtools.dev/dashboard/forms?dir=...&bead=beads-web-123&form=release_readiness)
+
+Please append any review concerns as focused questions with:
+beads-form append-questions --dir /path/to/repo --bead beads-web-123 --form release_readiness --stdin
+```
+
+The creator should make the starter form self-contained: include the goal,
+known decisions, enough context for later agents, and an `additional_notes`
+textarea. Do not leave important review context only in the conversation.
+
+### Question-adder / reviewer flow
+
+When another agent, reviewer, or UX specialist has more concerns, mutate the
+same canonical bead-backed form with focused new questions instead of creating a
+pile of disconnected forms:
+
+```bash
+beads-form append-questions \
+  --dir <repo-dir> \
+  --bead <bead-id> \
+  --form <form-id> \
+  --stdin <<'JSON'
+{
+  "operation": "append_questions",
+  "questions": [
+    {
+      "type": "textarea",
+      "id": "review_blocker_context",
+      "title": "What should we do about the review blocker?",
+      "description": "Include the exact reviewer concern, why it matters, and the options/tradeoffs the user should decide."
+    }
+  ]
+}
+JSON
+```
+
+Accepted append input shapes are a direct question array, `{ "questions": [...] }`, or `{ "operation": "append_questions", "questions": [...] }`. Use `--after-question <question-id>` when the new question belongs after a specific existing question. Use `--base-hash <hash>` only when coordinating with another agent and you want the update to fail if the form definition changed first. The command rejects full forms, raw/custom HTML, generated `html`/`controls`, duplicate question ids, unknown operations, and empty question arrays. Existing responses are preserved; if responses already exist, remember that older responses will not answer the newly appended questions.
+
+Question adders should:
+
+- Read the current form first when possible:
+
+  ```bash
+  beads-form show --bead <bead-id> --form <form-id> --dir <repo-dir>
+  ```
+
+- Add one coherent review concern per question. Do not append a large
+  unstructured review blob.
+- Include attribution in the question description, for example
+  `Source: review2 blocker on 2026-08-31`.
+- Preserve concrete pros and cons in each option's `choice.prosAndCons`; use
+  question and choice descriptions for contextual prose, risks, suggested fixes,
+  attribution, and non-blocking notes that are not structured tradeoffs.
+- Use stable question ids that include the topic, not the agent name alone.
+- Prefer appending to the canonical form over making a new form. Create a
+  separate form only when the response must remain separate or the creator asks
+  for separate source forms.
+
+### When to use aggregate forms instead
+
+If teammates already created separate forms, or separate responses must remain
+separate, build an aggregate URL instead of copying questions by hand. Aggregate
+forms are useful for collecting existing independent forms into one view, while
+canonical `append-questions` is better for building one shared decision form
+before the human answers.
+
+## 4. Share the URL with the human
 
 Send the direct form URL and ask them to submit. After submission:
 
-- Read/process the normalized JSON answer.
+- Read/process the copied BeadsForm handoff. XML is the default so Markdown-heavy answers stay readable; users may explicitly select JSON. Single-form JSON is exactly the normalized response object. This browser preference does not alter internal bead storage or creator-session notifications.
+- For bead-backed forms with a valid creating `VK_SESSION_ID`, VD persists the response first and then best-effort notifies that exact session with only the normalized response JSON object—no form definitions, identifiers, XML, prior responses, or explanatory prose. Missing/invalid sessions and notification failures use `needs-agent-review` as the fallback; a notification warning means the answer is already saved and must not be submitted again. Folder previews never send session notifications, and aggregate sections route independently using each source bead's metadata.
 - Remove `needs-agent-review` from the bead after processing, if present.
 - When messaging another agent about the response, include:
   - the raw DSL JSON,
-  - the raw normalized answers JSON,
+  - the raw BeadsForm XML handoff (or normalized response-only JSON when the user selected JSON),
   - `Please use 'vibe-agent full_summary' to catch up.`
 
-## 4. Inspect attached forms/responses
+If multiple agents created separate forms and the user should answer them from one page, use the aggregate route with repeated direct refs:
+
+```text
+/dashboard/forms/aggregate?dir=/repo-a&bead=repo-a-123&form=review_a&dir=/repo-b&bead=repo-b-456&form=review_b
+```
+
+Each grouped section can submit independently back to its source bead/form, and the aggregate page also has a batch handoff panel for submitting the visible set together. Batch submit persists each source response to its original bead/form with a stable per-source `submissionId` and routes notifications per source creator exactly like individual aggregate submits. Combined XML remains metadata-rich; selected JSON contains only an ordered `responses` array of normalized response objects and optional batch-level `next_instruction`, with no routing identifiers. Invalidated or failed source forms block or partially fail the batch instead of being silently included.
+
+Aggregate URL params must be ordered as exact repeated `dir`, then `bead`, then `form` triplets. Do not group all `dir` params first or add unrelated query params to aggregate URLs; malformed ordering is rejected so refs cannot be silently misaligned.
+
+## 5. Inspect attached forms/responses
 
 ```bash
 beads-form show --bead <bead-id> --dir <repo-dir>
 ```
 
-`show` outputs JSON by default. Use `--include-html` only when needed.
+`show` outputs JSON by default with semantic questions/descriptions, media refs as text, and all responses. It does not support `--include-html` because generated HTML/controls are no longer persisted.
+
+## 6. Find pending forms across repos
+
+```bash
+beads-form pending --parent-dir ~/repos
+beads-form pending --parent-dir ~/repos --limit 80 --origin https://your-vd-origin.example
+```
+
+`pending` outputs JSON by default for agent use. It scans first-level child directories only, prefilters to repos with a local `.beads` folder, uses read-only `bd list --has-metadata-key beadFormsSummary` queries, avoids bulk `bd show`, and returns direct `/dashboard/forms?dir=...&bead=...&form=...` links for each pending form.
+
+The VD pending Forms page defaults to `~/repos`; server operators can set `BEADS_FORM_PENDING_PARENT_DIR` to point at a different parent directory. Pending queue results are also persisted to a local server cache so stale data can render immediately after stable-server restarts while the server refreshes in the background.
+
+VD also has an in-process Springboard pending queue sentinel for realtime-ish updates. Successful bead-backed form submits handled by VD invalidate the BeadsForm read cache and touch the sentinel; `/dashboard/forms` keeps the current/cached list visible and refreshes fresh pending data in the background when the sentinel changes. External CLI attach/update commands run outside the VD server process and cannot reliably touch that in-memory sentinel, so those changes are repaired by the XDG disk cache plus the pending page's background fresh refresh when opened or reloaded.

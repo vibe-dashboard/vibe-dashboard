@@ -16,6 +16,7 @@ export const BUILT_IN_BEADS_TAB_ID = "beads";
 export const BUILT_IN_FORMS_TAB_ID = "forms";
 export const BUILT_IN_AGENT_CODE_PAIR_ID = "agent+code";
 export const BUILT_IN_AGENT_BEADS_PAIR_ID = "agent+beads";
+export const BUILT_IN_AGENT_FORMS_PAIR_ID = "agent+forms";
 
 const BUILT_IN_WORKSPACE_TAB_IDS = new Set([
   BUILT_IN_AGENT_TAB_ID,
@@ -26,6 +27,7 @@ const BUILT_IN_WORKSPACE_TAB_IDS = new Set([
 const BUILT_IN_WORKSPACE_PAIR_IDS = new Set([
   BUILT_IN_AGENT_CODE_PAIR_ID,
   BUILT_IN_AGENT_BEADS_PAIR_ID,
+  BUILT_IN_AGENT_FORMS_PAIR_ID,
 ]);
 const URL_PARSE_BASE = "https://workspace.local";
 const BEADS_WEB_DEFAULT_PORT = "3109";
@@ -216,7 +218,7 @@ function getBuiltInWorkspaceTabs(tabGroup: TabGroup, origin: string): Tab[] {
     {
       id: BUILT_IN_FORMS_TAB_ID,
       title: "Forms",
-      url: buildFormsUrl(dashboardBaseOrigin, metadata.workspaceId, metadata.formsBeadId),
+      url: buildFormsUrl(dashboardBaseOrigin, metadata.workspaceId, metadata.workspaceDir, metadata.formsBeadId),
       pinned: true,
     },
   ];
@@ -268,6 +270,13 @@ function getBuiltInWorkspacePairs(
     pairs.push({
       id: BUILT_IN_AGENT_BEADS_PAIR_ID,
       tabIds: [BUILT_IN_AGENT_TAB_ID, BUILT_IN_BEADS_TAB_ID],
+      ratios: [50, 50],
+    });
+  }
+  if (tabIds.has(BUILT_IN_AGENT_TAB_ID) && tabIds.has(BUILT_IN_FORMS_TAB_ID)) {
+    pairs.push({
+      id: BUILT_IN_AGENT_FORMS_PAIR_ID,
+      tabIds: [BUILT_IN_AGENT_TAB_ID, BUILT_IN_FORMS_TAB_ID],
       ratios: [50, 50],
     });
   }
@@ -463,9 +472,12 @@ function buildWorkspaceTabUrl(baseOrigin: string, workspaceId: string): string {
   return `${baseOrigin}/workspaces/${workspaceId}`;
 }
 
-function buildFormsUrl(baseOrigin: string, workspaceId: string, beadId?: string): string {
+function buildFormsUrl(baseOrigin: string, workspaceId: string, workspaceDir: string, beadId?: string): string {
   const params = new URLSearchParams({ workspace: workspaceId });
-  if (beadId) params.set("bead", beadId);
+  if (beadId) {
+    params.set("dir", workspaceDir);
+    params.set("bead", beadId);
+  }
   return `${baseOrigin}/dashboard/forms?${params.toString()}`;
 }
 

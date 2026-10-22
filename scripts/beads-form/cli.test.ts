@@ -1,26 +1,45 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { execFile as execFileCallback } from 'node:child_process';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  BEAD_ISSUE_METADATA_JSON_MAX_BYTES,
+  type ExecFileLike,
+} from '../../src/modules/plugins/beads-form/node';
+import {
+  appendQuestionsToBeadsForm,
+  appendQuestionsToMetadata,
   attachBeadsForms,
+  buildFormDefinitionHash,
   buildBeadsFormsSummary,
   attachFormsToMetadata,
   buildFillOutUrl,
   buildFillOutUrls,
   buildShowResult,
-  collectHtmlMediaRefs,
+  invalidateBeadsForm,
+  invalidateFormInMetadata,
   parseBeadsFormCliArgs,
   parseFormsJsonForAttach,
+  parseQuestionsJsonForAppend,
+  parseQuestionJsonForUpdate,
   resolveBeadsFormOrigin,
+  scanPendingBeadsForms,
   selectFormForShow,
+  showBeadsForm,
+  showBeadsFormQuestion,
   type AttachOptions,
+  updateBeadsFormQuestion,
+  updateQuestionInMetadata,
 } from './cli';
-import type { ExecFileLike } from '../../src/lib/beadsClient.node';
+
+const execFileAsync = promisify(execFileCallback);
 
 const standardForm = {
   format: 'standard',
   id: 'review',
+  goal: 'Decide whether to approve the reviewed plan.',
   title: 'Review form',
   description: 'Review **decisions**.',
   content: [{
@@ -35,20 +54,252 @@ const standardForm = {
     id: 'decision',
     title: 'Decision',
     description: 'Choose one.',
-    choices: [{ id: 'approve', label: 'Approve', is_recommended_reason: 'Lowest-risk path.' }],
+    choices: [{
+      id: 'approve',
+      label: 'Approve',
+      is_recommended_reason: 'Lowest-risk path.',
+      prosAndCons: { pros: ['Unblocks **delivery**'], cons: ['Requires monitoring'] },
+    }],
   }],
 } as const;
 
+const storedReviewForm = {
+  ...standardForm,
+};
+
+function mutableQuestion(question: unknown) {
+  return JSON.parse(JSON.stringify(question));
+}
+
 describe('beads-form CLI helpers', () => {
+  it('round-trips code-review form type and rejects unknown types before metadata mutation', () => {
+    const codeReview = parseFormsJsonForAttach(JSON.stringify({ ...standardForm, type: 'code-review' }))[0]!;
+    const attached = attachFormsToMetadata({ untouched: true }, [codeReview]);
+    const stored = (attached.beadForms as any).forms[0];
+
+    expect(stored.type).toBe('code-review');
+    expect(buildShowResult({ bead: { id: 'bd-1' }, form: codeReview }).form.type).toBe('code-review');
+    const updated = updateQuestionInMetadata(attached, 'review', {
+      questionId: 'decision',
+      replacement: mutableQuestion(standardForm.questions[0]),
+    });
+    expect((updated.metadata.beadForms as any).forms[0].type).toBe('code-review');
+    const appended = appendQuestionsToMetadata(attached, 'review', {
+      operation: 'append_questions',
+      questions: [{ type: 'textarea', id: 'follow_up', title: 'Follow up', description: 'Add a follow-up finding.' }],
+    });
+    expect((appended.metadata.beadForms as any).forms[0].type).toBe('code-review');
+
+    const original = { untouched: true };
+    expect(() => attachFormsToMetadata(original, [{ ...codeReview, type: 'unknown' } as never])).toThrow('Unsupported BeadsForm type "unknown"');
+    expect(original).toEqual({ untouched: true });
+  });
+
+  it('preserves Next Instruction presets through show and question mutations', () => {
+    const presets = [{ label: 'Discuss unknowns', value: 'Create another form to discuss additional unknowns in detail' }];
+    const form = parseFormsJsonForAttach(JSON.stringify({ ...standardForm, nextInstructionPresets: presets }))[0]!;
+    const attached = attachFormsToMetadata({}, [form]);
+    expect(buildShowResult({ bead: { id: 'bd-1' }, form }).form.nextInstructionPresets).toEqual(presets);
+
+    const updated = updateQuestionInMetadata(attached, 'review', {
+      questionId: 'decision',
+      replacement: mutableQuestion(standardForm.questions[0]),
+    });
+    expect((updated.metadata.beadForms as any).forms[0].nextInstructionPresets).toEqual(presets);
+
+    const appended = appendQuestionsToMetadata(attached, 'review', {
+      operation: 'append_questions',
+      questions: [{ type: 'textarea', id: 'follow_up', title: 'Follow up', description: 'Add a follow-up finding.' }],
+    });
+    expect((appended.metadata.beadForms as any).forms[0].nextInstructionPresets).toEqual(presets);
+    expect((appended.metadata.beadForms as any).forms[0]).not.toHaveProperty('html');
+    expect((appended.metadata.beadForms as any).forms[0]).not.toHaveProperty('controls');
+  });
+
+  it('documents canonical structured choice tradeoffs instead of putting pros and cons in descriptions', async () => {
+    const onboarding = await readFile(new URL('../../skills/beads-form-agent-onboarding.md', import.meta.url), 'utf8');
+    const skill = await readFile(new URL('../../packages/beads-form/SKILL.md', import.meta.url), 'utf8');
+    const attachments = await readFile(new URL('../../packages/beads-form/ATTACHMENTS.md', import.meta.url), 'utf8');
+
+    expect(onboarding).not.toContain('include the pros/cons in the choice descriptions');
+    expect(onboarding).toContain('choice.prosAndCons: { pros?: string[]; cons?: string[] }');
+    expect(onboarding).toContain('Descriptions should contain only contextual prose that is not a structured pro/con.');
+    expect(onboarding).not.toContain('The default bead-backed workflow is **inline JSON via stdin**');
+    expect(`${onboarding}\n${skill}`).toContain('file plus pipe');
+    expect(`${onboarding}\n${skill}`).toContain('cat .vk-mocked-sandbox/beads-form-authoring');
+    expect(`${onboarding}\n${skill}`).toContain('beads-form show-question');
+    expect(`${onboarding}\n${skill}`).toContain('beads-form update-question');
+    expect(skill).toContain('### Embedding Markdown, media, files, and code');
+    expect(skill).toContain("type: 'code-review'");
+    expect(skill).toContain('never changes answer values');
+    expect(skill).toContain("buildMarkdownAttachment({ ref: 'docs/decision.md' })");
+    expect(skill).toContain('Bead-backed forms should use repo-relative refs');
+    expect(skill).toContain('Legacy `attachment://...` refs are compatibility-only');
+    expect(skill).toContain('Never paste Markdown file contents');
+    expect(skill).toContain('public URLs cannot choose');
+    expect(skill).not.toContain('Bead-backed local artifacts must use `attachment://...` refs');
+    expect(skill).not.toContain('Local folder-relative media refs are rejected in bead-backed attach');
+    expect(attachments).toContain('Preferred bead-backed refs are repo-relative working-tree paths');
+    expect(attachments).toContain('Legacy `attachment://path/to/file` refs are still');
+    expect(attachments).toContain('new forms should not use');
+    expect(attachments).toContain('never inlines Markdown files');
+    expect(attachments).toContain('public query');
+    expect(skill).toContain('sends only the normalized response JSON object');
+    expect(skill).toContain('followed by non-empty `SITE_ORIGIN`');
+    expect(skill).toContain('`nextInstructionPresets` accepts up to eight');
+    expect(skill).toContain('future plugin-settings registry');
+    expect(skill).toContain('XML handoff by default');
+    expect(skill).toContain('single-form JSON handoff is exactly the normalized response object');
+    expect(skill).toContain('does not affect persisted responses, drafts, or creator-session notifications');
+    expect(onboarding).toContain('XML is the default');
+    expect(onboarding).toContain('Single-form JSON is exactly the normalized response object');
+    expect(skill).toContain('**Copy format** control');
+    expect(skill).toContain('defaults safely to XML');
+    expect(skill).toContain('single-form JSON handoff is exactly the normalized response object');
+    expect(skill).toContain('Combined batch JSON contains an ordered `responses` array of normalized response objects');
+    expect(skill).toContain('it omits routing identifiers and all other submission or descriptive metadata');
+    expect(onboarding).toContain('This browser preference does not alter internal bead storage or creator-session notifications');
+    for (const doc of [skill, onboarding]) {
+      const prose = doc.replace(/\s+/g, ' ');
+
+      expect(doc).toMatch(/^## Human-readable workspace context$/im);
+      expect(prose).toMatch(/readable workspace name/i);
+      expect(prose).toMatch(/exact (?:IDs|identifiers).{0,100}(?:commands|URLs)|(?:commands|URLs).{0,100}exact (?:IDs|identifiers)/i);
+      expect(doc).toMatch(/vibe-agent sessions list --json/);
+      expect(doc).toMatch(/workspace_name/);
+      expect(doc).toMatch(/VK_WORKSPACE_BRANCH/);
+      expect(doc).toMatch(/bd show <bead-id> --json/);
+      expect(prose).toMatch(/workspace name unavailable/i);
+      expect(prose).toMatch(/(?:do not fabricate|never invent).{0,50}(?:workspace )?(?:display )?name/i);
+
+      const idOnlyContradictions = [
+        /workspace IDs? (?:alone|by (?:itself|themselves)) (?:is|are) (?:enough|sufficient|adequate)/i,
+        /(?:share|send|provide) (?:only|just) (?:the )?(?:workspace ID|bead ID|raw URL)/i,
+        /(?:use|display) (?:the )?(?:workspace ID|bead ID|raw URL) as (?:the )?(?:primary|human-readable) label/i,
+        /no (?:readable )?workspace name (?:is )?(?:needed|required|necessary)/i,
+      ];
+      for (const contradiction of idOnlyContradictions) {
+        expect(prose).not.toMatch(contradiction);
+      }
+    }
+    expect(onboarding).toContain('only the normalized response JSON object');
+    expect(`${onboarding}\n${skill}`).not.toContain('sends the canonical lean form DSL, normalized response, and XML handoff');
+  });
+
+  it('runs the CLI help entrypoint under Node strip-types', async () => {
+    const { stdout } = await execFileAsync(process.execPath, [
+      '--experimental-strip-types',
+      'scripts/beads-form/cli.ts',
+      '--help',
+    ], {
+      cwd: process.cwd(),
+      timeout: 10_000,
+    });
+    expect(stdout).toContain('beads-form attach');
+    expect(stdout).toContain('beads-form pending --parent-dir <all-repos-dir>');
+    expect(stdout).toContain('Embedding refs:');
+    expect(stdout).toContain('Form types:');
+    expect(stdout).toContain('2. SITE_ORIGIN');
+    expect(stdout).toContain('Next Instruction presets:');
+    expect(stdout).toContain('Use "code-review" only for code-review findings.');
+    expect(stdout).toContain('Prefer repo-relative refs such as docs/decision.md');
+    expect(stdout).toContain('Legacy attachment:// refs are compatibility-only');
+    expect(stdout).not.toContain('live under .beads/attachments');
+  });
+
   it('parses attach and show subcommands', () => {
     expect(parseBeadsFormCliArgs(['attach', '--bead', 'bd-1', '--file', 'form.json', '--origin', 'https://example.test'])).toEqual({
       command: 'attach',
       options: expect.objectContaining({ beadId: 'bd-1', file: 'form.json', origin: 'https://example.test' }),
     });
-    expect(parseBeadsFormCliArgs(['show', '--bead', 'bd-1', '--form', 'review', '--include-html'])).toEqual({
+    expect(parseBeadsFormCliArgs(['show', '--bead', 'bd-1', '--form', 'review'])).toEqual({
       command: 'show',
-      options: expect.objectContaining({ beadId: 'bd-1', formId: 'review', includeHtml: true }),
+      options: expect.objectContaining({ beadId: 'bd-1', formId: 'review' }),
     });
+    expect(() => parseBeadsFormCliArgs(['show', '--bead', 'bd-1', '--include-html'])).toThrow('no longer supports --include-html');
+    expect(parseBeadsFormCliArgs(['pending', '--parent-dir', '/repos', '--limit', '12', '--origin', 'https://example.test/path'])).toEqual({
+      command: 'pending',
+      options: expect.objectContaining({
+        parentDir: '/repos',
+        limit: 12,
+        origin: 'https://example.test',
+      }),
+    });
+    expect(parseBeadsFormCliArgs([
+      'append-questions',
+      '--bead',
+      'bd-1',
+      '--form',
+      'review',
+      '--file',
+      'questions.json',
+      '--after-question',
+      'decision',
+      '--base-hash',
+      'abc123',
+    ])).toEqual({
+      command: 'append-questions',
+      options: expect.objectContaining({
+        beadId: 'bd-1',
+        formId: 'review',
+        file: 'questions.json',
+        afterQuestionId: 'decision',
+        baseHash: 'abc123',
+      }),
+    });
+    expect(parseBeadsFormCliArgs(['show-question', '--bead', 'bd-1', '--form', 'review', '--question', 'decision'])).toEqual({
+      command: 'show-question',
+      options: expect.objectContaining({ beadId: 'bd-1', formId: 'review', questionId: 'decision' }),
+    });
+    expect(parseBeadsFormCliArgs(['show-question', '--bead', 'bd-1', '--form', 'review', '--index', '2'])).toEqual({
+      command: 'show-question',
+      options: expect.objectContaining({ beadId: 'bd-1', formId: 'review', questionIndex: 2 }),
+    });
+    expect(parseBeadsFormCliArgs(['invalidate', '--bead', 'bd-1', '--form', 'review', '--reason', 'superseded'])).toEqual({
+      command: 'invalidate',
+      options: expect.objectContaining({ beadId: 'bd-1', formId: 'review', reason: 'superseded' }),
+    });
+    expect(() => parseBeadsFormCliArgs(['show-question', '--bead', 'bd-1', '--form', 'review', '--index', '1abc'])).toThrow('one-based positive integer');
+    expect(parseBeadsFormCliArgs([
+      'update-question',
+      '--bead',
+      'bd-1',
+      '--form',
+      'review',
+      '--question',
+      'decision',
+      '--file',
+      'question.json',
+      '--base-hash',
+      'abc123',
+    ])).toEqual({
+      command: 'update-question',
+      options: expect.objectContaining({
+        beadId: 'bd-1',
+        formId: 'review',
+        questionId: 'decision',
+        file: 'question.json',
+        baseHash: 'abc123',
+      }),
+    });
+  });
+
+  it('rejects malformed update-question indexes before any metadata mutation', async () => {
+    const exec = vi.fn<ExecFileLike>();
+    for (const badIndex of ['1.5', '0']) {
+      expect(() => parseBeadsFormCliArgs([
+        'update-question',
+        '--bead',
+        'bd-1',
+        '--form',
+        'review',
+        '--index',
+        badIndex,
+        '--file',
+        'question.json',
+      ])).toThrow('one-based positive integer');
+    }
+    expect(exec).not.toHaveBeenCalled();
   });
 
   it('parses workspace and session metadata from flags and environment', () => {
@@ -85,7 +336,7 @@ describe('beads-form CLI helpers', () => {
     }
   });
 
-  it('resolves attach origin from explicit flag, env, then config without hardcoded defaults', async () => {
+  it('resolves origin from explicit flag, SITE_ORIGIN, legacy env, then config', async () => {
     const configDir = join(tmpdir(), `beads-form-config-${process.pid}-${Date.now()}`);
     const configPath = join(configDir, 'beads-form.json');
     await mkdir(configDir, { recursive: true });
@@ -93,9 +344,17 @@ describe('beads-form CLI helpers', () => {
 
     expect(resolveBeadsFormOrigin({
       explicitOrigin: 'https://flag.example.test/path',
-      env: { BEADS_FORM_ORIGIN: 'https://env.example.test' },
+      env: { SITE_ORIGIN: 'https://site.example.test', BEADS_FORM_ORIGIN: 'https://env.example.test' },
       configPath,
     })).toBe('https://flag.example.test');
+    expect(resolveBeadsFormOrigin({
+      env: { SITE_ORIGIN: 'https://site.example.test/base', BEADS_FORM_ORIGIN: 'https://env.example.test' },
+      configPath,
+    })).toBe('https://site.example.test');
+    expect(resolveBeadsFormOrigin({
+      env: { SITE_ORIGIN: '   ', BEADS_FORM_ORIGIN: 'https://env.example.test/path' },
+      configPath,
+    })).toBe('https://env.example.test');
     expect(resolveBeadsFormOrigin({
       env: { BEADS_FORM_ORIGIN: 'https://env.example.test/path' },
       configPath,
@@ -103,6 +362,27 @@ describe('beads-form CLI helpers', () => {
     expect(resolveBeadsFormOrigin({ env: {}, configPath })).toBe('https://config.example.test');
     expect(resolveBeadsFormOrigin({ env: {}, configPath: join(configDir, 'missing.json') })).toBeUndefined();
     expect(() => resolveBeadsFormOrigin({ explicitOrigin: 'file:///tmp/forms' })).toThrow('Invalid BeadsForm origin protocol');
+    expect(() => resolveBeadsFormOrigin({ env: { SITE_ORIGIN: 'file:///tmp/forms' } })).toThrow('Invalid BeadsForm origin protocol');
+  });
+
+  it('applies SITE_ORIGIN to every URL-emitting CLI command unless --origin overrides it', () => {
+    vi.stubEnv('SITE_ORIGIN', 'https://site.example.test/base');
+    try {
+      const commands = [
+        ['attach', '--bead', 'bd-1', '--file', 'form.json'],
+        ['append-questions', '--bead', 'bd-1', '--form', 'review', '--file', 'questions.json'],
+        ['update-question', '--bead', 'bd-1', '--form', 'review', '--question', 'decision', '--file', 'question.json'],
+        ['pending', '--parent-dir', '/repos'],
+      ];
+      for (const argv of commands) {
+        expect(parseBeadsFormCliArgs(argv).options).toMatchObject({ origin: 'https://site.example.test' });
+      }
+      expect(parseBeadsFormCliArgs([
+        'attach', '--bead', 'bd-1', '--file', 'form.json', '--origin', 'https://flag.example.test/path',
+      ]).options).toMatchObject({ origin: 'https://flag.example.test' });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('accepts direct, array, forms wrapper, and metadata wrapper JSON input shapes', () => {
@@ -112,48 +392,102 @@ describe('beads-form CLI helpers', () => {
     expect(parseFormsJsonForAttach(JSON.stringify({ beadForms: { forms: [standardForm] } })).map((form) => form.id)).toEqual(['review']);
   });
 
-  it('preserves standard semantic fields when compiling attach input', () => {
-    const [form] = parseFormsJsonForAttach(JSON.stringify(standardForm));
+  it('preserves only standard semantic fields when normalizing attach input', () => {
+    const presets = [{ label: 'Discuss unknowns', value: 'Create another form to discuss additional unknowns in detail' }];
+    const [form] = parseFormsJsonForAttach(JSON.stringify({ ...standardForm, nextInstructionPresets: presets }));
     expect(form).toMatchObject({
       format: 'standard',
       id: 'review',
+      goal: standardForm.goal,
       questions: standardForm.questions,
       content: standardForm.content,
+      nextInstructionPresets: presets,
     });
-    expect(form?.html).toContain('<form>');
-    expect(form?.controls?.map((control) => control.name)).toContain('decision');
+    expect(form).not.toHaveProperty('html');
+    expect(form).not.toHaveProperty('controls');
+
+    const [stripped] = parseFormsJsonForAttach(JSON.stringify({
+      ...standardForm,
+      html: '<form>stale generated html</form>',
+      controls: [{ id: 'stale', name: 'stale', type: 'textarea' }],
+      sourceMessages: [{ text: 'do not persist' }],
+    }));
+    expect(stripped).not.toHaveProperty('html');
+    expect(stripped).not.toHaveProperty('controls');
+    expect(stripped).not.toHaveProperty('sourceMessages');
   });
 
-  it('rejects duplicate input ids, duplicate bead ids, invalid JSON, and local bead-backed media refs without mutation', () => {
+  it('rejects invalid Next Instruction presets before attach metadata mutation', () => {
+    const metadata = { untouched: true };
+    expect(() => attachFormsToMetadata(metadata, [{
+      ...standardForm,
+      nextInstructionPresets: [{ label: '', value: 'Do work' }],
+    } as never])).toThrow('nextInstructionPresets');
+    expect(metadata).toEqual({ untouched: true });
+  });
+
+  it('rejects duplicate input ids, duplicate bead ids, invalid JSON, and unsafe refs without mutation', () => {
     expect(() => parseFormsJsonForAttach(JSON.stringify([standardForm, standardForm]))).toThrow('Duplicate form id');
     expect(() => parseFormsJsonForAttach('{bad')).toThrow('Invalid JSON');
+    expect(() => parseFormsJsonForAttach(JSON.stringify({ ...standardForm, goal: '' }))).toThrow('No BeadsForm definitions found');
     expect(() => parseFormsJsonForAttach(JSON.stringify({
       ...standardForm,
-      content: [{ ...standardForm.content[0], items: [{ id: 'local', type: 'image', src: 'attachments/local.png' }] }],
-    }))).toThrow('uses local media');
+      questions: [{ ...standardForm.questions[0], id: 'next_instruction' }],
+    }))).toThrow('question.id "next_instruction" is reserved');
+    expect(() => parseFormsJsonForAttach(JSON.stringify({
+      ...standardForm,
+      content: [{ ...standardForm.content[0], id: 'allow_code_file_changes' }],
+    }))).toThrow('content.id "allow_code_file_changes" is reserved');
+    expect(() => parseFormsJsonForAttach(JSON.stringify({
+      ...standardForm,
+      content: [{ ...standardForm.content[0], items: [{ id: 'local', type: 'image', src: '../outside.png' }] }],
+    }))).toThrow('must not traverse directories');
     expect(() => parseFormsJsonForAttach(JSON.stringify({
       id: 'raw_img',
       title: 'Raw image',
       html: '<form><img src="attachments/x.png"></form>',
       controls: [],
-    }))).toThrow('uses local media src "attachments/x.png" in stored HTML');
+    }))).toThrow('Raw HTML BeadsForms are no longer supported');
     expect(() => parseFormsJsonForAttach(JSON.stringify({
       id: 'raw_video',
       title: 'Raw video',
       html: '<form><video src="./x.webm"></video></form>',
       controls: [],
-    }))).toThrow('uses local media src "./x.webm" in stored HTML');
+    }))).toThrow('Raw HTML BeadsForms are no longer supported');
     expect(() => parseFormsJsonForAttach(JSON.stringify({
       id: 'raw_poster',
       title: 'Raw poster',
       html: '<form><video poster="../x.png" src="https://example.test/x.webm"></video></form>',
       controls: [],
-    }))).toThrow('uses local media poster "../x.png" in stored HTML');
+    }))).toThrow('Raw HTML BeadsForms are no longer supported');
 
-    const metadata = { untouched: true, beadForms: { forms: [{ id: 'review', title: 'Existing', html: '<form></form>' }] } };
+    const metadata = { untouched: true, beadForms: { forms: [storedReviewForm] } };
     expect(() => attachFormsToMetadata(metadata, parseFormsJsonForAttach(JSON.stringify({ ...standardForm, id: 'other' })))).not.toThrow();
     expect(() => attachFormsToMetadata(metadata, parseFormsJsonForAttach(JSON.stringify(standardForm)))).toThrow('already exists');
-    expect(metadata).toEqual({ untouched: true, beadForms: { forms: [{ id: 'review', title: 'Existing', html: '<form></form>' }] } });
+    expect(metadata).toEqual({ untouched: true, beadForms: { forms: [storedReviewForm] } });
+  });
+
+  it('rejects reserved generated submit ids through attach without metadata mutation', async () => {
+    const calls: string[][] = [];
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      calls.push([...args]);
+      if (args[0] === 'show') {
+        return { stdout: JSON.stringify([{ id: 'bd-1', title: 'Bead', metadata: { untouched: true } }]), stderr: '' };
+      }
+      return { stdout: '', stderr: '' };
+    });
+    const invalidForm = {
+      ...standardForm,
+      id: 'reserved_attach',
+      questions: [{ ...standardForm.questions[0], id: 'next_instruction' }],
+    };
+
+    await expect(attachBeadsForms({
+      execFile: exec,
+      forms: [invalidForm as never],
+      options: { dir: '/repo', beadId: 'bd-1' } satisfies AttachOptions,
+    })).rejects.toThrow('question.id "next_instruction" is reserved');
+    expect(calls.map((args) => args[0])).toEqual(['show']);
   });
 
   it('stamps workspace and session metadata while preserving unrelated metadata', () => {
@@ -175,6 +509,505 @@ describe('beads-form CLI helpers', () => {
     expect((metadata.beadForms as { forms: Array<{ id: string }> }).forms.map((candidate) => candidate.id)).toEqual(['review']);
   });
 
+  it('parses append-questions inputs and rejects full forms, empty arrays, and duplicate question ids', () => {
+    const question = {
+      type: 'textarea',
+      id: 'review_risk',
+      title: 'Review risk',
+      description: 'Capture a focused reviewer concern.',
+    };
+    expect(parseQuestionsJsonForAppend(JSON.stringify([question]))).toEqual({
+      operation: 'append_questions',
+      questions: [question],
+    });
+    expect(parseQuestionsJsonForAppend(JSON.stringify({
+      operation: 'append_questions',
+      afterQuestionId: 'decision',
+      questions: [question],
+    }))).toEqual({
+      operation: 'append_questions',
+      afterQuestionId: 'decision',
+      questions: [question],
+    });
+    expect(() => parseQuestionsJsonForAppend(JSON.stringify([]))).toThrow('at least one question');
+    expect(() => parseQuestionsJsonForAppend(JSON.stringify([question, question]))).toThrow('Duplicate question id');
+    expect(() => parseQuestionsJsonForAppend(JSON.stringify(standardForm))).toThrow('questions only');
+    expect(() => parseQuestionsJsonForAppend(JSON.stringify({
+      operation: 'replace_form',
+      questions: [question],
+    }))).toThrow('Unsupported append-questions operation');
+    expect(() => parseQuestionsJsonForAppend(JSON.stringify({
+      questions: [question],
+      html: '<form></form>',
+    }))).toThrow('generated html/controls');
+    expect(() => parseQuestionsJsonForAppend(JSON.stringify([{
+      ...question,
+      html: '<form></form>',
+      controls: [],
+    }]))).toThrow('forbidden form/generated field "html"');
+    expect(() => parseQuestionsJsonForAppend(JSON.stringify({
+      questions: [{
+        ...question,
+        choices: [{
+          id: 'nested',
+          label: 'Nested',
+          sourceMessages: [],
+        }],
+      }],
+    }))).toThrow('forbidden form/generated field "sourceMessages"');
+    expect(() => parseQuestionsJsonForAppend(JSON.stringify({
+      questions: [{
+        ...question,
+        goal: 'Misplaced form goal',
+      }],
+    }))).toThrow('forbidden form/generated field "goal"');
+  });
+
+  it('parses update-question input and rejects wrappers with generated fields', () => {
+    const question = {
+      type: 'textarea',
+      id: 'decision',
+      title: 'Refined decision',
+      description: 'Use **Markdown** and explain the tradeoff.',
+    };
+
+    expect(parseQuestionJsonForUpdate(JSON.stringify(question))).toEqual(question);
+    expect(parseQuestionJsonForUpdate(JSON.stringify({
+      operation: 'update_question',
+      question,
+    }))).toEqual(question);
+    expect(() => parseQuestionJsonForUpdate(JSON.stringify(standardForm))).toThrow('one standard DSL question');
+    expect(() => parseQuestionJsonForUpdate(JSON.stringify({
+      operation: 'replace_form',
+      question,
+    }))).toThrow('Unsupported update-question operation');
+    expect(() => parseQuestionJsonForUpdate(JSON.stringify({
+      operation: 'update_question',
+      question: { ...question, html: '<form></form>' },
+    }))).toThrow('forbidden form/generated field "html"');
+  });
+
+  it('shows one question config with form hash for safe one-by-one refinement', async () => {
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      if (args[0] === 'show') {
+        return {
+          stdout: JSON.stringify([{ id: 'bd-1', title: 'Bead', metadata: { beadForms: { forms: [storedReviewForm] } } }]),
+          stderr: '',
+        };
+      }
+      return { stdout: '', stderr: '' };
+    });
+
+    const result = await showBeadsFormQuestion({
+      execFile: exec,
+      options: { dir: '/repo', beadId: 'bd-1', formId: 'review', questionId: 'decision' },
+    });
+
+    expect(result).toMatchObject({
+      beadId: 'bd-1',
+      formId: 'review',
+      questionId: 'decision',
+      questionIndex: 1,
+      question: storedReviewForm.questions[0],
+      formHash: buildFormDefinitionHash(parseFormsJsonForAttach(JSON.stringify(standardForm))[0]!),
+    });
+    expect(exec.mock.calls.map(([, args]) => args[0])).toEqual(['show']);
+  });
+
+  it('updates one question by id while preserving responses, content blocks, lean storage, and unrelated metadata', () => {
+    const answered = {
+      submittedBy: 'user',
+      submittedAt: '2026-08-04T00:00:00Z',
+      values: { decision: { approve: true } },
+    };
+    const metadata = {
+      untouched: true,
+      beadForms: {
+        forms: [{
+          ...storedReviewForm,
+          responses: [answered],
+          html: '<form>stale</form>',
+          controls: [{ id: 'stale', name: 'stale', type: 'textarea' }],
+        }],
+      },
+    };
+    const replacement = {
+      ...mutableQuestion(storedReviewForm.questions[0]),
+      title: 'Refined decision',
+      description: 'Use **Markdown**, code fences, and complete choice explanations.',
+      choices: [{
+        id: 'approve',
+        label: 'Approve after fixes',
+        description: 'Ready once the listed issues are addressed.',
+        prosAndCons: { pros: ['Clear next action'], cons: ['Requires follow-up validation'] },
+      }],
+    };
+
+    const result = updateQuestionInMetadata(metadata, 'review', {
+      questionId: 'decision',
+      replacement,
+    });
+    const storedForm = (result.metadata.beadForms as any).forms[0];
+
+    expect(result.metadata.untouched).toBe(true);
+    expect(storedForm.content).toEqual(storedReviewForm.content);
+    expect(storedForm.responses).toBeUndefined();
+    expect((result.metadata.beadFormResponses as any).responsesByFormId.review).toEqual([answered]);
+    expect(storedForm).not.toHaveProperty('html');
+    expect(storedForm).not.toHaveProperty('controls');
+    expect(storedForm.questions).toEqual([replacement]);
+    expect(result.questionHashAfter).not.toBe(result.questionHashBefore);
+    expect(metadata).toEqual({
+      untouched: true,
+      beadForms: {
+        forms: [{
+          ...storedReviewForm,
+          responses: [answered],
+          html: '<form>stale</form>',
+          controls: [{ id: 'stale', name: 'stale', type: 'textarea' }],
+        }],
+      },
+    });
+  });
+
+  it('updates one question by one-based index and rejects id changes, hash conflicts, and missing selectors before mutation', () => {
+    const metadata = { untouched: true, beadForms: { forms: [storedReviewForm] } };
+    const replacement = {
+      ...mutableQuestion(storedReviewForm.questions[0]),
+      title: 'Refined decision',
+    };
+
+    expect(updateQuestionInMetadata(metadata, 'review', {
+      questionIndex: 1,
+      replacement,
+      baseHash: buildFormDefinitionHash(parseFormsJsonForAttach(JSON.stringify(standardForm))[0]!),
+    }).questionId).toBe('decision');
+    expect(() => updateQuestionInMetadata(metadata, 'review', {
+      questionId: 'decision',
+      replacement: { ...replacement, id: 'renamed' },
+    })).toThrow('cannot change question id');
+    expect(() => updateQuestionInMetadata(metadata, 'review', {
+      questionId: 'decision',
+      questionIndex: 1,
+      replacement,
+    })).toThrow('requires exactly one');
+    expect(() => updateQuestionInMetadata(metadata, 'review', {
+      questionIndex: 0,
+      replacement,
+    })).toThrow('one-based');
+    expect(() => updateQuestionInMetadata(metadata, 'review', {
+      questionId: 'decision',
+      replacement,
+      baseHash: 'stale-hash',
+    })).toThrow('changed since base hash');
+    expect(metadata).toEqual({ untouched: true, beadForms: { forms: [storedReviewForm] } });
+  });
+
+  it('updates bead metadata for update-question only after validation', async () => {
+    const calls: string[][] = [];
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      calls.push([...args]);
+      if (args[0] === 'show') {
+        return { stdout: JSON.stringify([{ id: 'bd-1', title: 'Bead', metadata: { beadForms: { forms: [storedReviewForm] } } }]), stderr: '' };
+      }
+      return { stdout: '', stderr: '' };
+    });
+    const replacement = parseQuestionJsonForUpdate(JSON.stringify({
+      ...storedReviewForm.questions[0],
+      title: 'Refined decision',
+    }));
+
+    const result = await updateBeadsFormQuestion({
+      execFile: exec,
+      replacement,
+      options: {
+        dir: '/repo',
+        beadId: 'bd-1',
+        formId: 'review',
+        questionId: 'decision',
+        origin: 'https://example.test',
+      },
+    });
+
+    expect(result).toMatchObject({
+      beadId: 'bd-1',
+      formId: 'review',
+      questionId: 'decision',
+      questionIndex: 1,
+      url: 'https://example.test/dashboard/forms?dir=%2Frepo&bead=bd-1&form=review',
+    });
+    expect(calls.map((args) => args[0])).toEqual(['show', 'update']);
+  });
+
+  it('rejects reserved generated submit ids through update-question without metadata mutation', async () => {
+    const calls: string[][] = [];
+    const existingReservedForm = {
+      ...storedReviewForm,
+      questions: [{ ...storedReviewForm.questions[0], id: 'next_instruction' }],
+    };
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      calls.push([...args]);
+      if (args[0] === 'show') {
+        return { stdout: JSON.stringify([{ id: 'bd-1', title: 'Bead', metadata: { beadForms: { forms: [existingReservedForm] } } }]), stderr: '' };
+      }
+      return { stdout: '', stderr: '' };
+    });
+
+    await expect(updateBeadsFormQuestion({
+      execFile: exec,
+      replacement: { ...existingReservedForm.questions[0], title: 'Still reserved' } as never,
+      options: {
+        dir: '/repo',
+        beadId: 'bd-1',
+        formId: 'review',
+        questionId: 'next_instruction',
+      },
+    })).rejects.toThrow('question.id "next_instruction" is reserved');
+    expect(calls.map((args) => args[0])).toEqual(['show']);
+  });
+
+  it('appends questions to a canonical form while preserving responses and lean metadata', () => {
+    const answered = {
+      submittedBy: 'user',
+      submittedAt: '2026-08-04T00:00:00Z',
+      values: { decision: { approve: true } },
+    };
+    const metadata = {
+      untouched: true,
+      beadForms: {
+        forms: [{
+          ...storedReviewForm,
+          responses: [answered],
+          html: '<form>stale</form>',
+          controls: [{ id: 'stale', name: 'stale', type: 'textarea' }],
+        }],
+      },
+    };
+    const appendedQuestion = {
+      type: 'textarea',
+      id: 'review_risk',
+      title: 'Review risk',
+      description: 'Capture a focused reviewer concern.',
+    } as const;
+
+    const result = appendQuestionsToMetadata(metadata, 'review', {
+      operation: 'append_questions',
+      questions: [appendedQuestion],
+      afterQuestionId: 'decision',
+    });
+    const forms = (result.metadata.beadForms as { forms: Array<Record<string, unknown>> }).forms;
+
+    expect(result.metadata.untouched).toBe(true);
+    expect(forms[0]?.responses).toBeUndefined();
+    expect((result.metadata.beadFormResponses as any).responsesByFormId.review).toEqual([answered]);
+    expect(forms[0]).not.toHaveProperty('html');
+    expect(forms[0]).not.toHaveProperty('controls');
+    expect((forms[0]?.questions as Array<{ id: string }>).map((question) => question.id)).toEqual(['decision', 'review_risk']);
+    expect(result.metadata.beadFormsSummary).toEqual({
+      hasForms: true,
+      hasPendingAnswer: false,
+      pendingResponseCount: 0,
+      formIds: ['review'],
+      pendingFormIds: [],
+    });
+  });
+
+  it('appends questions to legacy missing-goal standard forms while stripping stale generated fields', () => {
+    const answered = {
+      submittedBy: 'user',
+      submittedAt: '2026-08-04T00:00:00Z',
+      values: { decision: { approve: true } },
+    };
+    const legacyForm = {
+      format: 'standard',
+      id: 'review',
+      title: 'Legacy review form',
+      questions: storedReviewForm.questions,
+      responses: [answered],
+      html: '<form><input name="stale"></form>',
+      controls: [{ id: 'stale', name: 'stale', type: 'textarea' }],
+    };
+    const metadata = {
+      untouched: true,
+      beadForms: { forms: [legacyForm] },
+    };
+    const appendedQuestion = {
+      type: 'textarea',
+      id: 'review_risk',
+      title: 'Review risk',
+      description: 'Capture a focused reviewer concern.',
+    } as const;
+
+    const result = appendQuestionsToMetadata(metadata, 'review', {
+      operation: 'append_questions',
+      questions: [appendedQuestion],
+    });
+    const forms = (result.metadata.beadForms as { forms: Array<Record<string, unknown>> }).forms;
+
+    expect(forms[0]?.goal).toBe('Answer Legacy review form.');
+    expect(forms[0]?.responses).toBeUndefined();
+    expect((result.metadata.beadFormResponses as any).responsesByFormId.review).toEqual([answered]);
+    expect(forms[0]).not.toHaveProperty('html');
+    expect(forms[0]).not.toHaveProperty('controls');
+    expect((forms[0]?.questions as Array<{ id: string }>).map((question) => question.id)).toEqual(['decision', 'review_risk']);
+    expect(result.metadata.beadFormsSummary).toEqual({
+      hasForms: true,
+      hasPendingAnswer: false,
+      pendingResponseCount: 0,
+      formIds: ['review'],
+      pendingFormIds: [],
+    });
+    expect(metadata).toEqual({
+      untouched: true,
+      beadForms: { forms: [legacyForm] },
+    });
+  });
+
+  it('rejects append-questions duplicates and base hash mismatches without mutating metadata', () => {
+    const metadata = { untouched: true, beadForms: { forms: [storedReviewForm] } };
+    const existingQuestion = {
+      type: 'textarea',
+      id: 'decision',
+      title: 'Duplicate',
+      description: 'Duplicate id.',
+    } as const;
+    const newQuestion = {
+      type: 'textarea',
+      id: 'new_question',
+      title: 'New question',
+      description: 'New id.',
+    } as const;
+
+    expect(() => appendQuestionsToMetadata(metadata, 'review', {
+      operation: 'append_questions',
+      questions: [existingQuestion],
+    })).toThrow('already exists');
+    expect(() => appendQuestionsToMetadata(metadata, 'review', {
+      operation: 'append_questions',
+      questions: [newQuestion],
+    }, {
+      baseHash: 'not-the-current-hash',
+    })).toThrow('changed since base hash');
+    expect(metadata).toEqual({ untouched: true, beadForms: { forms: [storedReviewForm] } });
+  });
+
+  it('rejects append/update question mutations on invalidated forms', () => {
+    const metadata = { beadForms: { forms: [{ ...storedReviewForm, invalidatedAt: '2026-09-25T00:00:00.000Z', invalidatedBy: 'agent' }] } };
+    expect(() => appendQuestionsToMetadata(metadata, 'review', {
+      operation: 'append_questions',
+      questions: [{ type: 'text', id: 'later', title: 'Later', description: 'Later.' }],
+    })).toThrow('invalidated and cannot be changed');
+    expect(() => updateQuestionInMetadata(metadata, 'review', {
+      questionId: 'decision',
+      replacement: { type: 'textarea', id: 'decision', title: 'Changed', description: 'Changed.' },
+    })).toThrow('invalidated and cannot be changed');
+  });
+
+  it('rejects nested generated append fields before metadata mutation', () => {
+    const metadata = { untouched: true, beadForms: { forms: [storedReviewForm] } };
+    expect(() => appendQuestionsToMetadata(metadata, 'review', {
+      operation: 'append_questions',
+      questions: [{
+        type: 'textarea',
+        id: 'new_question',
+        title: 'New question',
+        description: 'New id.',
+        controls: [],
+      } as never],
+    })).toThrow('forbidden form/generated field "controls"');
+    expect(() => appendQuestionsToMetadata(metadata, 'review', {
+      operation: 'append_questions',
+      questions: [{
+        type: 'choices',
+        id: 'choice_question',
+        title: 'Choice question',
+        description: 'Pick one.',
+        choices: [{
+          id: 'bad_choice',
+          label: 'Bad choice',
+          html: '<form></form>',
+        }],
+      } as never],
+    })).toThrow('forbidden form/generated field "html"');
+    expect(metadata).toEqual({ untouched: true, beadForms: { forms: [storedReviewForm] } });
+  });
+
+  it('rejects nested form-level Next Instruction presets in append and update without mutation', () => {
+    const metadata = { untouched: true, beadForms: { forms: [storedReviewForm] } };
+    const malformedNestedPresets = [{ label: 42, value: null }];
+    const appendQuestion = {
+      type: 'choices',
+      id: 'follow_up',
+      title: 'Follow up',
+      description: 'Choose a follow-up.',
+      choices: [{
+        id: 'discuss',
+        label: 'Discuss',
+        nextInstructionPresets: malformedNestedPresets,
+      }],
+    } as never;
+    const replacement = {
+      ...mutableQuestion(standardForm.questions[0]),
+      choices: [{
+        ...mutableQuestion(standardForm.questions[0].choices[0]),
+        context: { nextInstructionPresets: malformedNestedPresets },
+      }],
+    } as never;
+
+    expect(() => appendQuestionsToMetadata(metadata, 'review', {
+      operation: 'append_questions',
+      questions: [appendQuestion],
+    })).toThrow('forbidden form/generated field "nextInstructionPresets"');
+    expect(() => updateQuestionInMetadata(metadata, 'review', {
+      questionId: 'decision',
+      replacement,
+    })).toThrow('forbidden form/generated field "nextInstructionPresets"');
+    expect(metadata).toEqual({ untouched: true, beadForms: { forms: [storedReviewForm] } });
+  });
+
+  it('updates bead metadata for append-questions and returns hashes plus fill-out URLs', async () => {
+    const calls: string[][] = [];
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      calls.push([...args]);
+      if (args[0] === 'show') {
+        return { stdout: JSON.stringify([{ id: 'bd-1', title: 'Bead', metadata: { beadForms: { forms: [storedReviewForm] } } }]), stderr: '' };
+      }
+      return { stdout: '', stderr: '' };
+    });
+    const patch = parseQuestionsJsonForAppend(JSON.stringify({
+      questions: [{
+        type: 'textarea',
+        id: 'review_risk',
+        title: 'Review risk',
+        description: 'Capture a focused reviewer concern.',
+      }],
+    }));
+    const result = await appendQuestionsToBeadsForm({
+      execFile: exec,
+      patch,
+      options: {
+        dir: '/repo',
+        beadId: 'bd-1',
+        formId: 'review',
+        workspaceId: 'workspace-1',
+      },
+    });
+
+    expect(result).toMatchObject({
+      beadId: 'bd-1',
+      formId: 'review',
+      appendedQuestionIds: ['review_risk'],
+      url: '/dashboard/forms?workspace=workspace-1&dir=%2Frepo&bead=bd-1&form=review',
+      urls: {
+        workspace: '/dashboard/forms?workspace=workspace-1&dir=%2Frepo&bead=bd-1&form=review',
+        dir: '/dashboard/forms?dir=%2Frepo&bead=bd-1&form=review',
+      },
+    });
+    expect(result.formHashBefore).toBe(buildFormDefinitionHash(parseFormsJsonForAttach(JSON.stringify(standardForm))[0]!));
+    expect(result.formHashAfter).not.toBe(result.formHashBefore);
+    expect(calls.map((args) => args[0])).toEqual(['show', 'update']);
+  });
+
   it('builds pending-answer metadata summaries for attach indexing', () => {
     const form = parseFormsJsonForAttach(JSON.stringify(standardForm))[0]!;
     expect(buildBeadsFormsSummary([
@@ -194,7 +1027,7 @@ describe('beads-form CLI helpers', () => {
     const metadata = attachFormsToMetadata({
       VK_WORKSPACE_ID: 'existing-workspace',
       VK_SESSION_ID: 'existing-session',
-      beadForms: { forms: [{ id: 'review', title: 'Existing', html: '<form></form>' }] },
+      beadForms: { forms: [storedReviewForm] },
     }, [form], {
       workspaceId: '   ',
       sessionId: '',
@@ -204,14 +1037,63 @@ describe('beads-form CLI helpers', () => {
     expect((metadata.beadForms as { forms: Array<{ id: string }> }).forms.map((candidate) => candidate.id)).toEqual(['review', 'followup']);
   });
 
-  it('builds workspace URLs when known and dir URLs otherwise', () => {
+  it('moves existing inline responses to split response storage when attaching another form', () => {
+    const answered = {
+      submittedBy: 'user',
+      submittedAt: '2026-08-04T00:00:00Z',
+      values: { decision: { approve: true } },
+    };
+    const form = parseFormsJsonForAttach(JSON.stringify({ ...standardForm, id: 'followup' }))[0]!;
+    const metadata = attachFormsToMetadata({
+      beadForms: { forms: [{ ...storedReviewForm, responses: [answered] }] },
+    }, [form]);
+
+    expect((metadata.beadForms as any).forms.map((candidate: any) => candidate.id)).toEqual(['review', 'followup']);
+    expect((metadata.beadForms as any).forms[0].responses).toBeUndefined();
+    expect((metadata.beadFormResponses as any).responsesByFormId.review).toEqual([answered]);
+    expect(metadata.beadFormsSummary).toEqual({
+      hasForms: true,
+      hasPendingAnswer: true,
+      pendingResponseCount: 1,
+      formIds: ['review', 'followup'],
+      pendingFormIds: ['followup'],
+    });
+  });
+
+  it('preserves existing split responses when attaching another form', () => {
+    const answered = {
+      submittedBy: 'user',
+      submittedAt: '2026-08-04T00:00:00Z',
+      values: { decision: { approve: true } },
+    };
+    const form = parseFormsJsonForAttach(JSON.stringify({ ...standardForm, id: 'followup' }))[0]!;
+    const metadata = attachFormsToMetadata({
+      unrelated: { keep: true },
+      beadForms: { forms: [{ ...storedReviewForm, responses: [{ submittedBy: 'stale', submittedAt: 'inline', values: {} }] }] },
+      beadFormResponses: { responsesByFormId: { review: [answered] } },
+    }, [form]);
+
+    expect(metadata.unrelated).toEqual({ keep: true });
+    expect((metadata.beadForms as any).forms.map((candidate: any) => candidate.id)).toEqual(['review', 'followup']);
+    expect((metadata.beadForms as any).forms[0].responses).toBeUndefined();
+    expect((metadata.beadFormResponses as any).responsesByFormId.review).toEqual([answered]);
+    expect(metadata.beadFormsSummary).toEqual({
+      hasForms: true,
+      hasPendingAnswer: true,
+      pendingResponseCount: 1,
+      formIds: ['review', 'followup'],
+      pendingFormIds: ['followup'],
+    });
+  });
+
+  it('builds selected URLs with workspace context and direct repo identity', () => {
     expect(buildFillOutUrl({
       dir: '/repo',
       beadId: 'bd-1',
       formId: 'review',
       workspaceId: 'workspace-1',
       origin: 'https://example.test/',
-    })).toBe('https://example.test/dashboard/forms?workspace=workspace-1&bead=bd-1&form=review');
+    })).toBe('https://example.test/dashboard/forms?workspace=workspace-1&dir=%2Frepo&bead=bd-1&form=review');
     expect(buildFillOutUrl({ dir: '/repo', beadId: 'bd-1', formId: 'review' })).toBe('/dashboard/forms?dir=%2Frepo&bead=bd-1&form=review');
     expect(buildFillOutUrls({
       dir: '/repo',
@@ -219,26 +1101,31 @@ describe('beads-form CLI helpers', () => {
       formId: 'review',
       workspaceId: 'workspace-1',
     })).toEqual({
-      workspace: '/dashboard/forms?workspace=workspace-1&bead=bd-1&form=review',
+      workspace: '/dashboard/forms?workspace=workspace-1&dir=%2Frepo&bead=bd-1&form=review',
       dir: '/dashboard/forms?dir=%2Frepo&bead=bd-1&form=review',
     });
     expect(buildFillOutUrls({ dir: '/repo', beadId: 'bd-1', formId: 'review' })).toEqual({
       dir: '/dashboard/forms?dir=%2Frepo&bead=bd-1&form=review',
     });
+    expect(buildFillOutUrls({
+      dir: '/repo with spaces',
+      beadId: 'bd/1',
+      formId: 'review & decide',
+      workspaceId: 'workspace/one',
+      origin: 'https://site.example.test',
+    })).toEqual({
+      workspace: 'https://site.example.test/dashboard/forms?workspace=workspace%2Fone&dir=%2Frepo+with+spaces&bead=bd%2F1&form=review+%26+decide',
+      dir: 'https://site.example.test/dashboard/forms?dir=%2Frepo+with+spaces&bead=bd%2F1&form=review+%26+decide',
+    });
   });
 
-  it('collects raw html media src and poster refs for bead-backed attach validation', () => {
-    expect(collectHtmlMediaRefs(`
-      <form>
-        <img src=attachments/x.png>
-        <video src="./x.webm" poster='../x.png'></video>
-        <input src="not-media.png">
-      </form>
-    `)).toEqual([
-      { tag: 'img', attr: 'src', value: 'attachments/x.png' },
-      { tag: 'video', attr: 'src', value: './x.webm' },
-      { tag: 'video', attr: 'poster', value: '../x.png' },
-    ]);
+  it('rejects raw html attach input instead of validating stored html media refs', () => {
+    expect(() => parseFormsJsonForAttach(JSON.stringify({
+      id: 'raw',
+      title: 'Raw',
+      html: '<form><textarea name="notes"></textarea></form>',
+      controls: [{ id: 'notes', name: 'notes', type: 'textarea' }],
+    }))).toThrow('Raw HTML BeadsForms are no longer supported');
   });
 
   it('updates bead metadata only after duplicate-safe attach validation and prints URLs', async () => {
@@ -259,15 +1146,112 @@ describe('beads-form CLI helpers', () => {
 
     expect(result.forms[0]).toMatchObject({
       id: 'review',
-      url: '/dashboard/forms?workspace=workspace-1&bead=bd-1&form=review',
+      url: '/dashboard/forms?workspace=workspace-1&dir=%2Frepo&bead=bd-1&form=review',
       urls: {
-        workspace: '/dashboard/forms?workspace=workspace-1&bead=bd-1&form=review',
+        workspace: '/dashboard/forms?workspace=workspace-1&dir=%2Frepo&bead=bd-1&form=review',
         dir: '/dashboard/forms?dir=%2Frepo&bead=bd-1&form=review',
       },
+      authoringNextSteps: {
+        message: 'Review and refine questions before sharing this BeadsForm; invalidate any previous forms that are no longer relevant.',
+        commands: expect.objectContaining({
+          showFirstQuestion: "beads-form show-question --dir '/repo' --bead 'bd-1' --form 'review' --index 1",
+          updateQuestionFromFile: expect.stringContaining('beads-form update-question'),
+        }),
+      },
     });
+    expect(result.forms[0]?.authoringNextSteps.commands.updateQuestionFromFile).toContain("cat '.vk-mocked-sandbox/beads-form-authoring/review-question.json'");
+    expect(result.forms[0]?.authoringNextSteps.commands.updateQuestionFromFile).toContain('--base-hash');
+    expect(result.validUnfilledForms).toEqual([expect.objectContaining({ id: 'review', title: 'Review form' })]);
     expect(result.metadata.untouched).toBe(true);
     expect(result.metadata.VK_WORKSPACE_ID).toBe('workspace-1');
     expect(calls.map((args) => args[0])).toEqual(['show', 'update']);
+  });
+
+  it('invalidates forms idempotently while preserving responses and split storage', async () => {
+    const response = { submittedBy: 'user', submittedAt: '2026-09-24T00:00:00.000Z', values: { comment: 'old' } };
+    const metadata = {
+      beadForms: { forms: [{ ...standardForm, responses: [response] }] },
+      keep: true,
+    };
+
+    const first = invalidateFormInMetadata(metadata, 'review', {
+      reason: 'Superseded by a clearer form',
+      actor: 'agent-a',
+      now: () => new Date('2026-09-25T00:00:00.000Z'),
+    });
+    const second = invalidateFormInMetadata(first.metadata, 'review', {
+      reason: 'different reason should not rewrite',
+      actor: 'agent-b',
+      now: () => new Date('2026-09-26T00:00:00.000Z'),
+    });
+
+    expect(first.changed).toBe(true);
+    expect(second.changed).toBe(false);
+    expect(second.form).toMatchObject({
+      invalidatedAt: '2026-09-25T00:00:00.000Z',
+      invalidatedBy: 'agent-a',
+      invalidatedReason: 'Superseded by a clearer form',
+    });
+    expect((second.metadata.beadFormsSummary as Record<string, unknown>).pendingFormIds).toEqual([]);
+    expect((second.metadata.beadFormResponses as { responsesByFormId: Record<string, unknown[]> }).responsesByFormId.review).toEqual([response]);
+    expect(((second.metadata.beadForms as { forms: Array<Record<string, unknown>> }).forms[0]!).responses).toBeUndefined();
+    expect(second.metadata.keep).toBe(true);
+  });
+
+  it('updates bead metadata for invalidate only once when already invalidated', async () => {
+    let metadata: Record<string, unknown> = { beadForms: { forms: [standardForm] } };
+    const calls: string[][] = [];
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      calls.push([...args]);
+      if (args[0] === 'show') {
+        return { stdout: JSON.stringify([{ id: 'bd-1', metadata }]), stderr: '' };
+      }
+      const metadataArg = args.find((arg) => arg.startsWith('@'));
+      if (metadataArg) metadata = JSON.parse(await readFile(metadataArg.slice(1), 'utf8')) as Record<string, unknown>;
+      return { stdout: '', stderr: '' };
+    });
+
+    const first = await invalidateBeadsForm({
+      execFile: exec,
+      options: { dir: '/repo', beadId: 'bd-1', formId: 'review', reason: 'superseded' },
+      actor: 'agent',
+      now: () => new Date('2026-09-25T00:00:00.000Z'),
+    });
+    const second = await invalidateBeadsForm({
+      execFile: exec,
+      options: { dir: '/repo', beadId: 'bd-1', formId: 'review' },
+      actor: 'agent',
+      now: () => new Date('2026-09-26T00:00:00.000Z'),
+    });
+
+    expect(first.changed).toBe(true);
+    expect(second.changed).toBe(false);
+    expect(calls.map((args) => args[0])).toEqual(['show', 'update', 'show']);
+  });
+
+  it('preflights metadata size before bd update without writing a recovery artifact', async () => {
+    const oversizedExistingMetadata = {
+      alreadyLarge: 'x'.repeat(BEAD_ISSUE_METADATA_JSON_MAX_BYTES + 1024),
+    };
+    const calls: string[][] = [];
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      calls.push([...args]);
+      if (args[0] === 'show') {
+        return {
+          stdout: JSON.stringify([{ id: 'bd-1', title: 'Bead', metadata: oversizedExistingMetadata }]),
+          stderr: '',
+        };
+      }
+      return { stdout: '', stderr: '' };
+    });
+    const form = parseFormsJsonForAttach(JSON.stringify(standardForm))[0]!;
+
+    await expect(attachBeadsForms({
+      execFile: exec,
+      forms: [form],
+      options: { dir: '/repo', beadId: 'bd-1' } satisfies AttachOptions,
+    })).rejects.toThrow('No bead metadata was changed');
+    expect(calls.map((args) => args[0])).toEqual(['show']);
   });
 
   it('passes session metadata through attach updates', async () => {
@@ -299,26 +1283,273 @@ describe('beads-form CLI helpers', () => {
     expect(() => selectFormForShow([{ ...form, id: 'a' }, { ...form, id: 'b' }])).toThrow('Available forms: a, b');
   });
 
-  it('builds JSON-first show output with all responses, semantic fields, media refs, and optional html controls', () => {
-    const form = {
-      ...parseFormsJsonForAttach(JSON.stringify(standardForm))[0]!,
-      responses: [
-        { submittedBy: 'user', submittedAt: '2026-07-14T00:00:00Z', values: { decision: { approve: true } } },
-        { submittedBy: 'user', submittedAt: '2026-07-14T00:01:00Z', values: { decision: { approve: false } } },
+  it('builds JSON-first show output with all responses, semantic fields, and media refs', () => {
+    const form = parseFormsJsonForAttach(JSON.stringify({
+      ...standardForm,
+      content: [
+        ...standardForm.content,
+        {
+          type: 'markdown-attachment',
+          id: 'decision_doc',
+          title: 'Decision doc',
+          ref: 'docs/decision.md',
+        },
+        {
+          type: 'attachments',
+          id: 'supporting_files',
+          title: 'Supporting files',
+          items: [{ id: 'logs', label: 'Logs', ref: 'reports/output.txt', mediaType: 'file' }],
+        },
+        {
+          type: 'code-snippet',
+          id: 'callsite',
+          title: 'Callsite',
+          path: 'src/index.ts',
+          commit: 'abc1234',
+          startLine: 4,
+          endLine: 8,
+        },
       ],
-    };
+    }))[0]!;
+    form.responses = [
+      { submittedBy: 'user', submittedAt: '2026-07-14T00:00:00Z', values: { decision: { approve: true } } },
+      { submittedBy: 'user', submittedAt: '2026-07-14T00:01:00Z', values: { decision: { approve: false } } },
+    ];
 
     const withoutHtml = buildShowResult({ bead: { id: 'bd-1', title: 'Bead' }, form });
     expect(withoutHtml.responseCount).toBe(2);
     expect(withoutHtml.noResponses).toBe(false);
+    expect(withoutHtml.form.goal).toBe(standardForm.goal);
     expect(withoutHtml.form.questions).toEqual(standardForm.questions);
-    expect(withoutHtml.form.html).toBeUndefined();
-    expect(withoutHtml.form.controls).toBeUndefined();
-    expect(withoutHtml.mediaRefs).toEqual([{ galleryId: 'gallery', itemId: 'shot', type: 'image', src: 'https://example.test/shot.png', caption: 'Shot' }]);
+    expect(withoutHtml.form).not.toHaveProperty('html');
+    expect(withoutHtml.form).not.toHaveProperty('controls');
+    expect(withoutHtml.mediaRefs).toEqual([
+      { galleryId: 'gallery', itemId: 'shot', type: 'image', src: 'https://example.test/shot.png', caption: 'Shot' },
+      { blockId: 'decision_doc', type: 'markdown', ref: 'docs/decision.md' },
+      { blockId: 'supporting_files', itemId: 'logs', type: 'file', ref: 'reports/output.txt' },
+      { blockId: 'callsite', type: 'code-snippet', path: 'src/index.ts', commit: 'abc1234', startLine: 4, endLine: 8 },
+    ]);
 
-    const withHtml = buildShowResult({ bead: { id: 'bd-1' }, form, includeHtml: true });
-    expect(withHtml.form.html).toContain('<form>');
-    expect(withHtml.form.controls?.map((control) => control.name)).toContain('decision');
+    const second = buildShowResult({ bead: { id: 'bd-1' }, form });
+    expect(second.form).not.toHaveProperty('html');
+    expect(second.form).not.toHaveProperty('controls');
+  });
+
+  it('shows invalidated status in handoff output', () => {
+    const [form] = parseFormsJsonForAttach(JSON.stringify(standardForm));
+    const result = buildShowResult({
+      bead: { id: 'bd-1', title: 'Bead' },
+      form: {
+        ...form!,
+        invalidatedAt: '2026-09-25T00:00:00.000Z',
+        invalidatedBy: 'agent',
+        invalidatedReason: 'Superseded',
+      },
+    });
+
+    expect(result.form).toMatchObject({
+      invalidatedAt: '2026-09-25T00:00:00.000Z',
+      invalidatedBy: 'agent',
+      invalidatedReason: 'Superseded',
+    });
+  });
+
+  it('allows bead-backed repo-relative and legacy attachment refs without inlining file contents', () => {
+    const form = parseFormsJsonForAttach(JSON.stringify({
+      ...standardForm,
+      content: [
+        {
+          type: 'markdown-attachment',
+          id: 'local_doc',
+          title: 'Local doc',
+          ref: './docs/decision.md',
+        },
+        {
+          type: 'attachments',
+          id: 'refs',
+          title: 'Refs',
+          items: [
+            { id: 'doc', label: 'Doc', ref: 'docs/decision.md', mediaType: 'markdown' },
+            { id: 'legacy', label: 'Legacy', ref: 'attachment://legacy/output.txt', mediaType: 'file' },
+          ],
+        },
+      ],
+    }))[0]!;
+
+    expect(JSON.stringify(form)).toContain('./docs/decision.md');
+    expect(JSON.stringify(form)).toContain('docs/decision.md');
+    expect(JSON.stringify(form)).toContain('attachment://legacy/output.txt');
+    expect(JSON.stringify(form)).not.toContain('# Decision');
+  });
+
+  it('rejects unsafe bead-backed attachment refs before persistence', () => {
+    for (const ref of [
+      'attachment://',
+      'attachment://../secret.md',
+      'attachment:///secret.md',
+      'attachment://docs/../../secret.md',
+      'attachment://docs\\..\\secret.md',
+      'attachment://https://example.test/secret.md',
+      '/absolute/secret.md',
+      'docs/tool.exe',
+      'javascript:alert(1)',
+    ]) {
+      expect(() => parseFormsJsonForAttach(JSON.stringify({
+        ...standardForm,
+        content: [{
+          type: 'markdown-attachment',
+          id: 'unsafe_doc',
+          title: 'Unsafe doc',
+          ref,
+        }],
+      }))).toThrow('uses unsafe attachment ref');
+    }
+  });
+
+  it('rejects stored unsafe bead-backed attachment refs during show without updating metadata', async () => {
+    const calls: string[][] = [];
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      calls.push([...args]);
+      return {
+        stdout: JSON.stringify([{
+          id: 'bd-1',
+          title: 'Bead',
+          metadata: {
+            beadForms: {
+              forms: [{
+                ...storedReviewForm,
+                content: [{
+                  type: 'attachments',
+                  id: 'refs',
+                  title: 'Refs',
+                  items: [{ id: 'secret', label: 'Secret', ref: 'attachment://../secret.md', mediaType: 'markdown' }],
+                }],
+              }],
+            },
+          },
+        }]),
+        stderr: '',
+      };
+    });
+
+    await expect(showBeadsForm({
+      execFile: exec,
+      options: { dir: '/repo', beadId: 'bd-1', formId: 'review' },
+    })).rejects.toThrow('uses unsafe attachment ref');
+    expect(calls.map((args) => args[0])).toEqual(['show']);
+  });
+
+  it('shows legacy missing-goal standard forms while stripping stale generated fields', async () => {
+    const exec = vi.fn<ExecFileLike>(async () => ({
+      stdout: JSON.stringify([{
+        id: 'bd-1',
+        title: 'Bead',
+        metadata: {
+          beadForms: {
+            forms: [{
+              format: 'standard',
+              id: 'legacy_review',
+              title: 'Legacy review form',
+              questions: storedReviewForm.questions,
+              responses: [{ submittedBy: 'user', submittedAt: '2026-08-10T00:00:00Z', values: { decision: { approve: true } } }],
+              html: '<form><input name="stale"></form>',
+              controls: [{ id: 'stale', name: 'stale', type: 'textarea' }],
+            }],
+          },
+        },
+      }]),
+      stderr: '',
+    }));
+
+    const result = await showBeadsForm({
+      execFile: exec,
+      options: { dir: '/repo', beadId: 'bd-1', formId: 'legacy_review' },
+    });
+
+    expect(result.form).toMatchObject({
+      id: 'legacy_review',
+      goal: 'Answer Legacy review form.',
+      title: 'Legacy review form',
+      questions: storedReviewForm.questions,
+    });
+    expect(result.form).not.toHaveProperty('html');
+    expect(result.form).not.toHaveProperty('controls');
+    expect(result.responses).toHaveLength(1);
+  });
+
+  it('shows split responses with semantic DSL-only output and does not mutate metadata', async () => {
+    const answered = {
+      submittedBy: 'user',
+      submittedAt: '2026-08-10T00:00:00Z',
+      values: { decision: { approve: true } },
+    };
+    const calls: string[][] = [];
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      calls.push([...args]);
+      return {
+        stdout: JSON.stringify([{
+          id: 'bd-1',
+          title: 'Bead',
+          metadata: {
+            beadForms: {
+              forms: [{
+                ...storedReviewForm,
+                html: '<form><input name="stale"></form>',
+                controls: [{ id: 'stale', name: 'stale', type: 'textarea' }],
+              }],
+            },
+            beadFormResponses: { responsesByFormId: { review: [answered] } },
+          },
+        }]),
+        stderr: '',
+      };
+    });
+
+    const result = await showBeadsForm({
+      execFile: exec,
+      options: { dir: '/repo', beadId: 'bd-1', formId: 'review' },
+    });
+
+    expect(result.form).toMatchObject({
+      id: 'review',
+      goal: standardForm.goal,
+      questions: standardForm.questions,
+    });
+    expect(result.form).not.toHaveProperty('html');
+    expect(result.form).not.toHaveProperty('controls');
+    expect(result.responses).toEqual([answered]);
+    expect(result.responseCount).toBe(1);
+    expect(calls.map((args) => args[0])).toEqual(['show']);
+  });
+
+  it('rejects raw html-only forms during show without updating metadata', async () => {
+    const calls: string[][] = [];
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      calls.push([...args]);
+      return {
+        stdout: JSON.stringify([{
+          id: 'bd-1',
+          title: 'Bead',
+          metadata: {
+            beadForms: {
+              forms: [{
+                id: 'raw',
+                title: 'Raw legacy form',
+                html: '<form><textarea name="notes"></textarea></form>',
+                controls: [{ id: 'notes', name: 'notes', type: 'textarea' }],
+              }],
+            },
+          },
+        }]),
+        stderr: '',
+      };
+    });
+
+    await expect(showBeadsForm({
+      execFile: exec,
+      options: { dir: '/repo', beadId: 'bd-1', formId: 'raw' },
+    })).rejects.toThrow('Raw HTML BeadsForms are no longer supported');
+    expect(calls.map((args) => args[0])).toEqual(['show']);
   });
 
   it('shows questions with no responses instead of erroring', () => {
@@ -328,5 +1559,92 @@ describe('beads-form CLI helpers', () => {
     expect(result.responseCount).toBe(0);
     expect(result.noResponses).toBe(true);
     expect(result.form.questions?.map((question) => question.id)).toEqual(['decision']);
+  });
+
+  it('scans pending forms from persisted workspace stores with read-only list queries and fill-out URLs', async () => {
+    const beadsDirectory = join(tmpdir(), `beads-form-pending-${process.pid}-${Date.now()}`);
+    const workspaceAStore = join(beadsDirectory, 'workspaces', 'workspace-a', '.beads');
+    const workspaceBStore = join(beadsDirectory, 'workspaces', 'workspace-b', '.beads');
+    await mkdir(workspaceAStore, { recursive: true });
+    await mkdir(workspaceBStore, { recursive: true });
+
+    const exec = vi.fn<ExecFileLike>(async (_file, args, options) => {
+      expect(args[0]).toBe('--readonly');
+      if (options.cwd === workspaceAStore && args[1] === 'list') {
+        expect(args).toEqual(['--readonly', 'list', '--json', '--all', '--limit', '0', '--has-metadata-key', 'beadFormsSummary']);
+        return { stdout: JSON.stringify([
+          {
+            id: 'summary-pending',
+            title: 'Summary pending',
+            status: 'open',
+            metadata: {
+              beadFormsSummary: {
+                hasForms: true,
+                hasPendingAnswer: true,
+                pendingResponseCount: 1,
+                formIds: ['review'],
+                pendingFormIds: ['review'],
+              },
+              beadForms: { forms: [{ ...standardForm, description: 'Needs human review.' }] },
+            },
+          },
+        ]), stderr: '' };
+      }
+      if (options.cwd === workspaceBStore && args[1] === 'list') {
+        expect(args).toEqual(['--readonly', 'list', '--json', '--all', '--limit', '0', '--has-metadata-key', 'beadFormsSummary']);
+        return { stdout: JSON.stringify([
+          {
+            id: 'summary-pending-b',
+            title: 'Summary pending B',
+            metadata: {
+              beadFormsSummary: {
+                hasForms: true,
+                hasPendingAnswer: true,
+                pendingResponseCount: 1,
+                formIds: ['review_b'],
+                pendingFormIds: ['review_b'],
+              },
+              beadForms: { forms: [{ ...standardForm, id: 'review_b', title: 'Review B' }] },
+            },
+          },
+        ]), stderr: '' };
+      }
+      throw Object.assign(new Error('Command failed: bd list'), { stderr: 'Error: no beads database found' });
+    });
+
+    const result = await scanPendingBeadsForms({
+      execFile: exec,
+      options: {
+        parentDir: beadsDirectory,
+        limit: 3,
+        origin: 'https://example.test',
+      },
+    });
+
+    expect(result).toMatchObject({
+      parentDir: join(beadsDirectory, 'workspaces'),
+      repoLimit: 3,
+      reposScanned: 2,
+      pendingCount: 2,
+      skipped: [],
+      updateStrategy: { mode: 'explicit-refresh' },
+    });
+    expect(result.entries).toEqual([
+      {
+        repo: { name: 'workspace-a', path: workspaceAStore },
+        bead: { id: 'summary-pending', title: 'Summary pending' },
+        form: { id: 'review', title: 'Review form', description: 'Needs human review.', responseCount: 0 },
+        url: `https://example.test/dashboard/forms?dir=${encodeURIComponent(workspaceAStore)}&bead=summary-pending&form=review`,
+      },
+      {
+        repo: { name: 'workspace-b', path: workspaceBStore },
+        bead: { id: 'summary-pending-b', title: 'Summary pending B' },
+        form: { id: 'review_b', title: 'Review B', description: 'Review **decisions**.', responseCount: 0 },
+        url: `https://example.test/dashboard/forms?dir=${encodeURIComponent(workspaceBStore)}&bead=summary-pending-b&form=review_b`,
+      },
+    ]);
+    expect(exec.mock.calls.some(([, args]) => args.includes('show'))).toBe(false);
+    expect(exec.mock.calls.some(([, args]) => args.includes('update'))).toBe(false);
+    expect(exec.mock.calls.every(([, args]) => args.includes('--has-metadata-key'))).toBe(true);
   });
 });

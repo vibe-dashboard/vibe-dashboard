@@ -36,7 +36,7 @@ import "./modules/plugins/kanban/jira/serverModule";
 import "./modules/plugins/kanban/linear/serverModule";
 // @platform end
 
-import "./modules/BeadsFormModule";
+import "./modules/plugins/beads-form/module";
 
 const WORKSPACE_CREATE_PATH = "/workspaces";
 const WORKSPACE_CREATE_TAB_TITLE = "Create Workspace";
