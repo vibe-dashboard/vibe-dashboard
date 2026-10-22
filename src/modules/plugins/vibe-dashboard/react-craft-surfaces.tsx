@@ -2,21 +2,20 @@ import React from 'react';
 import type { Tab, TabGroup } from '../../../types';
 import { PreviewRunConfigsPanel } from '../../../components/PreviewRunConfigsPanel';
 import { WorkspacePreviewMenu } from '../../../components/WorkspacePreviewMenu';
+import { RetryableInlineSurface } from '../../../components/RetryableInlineSurface';
 import {
   BUILT_IN_AGENT_TAB_ID,
   getBuiltInWorkspaceMetadata,
 } from './craft-surfaces';
 
-const InlineVkAgentChat = React.lazy(() =>
+const loadInlineVkAgentChat = () =>
   import('@vibe/inline-chat').then((module) => ({
     default: module.InlineVkAgentChat,
-  })),
-);
-const InlineVkCreateWorkspace = React.lazy(() =>
+  }));
+const loadInlineVkCreateWorkspace = () =>
   import('@vibe/inline-chat').then((module) => ({
     default: module.InlineVkCreateWorkspace,
-  })),
-);
+  }));
 
 export interface ReactCraftSurfaceTarget {
   kind: 'react';
@@ -46,32 +45,36 @@ const FIRST_PARTY_REACT_SURFACES: Record<string, ReactCraftSurfaceComponent> = {
     <PreviewRunConfigsPanel workspaceId={surfaceProps.workspaceId ?? ''} />
   ),
   'vd.built-in/agent-chat': ({ surfaceProps, host }) => (
-    <React.Suspense fallback={<InlineSurfaceLoading />}>
-      <InlineVkAgentChat
-        workspaceId={surfaceProps.workspaceId ?? ''}
-        surfaceId={
-          surfaceProps.surfaceId ?? surfaceProps.workspaceId ?? 'agent'
-        }
-        workspacePreview={
+    <RetryableInlineSurface
+      key={surfaceProps.surfaceId ?? surfaceProps.workspaceId}
+      label="Agent chat"
+      load={loadInlineVkAgentChat}
+      componentProps={{
+        workspaceId: surfaceProps.workspaceId ?? '',
+        surfaceId:
+          surfaceProps.surfaceId ?? surfaceProps.workspaceId ?? 'agent',
+        workspacePreview:
           surfaceProps.workspaceId && host.onConfigurePreviewSlots ? (
             <WorkspacePreviewMenu
               workspaceId={surfaceProps.workspaceId}
               onConfigure={host.onConfigurePreviewSlots}
             />
-          ) : undefined
-        }
-        onOpenCraft={host.onOpenCraft}
-        onRemoveCraft={host.onRemoveCraft}
-      />
-    </React.Suspense>
+          ) : undefined,
+        onOpenCraft: host.onOpenCraft,
+        onRemoveCraft: host.onRemoveCraft,
+      }}
+    />
   ),
   'vd.built-in/create-workspace': ({ surfaceProps, host }) => (
-    <React.Suspense fallback={<InlineSurfaceLoading />}>
-      <InlineVkCreateWorkspace
-        surfaceId={surfaceProps.surfaceId ?? 'create-workspace'}
-        onWorkspaceCreated={host.onWorkspaceCreated}
-      />
-    </React.Suspense>
+    <RetryableInlineSurface
+      key={surfaceProps.surfaceId}
+      label="Create Workspace"
+      load={loadInlineVkCreateWorkspace}
+      componentProps={{
+        surfaceId: surfaceProps.surfaceId ?? 'create-workspace',
+        onWorkspaceCreated: host.onWorkspaceCreated,
+      }}
+    />
   ),
 };
 
@@ -113,9 +116,7 @@ export function getReactCraftSurfaceTarget(
     kind: 'react',
     pluginId: tab.ephemeral.pluginId,
     surfaceKey: tab.ephemeral.surfaceKey,
-    props: workspace?.workspaceId
-      ? { workspaceId: workspace.workspaceId }
-      : {},
+    props: workspace?.workspaceId ? { workspaceId: workspace.workspaceId } : {},
   };
 }
 
@@ -213,17 +214,6 @@ function UnknownReactCraftSurface({
           {target.pluginId}/{target.surfaceKey}
         </p>
       </div>
-    </div>
-  );
-}
-
-function InlineSurfaceLoading() {
-  return (
-    <div
-      className="flex h-full items-center justify-center bg-neutral-950 text-sm text-neutral-400"
-      data-testid="inline-vk-agent-chat"
-    >
-      Loading agent chat
     </div>
   );
 }

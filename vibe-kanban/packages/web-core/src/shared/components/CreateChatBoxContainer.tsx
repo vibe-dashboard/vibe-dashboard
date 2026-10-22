@@ -195,10 +195,6 @@ export function CreateChatBoxContainer({
     });
   };
 
-  const handleCustomise = () => {
-    console.warn('Agent settings are not available in the inline VD chat yet.');
-  };
-
   // Handle executor change - use saved variant if switching to default executor
   const handleExecutorChange = useCallback(
     (executor: BaseCodingAgent) => {
@@ -392,7 +388,6 @@ export function CreateChatBoxContainer({
                       <ModelSelectorContainer
                         agent={effectiveExecutor}
                         workspaceId={undefined}
-                        onAdvancedSettings={handleCustomise}
                         presets={variantOptions}
                         selectedPreset={selectedVariant}
                         onPresetSelect={handlePresetSelect}

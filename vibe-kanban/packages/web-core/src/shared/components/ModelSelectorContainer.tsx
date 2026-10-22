@@ -509,6 +509,7 @@ export function ModelSelectorContainer({
           <DropdownMenuTriggerButton
             size="sm"
             icon={permissionIcon}
+            aria-label={t('modelSelector.permissions')}
             showCaret={false}
           />
           <DropdownMenuContent align="start">

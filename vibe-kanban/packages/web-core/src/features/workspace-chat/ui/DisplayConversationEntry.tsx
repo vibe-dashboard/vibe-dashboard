@@ -24,6 +24,7 @@ import WYSIWYGEditor from '@/shared/components/WYSIWYGEditor';
 import { useMessageEditContext } from '../model/contexts/MessageEditContext';
 import type { UseResetProcessResult } from '../model/hooks/useResetProcess';
 import { useChangesViewActions } from '@/shared/hooks/useChangesView';
+import { useWorkspaceChatSurfaceId } from '@/shared/providers/WorkspaceChatSurfaceProvider';
 import { useLogsPanelActions } from '@/shared/hooks/useLogsPanel';
 import { cn } from '@/shared/lib/utils';
 import {
@@ -484,6 +485,7 @@ function AppChatMarkdown({
   maxWidth: string | undefined;
 }) {
   const { viewFileInChanges, findMatchingDiffPath } = useChangesViewActions();
+  const isInlineSurface = useWorkspaceChatSurfaceId() !== null;
 
   return (
     <ChatMarkdown
@@ -498,8 +500,10 @@ function AppChatMarkdown({
           className={className}
           workspaceId={workspaceId}
           sessionId={sessionId}
-          findMatchingDiffPath={findMatchingDiffPath}
-          onCodeClick={viewFileInChanges}
+          findMatchingDiffPath={
+            isInlineSurface ? undefined : findMatchingDiffPath
+          }
+          onCodeClick={isInlineSurface ? undefined : viewFileInChanges}
         />
       )}
     />
@@ -526,6 +530,7 @@ function FileEditEntry({
   const { theme } = useTheme();
   const actualTheme = getActualTheme(theme);
   const { viewFileInChanges, findMatchingDiffPath } = useChangesViewActions();
+  const isInlineSurface = useWorkspaceChatSurfaceId() !== null;
   const FileIcon = useMemo(
     () => getFileIcon(path, actualTheme),
     [path, actualTheme]
@@ -596,7 +601,7 @@ function FileEditEntry({
             )
           : undefined
       }
-      onOpenInChanges={handleOpenInChanges}
+      onOpenInChanges={isInlineSurface ? undefined : handleOpenInChanges}
     />
   );
 }
@@ -1311,6 +1316,7 @@ function AggregatedDiffGroupEntry({ group }: { group: AggregatedDiffGroup }) {
   const { theme } = useTheme();
   const actualTheme = getActualTheme(theme);
   const { viewFileInChanges, findMatchingDiffPath } = useChangesViewActions();
+  const isInlineSurface = useWorkspaceChatSurfaceId() !== null;
   const [expanded, toggle] = usePersistedExpanded(
     `diff:${group.patchKey}`,
     false
@@ -1371,7 +1377,7 @@ function AggregatedDiffGroupEntry({ group }: { group: AggregatedDiffGroup }) {
       isHovered={isHovered}
       onToggle={handleToggle}
       onHoverChange={handleHoverChange}
-      onOpenInChanges={handleOpenInChanges}
+      onOpenInChanges={isInlineSurface ? null : handleOpenInChanges}
       fileIcon={FileIcon}
       isVSCode={isVSCode}
       onOpenInVSCode={handleOpenInVSCode}

@@ -292,8 +292,8 @@ describe('iframe reveal behavior', () => {
       }),
     );
 
-    expect(markup).toContain('data-testid="inline-vk-agent-chat"');
-    expect(markup).toContain('Loading agent chat');
+    expect(markup).toContain('react-craft-surface:vd.built-in/agent-chat');
+    expect(markup).toContain('Loading Agent chat');
     expect(markup).not.toContain('/workspaces/workspace-e2e');
   });
 
