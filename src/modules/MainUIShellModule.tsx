@@ -7,6 +7,7 @@ import { HeroUIProvider } from "@heroui/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppLoadingScreen } from "../components/AppLoadingScreen";
 import { WorkspaceShell } from "../components/WorkspaceShell";
+import { AgentSplitViewPage } from "../components/AgentSplitViewPage";
 import { useSessionWorkspaceNav } from "../sessionState";
 import type { NewSessionInitialSelection } from "../sessionState";
 import { resolveWorkspaceContainerRef } from "../lib/vkWorkspaceOpen";
@@ -1215,6 +1216,11 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
   // Root is the canonical dashboard route so PWA installs/bookmarks start from
   // a stable app-home path while query params carry Voyage navigation state.
   moduleAPI.registerRoute("/", { hideApplicationShell: true }, DashboardRoute);
+  moduleAPI.registerRoute(
+    "/split-view",
+    { hideApplicationShell: true },
+    AgentSplitViewPage,
+  );
 
   // Compatibility dashboard route. It renders the same app and canonical URL
   // sync redirects Voyage links back to root with the query params intact.

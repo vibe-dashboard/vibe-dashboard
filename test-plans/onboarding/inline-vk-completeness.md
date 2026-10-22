@@ -13,14 +13,27 @@ HTTP/WebSocket responses. It does not start a VK backend, use model credentials,
 or build Rust. Unexpected API calls and uncaught browser errors fail the tests.
 The main CI Playwright job runs this suite after the shell e2e tests.
 
-The actual VD shell also has native split acceptance coverage:
+The actual VD shell also has split acceptance coverage:
 
 ```bash
-pnpm exec playwright test tests/e2e/native-agent-split.spec.ts
+pnpm exec playwright test tests/e2e/agent-split-page.spec.ts tests/e2e/native-agent-split.spec.ts
 ```
 
-It creates a voyage through the workspace RPC, opens **Show in split view** from
-the craft context menu, and exercises the native resizable pair. It verifies
+**Show in split view** opens `/split-view` with the chosen craft on the left.
+Each pane has a picker for an existing workspace craft; the other pane's
+workspace is disabled. The page renders two independent Agent surfaces with
+stable craft-and-side identities. Craft selections and the divider position
+are stored in the URL for reloads and bookmarks, without changing saved voyage
+or workspace schemas. **Back to dashboard** returns to the last dashboard URL.
+This page is a contained stop-gap before DockView.
+
+The page test creates two different workspace crafts through the real workspace
+RPC, then verifies correct-session sends, independent streams and diff summaries,
+draft/session restoration, pane unmount isolation, resizing, reload, unavailable
+craft recovery and return navigation. It fails on uncaught browser errors.
+
+**Split this workspace’s Agents** retains the same-workspace native pair.
+Its test creates a voyage through the workspace RPC and verifies
 independent sessions, streams and drafts, reload persistence, repeated opening,
 and returning to a single Agent and back. VK HTTP/WebSocket responses are
 controlled fixtures; this layer does not establish real OpenCode execution.

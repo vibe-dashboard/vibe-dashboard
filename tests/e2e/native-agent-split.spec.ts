@@ -55,7 +55,7 @@ test('craft context menu opens two independent Agent views through the native ap
     const craftTab = page.getByRole('button', { name: /^Open Native Split Craft in / }).first();
     await expect(craftTab).toBeVisible();
     await craftTab.click({ button: 'right' });
-    await page.getByRole('button', { name: 'Show in split view', exact: true }).click();
+    await page.getByRole('button', { name: 'Split this workspace’s Agents', exact: true }).click();
     const agents = page.getByTestId('inline-vk-agent-chat');
     await expect(agents).toHaveCount(2, { timeout: 60_000 });
     const left = agents.nth(0);
@@ -93,14 +93,14 @@ test('craft context menu opens two independent Agent views through the native ap
     await expect(right.getByRole('button', { name: 'session-2', exact: true })).toBeVisible();
 
     await craftTab.click({ button: 'right' });
-    await page.getByRole('button', { name: 'Show in split view', exact: true }).click();
+    await page.getByRole('button', { name: 'Split this workspace’s Agents', exact: true }).click();
     await expect(agents).toHaveCount(2);
     await page.getByRole('button', { name: 'Open sidebar', exact: true }).first().click();
     await page.getByRole('button', { name: 'Agent', exact: true }).first().click();
     await expect(agents).toHaveCount(1);
     await page.getByRole('button', { name: 'Close sidebar', exact: true }).click();
     await craftTab.click({ button: 'right' });
-    await page.getByRole('button', { name: 'Show in split view', exact: true }).click();
+    await page.getByRole('button', { name: 'Split this workspace’s Agents', exact: true }).click();
     await expect(agents).toHaveCount(2);
     await expect(rightComposer).toHaveText('Native right draft');
     expect(backend.unexpected).toEqual([]);

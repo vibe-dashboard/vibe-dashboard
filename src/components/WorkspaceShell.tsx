@@ -2662,13 +2662,24 @@ export function WorkspaceShell({
                 <button
                   className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
                   onClick={() => {
+                    setDesktopTabMenuTarget(null);
+                    navigate(`/split-view?left=${encodeURIComponent(tabGroup.id)}`);
+                  }}
+                >
+                  Show in split view
+                </button>
+              )}
+              {tabGroup && getBuiltInWorkspaceMetadata(tabGroup) && (
+                <button
+                  className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
+                  onClick={() => {
                     const target = desktopTabMenuTarget;
                     setDesktopTabMenuTarget(null);
                     sessionActions.selectVoyageEntry(target.voyageEntryId);
                     selectEffectivePair(target.spaceId, target.tabGroupId, BUILT_IN_AGENT_SPLIT_PAIR_ID);
                   }}
                 >
-                  Show in split view
+                  Split this workspace’s Agents
                 </button>
               )}
               <button
