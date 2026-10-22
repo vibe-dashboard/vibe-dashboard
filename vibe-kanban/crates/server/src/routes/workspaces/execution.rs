@@ -329,7 +329,8 @@ pub async fn preview_slot_url(
         query.base_domain.as_deref(),
         query.url_scheme.as_deref(),
         site_origin.as_deref(),
-    )?;
+    )
+    .map_err(ApiError::BadRequest)?;
     let host = format!(
         "{}-{}-{}-{}.{}",
         workspace_token, repo_slug, slot.slot_slug, query.customer_slug, base_domain
@@ -349,7 +350,7 @@ fn preview_url_origin(
     configured_domain: Option<&str>,
     configured_scheme: Option<&str>,
     site_origin: Option<&str>,
-) -> Result<(String, String), ApiError> {
+) -> Result<(String, String), String> {
     let site_url = site_origin.and_then(|origin| Url::parse(origin).ok());
     let site_domain = site_url.as_ref().and_then(|url| {
         let host = url.host_str()?;
@@ -361,29 +362,19 @@ fn preview_url_origin(
     let base_domain = configured_domain
         .map(str::to_string)
         .or(site_domain)
-        .ok_or_else(|| {
-            ApiError::BadRequest(
-                "Preview URL generation requires baseDomain or SITE_ORIGIN".to_string(),
-            )
-        })?
+        .ok_or_else(|| "Preview URL generation requires baseDomain or SITE_ORIGIN".to_string())?
         .trim()
         .trim_start_matches('.')
         .to_ascii_lowercase();
     let url_scheme = configured_scheme
         .map(str::to_string)
         .or_else(|| site_url.as_ref().map(|url| url.scheme().to_string()))
-        .ok_or_else(|| {
-            ApiError::BadRequest(
-                "Preview URL generation requires urlScheme or SITE_ORIGIN".to_string(),
-            )
-        })?
+        .ok_or_else(|| "Preview URL generation requires urlScheme or SITE_ORIGIN".to_string())?
         .trim()
         .trim_end_matches(':')
         .to_ascii_lowercase();
     if !matches!(url_scheme.as_str(), "http" | "https") {
-        return Err(ApiError::BadRequest(
-            "Preview URL scheme must be http or https".to_string(),
-        ));
+        return Err("Preview URL scheme must be http or https".to_string());
     }
     Ok((base_domain, url_scheme))
 }
