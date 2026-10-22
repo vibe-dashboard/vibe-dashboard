@@ -30,6 +30,11 @@ async function terminal(processId: string): Promise<ExecutionProcess> {
   }
   throw new Error(`QA process ${processId} did not become terminal`);
 }
+async function stop(processId: string): Promise<void> {
+  const response = await api(`/api/execution-processes/${processId}/stop`, { method: 'POST' });
+  expect(response.status).toBe(200);
+  await terminal(processId);
+}
 async function context() {
   const workspace = (await client.getAllWorkspaces()).find(item => item.name === 'Basic Seeded VK Craft') ?? (await client.getAllWorkspaces())[0];
   if (!workspace) throw new Error('QA sandbox has no seeded workspace');
@@ -82,6 +87,7 @@ test.describe.serial('auto-nudge compatibility with real VK QA-mode contracts', 
       expect(retry.status).toBe(409);
       await expect(retry.json()).resolves.toMatchObject({ success: false, message: `Session ${target.id} already has an active coding-agent turn` });
       expect(await client.getSessionProcesses(target.id)).toHaveLength(1);
+      await stop(processes[0]!.id);
     } finally { await rm(value.dir, { recursive: true, force: true }); }
   });
 
@@ -174,10 +180,13 @@ test.describe.serial('auto-nudge compatibility with real VK QA-mode contracts', 
       expect(amend.status).toBe(409);
       await expect(amend.json()).resolves.toMatchObject({ success: false, message: expect.stringContaining('has already been consumed or is no longer queued') });
 
+      let startedProcessId: string | null = null;
       await expect.poll(async () => {
         const payload = await (await api(`/api/sessions/${target.id}/queue/${queueId}/process`)).json() as { data: { lifecycle: string; process: ExecutionProcess | null } | null };
-        return payload.data && { lifecycle: payload.data.lifecycle, processId: payload.data.process?.id ?? null };
+        startedProcessId = payload.data?.process?.id ?? null;
+        return payload.data && { lifecycle: payload.data.lifecycle, processId: startedProcessId };
       }, { timeout: 20_000 }).toEqual({ lifecycle: 'started', processId: expect.any(String) });
+      await terminal(startedProcessId!);
     } finally { await rm(value.dir, { recursive: true, force: true }); }
   });
 
@@ -191,15 +200,18 @@ test.describe.serial('auto-nudge compatibility with real VK QA-mode contracts', 
       expect((await api(`/api/sessions/${target.id}/queue`, { method: 'POST', body: JSON.stringify(queueBody) })).status).toBe(200);
       await terminal(active.id);
 
+      let indeterminateProcessId: string | null = null;
       await expect.poll(async () => {
         const payload = await (await api(`/api/sessions/${target.id}/queue/${queueId}/process`)).json() as { data: { lifecycle: string; process: ExecutionProcess | null } | null };
-        return payload.data && { lifecycle: payload.data.lifecycle, processId: payload.data.process?.id ?? null };
+        indeterminateProcessId = payload.data?.process?.id ?? null;
+        return payload.data && { lifecycle: payload.data.lifecycle, processId: indeterminateProcessId };
       }, { timeout: 20_000 }).toEqual({ lifecycle: 'indeterminate', processId: expect.any(String) });
       await expect(api(`/api/sessions/${target.id}/queue`).then(response => response.json())).resolves.toMatchObject({ data: { status: 'consuming', message: { id: queueId, owner } } });
       const cancel = await api(`/api/sessions/${target.id}/queue?queue_id=${queueId}&owner=${owner}`, { method: 'DELETE' });
       expect(cancel.status).toBe(409); await expect(cancel.json()).resolves.toMatchObject({ success: false, message: expect.stringContaining('has already been consumed or is no longer queued') });
       const amend = await api(`/api/sessions/${target.id}/queue`, { method: 'PUT', body: JSON.stringify({ ...queueBody, message: 'must stay immutable' }) });
       expect(amend.status).toBe(409); await expect(amend.json()).resolves.toMatchObject({ success: false, message: expect.stringContaining('has already been consumed or is no longer queued') });
+      await stop(indeterminateProcessId!);
     } finally { await rm(value.dir, { recursive: true, force: true }); }
   });
 
@@ -243,6 +255,8 @@ test.describe.serial('auto-nudge compatibility with real VK QA-mode contracts', 
       expect(retry.status).toBe(409); await expect(retry.json()).resolves.toMatchObject({ success: false, message: `Session ${target.id} already has an active coding-agent turn` });
       const cancel = await api(`/api/sessions/${target.id}/queue?queue_id=${queueId}&owner=${owner}`, { method: 'DELETE' });
       expect(cancel.status).toBe(409); await expect(cancel.json()).resolves.toMatchObject({ success: false, message: expect.stringContaining('has already been consumed or is no longer queued') });
+      const reconciliation = await (await api(`/api/sessions/${target.id}/queue/${queueId}/process`)).json() as { data: { process: ExecutionProcess | null } | null };
+      await stop(reconciliation.data!.process!.id);
     } finally { await rm(value.dir, { recursive: true, force: true }); }
   });
 
