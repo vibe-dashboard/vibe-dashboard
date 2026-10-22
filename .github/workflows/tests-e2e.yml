@@ -81,8 +81,6 @@ jobs:
 
       - name: Run VK mocked sandbox e2e
         working-directory: vibe-kanban-vscode-web
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: scripts/ci-run-vk-mocked-sandbox-e2e.sh
 
       - name: Upload VK mocked sandbox artifacts

@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { chmod, mkdir, readFile, rm } from 'node:fs/promises';
+import { access, chmod, mkdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 
@@ -64,6 +64,7 @@ export class VkRuntimeRelease {
     await mkdir(this.artifactRoot, { recursive: true });
     const deadline = Date.now() + waitSeconds * 1000;
     for (;;) {
+      let downloaded = false;
       try {
         await exec('gh', [
           'release',
@@ -81,8 +82,13 @@ export class VkRuntimeRelease {
           'manifest.json',
           '--clobber',
         ]);
+        downloaded = true;
+        await this.verify();
         break;
       } catch (error) {
+        if (downloaded && (error as NodeJS.ErrnoException).code !== 'ENOENT') {
+          throw error;
+        }
         if (Date.now() >= deadline) throw error;
         console.log(
           `[vk-mocked-sandbox] Waiting for remote release ${this.tag}`,
@@ -90,7 +96,6 @@ export class VkRuntimeRelease {
         await new Promise((resolve) => setTimeout(resolve, 10_000));
       }
     }
-    await this.verify();
     const extractDir = join(this.artifactRoot, 'extracted');
     await rm(extractDir, { recursive: true, force: true });
     await mkdir(extractDir, { recursive: true });
@@ -131,6 +136,7 @@ export class VkRuntimeRelease {
     if (createHash('sha256').update(archive).digest('hex') !== asset.sha256) {
       throw new Error('VK runtime archive does not match manifest checksum');
     }
+    await access(join(this.artifactRoot, `${this.archiveName}.sha256`));
     await exec('sha256sum', ['-c', `${this.archiveName}.sha256`], {
       cwd: this.artifactRoot,
     });
