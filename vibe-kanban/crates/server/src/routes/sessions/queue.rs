@@ -141,7 +141,7 @@ async fn get_queue_status(
 async fn get_queued_execution(
     Extension(session): Extension<Session>,
     State(deployment): State<DeploymentImpl>,
-    axum::extract::Path(queue_id): axum::extract::Path<uuid::Uuid>,
+    axum::extract::Path((_session_id, queue_id)): axum::extract::Path<(uuid::Uuid, uuid::Uuid)>,
 ) -> Result<ResponseJson<ApiResponse<Option<QueueEffectReconciliation>>>, ApiError> {
     let reconciliation =
         ExecutionProcess::reconcile_queue_effect(&deployment.db().pool, queue_id).await?;
@@ -154,6 +154,41 @@ async fn get_queued_execution(
         ));
     }
     Ok(ResponseJson(ApiResponse::success(reconciliation)))
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::{Router, body::Body, extract::Path, routing::get};
+    use http::Request;
+    use tower::ServiceExt;
+    use uuid::Uuid;
+
+    #[tokio::test]
+    async fn nested_queue_process_route_extracts_session_and_queue_ids() {
+        let session_id = Uuid::new_v4();
+        let queue_id = Uuid::new_v4();
+        let queue_router = Router::new().route(
+            "/{queue_id}/process",
+            get(
+                |Path((session_id, queue_id)): Path<(Uuid, Uuid)>| async move {
+                    format!("{session_id}:{queue_id}")
+                },
+            ),
+        );
+        let app = Router::new().nest("/sessions/{session_id}/queue", queue_router);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/sessions/{session_id}/queue/{queue_id}/process"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), http::StatusCode::OK);
+    }
 }
 
 pub(super) fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
