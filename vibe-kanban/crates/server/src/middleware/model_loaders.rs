@@ -93,9 +93,15 @@ pub async fn load_tag_middleware(
     Ok(next.run(request).await)
 }
 
+/// Extract the session by name so nested routes may carry additional IDs.
+#[derive(serde::Deserialize)]
+pub struct SessionPath {
+    session_id: Uuid,
+}
+
 pub async fn load_session_middleware(
     State(deployment): State<DeploymentImpl>,
-    Path(session_id): Path<Uuid>,
+    Path(SessionPath { session_id }): Path<SessionPath>,
     mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
@@ -113,4 +119,67 @@ pub async fn load_session_middleware(
 
     request.extensions_mut().insert(session);
     Ok(next.run(request).await)
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::{Router, body::Body, middleware::from_fn, routing::get};
+    use http::Request as HttpRequest;
+    use tower::ServiceExt;
+
+    use super::*;
+
+    fn session_path_router() -> Router {
+        Router::new()
+            .route("/", get(|| async { "session" }))
+            .route("/queue/{queue_id}/process", get(|| async { "queue" }))
+            .layer(from_fn(
+                |Path(SessionPath { session_id }): Path<SessionPath>,
+                 request: Request,
+                 next: Next| async move {
+                    let mut response = next.run(request).await;
+                    response
+                        .headers_mut()
+                        .insert("x-session-id", session_id.to_string().parse().unwrap());
+                    response
+                },
+            ))
+    }
+
+    #[tokio::test]
+    async fn session_path_accepts_single_and_nested_session_routes() {
+        let session_id = Uuid::new_v4();
+        let queue_id = Uuid::new_v4();
+        let app = Router::new().nest("/sessions/{session_id}", session_path_router());
+        for uri in [
+            format!("/sessions/{session_id}"),
+            format!("/sessions/{session_id}/queue/{queue_id}/process"),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(HttpRequest::builder().uri(uri).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(response.headers()["x-session-id"], session_id.to_string());
+        }
+    }
+
+    #[tokio::test]
+    async fn session_path_rejects_invalid_session_despite_valid_nested_queue_id() {
+        let app = Router::new().nest("/sessions/{session_id}", session_path_router());
+        let response = app
+            .oneshot(
+                HttpRequest::builder()
+                    .uri(format!(
+                        "/sessions/not-a-uuid/queue/{}/process",
+                        Uuid::new_v4()
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
 }
