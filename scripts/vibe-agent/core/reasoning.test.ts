@@ -44,13 +44,28 @@ describe('reasoning capability validation', () => {
     expect(client.getReasoningCapabilities).not.toHaveBeenCalled();
   });
 
-  it('uses the selected preset model and provider, retaining canonical reasoning IDs', async () => {
-    expect(await resolveSendReasoning(profiles, { ...profile, reasoning: 'HIGH' }, 'workspace')).toEqual({ reasoning_id: 'high' });
+  it.each(['MEDIUM', 'HIGH'])('uses the explicit preset model and provider for %s, retaining canonical reasoning IDs', async reasoning => {
+    expect(await resolveSendReasoning(profiles, { ...profile, reasoning }, 'workspace')).toEqual({ reasoning_id: reasoning.toLowerCase() });
   });
 
-  it('uses the discovered default only when the preset does not specify a model', async () => {
+  it.each([
+    ['agent-selected model', { agent: 'reviewer' }],
+    ['resumed conversation model', {}],
+  ])('does not substitute the global default for an unresolved OpenCode %s', async (_scenario, preset) => {
+    const implicitProfiles = { OPENCODE: { DEFAULT: { OPENCODE: preset } } };
     vi.mocked(client.getReasoningCapabilities).mockResolvedValue({ ...capabilities, model_id: null, default_model: 'openai/reasoner' });
-    expect(await resolveSendReasoning(profiles, profile, 'workspace')).toEqual({ reasoning_id: 'medium' });
+    expect(await resolveSendReasoning(implicitProfiles, profile, 'workspace')).toEqual({});
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('the OpenCode preset has no explicit model'));
+  });
+
+  it('retains default-model discovery for other executors', async () => {
+    vi.mocked(client.getReasoningCapabilities).mockResolvedValue({
+      model_id: null, default_model: 'sonnet-4.6',
+      models: [{ id: 'sonnet-4.6', reasoning_options: [{ id: 'thinking' }] }],
+    });
+    expect(await resolveSendReasoning({ CURSOR_AGENT: { DEFAULT: { CURSOR_AGENT: {} } } }, {
+      executor: 'CURSOR_AGENT', variant: 'DEFAULT', reasoning: 'thinking',
+    }, 'workspace')).toEqual({ reasoning_id: 'thinking' });
   });
 
   it('preserves Cursor thinking when medium is unsupported', async () => {
@@ -94,6 +109,26 @@ describe('reasoning capability validation', () => {
 });
 
 describe('cross-invocation capability cache', () => {
+  it('does not treat a cached OpenCode global default as a verified execution model', async () => {
+    const implicitProfiles = { OPENCODE: { DEFAULT: { OPENCODE: { agent: 'reviewer' } } } };
+    vi.mocked(client.getReasoningCapabilities).mockResolvedValue({ ...capabilities, model_id: null, default_model: 'openai/reasoner' });
+    expect(await resolveSendReasoning(implicitProfiles, profile, 'workspace')).toEqual({});
+    // Read the persisted metadata again, without allowing another discovery.
+    vi.mocked(client.getReasoningCapabilities).mockRejectedValue(new Error('must use cache'));
+    expect(await resolveSendReasoning(implicitProfiles, profile, 'workspace')).toEqual({});
+    expect(client.getReasoningCapabilities).toHaveBeenCalledTimes(1);
+    expect(console.warn).toHaveBeenCalledTimes(2);
+    expect(console.warn).toHaveBeenLastCalledWith(expect.stringContaining('the OpenCode preset has no explicit model'));
+  });
+
+  it('stops overriding after the explicit OpenCode preset model is removed', async () => {
+    expect(await resolveSendReasoning(profiles, profile, 'workspace')).toEqual({ reasoning_id: 'medium' });
+    vi.mocked(client.getReasoningCapabilities).mockResolvedValue({ ...capabilities, model_id: null, default_model: 'openai/reasoner' });
+    const implicitProfiles = { OPENCODE: { DEFAULT: { OPENCODE: {} } } };
+    expect(await resolveSendReasoning(implicitProfiles, profile, 'workspace')).toEqual({});
+    expect(client.getReasoningCapabilities).toHaveBeenCalledTimes(2);
+  });
+
   it('reuses metadata for different levels within five minutes, then refreshes', async () => {
     const clock = vi.spyOn(Date, 'now').mockReturnValue(1000);
     await resolveSendReasoning(profiles, profile, 'workspace');

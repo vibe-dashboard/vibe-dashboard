@@ -53,6 +53,12 @@ advertised choices and sent as VK's canonical `reasoning_id` only if supported.
 If support cannot be confirmed, the send retains saved reasoning and prints an
 explanation to stderr. Omitting reasoning skips capability discovery entirely.
 
+For OpenCode, reasoning overrides require an explicit model in the selected saved
+VK preset. Without one, the agent or resumed conversation may select a different
+model from OpenCode's global default, so reasoning is preserved even if that
+global default advertises the requested level. This also applies to cached
+capability metadata.
+
 Successful capability lookups are cached for five minutes in
 `~/.cache/vibe-agent/reasoning/`, scoped to the VK server, workspace, recipient
 session, and preset. Changes to the selected/default preset or session working

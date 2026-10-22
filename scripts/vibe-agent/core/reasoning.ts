@@ -81,6 +81,12 @@ export async function resolveSendReasoning(
   if (!profile.reasoning) return {};
   try {
     const capabilities = await getCapabilities(profiles, profile, session, source);
+    // OpenCode can use an agent's model or the resumed conversation's model
+    // when the preset has no explicit model. The global default is not proof
+    // of the execution model, even when this metadata came from the cache.
+    if (profile.executor === 'OPENCODE' && !capabilities.model_id) {
+      throw new Error('the OpenCode preset has no explicit model; the agent or resumed session may use a different model from the global default');
+    }
     const modelId = capabilities.model_id ?? capabilities.default_model;
     if (!modelId) throw new Error('the effective model could not be determined');
     const models = capabilities.models.filter(model =>
