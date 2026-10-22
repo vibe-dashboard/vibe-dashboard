@@ -29,7 +29,7 @@ describe('createVkvdHotswapPlan', () => {
   it('requires explicit operator allowance for local Rust build fallback', () => {
     const unsafeLocalBuild = {
       kind: 'local-rust-build',
-      worktreePath: '/repo/Vktest',
+      worktreePath: '/repo/vibe-dashboard/vibe-kanban',
       platform: 'linux-x64',
       operatorAllowed: false,
     } as unknown as VkArtifactSource;

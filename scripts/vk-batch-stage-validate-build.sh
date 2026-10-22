@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 VD_REPO=$(cd "$SCRIPT_DIR/.." && pwd)
-DEFAULT_VK_REPO=$(cd "$VD_REPO/.." && pwd)/Vktest-batch-stage
+DEFAULT_VK_REPO=$VD_REPO/vibe-kanban
 
 VK_BATCH_REPO=${VK_BATCH_REPO:-$DEFAULT_VK_REPO}
 VK_BATCH_TARGET_DIR=${VK_BATCH_TARGET_DIR:-${VK_BATCH_REPO}-target}

@@ -8,31 +8,30 @@ This plan covers the smallest merge-safe path from the existing hotswap seams to
 
 ### VK release/prerelease artifacts
 
-VK release assets are produced by `Vktest/.github/workflows/release-binaries.yml`.
+VK release assets are produced by `vibe-kanban/.github/workflows/release-binaries.yml`.
 
-- Triggered for pushes to any branch, tags, and manual dispatch with an optional `vk_ref`.
-- Resolves a branch, tag, or SHA to a full VK commit SHA.
-- Publishes a prerelease tag named `vk-assets-<full_vk_sha>`.
+- The monorepo publish flow computes the vendored VK content hash with `.github/scripts/vk-content-hash.sh`.
+- Publishes or reuses a prerelease tag named `vk-assets-sha256-<vk_content_hash>`.
 - The release contains:
   - `manifest.json`
   - `vibe-kanban-linux-x64.tar.gz` plus `.sha256`
   - `vibe-kanban-linux-arm64.tar.gz` plus `.sha256`
   - `vibe-kanban-macos-arm64.tar.gz` plus `.sha256`
-- The manifest uses `schema_version: 1`, records both `release_tag` and `commit`, and has per-platform `assets.vibe-kanban.file`, `download_url`, `sha256`, and `archive_format` fields.
+- The manifest uses `schema_version: 1`, records `release_tag`, `vk_content_hash`/`content_hash`, and per-platform `assets.vibe-kanban.file`, `download_url`, `sha256`, and `archive_format` fields.
 - Runtime contract: each archive contains a single executable named `vibe-kanban`; the local VK web UI is embedded into that executable.
 
-VD already consumes those assets in `Dockerfile.vkvd` by downloading `https://github.com/vibe-dashboard/vibe-kanban/releases/download/vk-assets-${VK_COMMIT}/manifest.json`, validating schema/mode/tag/commit, selecting `linux-x64` or `linux-arm64`, verifying SHA256, extracting `vibe-kanban`, installing it to `/usr/local/bin/vibe-kanban`, and writing `/usr/local/share/vibe-kanban-build-version`.
+VD already consumes those assets in `Dockerfile.vkvd` by downloading `https://github.com/vibe-dashboard/vibe-kanban/releases/download/vk-assets-sha256-${VK_COMMIT}/manifest.json`, validating schema/mode/tag/content hash, selecting `linux-x64` or `linux-arm64`, verifying SHA256, extracting `vibe-kanban`, installing it to `/usr/local/bin/vibe-kanban`, and writing `/usr/local/share/vibe-kanban-build-version`.
 
 ### Local VK build fallback
 
 VK local build paths exist but are heavier than artifact install:
 
-- `Vktest/package.json` has `build:npx` via `local-build.sh`.
+- `vibe-kanban/package.json` has `build:npx` via `local-build.sh`.
 - `local-build.sh` builds the local web app, then runs Rust release builds and packages zip files for the NPX distribution.
-- `Vktest/Dockerfile` also builds the web UI and Rust server binary locally.
+- `vibe-kanban/Dockerfile` also builds the web UI and Rust server binary locally.
 - The release workflow uses nightly Rust, target-specific builds, Zig/cargo-zigbuild for Linux musl, and CI caches.
 
-Policy update after the weekly-dev disk exhaustion incident: do not use local VK release builds as the default workflow. Local Rust build remains an emergency/manual fallback only, must require explicit operator allowance, and should be avoided in the weekly-dev container because it is slow, environment-sensitive, disk-heavy, and does not have the same prevalidated release-artifact contract. For normal VK hotswap prep, push the source commit and consume the CI prerelease asset keyed by the VK commit SHA.
+Policy update after the weekly-dev disk exhaustion incident: do not use local VK release builds as the default workflow. Local Rust build remains an emergency/manual fallback only, must require explicit operator allowance, and should be avoided in the weekly-dev container because it is slow, environment-sensitive, disk-heavy, and does not have the same prevalidated release-artifact contract. For normal VK hotswap prep, consume the CI prerelease asset keyed by the vendored VK content hash.
 
 ### VD hotswap and supervisord
 
@@ -54,7 +53,7 @@ The approved hotswap seam from vkvw-yjxc added `SupervisorProgramRestarter`, whi
 ## Human decisions to honor
 
 - The operator chooses the artifact source each time.
-- GitHub prerelease by branch or commit is the preferred CI artifact source option.
+- GitHub prerelease by vendored VK content hash is the preferred CI artifact source option.
 - Local Rust build is fallback only and requires explicit operator allowance.
 - The first real flow coordinates VK then VD in one container flow.
 - Reuse the injected supervisord runner seam.
@@ -67,7 +66,7 @@ The approved hotswap seam from vkvw-yjxc added `SupervisorProgramRestarter`, whi
 Add a small orchestration module that is injectable and testable:
 
 1. `VkArtifactSource`
-   - `github-prerelease`: repository, ref or commit SHA, desired platform.
+   - `github-prerelease`: repository, VK content hash, desired platform.
    - `local-rust-build`: worktree path, desired platform, and `operatorAllowed: true`.
 2. `VkRuntimeArtifactResolver`
    - resolves operator source choice into a staged executable, build-version label, manifest metadata, and provenance.
@@ -171,8 +170,8 @@ Cons:
 
 ### Phase 3: Artifact resolver
 
-- Implement GitHub prerelease resolver for `vk-assets-<full_vk_sha>`.
-- Resolve a branch/ref to full commit when needed.
+- Implement GitHub prerelease resolver for `vk-assets-sha256-<vk_content_hash>`.
+- Resolve or compute the vendored VK content hash when needed.
 - Download manifest, select platform, verify checksum, extract executable to staging.
 - Add no-network unit tests by injecting HTTP/download/fs seams.
 
@@ -214,7 +213,7 @@ A local VK release build during weekly-dev integration exhausted the container f
 
 - local VK work in the weekly-dev container is limited to quick checks and focused validation;
 - VK release/build artifact generation is offloaded to CI;
-- the hotswap flow should use GitHub prerelease assets produced by `Vktest/.github/workflows/release-binaries.yml`, keyed by the source commit SHA;
+- the hotswap flow should use GitHub prerelease assets keyed by the vendored VK content hash;
 - local prebuilt/local Rust artifact paths remain available only as explicit fallback tools, not the planned path.
 
 This means future VK hotswap retry plans should wait for or trigger CI release assets, verify `manifest.json` and asset SHA256, then run VK-only hotswap from the downloaded artifact. Do not queue local `cargo build --release`, `local-build.sh`, or `pnpm run build:npx` for VK weekly-dev hotswap unless a human explicitly approves the disk/time risk for that specific run.

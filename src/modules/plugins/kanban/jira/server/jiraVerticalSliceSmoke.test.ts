@@ -60,7 +60,7 @@ describe('Jira external board vertical slice smoke', () => {
       await seedUserAndAtlassianAccount(db);
       await upsertExternalIssueWorkspaceMapping(db, {
         externalIssue: { provider: 'jira', key: 'VD-1', id: '10001', url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net' },
-        workspace: { workspaceId: 'ws-1', workspaceDir: '/repos/Vktest', displayName: 'Vktest workspace' },
+        workspace: { workspaceId: 'ws-1', workspaceDir: '/repos/vibe-dashboard', displayName: 'Dashboard workspace' },
         isPrimary: true,
       });
 
@@ -163,7 +163,7 @@ describe('Jira external board vertical slice smoke', () => {
       expect(payload.boardView.cards).toEqual([
         expect.objectContaining({
           key: 'VD-1',
-          relatedWorkspaces: [expect.objectContaining({ workspaceId: 'ws-1', displayName: 'Vktest workspace', isPrimary: true })],
+          relatedWorkspaces: [expect.objectContaining({ workspaceId: 'ws-1', displayName: 'Dashboard workspace', isPrimary: true })],
           relatedBeads: [expect.objectContaining({ id: 'vkvw-573j.8', title: 'M8 smoke linked bead' })],
         }),
         expect.objectContaining({ key: 'VD-2', relatedWorkspaces: [], relatedBeads: [] }),
