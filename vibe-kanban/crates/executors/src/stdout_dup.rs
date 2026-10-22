@@ -69,7 +69,9 @@ pub fn spawn_local_output_process()
 
     cmd.kill_on_drop(true);
 
-    let mut child = cmd.group_spawn_no_window()?;
+    let mut child = cmd
+        .group_spawn_no_window()
+        .map_err(|error| ExecutorError::SpawnError(error).proven_not_spawned())?;
 
     // Replace stdout with our pipe
     child.inner().stdout = Some(wrap_fd_as_child_stdout(pipe_reader)?);
@@ -83,6 +85,30 @@ pub fn spawn_local_output_process()
     };
 
     Ok((spawned, writer))
+}
+
+#[cfg(test)]
+mod tests {
+    use workspace_utils::command_ext::GroupSpawnNoWindowExt;
+
+    use super::*;
+
+    #[test]
+    fn local_output_spawn_failure_is_proven_not_spawned() {
+        let mut command = tokio::process::Command::new(
+            "/definitely/missing/vibe-kanban-local-output-helper",
+        );
+
+        let error = command
+            .group_spawn_no_window()
+            .map_err(|error| ExecutorError::SpawnError(error).proven_not_spawned())
+            .unwrap_err();
+
+        assert!(matches!(
+            error.into_proven_not_spawned(),
+            Ok(ExecutorError::SpawnError(_))
+        ));
+    }
 }
 
 // =========================================

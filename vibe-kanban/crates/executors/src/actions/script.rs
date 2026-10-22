@@ -70,8 +70,44 @@ impl Executable for ScriptRequest {
         let env = env.clone().with_overrides(&self.env);
         env.apply_to_command(&mut command);
 
-        let child = command.group_spawn_no_window()?;
+        let child = command
+            .group_spawn_no_window()
+            .map_err(|error| ExecutorError::SpawnError(error).proven_not_spawned())?;
 
         Ok(child.into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::HashMap, path::Path, sync::Arc};
+
+    use crate::{approvals::NoopExecutorApprovalService, env::RepoContext};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn script_spawn_failure_is_proven_not_spawned() {
+        let request = ScriptRequest {
+            script: "true".to_string(),
+            language: ScriptRequestLanguage::Bash,
+            context: ScriptContext::SetupScript,
+            working_dir: Some("missing-working-directory".to_string()),
+            env: HashMap::new(),
+        };
+
+        let error = request
+            .spawn(
+                Path::new("/definitely/missing/vibe-kanban-script-root"),
+                Arc::new(NoopExecutorApprovalService),
+                &ExecutionEnv::new(RepoContext::default(), false, String::new()),
+            )
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            error.into_proven_not_spawned(),
+            Ok(ExecutorError::SpawnError(_))
+        ));
     }
 }
