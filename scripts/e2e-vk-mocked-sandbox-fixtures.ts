@@ -11,7 +11,6 @@ import {
   stat,
   writeFile,
 } from 'node:fs/promises';
-import net from 'node:net';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -41,19 +40,23 @@ const fixtureRoot = path.join(
   'tests/e2e/fixtures/vk-mocked-sandbox',
 );
 const canonicalRepoPath = '/home/vkuser/e2e/repos/basic-seeded-repo';
+export function sandboxRuntimeRepoPath(root: string): string {
+  return path.join(root, '.vk-mocked-sandbox/repos/basic-seeded-repo');
+}
+const runtimeRepoPath = sandboxRuntimeRepoPath(repoRoot);
 const defaultVdDbPath = path.join(repoRoot, 'data/kv.db');
 const vdDbPath = path.resolve(process.env.SQLITE_DATABASE_FILE ?? defaultVdDbPath);
-const vkDevAssetsPath = process.env.VK_MOCKED_VK_BACKEND === 'ci-release'
-  ? path.resolve(repoRoot, process.env.VK_MOCKED_SANDBOX_RUN_DIR ?? '.vk-mocked-sandbox/current', 'xdg-data/vibe-kanban')
-  : path.join(vkRoot, 'dev_assets');
+const vkDevAssetsPath = path.join(vkRoot, 'dev_assets');
 const vkDbPath = path.join(vkDevAssetsPath, 'db.v2.sqlite');
 const vkSessionLogsPath = path.join(vkDevAssetsPath, 'sessions');
-const sandboxPlanPath = path.join(
-  repoRoot,
-  '.vk-mocked-sandbox/current/plan.json',
+const sandboxRunDir = path.resolve(
+  process.env.VK_MOCKED_SANDBOX_RUN_DIR ??
+    path.join(repoRoot, '.vk-mocked-sandbox/current'),
 );
-const sandboxProcessPattern =
-  'vk-mocked-sandbox|vk-backend-qa|vk-backend-ci-release|vd-dashboard|VK_MOCKED_SANDBOX|vk-release-assets';
+const vkReleaseDataPath = path.join(sandboxRunDir, 'xdg-data/vibe-kanban');
+const vkReleaseDbPath = path.join(vkReleaseDataPath, 'db.v2.sqlite');
+const vkReleaseSessionLogsPath = path.join(vkReleaseDataPath, 'sessions');
+const sandboxPlanPath = path.join(sandboxRunDir, 'plan.json');
 
 const generatedVkDevAssetFiles = [
   'db.v2.sqlite',
@@ -69,7 +72,7 @@ const fixtureVkDevAssetFiles = generatedVkDevAssetFiles.filter(
 );
 
 function resolveVkRoot(configuredPath: string | undefined): string {
-  if (!configuredPath) return path.join(workspaceRoot, 'Vktest');
+  if (!configuredPath) return path.join(repoRoot, 'vibe-kanban');
   if (path.isAbsolute(configuredPath)) return configuredPath;
 
   const repoRelativePath = path.resolve(repoRoot, configuredPath);
@@ -119,50 +122,16 @@ async function readJson<T>(targetPath: string): Promise<T> {
   return JSON.parse(await readFile(targetPath, 'utf8')) as T;
 }
 
-async function tcpPortResponds(port: number): Promise<boolean> {
-  return await new Promise((resolve) => {
-    const socket = net.connect({ host: '127.0.0.1', port });
-    socket.setTimeout(500);
-    socket.once('connect', () => {
-      socket.destroy();
-      resolve(true);
-    });
-    socket.once('timeout', () => {
-      socket.destroy();
-      resolve(false);
-    });
-    socket.once('error', () => resolve(false));
-  });
-}
-
-async function sandboxPorts(): Promise<number[]> {
-  if (!(await exists(sandboxPlanPath))) return [50005];
-  const plan = await readJson<{ ports?: Record<string, number> }>(sandboxPlanPath);
-  return Object.values(plan.ports ?? {}).filter((port) => Number.isInteger(port));
-}
-
-export function isSandboxRuntimeProcessLine(line: string): boolean {
-  return Boolean(line.trim()) &&
-    !line.includes('pgrep -af') &&
-    !line.includes('e2e-vk-mocked-sandbox-fixtures.ts') &&
-    !line.includes('e2e:vk-mocked-sandbox:') &&
-    !line.includes('test:e2e:vk-mocked-sandbox') &&
-    !line.includes('playwright.vk-mocked-sandbox.config.ts') &&
-    !line.includes('ci-run-vk-mocked-sandbox-e2e.sh');
-}
-
-async function runningSandboxProcesses(): Promise<string[]> {
+async function sandboxPidIsRunning(): Promise<boolean> {
+  const pidPath = path.join(path.dirname(sandboxPlanPath), 'sandbox.pid');
+  if (!(await exists(pidPath))) return false;
+  const pid = Number.parseInt(await readFile(pidPath, 'utf8'), 10);
+  if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
-    const { stdout } = await execFileAsync('pgrep', [
-      '-af',
-      sandboxProcessPattern,
-    ]);
-    return stdout
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(isSandboxRuntimeProcessLine);
+    process.kill(pid, 0);
+    return true;
   } catch {
-    return [];
+    return false;
   }
 }
 
@@ -189,26 +158,24 @@ async function openHandles(targetPaths: string[]): Promise<string[]> {
 async function assertSandboxStopped(force: boolean) {
   if (force) return;
 
-  const ports = await sandboxPorts();
-  const respondingPorts: number[] = [];
-  for (const port of ports) {
-    if (await tcpPortResponds(port)) respondingPorts.push(port);
-  }
-
-  const processes = await runningSandboxProcesses();
+  const sandboxRunning = await sandboxPidIsRunning();
   const handles = await openHandles([
     vdDbPath,
     vkDbPath,
+    vkReleaseDbPath,
     `${vdDbPath}-wal`,
     `${vdDbPath}-shm`,
+    `${vkDbPath}-wal`,
+    `${vkDbPath}-shm`,
+    `${vkReleaseDbPath}-wal`,
+    `${vkReleaseDbPath}-shm`,
   ]);
 
-  if (respondingPorts.length || processes.length || handles.length) {
+  if (sandboxRunning || handles.length) {
     throw new Error(
       [
         'Refusing to reset/snapshot while the VK mocked sandbox appears live.',
-        respondingPorts.length ? `Listening ports: ${respondingPorts.join(', ')}` : '',
-        processes.length ? `Processes:\n${processes.join('\n')}` : '',
+        sandboxRunning ? 'This worktree sandbox process is running.' : '',
         handles.length ? `Open DB handles:\n${handles.join('\n')}` : '',
         'Stop the sandbox first, then rerun. Use --force only for manual recovery.',
       ]
@@ -266,6 +233,17 @@ async function ensureGitRepo(repoPath: string) {
   ]);
 }
 
+async function updateRepoPath(dbPath: string, from: string, to: string) {
+  const sqlString = (value: string) => `'${value.replaceAll("'", "''")}'`;
+  const { stdout } = await execFileAsync('sqlite3', [
+    dbPath,
+    `update repos set path=${sqlString(to)} where path=${sqlString(from)}; select changes();`,
+  ]);
+  if (stdout.trim() !== '1') {
+    throw new Error(`Expected one VK repository path to change from ${from} to ${to}`);
+  }
+}
+
 async function resetCommonState() {
   await removeIfExists(vdDbPath);
   await removeIfExists(`${vdDbPath}-wal`);
@@ -274,6 +252,7 @@ async function resetCommonState() {
   await removeIfExists(`${vkDbPath}-wal`);
   await removeIfExists(`${vkDbPath}-shm`);
   await removeIfExists(vkSessionLogsPath);
+  await removeIfExists(vkReleaseDataPath);
 
   for (const fileName of generatedVkDevAssetFiles.filter(
     (file) => file !== 'db.v2.sqlite',
@@ -287,31 +266,38 @@ async function resetVariant(variant: Variant, force: boolean) {
   await resetCommonState();
   await mkdir(path.dirname(vdDbPath), { recursive: true });
   await mkdir(vkDevAssetsPath, { recursive: true });
+  await mkdir(vkReleaseDataPath, { recursive: true });
 
   const fixtureDir = path.join(fixtureRoot, variant);
   if (variant === 'basic-seeded') {
     await copyFile(path.join(fixtureDir, 'vd/kv.db'), vdDbPath);
     for (const fileName of fixtureVkDevAssetFiles) {
-      await copyFileIfExists(
-        path.join(fixtureDir, 'vk/dev_assets', fileName),
-        path.join(vkDevAssetsPath, fileName),
-      );
+      const source = path.join(fixtureDir, 'vk/dev_assets', fileName);
+      await copyFileIfExists(source, path.join(vkDevAssetsPath, fileName));
+      await copyFileIfExists(source, path.join(vkReleaseDataPath, fileName));
     }
+    await updateRepoPath(vkDbPath, canonicalRepoPath, runtimeRepoPath);
+    await updateRepoPath(vkReleaseDbPath, canonicalRepoPath, runtimeRepoPath);
     if (await exists(path.join(fixtureDir, 'vk/dev_assets/sessions'))) {
       await cp(path.join(fixtureDir, 'vk/dev_assets/sessions'), vkSessionLogsPath, {
         recursive: true,
       });
+      await cp(
+        path.join(fixtureDir, 'vk/dev_assets/sessions'),
+        vkReleaseSessionLogsPath,
+        { recursive: true },
+      );
     }
 
-    await removeIfExists(canonicalRepoPath);
-    await mkdir(path.dirname(canonicalRepoPath), { recursive: true });
-    await cp(path.join(fixtureDir, 'repos/basic-seeded-repo'), canonicalRepoPath, {
+    await removeIfExists(runtimeRepoPath);
+    await mkdir(path.dirname(runtimeRepoPath), { recursive: true });
+    await cp(path.join(fixtureDir, 'repos/basic-seeded-repo'), runtimeRepoPath, {
       recursive: true,
     });
-    await ensureGitRepo(canonicalRepoPath);
+    await ensureGitRepo(runtimeRepoPath);
   } else {
-    await removeIfExists(canonicalRepoPath);
-    await mkdir(path.dirname(canonicalRepoPath), { recursive: true });
+    await removeIfExists(runtimeRepoPath);
+    await mkdir(path.dirname(runtimeRepoPath), { recursive: true });
   }
 
   console.log(`Reset VK mocked sandbox fixture: ${variant}`);
@@ -352,19 +338,28 @@ async function snapshotVariant(variant: Variant, force: boolean) {
 
   if (variant === 'basic-seeded') {
     await copyFile(vdDbPath, path.join(fixtureDir, 'vd/kv.db'));
+    const activeVkAssetsPath = process.env.VK_MOCKED_VK_BACKEND === 'ci-release'
+      ? vkReleaseDataPath
+      : vkDevAssetsPath;
     for (const fileName of fixtureVkDevAssetFiles) {
       await copyFileIfExists(
-        path.join(vkDevAssetsPath, fileName),
+        path.join(activeVkAssetsPath, fileName),
         path.join(fixtureDir, 'vk/dev_assets', fileName),
       );
     }
-    if (await exists(vkSessionLogsPath)) {
-      await cp(vkSessionLogsPath, path.join(fixtureDir, 'vk/dev_assets/sessions'), {
+    await updateRepoPath(
+      path.join(fixtureDir, 'vk/dev_assets/db.v2.sqlite'),
+      runtimeRepoPath,
+      canonicalRepoPath,
+    );
+    const activeSessionLogsPath = path.join(activeVkAssetsPath, 'sessions');
+    if (await exists(activeSessionLogsPath)) {
+      await cp(activeSessionLogsPath, path.join(fixtureDir, 'vk/dev_assets/sessions'), {
         recursive: true,
       });
     }
     const repoFixturePath = path.join(fixtureDir, 'repos/basic-seeded-repo');
-    await copyDirectoryWithoutGit(canonicalRepoPath, repoFixturePath);
+    await copyDirectoryWithoutGit(runtimeRepoPath, repoFixturePath);
     if (!(await exists(path.join(repoFixturePath, 'README.md')))) {
       await writeFile(
         path.join(repoFixturePath, 'README.md'),

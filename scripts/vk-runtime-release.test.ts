@@ -4,10 +4,39 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { VkRuntimeRelease } from './vk-runtime-release';
-import { createSandboxPlan } from './vk-mocked-sandbox';
+import { createSandboxPlan, readPreparedSandboxPlan, writeSandboxFiles } from './vk-mocked-sandbox';
 
 describe('content-addressed VK runtime releases', () => {
   const hash = 'a'.repeat(64);
+
+  it('accepts the upstream release content-hash pin without needing a checkout', async () => {
+    const release = await VkRuntimeRelease.forCheckout('/tmp/no-checkout', { VK_MOCKED_RELEASE_HASH: hash });
+    expect(release.contentHash).toBe(hash);
+  });
+
+  it('reuses the prepared content-addressed runtime command and allocated ports', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vk-runtime-plan-'));
+    try {
+      const vdRoot = join(root, 'vibe-kanban-vscode-web');
+      await mkdir(join(vdRoot, 'vibe-kanban'), { recursive: true });
+      const release = new VkRuntimeRelease(vdRoot, hash);
+      await mkdir(join(release.artifactRoot, 'extracted'), { recursive: true });
+      await writeFile(release.binaryPath, '#!/bin/sh\n');
+      const plan = createSandboxPlan({
+        workspaceRoot: vdRoot,
+        env: { VK_MOCKED_VK_BACKEND: 'ci-release', VK_MOCKED_CONTENT_HASH: hash, VK_MOCKED_PREBUILD_BACKEND: '1' },
+        ports: { vkBackend: 50120, vkFrontend: 50121, vkPreviewProxy: 50122, vdDashboard: 50123, vdServer: 50124, vdCaddy: 50125 },
+        caddyfile: '# Vibe Dashboard app',
+      });
+      await writeSandboxFiles(plan);
+      const prepared = await readPreparedSandboxPlan(plan.paths.runDir);
+      expect(prepared.commands[0]?.command).toBe(release.binaryPath);
+      expect(prepared.ports).toEqual(plan.ports);
+      expect(prepared.setupCommands.map((command) => command.name)).toEqual(['vk-download-runtime-release']);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 
   it('plans a remote runtime with QA enabled and embedded frontend routing', () => {
     const plan = createSandboxPlan({

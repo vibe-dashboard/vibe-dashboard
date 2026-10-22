@@ -43,6 +43,7 @@ export class VkRuntimeRelease {
   ): Promise<VkRuntimeRelease> {
     const contentHash =
       env.VK_MOCKED_CONTENT_HASH?.trim() ||
+      env.VK_MOCKED_RELEASE_HASH?.trim() ||
       (
         await exec('bash', ['.github/scripts/vk-content-hash.sh'], {
           cwd: vdRoot,

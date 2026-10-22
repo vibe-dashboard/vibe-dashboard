@@ -3,8 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 VD_REPO=$(cd "$SCRIPT_DIR/.." && pwd)
-DEFAULT_VK_REPO=$(cd "$VD_REPO/.." && pwd)/Vktest
-DEFAULT_ARTIFACT_ROOT=$(cd "$VD_REPO/.." && pwd)/Vktest-batch-stage-target
+DEFAULT_VK_REPO=$VD_REPO/vibe-kanban
+DEFAULT_ARTIFACT_ROOT=${DEFAULT_VK_REPO}-target
 
 VK_REPO=${VK_REPO:-$DEFAULT_VK_REPO}
 VK_ARTIFACT=${VK_ARTIFACT:-$DEFAULT_ARTIFACT_ROOT/release/server}
@@ -37,7 +37,7 @@ require_clean_repo() {
 }
 
 if [ -z "$VK_VERSION_LABEL" ]; then
-  fail "VK_VERSION_LABEL is required, for example weekly-dev-vk-\$(git -C ../Vktest rev-parse --short HEAD)-sha256-<sha8>"
+  fail "VK_VERSION_LABEL is required, for example weekly-dev-vk-\$(git -C vibe-kanban rev-parse --short HEAD)-sha256-<sha8>"
 fi
 
 echo "[batch-hotswap] starting at $(date -u +%Y-%m-%dT%H:%M:%SZ)"

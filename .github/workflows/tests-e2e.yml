@@ -30,6 +30,17 @@ jobs:
         with:
           path: vibe-kanban-vscode-web
 
+      - name: Record VK content hash
+        id: vk-meta
+        working-directory: vibe-kanban-vscode-web
+        shell: bash
+        run: |
+          set -euo pipefail
+          hash="$(.github/scripts/vk-content-hash.sh)"
+          echo "content_hash=$hash" >> "$GITHUB_OUTPUT"
+          echo "VK_MOCKED_CONTENT_HASH=$hash" >> "$GITHUB_ENV"
+          echo "VK content hash: $hash"
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -64,19 +75,14 @@ jobs:
         working-directory: vibe-kanban-vscode-web
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Prepare canonical VK mocked sandbox fixture directory
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo mkdir -p /home/vkuser/e2e/repos
-          sudo chown -R "$USER":"$USER" /home/vkuser
-
       - name: Validate VK mocked sandbox fixture
         working-directory: vibe-kanban-vscode-web
         run: npm run e2e:vk-mocked-sandbox:validate -- --variant basic-seeded
 
       - name: Run VK mocked sandbox e2e
         working-directory: vibe-kanban-vscode-web
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: scripts/ci-run-vk-mocked-sandbox-e2e.sh
 
       - name: Upload VK mocked sandbox artifacts

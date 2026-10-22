@@ -596,7 +596,7 @@ function artifact(
   return {
     source: {
       kind: 'local-rust-build',
-      worktreePath: '/repo/Vktest',
+      worktreePath: '/repo/vibe-dashboard/vibe-kanban',
       platform: 'linux-x64',
       operatorAllowed: true,
     },

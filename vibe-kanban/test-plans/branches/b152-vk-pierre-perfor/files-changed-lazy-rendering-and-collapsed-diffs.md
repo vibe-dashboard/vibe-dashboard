@@ -1,6 +1,6 @@
 # Files Changed lazy rendering and collapsed diffs test plan
 
-Feature bead: `Vktest-9kn4 — Fix Files Changed tab lazy rendering and collapsed diffs`
+Historical feature bead (legacy tracker suffix): `9kn4 — Fix Files Changed tab lazy rendering and collapsed diffs`
 
 Branch: `vk/b152-vk-pierre-perfor`
 

@@ -16,7 +16,7 @@ describe('LocalVkBuildArtifactResolver', () => {
       }),
     };
     const fs = fakeFileSystem(calls, {
-      '/repo/Vktest/target/release/server': Buffer.from('server-binary'),
+      '/repo/vibe-dashboard/vibe-kanban/target/release/server': Buffer.from('server-binary'),
     });
     const resolver = new LocalVkBuildArtifactResolver({
       runner,
@@ -27,15 +27,15 @@ describe('LocalVkBuildArtifactResolver', () => {
     const artifact = await resolver.resolve(localSource());
 
     expect(artifact.executablePath).toBe('/tmp/vk-build-abc/vibe-kanban');
-    expect(artifact.buildVersionLabel).toBe('local-build:Vktest');
+    expect(artifact.buildVersionLabel).toBe('local-build:vibe-kanban');
     expect(artifact.sha256).toBe(sha256(Buffer.from('server-binary')));
     expect(calls).toEqual([
-      `access:/repo/Vktest/local-build.sh:${constants.R_OK}`,
-      'exec:bash:./local-build.sh:/repo/Vktest',
-      'stat:/repo/Vktest/target/release/server',
-      'read:/repo/Vktest/target/release/server',
+      `access:/repo/vibe-dashboard/vibe-kanban/local-build.sh:${constants.R_OK}`,
+      'exec:bash:./local-build.sh:/repo/vibe-dashboard/vibe-kanban',
+      'stat:/repo/vibe-dashboard/vibe-kanban/target/release/server',
+      'read:/repo/vibe-dashboard/vibe-kanban/target/release/server',
       'mkdtemp:/tmp/vk-build-',
-      'copy:/repo/Vktest/target/release/server:/tmp/vk-build-abc/vibe-kanban',
+      'copy:/repo/vibe-dashboard/vibe-kanban/target/release/server:/tmp/vk-build-abc/vibe-kanban',
       'chmod:/tmp/vk-build-abc/vibe-kanban:493',
       'read:/tmp/vk-build-abc/vibe-kanban',
     ]);
@@ -47,7 +47,7 @@ describe('LocalVkBuildArtifactResolver', () => {
       execFile: vi.fn(async () => ({ stdout: '', stderr: '' })),
     };
     const fs = fakeFileSystem(calls, {
-      '/repo/Vktest/target/release/server': Buffer.from('server-binary'),
+      '/repo/vibe-dashboard/vibe-kanban/target/release/server': Buffer.from('server-binary'),
     });
     const resolver = new LocalVkBuildArtifactResolver({
       runner,
@@ -57,7 +57,7 @@ describe('LocalVkBuildArtifactResolver', () => {
 
     const artifact = await resolver.resolve({
       kind: 'local-prebuilt-binary',
-      binaryPath: '/repo/Vktest/target/release/server',
+      binaryPath: '/repo/vibe-dashboard/vibe-kanban/target/release/server',
       versionLabel: 'weekly-dev@780f701',
       platform: 'linux-x64',
       operatorAllowed: true,
@@ -68,10 +68,10 @@ describe('LocalVkBuildArtifactResolver', () => {
     expect(artifact.buildVersionLabel).toBe('weekly-dev@780f701');
     expect(artifact.sha256).toBe(sha256(Buffer.from('server-binary')));
     expect(calls).toEqual([
-      'stat:/repo/Vktest/target/release/server',
-      'read:/repo/Vktest/target/release/server',
+      'stat:/repo/vibe-dashboard/vibe-kanban/target/release/server',
+      'read:/repo/vibe-dashboard/vibe-kanban/target/release/server',
       'mkdtemp:/tmp/vk-build-',
-      'copy:/repo/Vktest/target/release/server:/tmp/vk-build-abc/vibe-kanban',
+      'copy:/repo/vibe-dashboard/vibe-kanban/target/release/server:/tmp/vk-build-abc/vibe-kanban',
       'chmod:/tmp/vk-build-abc/vibe-kanban:493',
       'read:/tmp/vk-build-abc/vibe-kanban',
     ]);
@@ -81,7 +81,7 @@ describe('LocalVkBuildArtifactResolver', () => {
     const resolver = new LocalVkBuildArtifactResolver({
       runner: { execFile: vi.fn() },
       fileSystem: fakeFileSystem([], {
-        '/repo/Vktest/target/release/server': Buffer.from(
+        '/repo/vibe-dashboard/vibe-kanban/target/release/server': Buffer.from(
           '<body><h1>Please build @vibe/local-web first</h1></body>',
         ),
       }),
@@ -89,7 +89,7 @@ describe('LocalVkBuildArtifactResolver', () => {
 
     await expect(resolver.resolve({
       kind: 'local-prebuilt-binary',
-      binaryPath: '/repo/Vktest/target/release/server',
+      binaryPath: '/repo/vibe-dashboard/vibe-kanban/target/release/server',
       platform: 'linux-x64',
       operatorAllowed: true,
     })).rejects.toThrow('Local VK server binary embeds the @vibe/local-web placeholder');
@@ -103,7 +103,7 @@ describe('LocalVkBuildArtifactResolver', () => {
 
     await expect(resolver.resolve({
       kind: 'local-prebuilt-binary',
-      binaryPath: '/repo/Vktest/target/release/server',
+      binaryPath: '/repo/vibe-dashboard/vibe-kanban/target/release/server',
       platform: 'linux-x64',
       operatorAllowed: false,
     } as unknown as VkArtifactSource)).rejects.toThrow(
@@ -139,7 +139,7 @@ describe('LocalVkBuildArtifactResolver', () => {
 function localSource(): VkArtifactSource {
   return {
     kind: 'local-rust-build',
-    worktreePath: '/repo/Vktest',
+    worktreePath: '/repo/vibe-dashboard/vibe-kanban',
     platform: 'linux-x64',
     operatorAllowed: true,
   };

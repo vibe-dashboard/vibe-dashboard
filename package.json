@@ -45,7 +45,7 @@
     "test:server": "vitest run --config vitest.server.config.ts",
     "test:e2e": "playwright test",
     "test:e2e:inline-chat": "playwright test --config playwright.inline-chat.config.ts",
-    "test:e2e:vk-mocked-sandbox": "playwright test --config playwright.vk-mocked-sandbox.config.ts",
+    "test:e2e:vk-mocked-sandbox": "scripts/ci-run-vk-mocked-sandbox-e2e.sh",
     "test:e2e:install": "playwright install chromium",
     "playwright:cli": "PLAYWRIGHT_MCP_SANDBOX=false playwright-cli",
     "hotswap": "npm run build && ./scripts/hotswap-dashboard-dist.sh deploy",
