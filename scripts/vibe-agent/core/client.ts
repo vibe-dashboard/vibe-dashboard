@@ -236,8 +236,8 @@ export class VibeClient {
   }
 
   async getExecutorProfiles(): Promise<ExecutorProfiles> {
-    const info = await this.request<{ profiles: { executors: ExecutorProfiles } }>(config.endpoints.info);
-    return info.profiles.executors;
+    const info = await this.request<{ executors: ExecutorProfiles }>(config.endpoints.info);
+    return info.executors;
   }
 
   // Sessions

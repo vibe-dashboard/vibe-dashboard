@@ -50,7 +50,7 @@ describe('send profile resolution', () => {
 
   it('reads configurations from the live VK info response', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      success: true, data: { profiles: { executors: profiles } },
+      success: true, data: { executors: profiles },
     })));
     vi.stubGlobal('fetch', fetchMock);
     expect(await client.getExecutorProfiles()).toEqual(profiles);
