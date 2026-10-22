@@ -5,6 +5,7 @@ import { WorkspacePreviewMenu } from '../../../components/WorkspacePreviewMenu';
 import { RetryableInlineSurface } from '../../../components/RetryableInlineSurface';
 import {
   BUILT_IN_AGENT_TAB_ID,
+  BUILT_IN_SECOND_AGENT_TAB_ID,
   getBuiltInWorkspaceMetadata,
 } from './craft-surfaces';
 
@@ -84,7 +85,10 @@ export function getReactCraftSurfaceTarget(
 ): ReactCraftSurfaceTarget | null {
   const workspace = getBuiltInWorkspaceMetadata(tabGroup);
 
-  if (tab.id === BUILT_IN_AGENT_TAB_ID && workspace?.workspaceId) {
+  if (
+    (tab.id === BUILT_IN_AGENT_TAB_ID || tab.id === BUILT_IN_SECOND_AGENT_TAB_ID) &&
+    workspace?.workspaceId
+  ) {
     return {
       kind: 'react',
       pluginId: 'vd.built-in',

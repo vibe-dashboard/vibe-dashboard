@@ -134,6 +134,13 @@ export class InlineChatBackend {
     updateStrategy: { intervalMs: 20000 },
   };
 
+  constructor() {
+    for (const session of this.sessions) {
+      const process = this.stream(session.id, `History for ${session.id}`);
+      this.processes.set(session.id, { ...process, status: 'completed', completed_at: now });
+    }
+  }
+
   async install(page: Page) {
     await page.route('**/agents/*.svg', (route) =>
       route.fulfill({
@@ -141,7 +148,7 @@ export class InlineChatBackend {
         body: '<svg xmlns="http://www.w3.org/2000/svg"/>',
       }),
     );
-    await page.route('**/api/**', (route) => this.http(route));
+    await page.route((url) => url.pathname.startsWith('/api/'), (route) => this.http(route));
     await page.route('**/dashboard/api/**', (route) => this.http(route));
     await page.route('**/internal/preview/**', (route) => this.http(route));
     await page.routeWebSocket(/\/api\//, (socket) => {
@@ -515,7 +522,7 @@ export class InlineChatBackend {
           {
             role: 'assistant',
             content: `History for ${id}`,
-            execution_process_id: `preview-${id}`,
+            execution_process_id: `process-${id}`,
             created_at: now,
           },
         ],

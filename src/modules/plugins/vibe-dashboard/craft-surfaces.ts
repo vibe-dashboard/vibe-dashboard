@@ -11,14 +11,17 @@ import type { RegisteredCraftSurfaceContribution } from "./types";
 
 export const CRAFT_SURFACE_TAB_ID_PREFIX = "craft-surface:";
 export const BUILT_IN_AGENT_TAB_ID = "agent";
+export const BUILT_IN_SECOND_AGENT_TAB_ID = "agent-2";
 export const BUILT_IN_CODE_TAB_ID = "code";
 export const BUILT_IN_BEADS_TAB_ID = "beads";
 export const BUILT_IN_FORMS_TAB_ID = "forms";
 export const BUILT_IN_AGENT_CODE_PAIR_ID = "agent+code";
 export const BUILT_IN_AGENT_BEADS_PAIR_ID = "agent+beads";
+export const BUILT_IN_AGENT_SPLIT_PAIR_ID = "agent+agent-2";
 
 const BUILT_IN_WORKSPACE_TAB_IDS = new Set([
   BUILT_IN_AGENT_TAB_ID,
+  BUILT_IN_SECOND_AGENT_TAB_ID,
   BUILT_IN_CODE_TAB_ID,
   BUILT_IN_BEADS_TAB_ID,
   BUILT_IN_FORMS_TAB_ID,
@@ -26,6 +29,7 @@ const BUILT_IN_WORKSPACE_TAB_IDS = new Set([
 const BUILT_IN_WORKSPACE_PAIR_IDS = new Set([
   BUILT_IN_AGENT_CODE_PAIR_ID,
   BUILT_IN_AGENT_BEADS_PAIR_ID,
+  BUILT_IN_AGENT_SPLIT_PAIR_ID,
 ]);
 const URL_PARSE_BASE = "https://workspace.local";
 const BEADS_WEB_DEFAULT_PORT = "3109";
@@ -202,6 +206,12 @@ function getBuiltInWorkspaceTabs(tabGroup: TabGroup, origin: string): Tab[] {
       pinned: true,
     },
     {
+      id: BUILT_IN_SECOND_AGENT_TAB_ID,
+      title: "Agent 2",
+      url: buildWorkspaceTabUrl(workspaceBaseOrigin, metadata.workspaceId),
+      pinned: true,
+    },
+    {
       id: BUILT_IN_CODE_TAB_ID,
       title: "Code",
       url: buildWorkspaceFolderUrl(workspaceBaseOrigin, metadata.workspaceDir),
@@ -268,6 +278,13 @@ function getBuiltInWorkspacePairs(
     pairs.push({
       id: BUILT_IN_AGENT_BEADS_PAIR_ID,
       tabIds: [BUILT_IN_AGENT_TAB_ID, BUILT_IN_BEADS_TAB_ID],
+      ratios: [50, 50],
+    });
+  }
+  if (tabIds.has(BUILT_IN_AGENT_TAB_ID) && tabIds.has(BUILT_IN_SECOND_AGENT_TAB_ID)) {
+    pairs.push({
+      id: BUILT_IN_AGENT_SPLIT_PAIR_ID,
+      tabIds: [BUILT_IN_AGENT_TAB_ID, BUILT_IN_SECOND_AGENT_TAB_ID],
       ratios: [50, 50],
     });
   }

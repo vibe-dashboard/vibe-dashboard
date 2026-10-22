@@ -13,6 +13,18 @@ HTTP/WebSocket responses. It does not start a VK backend, use model credentials,
 or build Rust. Unexpected API calls and uncaught browser errors fail the tests.
 The main CI Playwright job runs this suite after the shell e2e tests.
 
+The actual VD shell also has native split acceptance coverage:
+
+```bash
+pnpm exec playwright test tests/e2e/native-agent-split.spec.ts
+```
+
+It creates a voyage through the workspace RPC, opens **Show in split view** from
+the craft context menu, and exercises the native resizable pair. It verifies
+independent sessions, streams and drafts, reload persistence, repeated opening,
+and returning to a single Agent and back. VK HTTP/WebSocket responses are
+controlled fixtures; this layer does not establish real OpenCode execution.
+
 The separate remote-runtime suite remains:
 
 ```bash

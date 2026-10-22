@@ -35,8 +35,10 @@ import type { PluginRegistryState } from "../modules/plugins/vibe-dashboard/type
 import type { ResolvedWorkspaceComposition } from "../modules/plugins/vibe-dashboard/workspace-composition";
 import { resolveWorkspaceFactoryComposition } from "../modules/plugins/vibe-dashboard/workspace-composition";
 import {
+  BUILT_IN_AGENT_SPLIT_PAIR_ID,
   createEffectiveWorkspaceWithCraftSurfaces,
   filterEphemeralCraftSurfaceActiveItems,
+  getBuiltInWorkspaceMetadata,
   tabGroupHasEphemeralCraftSurfaceTab,
 } from "../modules/plugins/vibe-dashboard/craft-surfaces";
 import { getVoyageEntryIdAfterClosingCraft } from "../lib/voyageFallback";
@@ -2656,6 +2658,19 @@ export function WorkspaceShell({
               }}
               onPointerDown={(event) => event.stopPropagation()}
             >
+              {tabGroup && getBuiltInWorkspaceMetadata(tabGroup) && (
+                <button
+                  className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
+                  onClick={() => {
+                    const target = desktopTabMenuTarget;
+                    setDesktopTabMenuTarget(null);
+                    sessionActions.selectVoyageEntry(target.voyageEntryId);
+                    selectEffectivePair(target.spaceId, target.tabGroupId, BUILT_IN_AGENT_SPLIT_PAIR_ID);
+                  }}
+                >
+                  Show in split view
+                </button>
+              )}
               <button
                 className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800 disabled:cursor-not-allowed disabled:text-neutral-500 disabled:hover:bg-transparent"
                 disabled={!canMoveVoyageEntryToAnotherVoyage}

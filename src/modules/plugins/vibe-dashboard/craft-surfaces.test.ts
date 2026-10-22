@@ -80,6 +80,7 @@ describe("dynamic Craft surfaces", () => {
       effective.tabGroups[0]!.tabs.map((tab) => [tab.id, tab.title, tab.url]),
     ).toEqual([
       ["agent", "Agent", "https://vd.example.test/workspaces/workspace_1"],
+      ["agent-2", "Agent 2", "https://vd.example.test/workspaces/workspace_1"],
       [
         "code",
         "Code",
@@ -91,6 +92,7 @@ describe("dynamic Craft surfaces", () => {
     expect(effective.tabGroups[0]!.pairs).toEqual([
       { id: "agent+code", tabIds: ["agent", "code"], ratios: [50, 50] },
       { id: "agent+beads", tabIds: ["agent", "beads"], ratios: [50, 50] },
+      { id: "agent+agent-2", tabIds: ["agent", "agent-2"], ratios: [50, 50] },
     ]);
   });
 
@@ -215,6 +217,7 @@ describe("dynamic Craft surfaces", () => {
       effective.tabGroups[0]!.tabs.map((tab) => [tab.id, tab.title, tab.url]),
     ).toEqual([
       ["agent", "Agent", "http://localhost:3001/workspaces/workspace_1"],
+      ["agent-2", "Agent 2", "http://localhost:3001/workspaces/workspace_1"],
       [
         "code",
         "Code",
@@ -253,6 +256,7 @@ describe("dynamic Craft surfaces", () => {
         effective.tabGroups[0]!.tabs.map((tab) => [tab.id, tab.title, tab.url]),
       ).toEqual([
         ["agent", "Agent", "http://localhost:4100/workspaces/workspace_1"],
+        ["agent-2", "Agent 2", "http://localhost:4100/workspaces/workspace_1"],
         [
           "code",
           "Code",

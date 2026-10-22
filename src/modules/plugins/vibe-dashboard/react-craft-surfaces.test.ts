@@ -1,5 +1,31 @@
 import { describe, expect, it } from 'vitest';
-import { getPreviewServerTabId } from './react-craft-surfaces';
+import { getPreviewServerTabId, getReactCraftSurfaceTarget } from './react-craft-surfaces';
+
+describe('getReactCraftSurfaceTarget', () => {
+  it('gives the two native Agent views distinct stable surface identities', () => {
+    const craft = {
+      id: 'craft-1',
+      tabs: [],
+      workspace: { workspaceId: 'workspace-1', workspaceDir: '/repo' },
+    };
+    const left = getReactCraftSurfaceTarget(
+      { id: 'agent', title: 'Agent', url: '/workspaces/workspace-1' },
+      craft,
+    );
+    const right = getReactCraftSurfaceTarget(
+      { id: 'agent-2', title: 'Agent 2', url: '/workspaces/workspace-1' },
+      craft,
+    );
+    expect(left).toMatchObject({
+      surfaceKey: 'agent-chat',
+      props: { workspaceId: 'workspace-1', surfaceId: 'craft-1:agent' },
+    });
+    expect(right).toMatchObject({
+      surfaceKey: 'agent-chat',
+      props: { workspaceId: 'workspace-1', surfaceId: 'craft-1:agent-2' },
+    });
+  });
+});
 
 describe('getPreviewServerTabId', () => {
   it('finds the PreviewServer React surface without relying on title or URL', () => {
