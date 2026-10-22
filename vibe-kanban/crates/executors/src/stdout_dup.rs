@@ -93,26 +93,6 @@ fn spawn_output_process(
     Ok((spawned, writer))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn local_output_spawn_failure_is_proven_not_spawned() {
-        let command =
-            tokio::process::Command::new("/definitely/missing/vibe-kanban-local-output-helper");
-
-        let error = spawn_output_process(command)
-            .err()
-            .expect("missing helper executable must fail to spawn");
-
-        assert!(matches!(
-            error.into_proven_not_spawned(),
-            Ok(ExecutorError::SpawnError(_))
-        ));
-    }
-}
-
 // =========================================
 // OS file descriptor helper functions
 // =========================================
@@ -160,5 +140,25 @@ fn wrap_fd_as_tokio_writer(
         let owned_handle = unsafe { OwnedHandle::from_raw_handle(raw_handle) };
         let std_file = std::fs::File::from(owned_handle);
         Ok(tokio::fs::File::from_std(std_file))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn local_output_spawn_failure_is_proven_not_spawned() {
+        let command =
+            tokio::process::Command::new("/definitely/missing/vibe-kanban-local-output-helper");
+
+        let error = spawn_output_process(command)
+            .err()
+            .expect("missing helper executable must fail to spawn");
+
+        assert!(matches!(
+            error.into_proven_not_spawned(),
+            Ok(ExecutorError::SpawnError(_))
+        ));
     }
 }

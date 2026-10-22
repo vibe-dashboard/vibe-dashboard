@@ -243,8 +243,22 @@ jobs:
       - name: Check whether coding-agent upgrade gate should run
         id: should_run
         run: |
-          result="$(bash scripts/ci/should-run-agent-upgrade-gate.sh)"
-          echo "result=${result}" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          base="$BASE_SHA"
+          if [[ -z "$base" || "$base" =~ ^0+$ ]]; then
+            base="$(git hash-object -t tree /dev/null)"
+          fi
+          # Use monorepo-root pathspecs; this step runs inside vibe-kanban.
+          if git diff --quiet "$base" "$HEAD_SHA" -- \
+            ':(top)vibe-kanban/Cargo.toml' ':(top)vibe-kanban/Cargo.lock' \
+            ':(top)vibe-kanban/crates/executors' ':(top)vibe-kanban/crates/mcp' \
+            ':(top).github/workflows/vk-test.yml' ':(top).github/actions/vk-*'; then
+            echo "result=false" >> "$GITHUB_OUTPUT"
+          else
+            status=$?
+            if [[ "$status" -ne 1 ]]; then exit "$status"; fi
+            echo "result=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Coding-agent upgrade gate no-op
         if: steps.should_run.outputs.result != 'true'
@@ -265,4 +279,8 @@ jobs:
 
       - name: Run coding-agent upgrade gate
         if: steps.should_run.outputs.result == 'true'
-        run: pnpm run agent-upgrade-gate
+        # Exercise the vendored executor suite, including Codex/Claude protocol
+        # normalization, instead of scripts removed by the monorepo import.
+        run: |
+          cargo test -p executors --lib
+          cargo check -p mcp

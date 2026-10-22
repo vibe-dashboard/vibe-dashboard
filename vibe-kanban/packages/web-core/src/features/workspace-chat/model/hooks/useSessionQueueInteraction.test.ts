@@ -40,12 +40,14 @@ describe('queueMutationState', () => {
   });
 
   it('refreshes without restoring when consumption wins cancellation', async () => {
-    const cancel = vi.fn().mockRejectedValue(
-      apiError(
-        'queued message id has already been consumed or is no longer queued',
-        409
-      )
-    );
+    const cancel = vi
+      .fn()
+      .mockRejectedValue(
+        apiError(
+          'queued message id has already been consumed or is no longer queued',
+          409
+        )
+      );
     const refresh = vi.fn().mockResolvedValue(undefined);
     const restore = vi.fn();
 

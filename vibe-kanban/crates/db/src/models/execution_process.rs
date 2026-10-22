@@ -110,7 +110,7 @@ pub struct QueueEffectReconciliation {
 
 pub enum QueueEffectReservation {
     Proceed,
-    Started(ExecutionProcess),
+    Started(Box<ExecutionProcess>),
 }
 
 #[derive(Debug)]
@@ -510,7 +510,7 @@ impl ExecutionProcess {
         match row.5.as_str() {
             "started" => Self::find_by_id(pool, row.1)
                 .await?
-                .map(QueueEffectReservation::Started)
+                .map(|process| QueueEffectReservation::Started(Box::new(process)))
                 .ok_or(ExecutionProcessError::ExecutionProcessNotFound),
             "failed_before_start" => {
                 let changed = sqlx::query("UPDATE execution_process_queue_effects SET execution_process_id = ?, lifecycle = 'reserved', updated_at = datetime('now', 'subsec') WHERE queue_id = ? AND lifecycle = 'failed_before_start'")

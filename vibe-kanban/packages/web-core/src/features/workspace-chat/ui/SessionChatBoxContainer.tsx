@@ -25,9 +25,7 @@ import { useTodos } from '../model/hooks/useTodos';
 import { getLatestConfigFromProcesses } from '@/shared/lib/executor';
 import { useExecutorConfig } from '@/shared/hooks/useExecutorConfig';
 import { useSessionMessageEditor } from '../model/hooks/useSessionMessageEditor';
-import {
-  useSessionQueueInteraction,
-} from '../model/hooks/useSessionQueueInteraction';
+import { useSessionQueueInteraction } from '../model/hooks/useSessionQueueInteraction';
 import {
   cancelQueuedForEditor,
   editQueuedForEditor,

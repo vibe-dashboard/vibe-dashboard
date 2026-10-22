@@ -1405,7 +1405,7 @@ pub trait ContainerService {
             )
             .await?
             {
-                QueueEffectReservation::Started(process) => return Ok(process),
+                QueueEffectReservation::Started(process) => return Ok(*process),
                 QueueEffectReservation::Proceed => {}
             }
         }
