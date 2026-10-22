@@ -1,12 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  chmod,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
@@ -15,56 +8,63 @@ import {
   allocatePorts,
   childProcessSignalTarget,
   createSandboxPlan,
-  envForSandboxTestMode,
-  runCommandToCompletion,
   downloadCiReleaseArtifactFromEnv,
   findFreePort,
   loadSandboxCaddyfile,
+  readPreparedSandboxPlan,
   writeSandboxFiles,
   type PortAllocator,
 } from './vk-mocked-sandbox';
-import {
-  isSandboxRuntimeProcessLine,
-  isSandboxRuntimeProcessLineForWorkspace,
-  resolveFixtureVkRoot,
-} from './e2e-vk-mocked-sandbox-fixtures';
+import { sandboxRuntimeRepoPath } from './e2e-vk-mocked-sandbox-fixtures';
 
 describe('VK mocked sandbox helpers', () => {
-  it('resets fixtures in the same configured VK checkout used by the sandbox', () => {
-    expect(resolveFixtureVkRoot('/tmp/worktrees/example', {
-      VK_CHECKOUT: 'vibe-kanban-vscode-web/vibe-kanban',
-    })).toBe('/tmp/worktrees/example/vibe-kanban-vscode-web/vibe-kanban');
-    expect(resolveFixtureVkRoot('/tmp/worktrees/example', {
-      VK_CHECKOUT: '  ',
-    })).toBe('/tmp/worktrees/example/Vktest');
-  });
-
-  it('terminates a timed-out setup command instead of orphaning it', async () => {
-    const runDir = await mkdtemp(join(tmpdir(), 'vk-mocked-setup-timeout-'));
-    const pidFile = join(runDir, 'pid');
+  it('reuses the prepared backend command without resolving it again', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vk-mocked-prepared-plan-'));
+    const runDir = join(root, 'run');
+    const releaseBinary = join(root, 'release', 'vibe-kanban');
     try {
-      await expect(
-        runCommandToCompletion(
-          {
-            name: 'never-ending-setup',
-            cwd: runDir,
-            command: process.execPath,
-            args: [
-              '-e',
-              `require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000)`,
-            ],
-            env: {},
+      await mkdir(runDir, { recursive: true });
+      await mkdir(join(root, 'release'), { recursive: true });
+      await writeFile(releaseBinary, '#!/usr/bin/env bash\n');
+      await chmod(releaseBinary, 0o755);
+      await writeFile(
+        join(runDir, 'plan.json'),
+        JSON.stringify({
+          ports: {
+            vkBackend: 4107,
+            vkFrontend: 4100,
+            vkPreviewProxy: 4106,
+            vdDashboard: 4105,
+            vdServer: 4104,
+            vdCaddy: 4101,
           },
-          250,
-        ),
-      ).rejects.toThrow('never-ending-setup timed out after 250ms');
-
-      const pid = Number.parseInt(await readFile(pidFile, 'utf8'), 10);
-      expect(() => process.kill(pid, 0)).toThrow(
-        expect.objectContaining({ code: 'ESRCH' }),
+          paths: { workspaceRoot: root, vdRoot: root, vkRoot: root, runDir },
+          urls: {
+            vd: 'http://localhost:4101',
+            vkFrontend: 'http://localhost:4101',
+          },
+          env: {},
+          caddyfile: 'test',
+          setupCommands: [],
+          commands: [
+            {
+              name: 'vk-backend-ci-release',
+              cwd: root,
+              command: releaseBinary,
+              args: [],
+              env: {},
+            },
+          ],
+        }),
       );
+
+      const plan = await readPreparedSandboxPlan(runDir);
+      expect(plan.commands[0]).toMatchObject({
+        name: 'vk-backend-ci-release',
+        command: releaseBinary,
+      });
     } finally {
-      await rm(runDir, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
     }
   });
 
@@ -88,41 +88,10 @@ describe('VK mocked sandbox helpers', () => {
     );
   });
 
-  it('does not treat CI orchestration commands as live sandbox runtime processes', () => {
-    expect(isSandboxRuntimeProcessLine(
-      '9416 bash scripts/ci-run-vk-mocked-sandbox-e2e.sh',
-    )).toBe(false);
-    expect(isSandboxRuntimeProcessLine(
-      '1234 node --experimental-strip-types scripts/vk-mocked-sandbox.ts start',
-    )).toBe(true);
-    expect(isSandboxRuntimeProcessLine('5678 cargo run --features qa-mode --bin server vk-backend-qa')).toBe(true);
-    expect(isSandboxRuntimeProcessLine(
-      '6789 /tmp/workspace/vibe-kanban-vscode-web/.vk-mocked-sandbox/vk-release-assets/ff79144e3842e5454ffc36b5546a1336ab4da993/31655931916/extracted/vibe-kanban',
-    )).toBe(true);
-  });
-
-  it('runs mocked-sandbox e2e directly after CI startup without npm pretest reset', async () => {
-    const script = await readFile('scripts/ci-run-vk-mocked-sandbox-e2e.sh', 'utf8');
-    expect(script).toContain('npm run build:vibe-agent-cli');
-    expect(script).toContain('npx playwright test --config playwright.vk-mocked-sandbox.config.ts');
-    expect(script).toContain('VK_MOCKED_EXTERNAL_SERVER=1');
-    expect(script).toContain("import { allocatePorts } from './scripts/vk-mocked-sandbox.ts'");
-    expect(script).not.toContain('VK_MOCKED_BACKEND_PORT="${VK_MOCKED_BACKEND_PORT:-50000}"');
-    expect(script).not.toContain('VK_MOCKED_CADDY_PORT="${VK_MOCKED_CADDY_PORT:-50005}"');
-    expect(script).not.toContain('npm run test:e2e:vk-mocked-sandbox');
-    expect(script).not.toContain('scripts/vk-mocked-sandbox.ts test');
-  });
-
-  it('ignores live sandbox processes from another worktree when checking fixtures', async () => {
-    await expect(isSandboxRuntimeProcessLineForWorkspace(
-      '2285905 caddy run --config /var/tmp/vibe-kanban/worktrees/other/vibe-kanban-vscode-web/.vk-mocked-sandbox/current/Caddyfile --adapter caddyfile',
-    )).resolves.toBe(false);
-  });
-
-  it('accepts live sandbox processes from this checkout without pwdx fallback', async () => {
-    await expect(isSandboxRuntimeProcessLineForWorkspace(
-      `2285905 caddy run --config ${process.cwd()}/.vk-mocked-sandbox/current/Caddyfile --adapter caddyfile`,
-    )).resolves.toBe(true);
+  it('keeps the seeded runtime repository inside this worktree', () => {
+    expect(sandboxRuntimeRepoPath('/tmp/worktree/vibe-kanban-vscode-web')).toBe(
+      '/tmp/worktree/vibe-kanban-vscode-web/.vk-mocked-sandbox/repos/basic-seeded-repo',
+    );
   });
 
   it('uses explicit env port overrides when present', async () => {
@@ -228,7 +197,7 @@ describe('VK mocked sandbox helpers', () => {
     );
   });
 
-  it('plans qa-mode VK, VD dev, and Caddy commands with matching env', () => {
+  it('plans standard VK, VD dev, and Caddy commands with runtime QA enabled', () => {
     const plan = createSandboxPlan({
       workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
       ports: {
@@ -250,7 +219,7 @@ describe('VK mocked sandbox helpers', () => {
     expect(plan.paths).toMatchObject({
       workspaceRoot: '/tmp/worktrees/example',
       vdRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
-      vkRoot: '/tmp/worktrees/example/Vktest',
+      vkRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web/vibe-kanban',
       runDir: '/tmp/run',
     });
     expect(plan.caddyfile).toBe('mocked sandbox caddyfile');
@@ -285,8 +254,9 @@ describe('VK mocked sandbox helpers', () => {
     );
     expect(plan.commands[0]).toMatchObject({
       command: 'cargo',
-      args: ['run', '--features', 'qa-mode', '--bin', 'server'],
+      args: ['run', '--bin', 'server'],
       env: {
+        VK_QA_MODE: '1',
         BACKEND_PORT: '4107',
         FRONTEND_PORT: '4101',
         PREVIEW_PROXY_PORT: '4106',
@@ -295,6 +265,9 @@ describe('VK mocked sandbox helpers', () => {
     const vdCommand = plan.commands.find((command) => command.name === 'vd-dashboard');
     const caddyCommand = plan.commands.find((command) => command.name === 'caddy');
 
+    expect(vdCommand?.args).toEqual(['run', 'dev', '--', '--port', '4105']);
+    expect(vdCommand?.env.PORT).toBe('4104');
+    expect(vdCommand?.env.SERVER_PORT).toBe('4104');
     expect(vdCommand?.env.VITE_VK_BASE_ORIGIN).toBe(
       'http://localhost:4101',
     );
@@ -370,27 +343,15 @@ describe('VK mocked sandbox helpers', () => {
       'vk-build-backend-qa',
     ]);
     expect(plan.setupCommands[1]).toMatchObject({
-      cwd: '/tmp/worktrees/example/Vktest',
+      cwd: '/tmp/worktrees/example/vibe-kanban-vscode-web/vibe-kanban',
       command: 'cargo',
-      args: ['build', '--features', 'qa-mode', '--bin', 'server'],
+      args: ['build', '--bin', 'server'],
+      env: { VK_QA_MODE: '1' },
     });
     expect(plan.commands[0]).toMatchObject({
-      command: 'cargo',
-      args: ['run', '--features', 'qa-mode', '--bin', 'server'],
+      command: '/tmp/worktrees/example/vibe-kanban-vscode-web/vibe-kanban/target/debug/server',
+      args: [],
     });
-  });
-
-  it('defaults test-mode source runs to backend prebuild without changing CI-release plans', () => {
-    expect(envForSandboxTestMode({} as NodeJS.ProcessEnv)).toMatchObject({
-      VK_MOCKED_PREBUILD_BACKEND: '1',
-      VK_MOCKED_SKIP_LOCAL_WEB_BUILD: '1',
-    });
-    expect(envForSandboxTestMode({
-      VK_MOCKED_PREBUILD_BACKEND: '0',
-    } as NodeJS.ProcessEnv).VK_MOCKED_PREBUILD_BACKEND).toBe('0');
-    expect(envForSandboxTestMode({
-      VK_MOCKED_VK_BACKEND: 'ci-release',
-    } as NodeJS.ProcessEnv).VK_MOCKED_PREBUILD_BACKEND).toBeUndefined();
   });
 
   it('plans release-asset VK without local VK builds and enables runtime QA mode', () => {
@@ -408,9 +369,8 @@ describe('VK mocked sandbox helpers', () => {
       workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
       env: {
         VK_MOCKED_VK_BACKEND: 'ci-release',
-        VK_MOCKED_RELEASE_SHA:
-          'ff79144e3842e5454ffc36b5546a1336ab4da993',
-        VK_MOCKED_RELEASE_RUN_ID: '31655931916',
+        VK_MOCKED_RELEASE_HASH:
+          'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       } as NodeJS.ProcessEnv,
       ports: {
         vkBackend: 4107,
@@ -425,7 +385,7 @@ describe('VK mocked sandbox helpers', () => {
     });
 
     const artifactRoot =
-      '/tmp/worktrees/example/vibe-kanban-vscode-web/.vk-mocked-sandbox/vk-release-assets/ff79144e3842e5454ffc36b5546a1336ab4da993/31655931916';
+      '/tmp/worktrees/example/vibe-kanban-vscode-web/.vk-mocked-sandbox/vk-release-assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
     expect(plan.setupCommands.map((command) => command.name)).toEqual([
       'vk-download-release-artifact',
@@ -439,16 +399,17 @@ describe('VK mocked sandbox helpers', () => {
         'download-ci-release',
       ],
       env: {
-        VK_MOCKED_RELEASE_SHA:
-          'ff79144e3842e5454ffc36b5546a1336ab4da993',
-        VK_MOCKED_RELEASE_RUN_ID: '31655931916',
+        VK_MOCKED_RELEASE_HASH:
+          'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        VK_MOCKED_RELEASE_TAG:
+          'vk-assets-sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         VK_MOCKED_RELEASE_CACHE_DIR: artifactRoot,
       },
     });
     expect(plan.commands[0]).toMatchObject({
       name: 'vk-backend-ci-release',
-      cwd: '/tmp/worktrees/example/Vktest',
-      command: `${artifactRoot}/extracted/vibe-kanban`,
+      cwd: '/tmp/worktrees/example/vibe-kanban-vscode-web/vibe-kanban',
+      command: `${artifactRoot}/release-assets-linux-x64/extracted/vibe-kanban`,
       args: [],
       env: {
         BACKEND_PORT: '4107',
@@ -500,14 +461,13 @@ describe('VK mocked sandbox helpers', () => {
     expect(plan.caddyfile).not.toContain('@vk_release_assets');
   });
 
-  it('requires an exact SHA for release-asset VK planning', () => {
+  it('requires an exact content hash for release-asset VK planning', () => {
     expect(() =>
       createSandboxPlan({
         workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
         env: {
           VK_MOCKED_VK_BACKEND: 'ci-release',
-          VK_MOCKED_RELEASE_SHA: 'HEAD',
-          VK_MOCKED_RELEASE_RUN_ID: '31655931916',
+          VK_MOCKED_RELEASE_HASH: 'HEAD',
         } as NodeJS.ProcessEnv,
         ports: {
           vkBackend: 4107,
@@ -520,32 +480,37 @@ describe('VK mocked sandbox helpers', () => {
         runDir: '/tmp/run',
         caddyfile: 'mocked sandbox caddyfile',
       }),
-    ).toThrow('VK_MOCKED_RELEASE_SHA must be a full 40-character commit SHA');
+    ).toThrow('VK_MOCKED_RELEASE_HASH must be a full 64-character VK content hash');
   });
 
-  it('rejects stale source prebuild env in release-asset VK planning', () => {
-    expect(() =>
-      createSandboxPlan({
-        workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
-        env: {
-          VK_MOCKED_VK_BACKEND: 'ci-release',
-          VK_MOCKED_RELEASE_SHA:
-            'ff79144e3842e5454ffc36b5546a1336ab4da993',
-          VK_MOCKED_RELEASE_RUN_ID: '31655931916',
-          VK_MOCKED_PREBUILD_BACKEND: '1',
-        } as NodeJS.ProcessEnv,
-        ports: {
-          vkBackend: 4107,
-          vkFrontend: 4100,
-          vkPreviewProxy: 4106,
-          vdDashboard: 4105,
-          vdServer: 4104,
-          vdCaddy: 4101,
-        },
-        runDir: '/tmp/run',
-        caddyfile: 'mocked sandbox caddyfile',
-      }),
-    ).toThrow('VK_MOCKED_PREBUILD_BACKEND is not supported in ci-release mode');
+  it('ignores source prebuild mode when a release binary is available', () => {
+    const plan = createSandboxPlan({
+      workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
+      env: {
+        VK_MOCKED_VK_BACKEND: 'ci-release',
+        VK_MOCKED_RELEASE_HASH:
+          'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        VK_MOCKED_PREBUILD_BACKEND: '1',
+      } as NodeJS.ProcessEnv,
+      ports: {
+        vkBackend: 4107,
+        vkFrontend: 4100,
+        vkPreviewProxy: 4106,
+        vdDashboard: 4105,
+        vdServer: 4104,
+        vdCaddy: 4101,
+      },
+      runDir: '/tmp/run',
+      caddyfile: '# Vibe Dashboard app\nmocked sandbox caddyfile',
+    });
+
+    expect(plan.setupCommands.map((command) => command.name)).toEqual([
+      'vk-download-release-artifact',
+    ]);
+    expect(plan.commands[0]).toMatchObject({
+      name: 'vk-backend-ci-release',
+      args: [],
+    });
   });
 
   it('verifies cached release artifact manifest and checksum before using binary', async () => {
@@ -553,10 +518,10 @@ describe('VK mocked sandbox helpers', () => {
     const binDir = join(root, 'bin');
     const artifactRoot = join(
       root,
-      '.vk-mocked-sandbox/vk-release-assets/ff79144e3842e5454ffc36b5546a1336ab4da993/31655931916',
+      '.vk-mocked-sandbox/vk-release-assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     );
     const artifactDir = join(artifactRoot, 'release-assets-linux-x64');
-    const extractDir = join(artifactRoot, 'extracted');
+    const extractDir = join(artifactDir, 'extracted');
     const archiveName = 'vibe-kanban-linux-x64.tar.gz';
     const archiveContents = 'cached archive';
     const archiveSha = createHash('sha256').update(archiveContents).digest('hex');
@@ -570,8 +535,8 @@ describe('VK mocked sandbox helpers', () => {
         join(binDir, 'gh'),
         [
           '#!/usr/bin/env bash',
-          'if [ "$1 $2" = "run view" ]; then',
-          '  printf \'{"headSha":"ff79144e3842e5454ffc36b5546a1336ab4da993","status":"completed","conclusion":"success","workflowName":"Release Binaries"}\\n\'',
+          'if [ "$1 $2" = "release view" ]; then',
+          '  printf \'vibe-kanban-linux-x64.tar.gz\\n\'',
           '  exit 0',
           'fi',
           'echo "unexpected gh call: $*" >&2',
@@ -589,7 +554,8 @@ describe('VK mocked sandbox helpers', () => {
         join(artifactDir, 'manifest.json'),
         JSON.stringify({
           schema_version: 1,
-          vk_sha: 'not-the-requested-commit',
+          content_hash:
+            'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
         }),
       );
       await writeFile(join(extractDir, 'vibe-kanban'), '#!/usr/bin/env bash\n');
@@ -598,12 +564,11 @@ describe('VK mocked sandbox helpers', () => {
       process.env.PATH = `${binDir}:${originalPath ?? ''}`;
       await expect(
         downloadCiReleaseArtifactFromEnv(root, {
-          VK_MOCKED_RELEASE_SHA:
-            'ff79144e3842e5454ffc36b5546a1336ab4da993',
-          VK_MOCKED_RELEASE_RUN_ID: '31655931916',
+          VK_MOCKED_RELEASE_HASH:
+            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
           VK_MOCKED_RELEASE_CACHE_DIR: artifactRoot,
         } as NodeJS.ProcessEnv),
-      ).rejects.toThrow('Release manifest commit mismatch');
+      ).rejects.toThrow('Release manifest content hash mismatch');
     } finally {
       process.env.PATH = originalPath;
       await rm(root, { recursive: true, force: true });
@@ -633,7 +598,7 @@ describe('VK mocked sandbox helpers', () => {
     expect(plan.commands[0]?.cwd).toBe('/tmp/custom-vk-checkout');
   });
 
-  it('falls back to the sibling VK checkout when VK_CHECKOUT is blank', () => {
+  it('falls back to the vendored VK checkout when VK_CHECKOUT is blank', () => {
     const plan = createSandboxPlan({
       workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
       env: {
@@ -651,12 +616,14 @@ describe('VK mocked sandbox helpers', () => {
       caddyfile: 'mocked sandbox caddyfile',
     });
 
-    expect(plan.paths.vkRoot).toBe('/tmp/worktrees/example/Vktest');
+    expect(plan.paths.vkRoot).toBe(
+      '/tmp/worktrees/example/vibe-kanban-vscode-web/vibe-kanban',
+    );
   });
 
   it('skips the VK local-web build when prebuilt assets are available', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'vk-mocked-sandbox-workspace-'));
-    const vkRoot = join(workspaceRoot, 'Vktest');
+    const vkRoot = join(workspaceRoot, 'vibe-kanban-vscode-web', 'vibe-kanban');
     const localWebDist = join(vkRoot, 'packages/local-web/dist');
     try {
       const planWithoutDist = createSandboxPlan({

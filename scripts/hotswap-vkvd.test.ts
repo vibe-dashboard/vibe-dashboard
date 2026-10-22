@@ -40,7 +40,7 @@ describe('parseVkvdHotswapCliArgs', () => {
       '--vk-source',
       'local-rust-build',
       '--vk-worktree',
-      '/repo/Vktest',
+      '/repo/vibe-dashboard/vibe-kanban',
       '--vd-dist',
       '/repo/vibe-kanban-vscode-web/dist',
     ])).toThrow('local Rust build source requires --allow-local-rust-build');
@@ -53,7 +53,7 @@ describe('parseVkvdHotswapCliArgs', () => {
       '--vk-source',
       'local-prebuilt-binary',
       '--vk-binary',
-      '/repo/Vktest/target/release/server',
+      '/repo/vibe-dashboard/vibe-kanban/target/release/server',
     ])).toThrow('local prebuilt VK binary source requires --allow-local-prebuilt-binary');
   });
 
@@ -63,14 +63,14 @@ describe('parseVkvdHotswapCliArgs', () => {
       'local-rust-build',
       '--allow-local-rust-build',
       '--vk-worktree',
-      '/repo/Vktest',
+      '/repo/vibe-dashboard/vibe-kanban',
       '--vd-dist',
       '/repo/vibe-kanban-vscode-web/dist',
     ]);
 
     expect(parsed.request.vkSource).toEqual({
       kind: 'local-rust-build',
-      worktreePath: '/repo/Vktest',
+      worktreePath: '/repo/vibe-dashboard/vibe-kanban',
       platform: 'linux-x64',
       operatorAllowed: true,
     });
@@ -84,7 +84,7 @@ describe('parseVkvdHotswapCliArgs', () => {
       'local-rust-build',
       '--allow-local-rust-build',
       '--vk-worktree',
-      '/repo/Vktest',
+      '/repo/vibe-dashboard/vibe-kanban',
     ]);
 
     expect(parsed.request.scope).toBe('vk-only');
@@ -99,14 +99,14 @@ describe('parseVkvdHotswapCliArgs', () => {
       'local-prebuilt-binary',
       '--allow-local-prebuilt-binary',
       '--vk-binary',
-      '/repo/Vktest/target/release/server',
+      '/repo/vibe-dashboard/vibe-kanban/target/release/server',
       '--vk-version-label',
       'weekly-dev@780f701',
     ]);
 
     expect(parsed.request.vkSource).toEqual({
       kind: 'local-prebuilt-binary',
-      binaryPath: '/repo/Vktest/target/release/server',
+      binaryPath: '/repo/vibe-dashboard/vibe-kanban/target/release/server',
       versionLabel: 'weekly-dev@780f701',
       platform: 'linux-x64',
       operatorAllowed: true,
@@ -136,7 +136,7 @@ describe('runVkvdHotswapCli', () => {
       'local-rust-build',
       '--allow-local-rust-build',
       '--vk-worktree',
-      '/repo/Vktest',
+      '/repo/vibe-dashboard/vibe-kanban',
       '--vd-dist',
       '/repo/vibe-kanban-vscode-web/dist',
     ], deps, output);
@@ -148,7 +148,7 @@ describe('runVkvdHotswapCli', () => {
       plan: {
         vkSource: {
           kind: 'local-rust-build',
-          worktreePath: '/repo/Vktest',
+          worktreePath: '/repo/vibe-dashboard/vibe-kanban',
           operatorAllowed: true,
         },
       },
@@ -227,13 +227,13 @@ describe('runVkvdHotswapCli', () => {
       'local-rust-build',
       '--allow-local-rust-build',
       '--vk-worktree',
-      '/repo/Vktest',
+      '/repo/vibe-dashboard/vibe-kanban',
       '--vd-dist',
       '/repo/vibe-kanban-vscode-web/dist',
     ], deps, output);
 
     expect(calls).toEqual([
-      'resolve:/repo/Vktest',
+      'resolve:/repo/vibe-dashboard/vibe-kanban',
       'promote-vk:/staging/vibe-kanban',
       'restart:vibe-kanban',
       'ready-vk',
@@ -255,7 +255,7 @@ describe('runVkvdHotswapCli', () => {
       'local-rust-build',
       '--allow-local-rust-build',
       '--vk-worktree',
-      '/repo/Vktest',
+      '/repo/vibe-dashboard/vibe-kanban',
     ], deps, output);
 
     expect(result.mode).toBe('dry-run');
@@ -288,11 +288,11 @@ describe('runVkvdHotswapCli', () => {
       'local-rust-build',
       '--allow-local-rust-build',
       '--vk-worktree',
-      '/repo/Vktest',
+      '/repo/vibe-dashboard/vibe-kanban',
     ], deps, output);
 
     expect(calls).toEqual([
-      'resolve:/repo/Vktest',
+      'resolve:/repo/vibe-dashboard/vibe-kanban',
       'promote-vk:/staging/vibe-kanban',
       'restart:vibe-kanban',
       'ready-vk',
@@ -313,11 +313,11 @@ describe('runVkvdHotswapCli', () => {
       'local-prebuilt-binary',
       '--allow-local-prebuilt-binary',
       '--vk-binary',
-      '/repo/Vktest/target/release/server',
+      '/repo/vibe-dashboard/vibe-kanban/target/release/server',
     ], deps, output);
 
     expect(calls).toEqual([
-      'resolve:/repo/Vktest/target/release/server',
+      'resolve:/repo/vibe-dashboard/vibe-kanban/target/release/server',
       'promote-vk:/staging/vibe-kanban',
       'restart:vibe-kanban',
       'ready-vk',

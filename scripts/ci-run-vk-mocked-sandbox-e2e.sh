@@ -2,33 +2,12 @@
 set -euo pipefail
 
 RUN_DIR="${VK_MOCKED_SANDBOX_RUN_DIR:-.vk-mocked-sandbox/current}"
-SANDBOX_LOG="$RUN_DIR/ci-sandbox.log"
-READY_TIMEOUT_SECONDS="${VK_MOCKED_SANDBOX_READY_TIMEOUT_SECONDS:-1200}"
-
-eval "$(
-  node --experimental-strip-types --input-type=module <<'NODE'
-import { allocatePorts } from './scripts/vk-mocked-sandbox.ts';
-
-const ports = await allocatePorts(process.env);
-const env = {
-  VK_MOCKED_BACKEND_PORT: ports.vkBackend,
-  VK_MOCKED_FRONTEND_PORT: ports.vkFrontend,
-  VK_MOCKED_PREVIEW_PROXY_PORT: ports.vkPreviewProxy,
-  VK_MOCKED_VD_DASHBOARD_PORT: ports.vdDashboard,
-  VK_MOCKED_VD_SERVER_PORT: ports.vdServer,
-  VK_MOCKED_CADDY_PORT: ports.vdCaddy,
-};
-
-for (const [key, value] of Object.entries(env)) {
-  console.log(`export ${key}=${JSON.stringify(String(value))}`);
-}
-NODE
-)"
-SANDBOX_URL="${VK_MOCKED_SANDBOX_URL:-http://localhost:${VK_MOCKED_CADDY_PORT}}"
+READY_TIMEOUT_SECONDS="${VK_MOCKED_SANDBOX_READY_TIMEOUT_SECONDS:-120}"
+PORT_LOCK="${VK_MOCKED_SANDBOX_PORT_LOCK:-${TMPDIR:-/tmp}/vk-mocked-sandbox-ports.lock}"
 
 cleanup() {
   if [[ -n "${sandbox_pid:-}" ]] && kill -0 "$sandbox_pid" 2>/dev/null; then
-    kill -TERM "-$sandbox_pid" 2>/dev/null || kill -TERM "$sandbox_pid" 2>/dev/null || true
+    kill -TERM "$sandbox_pid" 2>/dev/null || true
     wait "$sandbox_pid" 2>/dev/null || true
   fi
 }
@@ -39,16 +18,36 @@ mkdir -p "$RUN_DIR"
 npm run e2e:vk-mocked-sandbox:reset -- --variant basic-seeded
 npm run build:vibe-agent-cli
 
+# Port probes do not reserve sockets. Serialize allocation through readiness so
+# another worktree cannot select these ports before the services bind them.
+command -v flock >/dev/null 2>&1 || {
+  echo "flock is required for concurrent mocked-sandbox port allocation" >&2
+  exit 1
+}
+exec 9>"$PORT_LOCK"
+flock 9
+
 echo "::group::Prepare VK mocked sandbox"
-VK_MOCKED_PREBUILD_BACKEND=1 node --experimental-strip-types scripts/vk-mocked-sandbox.ts setup
+VK_MOCKED_PREBUILD_BACKEND=1 \
+  node --experimental-strip-types scripts/vk-mocked-sandbox.ts setup
 echo "::endgroup::"
 
+# setup owns port allocation. Reuse that exact plan when start constructs its
+# commands, rather than racing another branch on fixed ports.
+source "$RUN_DIR/env.sh"
+export VK_MOCKED_SANDBOX_URL="${VK_MOCKED_SANDBOX_URL:-$VK_MOCKED_VD_URL}"
+SANDBOX_URL="$VK_MOCKED_SANDBOX_URL"
+VK_HEALTH_URL="http://127.0.0.1:$VK_MOCKED_BACKEND_PORT/api/health"
+SANDBOX_LOG="$VK_MOCKED_SANDBOX_RUN_DIR/sandbox.log"
+
 echo "Starting VK mocked sandbox; log: $SANDBOX_LOG"
-VK_MOCKED_SKIP_SETUP_COMMANDS=1 npm run dev:vk-mocked-sandbox >"$SANDBOX_LOG" 2>&1 &
+VK_MOCKED_PREBUILD_BACKEND=1 VK_MOCKED_SKIP_LOCAL_WEB_BUILD=1 VK_MOCKED_SKIP_SETUP_COMMANDS=1 \
+  node --experimental-strip-types scripts/vk-mocked-sandbox.ts start >"$SANDBOX_LOG" 2>&1 &
 sandbox_pid=$!
 
 deadline=$((SECONDS + READY_TIMEOUT_SECONDS))
-until curl --fail --silent --show-error "$SANDBOX_URL/workspaces" >/dev/null; do
+until curl --fail --silent "$VK_HEALTH_URL" >/dev/null \
+  && curl --fail --silent "$SANDBOX_URL/workspaces" >/dev/null; do
   if ! kill -0 "$sandbox_pid" 2>/dev/null; then
     echo "VK mocked sandbox exited before becoming ready. Last log lines:" >&2
     tail -200 "$SANDBOX_LOG" >&2 || true
@@ -62,6 +61,7 @@ until curl --fail --silent --show-error "$SANDBOX_URL/workspaces" >/dev/null; do
   sleep 2
 done
 
-echo "VK mocked sandbox is ready at $SANDBOX_URL/workspaces"
-VK_MOCKED_EXTERNAL_SERVER=1 VK_MOCKED_SANDBOX_URL="$SANDBOX_URL" \
-  npx playwright test --config playwright.vk-mocked-sandbox.config.ts
+flock -u 9
+
+echo "VK mocked sandbox is ready: $VK_HEALTH_URL and $SANDBOX_URL/workspaces"
+npx playwright test --config playwright.vk-mocked-sandbox.config.ts

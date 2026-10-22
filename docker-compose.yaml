@@ -18,6 +18,10 @@ services:
     mem_limit: ${DEV_CONTAINER_MEM_LIMIT:-14g}
     mem_reservation: ${DEV_CONTAINER_MEM_RESERVATION:-12g}
 
+    # Normal Docker runtime by default. Run ./scripts/setup-sysbox.sh, then set
+    # VKVD_CONTAINER_RUNTIME=sysbox-runc to enable the inner Docker daemon.
+    runtime: ${VKVD_CONTAINER_RUNTIME:-runc}
+
     # Required for Tailscale
     cap_add:
       - NET_ADMIN
@@ -82,13 +86,18 @@ services:
       VK_DISABLE_BACKFILL_REPO_NAMES: ${VK_DISABLE_BACKFILL_REPO_NAMES:-false}
       VK_STARTUP_DIAGNOSTICS_INTERVAL_MS: ${VK_STARTUP_DIAGNOSTICS_INTERVAL_MS:-}
       VK_STARTUP_DIAGNOSTICS_DURATION_SECONDS: ${VK_STARTUP_DIAGNOSTICS_DURATION_SECONDS:-}
+      VKVD_CONTAINER_RUNTIME: ${VKVD_CONTAINER_RUNTIME:-runc}
 
       # GitHub workflow_run webhook secret for CI failure notifications
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
 
     volumes:
-      # Mount Docker socket for Docker-in-Docker support
-      - /var/run/docker.sock:/var/run/docker.sock
+      # Docker mode toggle:
+      # - Default below persists the inner Docker daemon for Sysbox hosts.
+      # - To use the host Docker socket instead, comment docker-data and
+      #   uncomment /var/run/docker.sock.
+      - docker-data:/var/lib/docker
+      # - /var/run/docker.sock:/var/run/docker.sock
       # Persist git repositories
       # - ~/repos:/home/vkuser/repos
       - vibe-kanban-repos:/home/vkuser/repos
@@ -107,6 +116,8 @@ services:
       - claude-data:/home/vkuser/.claude
       # Persist Codex CLI/IDE auth cache (~/.codex/auth.json)
       - codex-data:/home/vkuser/.codex
+      # Persist OpenCode credentials and session data
+      - opencode-data:/home/vkuser/.local/share/opencode
       # Persist agent skills/configuration
       - agents-data:/home/vkuser/.agents
       # Persist per-instance XDG configuration, including Git, GitHub CLI,
@@ -226,6 +237,7 @@ volumes:
   user-config:
   beads-data:
   codex-data:
+  opencode-data:
   npm-global:
   npm-cache:
   pnpm-store:
@@ -233,3 +245,4 @@ volumes:
   bosun-data:
   novnc-data:
   prometheus-data:
+  docker-data:

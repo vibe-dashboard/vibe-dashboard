@@ -467,7 +467,7 @@ jobs:
           for (const file of entries) {
             if (file.endsWith('.sha256')) continue;
 
-            const match = file.match(/^(vibe-kanban)-((?:linux)-(?:x64|arm64)|macos-arm64)\.tar\.gz$/);
+            const match = file.match(/^(vibe-kanban)-(linux-(?:x64|arm64)|macos-arm64)\.tar\.gz$/);
             if (!match) continue;
 
             const [, binaryName, platform] = match;

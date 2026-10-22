@@ -8,6 +8,9 @@ services:
     mem_limit: ${DEV_CONTAINER_MEM_LIMIT:-14g}
     mem_reservation: ${DEV_CONTAINER_MEM_RESERVATION:-12g}
 
+    # QA exercises the Sysbox-backed inner Docker daemon by default.
+    runtime: ${VKVD_CONTAINER_RUNTIME:-sysbox-runc}
+
     cap_add:
       - NET_ADMIN
       - NET_RAW
@@ -66,11 +69,12 @@ services:
       VK_DISABLE_BACKFILL_REPO_NAMES: ${VK_DISABLE_BACKFILL_REPO_NAMES:-false}
       VK_STARTUP_DIAGNOSTICS_INTERVAL_MS: ${VK_STARTUP_DIAGNOSTICS_INTERVAL_MS:-}
       VK_STARTUP_DIAGNOSTICS_DURATION_SECONDS: ${VK_STARTUP_DIAGNOSTICS_DURATION_SECONDS:-}
+      VKVD_CONTAINER_RUNTIME: ${VKVD_CONTAINER_RUNTIME:-sysbox-runc}
 
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
 
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - docker-data:/var/lib/docker
       - vibe-kanban-repos:/home/vkuser/repos
       - vibe-kanban-data:/home/vkuser/.local/share/vibe-kanban
       - vibe-kanban-worktrees:/var/tmp/vibe-kanban/worktrees
@@ -79,6 +83,7 @@ services:
       - code-server-data:/home/vkuser/.local/share/code-server
       - claude-data:/home/vkuser/.claude
       - codex-data:/home/vkuser/.codex
+      - opencode-data:/home/vkuser/.local/share/opencode
       - user-config:/home/vkuser/.config
       - beads-data:/home/vkuser/.beads
       - npm-cache:/home/vkuser/.npm
@@ -88,6 +93,8 @@ services:
       - bosun-data:/home/vkuser/bosun
 
 volumes:
+  docker-data:
+    name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-docker-data
   vibe-kanban-repos:
     name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-vibe-kanban-repos
   vibe-kanban-data:
@@ -104,6 +111,8 @@ volumes:
     name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-claude-data
   codex-data:
     name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-codex-data
+  opencode-data:
+    name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-opencode-data
   user-config:
     name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-user-config
   beads-data:

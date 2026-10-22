@@ -1,7 +1,7 @@
 import { createServer } from 'node:net';
 import { access, chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { promisify } from 'node:util';
@@ -36,8 +36,8 @@ export interface SandboxPlan {
 }
 
 export interface CiReleaseArtifact {
-  targetSha: string;
-  releaseRunId: string;
+  contentHash: string;
+  releaseTag: string;
   artifactRoot: string;
   binaryPath: string;
 }
@@ -58,12 +58,9 @@ const DEFAULT_PORT_START = 50_000;
 const MAX_PORT = 65_535;
 const SANDBOX_CADDYFILE_NAME = 'Caddyfile';
 const CHILD_SHUTDOWN_TIMEOUT_MS = 5_000;
-const DEFAULT_SETUP_TIMEOUT_MS = 30 * 60 * 1_000;
-const DEFAULT_READY_TIMEOUT_MS = 60 * 1_000;
 const CI_RELEASE_BACKEND_MODE = 'ci-release';
-const FULL_SHA_PATTERN = /^[0-9a-f]{40}$/i;
+const VK_CONTENT_HASH_PATTERN = /^[0-9a-f]{64}$/i;
 const DEFAULT_VK_GH_REPO = 'vibe-dashboard/vibe-kanban';
-const DEFAULT_VK_GH_WORKFLOW = 'Release Binaries';
 const DEFAULT_VK_GH_ARTIFACT_NAME = 'release-assets-linux-x64';
 const DEFAULT_VK_GH_ARCHIVE_NAME = 'vibe-kanban-linux-x64.tar.gz';
 const VIBE_DASHBOARD_CADDY_MARKER = '# Vibe Dashboard app';
@@ -80,20 +77,6 @@ function envInt(name: string, fallback: number, env = process.env): number {
   return parsed;
 }
 
-function positiveDurationMs(
-  name: string,
-  fallback: number,
-  env = process.env,
-): number {
-  const raw = env[name]?.trim();
-  if (!raw) return fallback;
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`${name} must be a positive integer duration in milliseconds, got ${raw}`);
-  }
-  return parsed;
-}
-
 function appendNodeOption(existingOptions: string | undefined, option: string): string {
   const trimmedOptions = existingOptions?.trim();
   if (!trimmedOptions) return option;
@@ -101,33 +84,24 @@ function appendNodeOption(existingOptions: string | undefined, option: string): 
   return `${trimmedOptions} ${option}`;
 }
 
-function requireFullCommitSha(value: string, envName = 'VK_MOCKED_RELEASE_SHA'): string {
-  const sha = value.trim();
-  if (!FULL_SHA_PATTERN.test(sha)) {
-    throw new Error(`${envName} must be a full 40-character commit SHA, got ${value}`);
+function requireVkContentHash(value: string, envName = 'VK_MOCKED_RELEASE_HASH'): string {
+  const hash = value.trim();
+  if (!VK_CONTENT_HASH_PATTERN.test(hash)) {
+    throw new Error(`${envName} must be a full 64-character VK content hash, got ${value}`);
   }
-  return sha.toLowerCase();
+  return hash.toLowerCase();
 }
 
 function isCiReleaseBackend(env: NodeJS.ProcessEnv): boolean {
   return env.VK_MOCKED_VK_BACKEND === CI_RELEASE_BACKEND_MODE;
 }
 
-export function envForSandboxTestMode(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  if (isCiReleaseBackend(env) || env.VK_MOCKED_PREBUILD_BACKEND != null) return env;
-  return {
-    ...env,
-    VK_MOCKED_PREBUILD_BACKEND: '1',
-    VK_MOCKED_SKIP_LOCAL_WEB_BUILD: env.VK_MOCKED_SKIP_LOCAL_WEB_BUILD ?? '1',
-  };
+function ciReleaseTag(contentHash: string): string {
+  return `vk-assets-sha256-${contentHash}`;
 }
 
-function ciReleaseArtifactRoot(
-  vdRoot: string,
-  targetSha: string,
-  releaseRunId: string,
-): string {
-  return join(vdRoot, '.vk-mocked-sandbox', 'vk-release-assets', targetSha, releaseRunId);
+function ciReleaseArtifactRoot(vdRoot: string, contentHash: string): string {
+  return join(vdRoot, '.vk-mocked-sandbox', 'vk-release-assets', contentHash);
 }
 
 function caddyfileWithCiReleaseAssetRouting(caddyfile: string): string {
@@ -174,24 +148,17 @@ function ciReleaseArtifactFromEnv(
 ): CiReleaseArtifact | undefined {
   if (!isCiReleaseBackend(env)) return undefined;
 
-  const targetSha = requireFullCommitSha(env.VK_MOCKED_RELEASE_SHA ?? '');
-  const releaseRunId = env.VK_MOCKED_RELEASE_RUN_ID?.trim();
-  if (!releaseRunId) {
-    throw new Error(
-      [
-        'VK_MOCKED_RELEASE_RUN_ID is required after resolving the CI release run.',
-        `Run prepare/start with VK_MOCKED_VK_BACKEND=${CI_RELEASE_BACKEND_MODE} so the sandbox can discover it,`,
-        'or provide VK_MOCKED_RELEASE_RUN_ID explicitly.',
-      ].join(' '),
-    );
-  }
+  const contentHash = requireVkContentHash(env.VK_MOCKED_RELEASE_HASH ?? '');
+  const releaseTag = env.VK_MOCKED_RELEASE_TAG?.trim() || ciReleaseTag(contentHash);
 
-  const artifactRoot = ciReleaseArtifactRoot(vdRoot, targetSha, releaseRunId);
+  const artifactRoot =
+    env.VK_MOCKED_RELEASE_CACHE_DIR?.trim() || ciReleaseArtifactRoot(vdRoot, contentHash);
+  const artifactName = env.VK_MOCKED_GH_ARTIFACT_NAME ?? DEFAULT_VK_GH_ARTIFACT_NAME;
   return {
-    targetSha,
-    releaseRunId,
+    contentHash,
+    releaseTag,
     artifactRoot,
-    binaryPath: join(artifactRoot, 'extracted', 'vibe-kanban'),
+    binaryPath: join(artifactRoot, artifactName, 'extracted', 'vibe-kanban'),
   };
 }
 
@@ -234,132 +201,64 @@ async function execText(
   }
 }
 
-async function execJson<T>(
-  command: string,
-  args: string[],
-  options: { cwd?: string } = {},
-): Promise<T> {
-  return JSON.parse(await execText(command, args, options)) as T;
-}
-
-async function resolveTargetSha(
-  vkRoot: string,
+async function resolveVkContentHash(
+  vdRoot: string,
   env: NodeJS.ProcessEnv,
 ): Promise<string> {
-  const configuredSha = env.VK_MOCKED_RELEASE_SHA?.trim();
-  if (configuredSha) return requireFullCommitSha(configuredSha);
+  const configuredHash = env.VK_MOCKED_RELEASE_HASH?.trim();
+  if (configuredHash) return requireVkContentHash(configuredHash);
 
-  const ref = env.VK_REF?.trim();
-  if (!ref) {
-    throw new Error(
-      [
-        'CI-release VK mocked sandbox requires an exact VK commit.',
-        'Set VK_MOCKED_RELEASE_SHA=<40-character-sha>.',
-        'For source mode instead, use npm run dev:vk-mocked-sandbox.',
-      ].join(' '),
-    );
-  }
-
-  const resolved = (await execText('git', ['-C', vkRoot, 'rev-parse', ref])).trim();
-  return requireFullCommitSha(resolved, 'VK_REF');
+  return requireVkContentHash(
+    await execText('.github/scripts/vk-content-hash.sh', [], { cwd: vdRoot }),
+    '.github/scripts/vk-content-hash.sh',
+  );
 }
 
-async function resolveReleaseRunId(
-  targetSha: string,
-  env: NodeJS.ProcessEnv,
-): Promise<string> {
-  const configuredRunId = env.VK_MOCKED_RELEASE_RUN_ID?.trim();
-  if (configuredRunId) return configuredRunId;
-
-  const repo = env.VK_MOCKED_GH_REPO ?? DEFAULT_VK_GH_REPO;
-  const workflow = env.VK_MOCKED_GH_WORKFLOW ?? DEFAULT_VK_GH_WORKFLOW;
-  const runs = await execJson<
-    Array<{
-      databaseId: number;
-      headSha: string;
-      status: string;
-      conclusion: string | null;
-    }>
-  >('gh', [
-    'run',
-    'list',
-    '--repo',
-    repo,
-    '--workflow',
-    workflow,
-    '--limit',
-    '50',
-    '--json',
-    'databaseId,headSha,status,conclusion',
-  ]);
-
-  const matchingRun = runs.find((run) => run.headSha === targetSha);
-  if (!matchingRun) {
-    throw new Error(
-      [
-        `No ${workflow} GitHub Actions run was found for VK commit ${targetSha}.`,
-        `Checked repo ${repo}.`,
-        'Wait for CI to publish release assets, provide VK_MOCKED_RELEASE_RUN_ID,',
-        'or use source mode with npm run dev:vk-mocked-sandbox when iterating VK locally.',
-      ].join(' '),
-    );
-  }
-
-  return String(matchingRun.databaseId);
+async function ensureCleanVendoredVk(vdRoot: string, vkRoot: string): Promise<void> {
+  const vendoredVkRoot = join(resolve(vdRoot), 'vibe-kanban');
+  if (resolve(vkRoot) !== vendoredVkRoot) return;
+  const status = (await execText('git', ['status', '--porcelain', '--', 'vibe-kanban'], {
+    cwd: vdRoot,
+  })).trim();
+  if (!status) return;
+  throw new Error(
+    [
+      'Vendored VK has local changes; using source mode instead of CI-release assets.',
+      'Commit or discard changes under vibe-kanban to use prebuilt VK runtime assets.',
+    ].join(' '),
+  );
 }
 
-async function requireSuccessfulReleaseRun(
-  targetSha: string,
-  releaseRunId: string,
+async function requireCiReleaseExists(
+  releaseTag: string,
   env: NodeJS.ProcessEnv,
 ): Promise<void> {
   const repo = env.VK_MOCKED_GH_REPO ?? DEFAULT_VK_GH_REPO;
-  const workflow = env.VK_MOCKED_GH_WORKFLOW ?? DEFAULT_VK_GH_WORKFLOW;
-  const run = await execJson<{
-    headSha: string;
-    status: string;
-    conclusion: string | null;
-    workflowName: string;
-    url?: string;
-  }>('gh', [
-    'run',
+  const archiveName = env.VK_MOCKED_GH_ARCHIVE_NAME ?? DEFAULT_VK_GH_ARCHIVE_NAME;
+  const matchingAsset = await execText('gh', [
+    'release',
     'view',
-    releaseRunId,
+    releaseTag,
     '--repo',
     repo,
     '--json',
-    'headSha,status,conclusion,workflowName,url',
+    'assets',
+    '--jq',
+    `.assets[] | select(.name == "${archiveName}") | .name`,
   ]);
-
-  if (run.headSha !== targetSha) {
-    throw new Error(
-      `Release run ${releaseRunId} targets ${run.headSha}, expected ${targetSha}.`,
-    );
-  }
-  if (run.workflowName !== workflow) {
-    throw new Error(
-      `Release run ${releaseRunId} is workflow ${run.workflowName}, expected ${workflow}.`,
-    );
-  }
-  if (run.status !== 'completed' || run.conclusion !== 'success') {
-    throw new Error(
-      [
-        `Release run ${releaseRunId} is ${run.status} / ${run.conclusion ?? 'none'}; expected completed / success.`,
-        run.url ? `Run: ${run.url}` : '',
-        'Wait for Release Binaries to succeed or use source mode with npm run dev:vk-mocked-sandbox.',
-      ]
-        .filter(Boolean)
-        .join(' '),
-    );
+  if (matchingAsset.trim() !== archiveName) {
+    throw new Error(`Release ${releaseTag} is missing required runtime asset ${archiveName}.`);
   }
 }
 
 async function verifyManifestIfAvailable(
   manifestPath: string,
-  targetSha: string,
+  contentHash: string,
 ): Promise<void> {
   if (!(await fileExists(manifestPath))) return;
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+    vk_content_hash?: string;
+    content_hash?: string;
     vk_sha?: string;
     commit?: string;
     platforms?: Record<
@@ -369,10 +268,15 @@ async function verifyManifestIfAvailable(
       }
     >;
   };
-  const manifestSha = manifest.vk_sha ?? manifest.commit;
-  if (manifestSha && manifestSha !== targetSha) {
+  const manifestHash =
+    manifest.vk_content_hash ??
+    manifest.content_hash ??
+    (manifest.commit && VK_CONTENT_HASH_PATTERN.test(manifest.commit)
+      ? manifest.commit
+      : undefined);
+  if (manifestHash && manifestHash !== contentHash) {
     throw new Error(
-      `Release manifest commit mismatch: expected ${targetSha}, got ${manifestSha}.`,
+      `Release manifest content hash mismatch: expected ${contentHash}, got ${manifestHash}.`,
     );
   }
 }
@@ -380,7 +284,7 @@ async function verifyManifestIfAvailable(
 async function verifyCiReleaseArtifactFiles(input: {
   artifactDir: string;
   archiveName: string;
-  targetSha: string;
+  contentHash: string;
 }): Promise<void> {
   const archivePath = join(input.artifactDir, input.archiveName);
   const checksumPath = `${archivePath}.sha256`;
@@ -392,7 +296,7 @@ async function verifyCiReleaseArtifactFiles(input: {
   if (!(await fileExists(checksumPath))) {
     throw new Error(`Release artifact is missing checksum file ${checksumPath}.`);
   }
-  await verifyManifestIfAvailable(manifestPath, input.targetSha);
+  await verifyManifestIfAvailable(manifestPath, input.contentHash);
   await execText('sha256sum', ['-c', `${input.archiveName}.sha256`], {
     cwd: input.artifactDir,
   });
@@ -402,28 +306,24 @@ export async function downloadCiReleaseArtifactFromEnv(
   vdRoot: string,
   env: NodeJS.ProcessEnv,
 ): Promise<CiReleaseArtifact> {
-  const targetSha = requireFullCommitSha(env.VK_MOCKED_RELEASE_SHA ?? '');
-  const releaseRunId = env.VK_MOCKED_RELEASE_RUN_ID?.trim();
-  if (!releaseRunId) {
-    throw new Error('VK_MOCKED_RELEASE_RUN_ID is required for download-ci-release.');
-  }
-  await requireSuccessfulReleaseRun(targetSha, releaseRunId, env);
-
+  const contentHash = requireVkContentHash(env.VK_MOCKED_RELEASE_HASH ?? '');
+  const releaseTag = env.VK_MOCKED_RELEASE_TAG?.trim() || ciReleaseTag(contentHash);
+  await requireCiReleaseExists(releaseTag, env);
   const repo = env.VK_MOCKED_GH_REPO ?? DEFAULT_VK_GH_REPO;
   const artifactName = env.VK_MOCKED_GH_ARTIFACT_NAME ?? DEFAULT_VK_GH_ARTIFACT_NAME;
   const archiveName = env.VK_MOCKED_GH_ARCHIVE_NAME ?? DEFAULT_VK_GH_ARCHIVE_NAME;
   const artifactRoot =
     env.VK_MOCKED_RELEASE_CACHE_DIR?.trim() ||
-    ciReleaseArtifactRoot(vdRoot, targetSha, releaseRunId);
+    ciReleaseArtifactRoot(vdRoot, contentHash);
   const artifactDir = join(artifactRoot, artifactName);
-  const extractDir = join(artifactRoot, 'extracted');
+  const extractDir = join(artifactDir, 'extracted');
   const archivePath = join(artifactDir, archiveName);
   const binaryPath = join(extractDir, 'vibe-kanban');
 
   if (await fileExists(binaryPath)) {
-    await verifyCiReleaseArtifactFiles({ artifactDir, archiveName, targetSha });
+    await verifyCiReleaseArtifactFiles({ artifactDir, archiveName, contentHash });
     await chmod(binaryPath, 0o755);
-    return { targetSha, releaseRunId, artifactRoot, binaryPath };
+    return { contentHash, releaseTag, artifactRoot, binaryPath };
   }
 
   await rm(artifactDir, { recursive: true, force: true });
@@ -432,24 +332,30 @@ export async function downloadCiReleaseArtifactFromEnv(
   await mkdir(extractDir, { recursive: true });
 
   console.log(
-    `[vk-mocked-sandbox] downloading ${artifactName} from Release Binaries run ${releaseRunId}`,
+    `[vk-mocked-sandbox] downloading ${archiveName} from ${repo} release ${releaseTag}`,
   );
-  await execText('gh', [
-    'run',
+  const downloadArgs = [
+    'release',
     'download',
-    releaseRunId,
+    releaseTag,
     '--repo',
     repo,
-    '--name',
-    artifactName,
+    '--pattern',
+    'manifest.json',
+    '--pattern',
+    archiveName,
+    '--pattern',
+    `${archiveName}.sha256`,
     '--dir',
     artifactDir,
-  ]);
+    '--clobber',
+  ];
+  await execText('gh', downloadArgs);
 
   if (!(await fileExists(archivePath))) {
     throw new Error(`Downloaded artifact is missing expected archive ${archivePath}.`);
   }
-  await verifyCiReleaseArtifactFiles({ artifactDir, archiveName, targetSha });
+  await verifyCiReleaseArtifactFiles({ artifactDir, archiveName, contentHash });
   await execText('tar', ['-xzf', archivePath, '-C', extractDir]);
 
   if (!(await fileExists(binaryPath))) {
@@ -457,7 +363,7 @@ export async function downloadCiReleaseArtifactFromEnv(
   }
   await chmod(binaryPath, 0o755);
 
-  return { targetSha, releaseRunId, artifactRoot, binaryPath };
+  return { contentHash, releaseTag, artifactRoot, binaryPath };
 }
 
 async function resolveCiReleaseArtifact(
@@ -465,16 +371,41 @@ async function resolveCiReleaseArtifact(
   vkRoot: string,
   env: NodeJS.ProcessEnv,
 ): Promise<CiReleaseArtifact> {
-  const targetSha = await resolveTargetSha(vkRoot, env);
-  const releaseRunId = await resolveReleaseRunId(targetSha, env);
-  await requireSuccessfulReleaseRun(targetSha, releaseRunId, env);
-  const artifactRoot = ciReleaseArtifactRoot(vdRoot, targetSha, releaseRunId);
+  const vendoredVkRoot = join(resolve(vdRoot), 'vibe-kanban');
+  if (resolve(vkRoot) !== vendoredVkRoot && !env.VK_MOCKED_RELEASE_HASH?.trim()) {
+    throw new Error(
+      'An external VK_CHECKOUT requires VK_MOCKED_RELEASE_HASH in ci-release mode.',
+    );
+  }
+  await ensureCleanVendoredVk(vdRoot, vkRoot);
+  const contentHash = await resolveVkContentHash(vdRoot, env);
+  const releaseTag = env.VK_MOCKED_RELEASE_TAG?.trim() || ciReleaseTag(contentHash);
+  await requireCiReleaseExists(releaseTag, env);
+  const artifactRoot = ciReleaseArtifactRoot(vdRoot, contentHash);
+  const artifactName = env.VK_MOCKED_GH_ARTIFACT_NAME ?? DEFAULT_VK_GH_ARTIFACT_NAME;
   return {
-    targetSha,
-    releaseRunId,
+    contentHash,
+    releaseTag,
     artifactRoot,
-    binaryPath: join(artifactRoot, 'extracted', 'vibe-kanban'),
+    binaryPath: join(artifactRoot, artifactName, 'extracted', 'vibe-kanban'),
   };
+}
+
+async function tryResolveCiReleaseArtifact(
+  vdRoot: string,
+  vkRoot: string,
+  env: NodeJS.ProcessEnv,
+): Promise<CiReleaseArtifact | undefined> {
+  try {
+    return await resolveCiReleaseArtifact(vdRoot, vkRoot, env);
+  } catch (error) {
+    console.warn(
+      `[vk-mocked-sandbox] using source VK backend; prebuilt release unavailable: ${
+        (error as Error).message
+      }`,
+    );
+    return undefined;
+  }
 }
 
 export async function isTcpPortAvailable(port: number): Promise<boolean> {
@@ -554,18 +485,13 @@ export function createSandboxPlan(input: {
   const workspaceRoot = resolve(input.workspaceRoot ?? process.cwd(), '..');
   const vdRoot = resolve(workspaceRoot, 'vibe-kanban-vscode-web');
   const configuredVkCheckout = env.VK_CHECKOUT?.trim();
-  const vkRoot = resolve(workspaceRoot, configuredVkCheckout || 'Vktest');
+  const vkRoot = configuredVkCheckout
+    ? resolve(workspaceRoot, configuredVkCheckout)
+    : join(vdRoot, 'vibe-kanban');
   const ciReleaseArtifact = ciReleaseArtifactFromEnv(vdRoot, env);
-  if (ciReleaseArtifact && env.VK_MOCKED_PREBUILD_BACKEND === '1') {
-    throw new Error(
-      [
-        'VK_MOCKED_PREBUILD_BACKEND is not supported in ci-release mode because it would locally build VK.',
-        'Unset VK_MOCKED_PREBUILD_BACKEND or use npm run dev:vk-mocked-sandbox for source mode.',
-      ].join(' '),
-    );
-  }
+  const configuredRunDir = env.VK_MOCKED_SANDBOX_RUN_DIR?.trim();
   const runDir = resolve(
-    input.runDir ?? join(vdRoot, '.vk-mocked-sandbox', 'current'),
+    input.runDir || configuredRunDir || join(vdRoot, '.vk-mocked-sandbox', 'current'),
   );
   const caddyfile = ciReleaseArtifact
     ? caddyfileWithCiReleaseAssetRouting(input.caddyfile)
@@ -615,11 +541,10 @@ export function createSandboxPlan(input: {
       env: {
         ...commonEnv,
         VK_MOCKED_VK_BACKEND: CI_RELEASE_BACKEND_MODE,
-        VK_MOCKED_RELEASE_SHA: ciReleaseArtifact.targetSha,
-        VK_MOCKED_RELEASE_RUN_ID: ciReleaseArtifact.releaseRunId,
+        VK_MOCKED_RELEASE_HASH: ciReleaseArtifact.contentHash,
+        VK_MOCKED_RELEASE_TAG: ciReleaseArtifact.releaseTag,
         VK_MOCKED_RELEASE_CACHE_DIR: ciReleaseArtifact.artifactRoot,
         VK_MOCKED_GH_REPO: env.VK_MOCKED_GH_REPO ?? DEFAULT_VK_GH_REPO,
-        VK_MOCKED_GH_WORKFLOW: env.VK_MOCKED_GH_WORKFLOW ?? DEFAULT_VK_GH_WORKFLOW,
         VK_MOCKED_GH_ARTIFACT_NAME:
           env.VK_MOCKED_GH_ARTIFACT_NAME ?? DEFAULT_VK_GH_ARTIFACT_NAME,
         VK_MOCKED_GH_ARCHIVE_NAME:
@@ -648,12 +573,12 @@ export function createSandboxPlan(input: {
       },
     });
   }
-  if (env.VK_MOCKED_PREBUILD_BACKEND === '1') {
+  if (!ciReleaseArtifact && env.VK_MOCKED_PREBUILD_BACKEND === '1') {
     setupCommands.push({
       name: 'vk-build-backend-qa',
       cwd: vkRoot,
       command: 'cargo',
-      args: ['build', '--features', 'qa-mode', '--bin', 'server'],
+      args: ['build', '--bin', 'server'],
       env: commonEnv,
     });
   }
@@ -681,8 +606,14 @@ export function createSandboxPlan(input: {
     : {
       name: 'vk-backend-qa',
       cwd: vkRoot,
-      command: 'cargo',
-      args: ['run', '--features', 'qa-mode', '--bin', 'server'],
+      command:
+        env.VK_MOCKED_PREBUILD_BACKEND === '1'
+          ? join(vkRoot, 'target', 'debug', 'server')
+          : 'cargo',
+      args:
+        env.VK_MOCKED_PREBUILD_BACKEND === '1'
+          ? []
+          : ['run', '--bin', 'server'],
       env: {
         ...commonEnv,
         HOST: '127.0.0.1',
@@ -702,10 +633,10 @@ export function createSandboxPlan(input: {
       name: 'vd-dashboard',
       cwd: vdRoot,
       command: 'npm',
-      args: ['run', 'dev'],
+      args: ['run', 'dev', '--', '--port', String(input.ports.vdDashboard)],
       env: {
         ...commonEnv,
-        PORT: String(input.ports.vdDashboard),
+        PORT: String(input.ports.vdServer),
         SERVER_PORT: String(input.ports.vdServer),
         VITE_VK_BASE_ORIGIN: vkFrontendUrl,
         CADDY_PORT: String(input.ports.vdCaddy),
@@ -766,6 +697,56 @@ export async function writeSandboxFiles(plan: SandboxPlan): Promise<void> {
   await writeFile(join(plan.paths.runDir, 'plan.json'), JSON.stringify(plan, null, 2));
 }
 
+export async function readPreparedSandboxPlan(runDir: string): Promise<SandboxPlan> {
+  const planPath = join(runDir, 'plan.json');
+  let value: unknown;
+  try {
+    value = JSON.parse(await readFile(planPath, 'utf8'));
+  } catch (error) {
+    throw new Error(`Cannot read prepared sandbox plan ${planPath}: ${String(error)}`);
+  }
+
+  const plan = value as Partial<SandboxPlan>;
+  if (
+    !plan.paths ||
+    typeof plan.paths.vkRoot !== 'string' ||
+    typeof plan.paths.runDir !== 'string' ||
+    resolve(plan.paths.runDir) !== resolve(runDir) ||
+    !plan.urls ||
+    typeof plan.urls.vd !== 'string' ||
+    typeof plan.urls.vkFrontend !== 'string' ||
+    !plan.env ||
+    typeof plan.env !== 'object' ||
+    typeof plan.caddyfile !== 'string' ||
+    !Array.isArray(plan.setupCommands) ||
+    !Array.isArray(plan.commands) ||
+    plan.commands.length === 0
+  ) {
+    throw new Error(`Prepared sandbox plan ${planPath} is invalid or belongs to another run directory.`);
+  }
+  for (const spec of plan.commands) {
+    if (
+      !spec ||
+      typeof spec.name !== 'string' ||
+      typeof spec.cwd !== 'string' ||
+      typeof spec.command !== 'string' ||
+      !Array.isArray(spec.args) ||
+      !spec.args.every((arg) => typeof arg === 'string') ||
+      !spec.env ||
+      typeof spec.env !== 'object'
+    ) {
+      throw new Error(`Prepared sandbox plan ${planPath} contains an invalid command.`);
+    }
+    if (!existsSync(spec.cwd)) {
+      throw new Error(`Prepared sandbox command ${spec.name} has missing cwd ${spec.cwd}.`);
+    }
+    if (isAbsolute(spec.command) && !existsSync(spec.command)) {
+      throw new Error(`Prepared sandbox command ${spec.name} is missing ${spec.command}.`);
+    }
+  }
+  return plan as SandboxPlan;
+}
+
 function printPlan(plan: SandboxPlan): void {
   console.log(`VD URL: ${plan.urls.vd}`);
   console.log(`VK frontend URL: ${plan.urls.vkFrontend}`);
@@ -780,50 +761,20 @@ function printPlan(plan: SandboxPlan): void {
   }
 }
 
-export function runCommandToCompletion(
-  spec: CommandSpec,
-  timeoutMs = positiveDurationMs(
-    'VK_MOCKED_SETUP_TIMEOUT_MS',
-    DEFAULT_SETUP_TIMEOUT_MS,
-  ),
-): Promise<void> {
+function runCommandToCompletion(spec: CommandSpec): Promise<void> {
   return new Promise((resolveCommand, rejectCommand) => {
     const child = spawn(spec.command, spec.args, {
       cwd: spec.cwd,
       env: { ...process.env, ...spec.env },
       stdio: ['ignore', 'pipe', 'pipe'],
-      detached: process.platform !== 'win32',
     });
     const prefix = `[${spec.name}]`;
-    let settled = false;
-    const timeout = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      signalChild(child, 'SIGTERM');
-      void waitForChildExit(child, CHILD_SHUTDOWN_TIMEOUT_MS).then(
-        async (result) => {
-          if (result === 'timeout') {
-            signalChild(child, 'SIGKILL');
-            await waitForChildExit(child, CHILD_SHUTDOWN_TIMEOUT_MS);
-          }
-          rejectCommand(
-            new Error(`${spec.name} timed out after ${timeoutMs}ms`),
-          );
-        },
-      );
-    }, timeoutMs);
     child.stdout?.on('data', (chunk) => process.stdout.write(`${prefix} ${chunk}`));
     child.stderr?.on('data', (chunk) => process.stderr.write(`${prefix} ${chunk}`));
     child.on('error', (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
       rejectCommand(new Error(`${spec.name} failed to start: ${error.message}`));
     });
     child.on('exit', (code, signal) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
       console.log(`${prefix} exited code=${code ?? 'null'} signal=${signal ?? 'null'}`);
       if (code === 0) {
         resolveCommand();
@@ -863,93 +814,6 @@ function spawnCommand(
     onUnexpectedExit(spec, `exit code=${code ?? 'null'} signal=${signal ?? 'null'}`);
   });
   return child;
-}
-
-async function waitForHttpReady(url: string, timeoutMs = positiveDurationMs(
-  'VK_MOCKED_READY_TIMEOUT_MS',
-  DEFAULT_READY_TIMEOUT_MS,
-)): Promise<void> {
-  const expiresAt = Date.now() + timeoutMs;
-  let lastError = 'not attempted';
-  while (Date.now() < expiresAt) {
-    try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(2_000) });
-      if (response.ok) return;
-      lastError = `HTTP ${response.status}`;
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
-    }
-    await new Promise(resolve => setTimeout(resolve, 500));
-  }
-  throw new Error(`Sandbox did not become ready at ${url} after ${timeoutMs}ms: ${lastError}`);
-}
-
-async function runLongLivedCommands(
-  plan: SandboxPlan,
-  task: () => Promise<number>,
-): Promise<number> {
-  let stopping = false;
-  let stopPromise: Promise<void> | undefined;
-  const children: { spec: CommandSpec; child: ChildProcess }[] = [];
-  let resolveStoppedByChild: (exitCode: number) => void = () => undefined;
-  const stoppedByChild = new Promise<number>(resolve => { resolveStoppedByChild = resolve; });
-  const stop = (exitCode?: number): Promise<void> => {
-    if (stopPromise) return stopPromise;
-    stopping = true;
-    if (exitCode !== undefined) process.exitCode = exitCode;
-    stopPromise = Promise.all(
-      children.map(({ spec, child }) => stopChild(child, spec.name)),
-    ).then(() => undefined);
-    return stopPromise;
-  };
-  for (const spec of plan.commands) {
-    const child = spawnCommand(spec, (exitedSpec, reason) => {
-      if (stopping) return;
-      console.error(`${exitedSpec.name} exited unexpectedly (${reason}); stopping sandbox.`);
-      void stop(1).then(() => resolveStoppedByChild(1));
-    });
-    children.push({ spec, child });
-  }
-  const signalStop = () => {
-    void stop(130).then(() => process.exit(process.exitCode ?? 130));
-  };
-  process.once('SIGINT', signalStop);
-  process.once('SIGTERM', signalStop);
-  try {
-    return await Promise.race([task(), stoppedByChild]);
-  } finally {
-    process.off('SIGINT', signalStop);
-    process.off('SIGTERM', signalStop);
-    await stop();
-  }
-}
-
-async function runPlaywright(args: string[], plan: SandboxPlan): Promise<number> {
-  const playwrightArgs = ['playwright', 'test', '--config', 'playwright.vk-mocked-sandbox.config.ts', ...args];
-  return await new Promise<number>((resolveRun) => {
-    const child = spawn('npx', playwrightArgs, {
-      cwd: plan.paths.vdRoot,
-      env: {
-        ...process.env,
-        ...plan.env,
-        VK_MOCKED_EXTERNAL_SERVER: '1',
-        VK_MOCKED_SANDBOX_URL: plan.urls.vd,
-      },
-      stdio: 'inherit',
-    });
-    child.on('error', (error) => {
-      console.error(`playwright failed to start: ${error.message}`);
-      resolveRun(1);
-    });
-    child.on('exit', (code, signal) => {
-      if (signal) {
-        console.error(`playwright exited via signal ${signal}`);
-        resolveRun(1);
-        return;
-      }
-      resolveRun(code ?? 1);
-    });
-  });
 }
 
 function signalChild(child: ChildProcess, signal: NodeJS.Signals): void {
@@ -1002,37 +866,61 @@ async function stopChild(
 
 async function main(): Promise<void> {
   const mode = process.argv[2] ?? 'prepare';
+  const workspaceRoot = resolve(process.cwd(), '..');
+  const vdRoot = resolve(workspaceRoot, 'vibe-kanban-vscode-web');
   if (mode === 'download-ci-release') {
-    const workspaceRoot = resolve(process.cwd(), '..');
-    const vdRoot = resolve(workspaceRoot, 'vibe-kanban-vscode-web');
     const artifact = await downloadCiReleaseArtifactFromEnv(vdRoot, process.env);
     console.log(`[vk-mocked-sandbox] VK release binary ready: ${artifact.binaryPath}`);
     return;
   }
 
-  const ports = await allocatePorts();
-  const workspaceRoot = resolve(process.cwd(), '..');
-  const vdRoot = resolve(workspaceRoot, 'vibe-kanban-vscode-web');
-  const caddyfile = await loadSandboxCaddyfile(vdRoot);
-  const configuredVkCheckout = process.env.VK_CHECKOUT?.trim();
-  const vkRoot = resolve(workspaceRoot, configuredVkCheckout || 'Vktest');
-  let env = mode === 'test' ? envForSandboxTestMode(process.env) : process.env;
-  if (isCiReleaseBackend(process.env)) {
-    const artifact = await resolveCiReleaseArtifact(vdRoot, vkRoot, process.env);
-    env = {
-      ...process.env,
-      VK_MOCKED_RELEASE_SHA: artifact.targetSha,
-      VK_MOCKED_RELEASE_RUN_ID: artifact.releaseRunId,
-      VK_MOCKED_RELEASE_CACHE_DIR: artifact.artifactRoot,
-    };
+  let plan: SandboxPlan;
+  if (mode === 'start' && process.env.VK_MOCKED_SKIP_SETUP_COMMANDS === '1') {
+    const runDir = resolve(
+      process.env.VK_MOCKED_SANDBOX_RUN_DIR?.trim() ||
+        join(vdRoot, '.vk-mocked-sandbox', 'current'),
+    );
+    plan = await readPreparedSandboxPlan(runDir);
+  } else {
+    const ports = await allocatePorts();
+    const caddyfile = await loadSandboxCaddyfile(vdRoot);
+    const configuredVkCheckout = process.env.VK_CHECKOUT?.trim();
+    const vkRoot = configuredVkCheckout
+      ? resolve(workspaceRoot, configuredVkCheckout)
+      : join(vdRoot, 'vibe-kanban');
+    let env = process.env;
+    if (isCiReleaseBackend(process.env)) {
+      const artifact = await resolveCiReleaseArtifact(vdRoot, vkRoot, process.env);
+      env = {
+        ...process.env,
+        VK_MOCKED_VK_BACKEND: CI_RELEASE_BACKEND_MODE,
+        VK_MOCKED_RELEASE_HASH: artifact.contentHash,
+        VK_MOCKED_RELEASE_TAG: artifact.releaseTag,
+        VK_MOCKED_RELEASE_CACHE_DIR: artifact.artifactRoot,
+      };
+    } else if (
+      process.env.VK_MOCKED_VK_BACKEND !== 'source' &&
+      resolve(vkRoot) === join(resolve(vdRoot), 'vibe-kanban')
+    ) {
+      const artifact = await tryResolveCiReleaseArtifact(vdRoot, vkRoot, process.env);
+      if (artifact) {
+        env = {
+          ...process.env,
+          VK_MOCKED_VK_BACKEND: CI_RELEASE_BACKEND_MODE,
+          VK_MOCKED_RELEASE_HASH: artifact.contentHash,
+          VK_MOCKED_RELEASE_TAG: artifact.releaseTag,
+          VK_MOCKED_RELEASE_CACHE_DIR: artifact.artifactRoot,
+        };
+      }
+    }
+    plan = createSandboxPlan({
+      workspaceRoot: process.cwd(),
+      env,
+      ports,
+      caddyfile,
+    });
+    await writeSandboxFiles(plan);
   }
-  const plan = createSandboxPlan({
-    workspaceRoot: process.cwd(),
-    env,
-    ports,
-    caddyfile,
-  });
-  await writeSandboxFiles(plan);
 
   if (mode === 'prepare') {
     printPlan(plan);
@@ -1051,21 +939,8 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (mode === 'test') {
-    for (const spec of plan.setupCommands) {
-      await runCommandToCompletion(spec);
-    }
-    const testArgs = process.argv.slice(3);
-    const exitCode = await runLongLivedCommands(plan, async () => {
-      await waitForHttpReady(`${plan.urls.vd}/workspaces`);
-      return await runPlaywright(testArgs, plan);
-    });
-    process.exitCode = exitCode;
-    return;
-  }
-
   if (mode !== 'start') {
-    throw new Error(`Unknown mode ${mode}. Usage: vk-mocked-sandbox.ts [prepare|setup|start|test]`);
+    throw new Error(`Unknown mode ${mode}. Usage: vk-mocked-sandbox.ts [prepare|setup|start]`);
   }
 
   if (process.env.VK_MOCKED_SKIP_SETUP_COMMANDS !== '1') {
@@ -1073,7 +948,36 @@ async function main(): Promise<void> {
       await runCommandToCompletion(spec);
     }
   }
-  await runLongLivedCommands(plan, () => new Promise<number>(() => undefined));
+  let stopping = false;
+  let stopPromise: Promise<void> | undefined;
+  const children: { spec: CommandSpec; child: ChildProcess }[] = [];
+  const pidPath = join(plan.paths.runDir, 'sandbox.pid');
+  await writeFile(pidPath, `${process.pid}\n`);
+  const stop = (exitCode?: number): Promise<void> => {
+    if (stopPromise) return stopPromise;
+    stopping = true;
+    if (exitCode !== undefined) process.exitCode = exitCode;
+    stopPromise = Promise.all(
+      children.map(({ spec, child }) => stopChild(child, spec.name)),
+    ).then(async () => {
+      await rm(pidPath, { force: true });
+    });
+    return stopPromise;
+  };
+  for (const spec of plan.commands) {
+    const child = spawnCommand(spec, (exitedSpec, reason) => {
+      if (stopping) return;
+      console.error(`${exitedSpec.name} exited unexpectedly (${reason}); stopping sandbox.`);
+      void stop(1).then(() => process.exit(1));
+    });
+    children.push({ spec, child });
+  }
+  process.on('SIGINT', () => {
+    void stop().then(() => process.exit(process.exitCode ?? 0));
+  });
+  process.on('SIGTERM', () => {
+    void stop().then(() => process.exit(process.exitCode ?? 0));
+  });
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
