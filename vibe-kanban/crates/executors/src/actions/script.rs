@@ -82,9 +82,8 @@ impl Executable for ScriptRequest {
 mod tests {
     use std::{collections::HashMap, path::Path, sync::Arc};
 
-    use crate::{approvals::NoopExecutorApprovalService, env::RepoContext};
-
     use super::*;
+    use crate::{approvals::NoopExecutorApprovalService, env::RepoContext};
 
     #[tokio::test]
     async fn script_spawn_failure_is_proven_not_spawned() {

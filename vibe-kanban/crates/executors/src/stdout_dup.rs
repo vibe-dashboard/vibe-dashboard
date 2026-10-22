@@ -36,14 +36,8 @@ pub fn create_stdout_pipe_writer<'b>(
 /// Create a helper child process to be used only for stdout duplication.
 pub fn spawn_local_output_process()
 -> Result<(SpawnedChild, impl AsyncWrite + Send + Unpin), ExecutorError> {
-    let (pipe_reader, pipe_writer) = os_pipe::pipe().map_err(|e| {
-        ExecutorError::Io(std::io::Error::other(format!(
-            "Failed to create stdout pipe: {e}"
-        )))
-    })?;
-
     #[cfg(unix)]
-    let mut cmd = {
+    let cmd = {
         let mut cmd = tokio::process::Command::new("/bin/sh");
         cmd.args(["-c", "while :; do sleep 3600; done"])
             .stdin(std::process::Stdio::null())
@@ -53,7 +47,7 @@ pub fn spawn_local_output_process()
     };
 
     #[cfg(windows)]
-    let mut cmd = {
+    let cmd = {
         let mut cmd = tokio::process::Command::new("powershell.exe");
         cmd.args([
             "-NoLogo",
@@ -66,6 +60,18 @@ pub fn spawn_local_output_process()
         .stderr(std::process::Stdio::piped());
         cmd
     };
+
+    spawn_output_process(cmd)
+}
+
+fn spawn_output_process(
+    mut cmd: tokio::process::Command,
+) -> Result<(SpawnedChild, impl AsyncWrite + Send + Unpin), ExecutorError> {
+    let (pipe_reader, pipe_writer) = os_pipe::pipe().map_err(|e| {
+        ExecutorError::Io(std::io::Error::other(format!(
+            "Failed to create stdout pipe: {e}"
+        )))
+    })?;
 
     cmd.kill_on_drop(true);
 
@@ -89,20 +95,16 @@ pub fn spawn_local_output_process()
 
 #[cfg(test)]
 mod tests {
-    use workspace_utils::command_ext::GroupSpawnNoWindowExt;
-
     use super::*;
 
-    #[test]
-    fn local_output_spawn_failure_is_proven_not_spawned() {
-        let mut command = tokio::process::Command::new(
-            "/definitely/missing/vibe-kanban-local-output-helper",
-        );
+    #[tokio::test]
+    async fn local_output_spawn_failure_is_proven_not_spawned() {
+        let command =
+            tokio::process::Command::new("/definitely/missing/vibe-kanban-local-output-helper");
 
-        let error = command
-            .group_spawn_no_window()
-            .map_err(|error| ExecutorError::SpawnError(error).proven_not_spawned())
-            .unwrap_err();
+        let error = spawn_output_process(command)
+            .err()
+            .expect("missing helper executable must fail to spawn");
 
         assert!(matches!(
             error.into_proven_not_spawned(),
