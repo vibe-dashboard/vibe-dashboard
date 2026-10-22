@@ -75,7 +75,7 @@ const DEFAULT_WORKSPACE_SETUP_TIMEOUT_SECONDS: u64 = 120;
 
 enum QueuedStartResult {
     NotAccepted(ContainerError),
-    Accepted(ExecutionProcess),
+    Accepted(Box<ExecutionProcess>),
     Indeterminate(ContainerError),
 }
 
@@ -97,7 +97,7 @@ fn classify_queued_start_error(
                     warning = %error,
                     "Queued execution was durably accepted despite post-start error"
                 );
-                QueuedStartResult::Accepted(process)
+                QueuedStartResult::Accepted(Box::new(process))
             }
             None => QueuedStartResult::Indeterminate(ContainerError::Other(anyhow!(
                 "queue {queue_id} is started but its execution process is missing; original error: {error}"
@@ -1566,7 +1566,7 @@ impl LocalContainerService {
         queued: &QueuedMessage,
     ) -> QueuedStartResult {
         match self.start_queued_follow_up_inner(ctx, queued).await {
-            Ok(process) => QueuedStartResult::Accepted(process),
+            Ok(process) => QueuedStartResult::Accepted(Box::new(process)),
             Err(error) => {
                 #[cfg(feature = "qa-mode")]
                 let reconciliation = if queued
