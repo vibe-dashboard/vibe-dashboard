@@ -109,14 +109,14 @@ const mixedDecorationCards: ExternalKanbanCardDto[] = [
   makeCard(3, {
     title: 'Has an existing workspace',
     relatedWorkspaces: [
-      { workspaceId: 'ws-card-3', workspaceDir: '/repos/Vktest', displayName: 'Vktest workspace', isPrimary: true, metadata: { filesChanged: 6, linesChanged: 148, agentSessions: 2, agentMessages: 37 } },
+      { workspaceId: 'ws-card-3', workspaceDir: '/repos/vibe-dashboard', displayName: 'Dashboard workspace', isPrimary: true, metadata: { filesChanged: 6, linesChanged: 148, agentSessions: 2, agentMessages: 37 } },
     ],
   }),
   makeCard(4, {
     title: 'Rare multiple-workspace mapping',
     relatedWorkspaces: [
-      { workspaceId: 'ws-card-4a', workspaceDir: '/repos/Vktest', displayName: 'Primary workspace', isPrimary: true, metadata: { filesChanged: 12, linesChanged: 320, agentSessions: 3, agentMessages: 84 } },
-      { workspaceId: 'ws-card-4b', workspaceDir: '/repos/Vktest-spike', displayName: 'Spike workspace', isPrimary: false },
+      { workspaceId: 'ws-card-4a', workspaceDir: '/repos/vibe-dashboard', displayName: 'Primary workspace', isPrimary: true, metadata: { filesChanged: 12, linesChanged: 320, agentSessions: 3, agentMessages: 84 } },
+      { workspaceId: 'ws-card-4b', workspaceDir: '/repos/vibe-dashboard-spike', displayName: 'Spike workspace', isPrimary: false },
     ],
     relatedBeads: [
       {
@@ -347,7 +347,7 @@ export const WorkspaceMetricsUnavailable: Story = {
       cards: [makeCard(35, {
         title: 'Existing workspace with metrics still loading or unavailable',
         relatedWorkspaces: [
-          { workspaceId: 'ws-card-35', workspaceDir: '/repos/Vktest-unavailable', displayName: 'Workspace without activity metrics', isPrimary: true },
+          { workspaceId: 'ws-card-35', workspaceDir: '/repos/vibe-dashboard-unavailable', displayName: 'Workspace without activity metrics', isPrimary: true },
         ],
       })],
       pagination: { ...baseBoardView.pagination, issueCount: 1 },
@@ -471,7 +471,7 @@ export const LongIssueDetailSheet: Story = {
             },
           ],
           relatedWorkspaces: [
-            { workspaceId: 'ws-long', workspaceDir: '/repos/Vktest/mobile-detail-sheet', displayName: 'Mobile detail workspace', isPrimary: true },
+            { workspaceId: 'ws-long', workspaceDir: '/repos/vibe-dashboard/mobile-detail-sheet', displayName: 'Mobile detail workspace', isPrimary: true },
           ],
         }),
         ...manyCards.slice(0, 5),
@@ -489,8 +489,8 @@ export const RelatedWorkspaces: Story = {
         {
           ...baseCard,
           relatedWorkspaces: [
-            { workspaceId: 'ws-1', workspaceDir: '/repos/Vktest', displayName: 'Vktest workspace', isPrimary: true },
-            { workspaceId: 'ws-2', workspaceDir: '/repos/Vktest-experiment', displayName: 'Experiment workspace', isPrimary: false },
+            { workspaceId: 'ws-1', workspaceDir: '/repos/vibe-dashboard', displayName: 'Dashboard workspace', isPrimary: true },
+            { workspaceId: 'ws-2', workspaceDir: '/repos/vibe-dashboard-experiment', displayName: 'Experiment workspace', isPrimary: false },
           ],
         },
         doneCard,
