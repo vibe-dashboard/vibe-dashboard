@@ -1,4 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { VibeClient as AgentPolicyClient } from '../../scripts/vibe-agent/core/client.js';
 import {
   VibeKanbanServerClient,
   VkApiError,
@@ -6,6 +10,18 @@ import {
   selectLatestSession,
   type Session,
 } from './vk-client';
+
+let home: string;
+beforeEach(() => {
+  home = mkdtempSync(join(tmpdir(), 'vk-server-policy-'));
+  vi.stubEnv('HOME', home);
+  vi.stubEnv('VIBE_AGENT_EXECUTOR_PROFILE', 'Codex,Default');
+});
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+  rmSync(home, { recursive: true, force: true });
+});
 
 describe('resolveVibeApiBaseUrl', () => {
   it('prefers VIBE_API_URL, falls back to VK_API_URL, then localhost API', () => {
@@ -72,6 +88,9 @@ describe('VibeKanbanServerClient', () => {
 
   it('sends follow-up messages using the live executor_config shape', async () => {
     const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === 'http://vk.local/api/info') {
+        return jsonResponse({ success: true, data: { executors: { CODEX: { DEFAULT: { CODEX: {} } } } } });
+      }
       if (url === 'http://vk.local/api/sessions/session-1') {
         return jsonResponse({
           success: true,
@@ -81,7 +100,7 @@ describe('VibeKanbanServerClient', () => {
       if (url === 'http://vk.local/api/sessions/session-1/follow-up' && init?.method === 'POST') {
         expect(JSON.parse(String(init.body))).toEqual({
           prompt: 'CI failed. Please inspect it.',
-          executor_config: { executor: 'CODEX' },
+          executor_config: { executor: 'CODEX', variant: 'DEFAULT' },
           retry_process_id: null,
           force_when_dirty: null,
           perform_git_reset: null,
@@ -97,6 +116,36 @@ describe('VibeKanbanServerClient', () => {
       session_id: 'session-1',
       status: 'running',
     });
+  });
+
+  it.each([
+    ['Codex,Review,high', 'REVIEW', 'high'],
+    ['OpenCode,Default,medium', 'DEFAULT', 'medium'],
+  ])('keeps CI/hotswap follow-ups on their target with selection %s', async (selection, variant, reasoning_id) => {
+    vi.stubEnv('VIBE_AGENT_EXECUTOR_PROFILE', selection);
+    const discovery = vi.spyOn(AgentPolicyClient.prototype, 'getReasoningCapabilities').mockResolvedValue({
+      model_id: 'codex-model', default_model: null,
+      models: [{ id: 'codex-model', reasoning_options: [{ id: 'high' }, { id: 'medium' }] }],
+    });
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === 'http://vk.local/api/sessions/session-1') {
+        return jsonResponse({ success: true, data: { id: 'session-1', workspace_id: 'ws1', executor: 'CODEX' } });
+      }
+      if (url === 'http://vk.local/api/info') {
+        return jsonResponse({ success: true, data: { executors: {
+          CODEX: { DEFAULT: { CODEX: {} }, REVIEW: { CODEX: {} } }, OPENCODE: { DEFAULT: { OPENCODE: {} } },
+        } } });
+      }
+      if (url === 'http://vk.local/api/sessions/session-1/follow-up' && init?.method === 'POST') {
+        expect(JSON.parse(String(init.body))).toMatchObject({ prompt: 'Continue', executor_config: { executor: 'CODEX', variant, reasoning_id } });
+        return jsonResponse({ success: true, data: { id: 'process', session_id: 'session-1', status: 'running' } });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    const client = new VibeKanbanServerClient({ baseUrl: 'http://vk.local/api', fetch: fetchImpl });
+    await expect(client.sendFollowUp('session-1', 'Continue')).resolves.toMatchObject({ session_id: 'session-1' });
+    expect(discovery).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ executor: 'CODEX', variant }), expect.objectContaining({ id: 'session-1' }));
+    expect(discovery.mock.contexts[0]).toMatchObject({ apiBaseUrl: 'http://vk.local' });
   });
 
   it('fetches, stops, and checks readiness endpoints used by hotswap seams', async () => {

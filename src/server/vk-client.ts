@@ -1,3 +1,6 @@
+import { VibeClient as AgentPolicyClient } from '../../scripts/vibe-agent/core/client.js';
+import { resolvePinnedExecutorConfig } from '../../scripts/vibe-agent/core/message-policy.js';
+
 export type Executor =
   | 'CLAUDE_CODE'
   | 'CODEX'
@@ -112,6 +115,7 @@ export interface Session {
   id: string;
   workspace_id: string;
   executor: Executor;
+  agent_working_dir?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -285,10 +289,12 @@ export function resolveVibeApiBaseUrl(
 export class VibeKanbanServerClient {
   private readonly baseUrl: string;
   private readonly fetchImpl: FetchLike;
+  private readonly messagePolicyClient: AgentPolicyClient;
 
   constructor(options: VibeKanbanServerClientOptions = {}) {
     this.baseUrl = (options.baseUrl ?? resolveVibeApiBaseUrl()).replace(/\/+$/, '');
     this.fetchImpl = options.fetch ?? fetch;
+    this.messagePolicyClient = new AgentPolicyClient(this.baseUrl, this.fetchImpl);
   }
 
   getWorkspaces(): Promise<Workspace[]> {
@@ -409,9 +415,7 @@ export class VibeKanbanServerClient {
     const session = await this.getSession(sessionId);
     return this.post(`/sessions/${encodeURIComponent(sessionId)}/follow-up`, {
       prompt,
-      executor_config: {
-        executor: session.executor,
-      },
+      executor_config: await resolvePinnedExecutorConfig(session, this.messagePolicyClient),
       retry_process_id: null,
       force_when_dirty: null,
       perform_git_reset: null,

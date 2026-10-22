@@ -133,6 +133,19 @@ describe('cross-invocation capability cache', () => {
     expect(client.getReasoningCapabilities).toHaveBeenCalledTimes(3);
   });
 
+  it('does not reuse capabilities across different VK servers', async () => {
+    const session = { id: 'recipient', workspace_id: 'workspace', executor: 'OPENCODE' as const, created_at: '', updated_at: '' };
+    const first = { apiBaseUrl: 'http://first-vk', getReasoningCapabilities: vi.fn().mockResolvedValue(capabilities) };
+    const second = { apiBaseUrl: 'http://second-vk', getReasoningCapabilities: vi.fn().mockResolvedValue({
+      ...capabilities, models: capabilities.models.map(model => ({ ...model, reasoning_options: [] })),
+    }) };
+    expect(await resolveReasoning(profiles, profile, session, first)).toEqual({ reasoning_id: 'medium' });
+    expect(await resolveReasoning(profiles, profile, session, second)).toEqual({});
+    expect(await resolveReasoning(profiles, profile, session, first)).toEqual({ reasoning_id: 'medium' });
+    expect(first.getReasoningCapabilities).toHaveBeenCalledTimes(1);
+    expect(second.getReasoningCapabilities).toHaveBeenCalledTimes(1);
+  });
+
   it('invalidates custom-preset metadata when the default discovery settings change', async () => {
     await resolveSendReasoning(profiles, { ...profile, variant: 'HIGH' }, 'workspace');
     const changed = structuredClone(profiles);

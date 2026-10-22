@@ -5,7 +5,7 @@ import { registerSession } from '../core/session-file.js';
 import { resolveSendProfile } from '../core/executor-profile.js';
 import { resolveSendReasoning } from '../core/reasoning.js';
 import type { ExecutorProfiles, Session } from '../types.js';
-import { send } from './vibe-agent.js';
+import { send, sendRespondMessage } from './vibe-agent.js';
 
 vi.mock('../core/context.js', () => ({ getSessionForRole: vi.fn() }));
 vi.mock('../core/session-file.js', () => ({ registerSession: vi.fn() }));
@@ -116,6 +116,21 @@ describe('send routing', () => {
     expect(client.sendMessage).toHaveBeenCalledWith(session.id, expect.objectContaining({
       executor_config: { executor: 'OPENCODE', variant: 'DEFAULT' },
     }));
+  });
+
+  it.each([
+    ['Codex,High,high', 'HIGH', 'high'],
+    ['OpenCode,Default,medium', 'DEFAULT', 'medium'],
+  ])('keeps responses in the requester session with selection %s', async (selection, variant, reasoning_id) => {
+    vi.stubEnv('VIBE_AGENT_EXECUTOR_PROFILE', selection);
+    vi.spyOn(client, 'getSession').mockResolvedValue({ ...session, id: 'requester', executor: 'CODEX' });
+    await sendRespondMessage('requester', 'Review completed');
+    expect(client.sendMessage).toHaveBeenCalledExactlyOnceWith('requester', expect.objectContaining({
+      prompt: 'Review completed', executor_config: { executor: 'CODEX', variant, reasoning_id },
+    }));
+    expect(client.createSession).not.toHaveBeenCalled();
+    expect(registerSession).not.toHaveBeenCalled();
+    expect(resolveSendReasoning).toHaveBeenCalledWith(profiles, expect.objectContaining({ executor: 'CODEX', variant }), expect.objectContaining({ id: 'requester' }), client);
   });
 
   it.each([null, { ...session, executor: 'CODEX' as const }])('retains the previous mapping after rejection, then initializes on retry: %j', async initial => {

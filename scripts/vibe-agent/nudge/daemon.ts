@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { client as defaultClient } from '../core/client.js';
 import type { ConversationEntry, ExecutionProcess, SendMessageBody, Session, Workspace } from '../types.js';
 import { selectNudgeCandidateForSession, type NudgeCriteriaOptions } from './criteria.js';
+import { resolvePinnedExecutorConfig, type MessagePolicySource } from '../core/message-policy.js';
 
 const DEFAULT_STATE_PATH = '/var/lib/vd/nudge-daemon/state.json';
 const DEFAULT_POLL_INTERVAL_MS = 60_000;
@@ -13,7 +14,7 @@ const DEFAULT_MAX_PROCESSES_PER_SESSION = 6;
 const DEFAULT_CONVERSATION_TIMEOUT_MS = 5_000;
 const DEFAULT_NUDGE_PROMPT = 'Continue';
 
-export interface NudgeDaemonClient {
+export interface NudgeDaemonClient extends MessagePolicySource {
   getAllWorkspaces(): Promise<Workspace[]>;
   getSessions(workspaceId: string): Promise<Session[]>;
   getSessionProcesses(sessionId: string): Promise<ExecutionProcess[]>;
@@ -163,7 +164,7 @@ export async function runNudgeDaemonCycle(
 
         await daemonClient.sendMessage(session.id, {
           prompt: options.nudgePrompt,
-          executor_config: { executor: session.executor },
+          executor_config: await resolvePinnedExecutorConfig(session, daemonClient),
           retry_process_id: null,
           force_when_dirty: null,
           perform_git_reset: null,

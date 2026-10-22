@@ -1,6 +1,6 @@
 # Sending messages with a saved VK configuration
 
-`vibe-agent send` uses `OpenCode,Default,medium` by default for every role. Set
+`vibe-agent send` and `vk send` use `OpenCode,Default,medium` by default. Set
 `VIBE_AGENT_EXECUTOR_PROFILE` to select a saved VK agent/configuration and an
 optional reasoning level:
 
@@ -40,6 +40,21 @@ The current saved profile list is still fetched on every send to validate select
 
 Roles identify recipients and do not choose profiles. `submit`, `review`, `help`,
 and delayed `request-review` use the same send selection.
+
+`vk send <session-id> "<prompt>"` also honors this selection. A matching executor
+reuses the supplied session. A different executor creates a replacement session
+in the same workspace, preserves the old history, and includes the catch-up
+instruction below. Its output identifies the actual recipient session; use that
+new ID for subsequent sends. If the original session has a registered role, that
+role moves to the replacement only after message acceptance. Unregistered
+sessions do not acquire a role automatically.
+
+Self-directed automation keeps its original target session: callback completions,
+`--respond` replies, nudges, CI notifications, and hotswap resumes. When the
+configured executor matches the target, these use the selected preset. When it
+differs, they use the target executor's `DEFAULT` preset instead; configuration
+names are never applied across executors. In both cases, an optional reasoning
+override is checked against the actual target executor/model using the same cache.
 
 An existing recipient session is reused when its executor type matches, even
 when the configuration changes. A different executor type creates a new session,

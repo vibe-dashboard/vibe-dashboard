@@ -71,12 +71,19 @@ import type {
 export class VibeClient {
   private baseUrl: string;
 
-  constructor(baseUrl: string = config.BASE_URL) {
-    this.baseUrl = baseUrl;
+  constructor(
+    baseUrl: string = config.BASE_URL,
+    private fetchImpl: (url: string, options?: RequestInit) => Promise<Response> = (url, options) => fetch(url, options),
+  ) {
+    this.baseUrl = baseUrl.replace(/\/+$/, '').replace(/\/api$/, '');
+  }
+
+  get apiBaseUrl(): string {
+    return this.baseUrl;
   }
 
   private async request<T>(url: string, options?: RequestInit): Promise<T> {
-    const response = await fetch(url, {
+    const response = await this.fetchImpl(url, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
@@ -215,7 +222,7 @@ export class VibeClient {
 
         const latestProcess = processes.sort(
           (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        )[0];
+        )[0]!;
 
         return {
           workspace_id: workspaceId,
@@ -237,7 +244,7 @@ export class VibeClient {
   }
 
   async getExecutorProfiles(): Promise<ExecutorProfiles> {
-    const info = await this.request<{ executors: ExecutorProfiles }>(config.endpoints.info);
+    const info = await this.request<{ executors: ExecutorProfiles }>(`${this.baseUrl}/api/info`);
     return info.executors;
   }
 
@@ -377,7 +384,7 @@ export class VibeClient {
         }
 
         if (pathParts.length === 2) {
-          const idx = Number.parseInt(pathParts[1], 10);
+          const idx = Number.parseInt(pathParts[1]!, 10);
           if (!Number.isInteger(idx)) return;
 
           if (op.op === 'add') {

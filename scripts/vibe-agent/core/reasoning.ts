@@ -3,12 +3,16 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { config } from '../config.js';
 import type { ExecutorProfiles, ReasoningCapabilities, Session } from '../types.js';
 import { client } from './client.js';
 import type { SendProfile } from './executor-profile.js';
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
+
+export interface ReasoningSource {
+  readonly apiBaseUrl: string;
+  getReasoningCapabilities(profile: SendProfile, session: Session): Promise<ReasoningCapabilities>;
+}
 
 function isCapabilities(value: unknown): value is ReasoningCapabilities {
   if (!value || typeof value !== 'object') return false;
@@ -26,6 +30,7 @@ async function getCapabilities(
   profiles: ExecutorProfiles,
   profile: SendProfile,
   session: Session,
+  source: ReasoningSource,
 ): Promise<ReasoningCapabilities> {
   const selected = profiles[profile.executor]?.[profile.variant];
   const defaultProfile = profiles[profile.executor]?.DEFAULT;
@@ -40,7 +45,7 @@ async function getCapabilities(
   }
 
   const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-  const key = digest([config.BASE_URL, session.workspace_id, session.id, profile.executor, profile.variant]);
+  const key = digest([source.apiBaseUrl, session.workspace_id, session.id, profile.executor, profile.variant]);
   const fingerprint = digest([selected, defaultProfile, session.agent_working_dir]);
   const directory = path.join(os.homedir(), '.cache', 'vibe-agent', 'reasoning');
   const file = path.join(directory, `${key}.json`);
@@ -53,7 +58,7 @@ async function getCapabilities(
     // Missing, corrupt, or inaccessible cache: perform a fresh lookup.
   }
 
-  const capabilities = await client.getReasoningCapabilities(profile, session);
+  const capabilities = await source.getReasoningCapabilities(profile, session);
   if (!isCapabilities(capabilities)) throw new Error('invalid capability metadata');
   const temp = `${file}.${process.pid}.tmp`;
   try {
@@ -71,21 +76,22 @@ export async function resolveSendReasoning(
   profiles: ExecutorProfiles,
   profile: SendProfile,
   session: Session,
+  source: ReasoningSource = client,
 ): Promise<{ reasoning_id?: string }> {
   if (!profile.reasoning) return {};
   try {
-    const capabilities = await getCapabilities(profiles, profile, session);
+    const capabilities = await getCapabilities(profiles, profile, session, source);
     const modelId = capabilities.model_id ?? capabilities.default_model;
     if (!modelId) throw new Error('the effective model could not be determined');
     const models = capabilities.models.filter(model =>
       (model.provider_id ? `${model.provider_id}/${model.id}` : model.id) === modelId);
     if (models.length !== 1) throw new Error(`capabilities for model "${modelId}" are unavailable or ambiguous`);
-    const options = models[0].reasoning_options;
+    const options = models[0]!.reasoning_options;
     const matches = options.filter(option => option.id.toLowerCase() === profile.reasoning!.toLowerCase());
     if (matches.length !== 1) {
       throw new Error(`model "${modelId}" does not advertise this level (available: ${options.map(option => option.id).join(', ') || 'none'})`);
     }
-    return { reasoning_id: matches[0].id };
+    return { reasoning_id: matches[0]!.id };
   } catch (error) {
     console.warn(`Keeping saved reasoning for ${profile.executor}/${profile.variant}; could not apply "${profile.reasoning}": ${(error as Error).message}`);
     return {};

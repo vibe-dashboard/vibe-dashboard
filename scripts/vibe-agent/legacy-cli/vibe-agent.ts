@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url';
 import { client } from '../core/client.js';
 import { resolveSendProfile } from '../core/executor-profile.js';
 import { resolveSendReasoning } from '../core/reasoning.js';
+import { buildSendPrompt, resolvePinnedExecutorConfig } from '../core/message-policy.js';
 import type { ConversationEntry, ExecutionProcess, Session } from '../types.js';
 import {
   WORKSPACE_DATA_DIR,
@@ -24,11 +25,7 @@ import { BASE_ROLES, isValidRole } from '../config.js';
 
 // Message helpers
 
-export function buildSendPrompt(message: string, newSession = false): string {
-  return newSession
-    ? `${message}\n\nUse \`vibe-agent full_summary\` as a standalone command to catch up.`
-    : message;
-}
+export { buildSendPrompt };
 
 
 export const REQUEST_REVIEW_PROMPT = `Review the code on this branch thoroughly. Come back with concerns and actionable steps to resolve them. List pros and cons of each fix strategy.
@@ -1134,9 +1131,7 @@ async function callbackRunner(args: string[]): Promise<void> {
     const session = await client.getSession(payload.sessionId);
     await client.sendMessage(payload.sessionId, {
       prompt: message,
-      executor_config: {
-        executor: session.executor,
-      },
+      executor_config: await resolvePinnedExecutorConfig(session),
       retry_process_id: null,
       force_when_dirty: null,
       perform_git_reset: null,
@@ -1150,13 +1145,11 @@ async function callbackRunner(args: string[]): Promise<void> {
 }
 
 
-async function sendRespondMessage(replySessionId: string, prompt: string): Promise<void> {
+export async function sendRespondMessage(replySessionId: string, prompt: string): Promise<void> {
   const replySession = await client.getSession(replySessionId);
   await client.sendMessage(replySessionId, {
     prompt,
-    executor_config: {
-      executor: replySession.executor,
-    },
+    executor_config: await resolvePinnedExecutorConfig(replySession),
     retry_process_id: null,
     force_when_dirty: null,
     perform_git_reset: null,
