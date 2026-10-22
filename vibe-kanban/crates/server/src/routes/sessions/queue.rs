@@ -156,6 +156,22 @@ async fn get_queued_execution(
     Ok(ResponseJson(ApiResponse::success(reconciliation)))
 }
 
+pub(super) fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
+    Router::new()
+        .route(
+            "/",
+            get(get_queue_status)
+                .post(queue_message)
+                .put(amend_queued_message)
+                .delete(cancel_queued_message),
+        )
+        .route("/{queue_id}/process", get(get_queued_execution))
+        .layer(from_fn_with_state(
+            deployment.clone(),
+            load_session_middleware,
+        ))
+}
+
 #[cfg(test)]
 mod tests {
     use axum::{Router, body::Body, extract::Path, routing::get};
@@ -189,20 +205,4 @@ mod tests {
 
         assert_eq!(response.status(), http::StatusCode::OK);
     }
-}
-
-pub(super) fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
-    Router::new()
-        .route(
-            "/",
-            get(get_queue_status)
-                .post(queue_message)
-                .put(amend_queued_message)
-                .delete(cancel_queued_message),
-        )
-        .route("/{queue_id}/process", get(get_queued_execution))
-        .layer(from_fn_with_state(
-            deployment.clone(),
-            load_session_middleware,
-        ))
 }
