@@ -53,7 +53,7 @@ test.describe.serial('auto-nudge compatibility with real VK QA-mode contracts', 
       expect(responses.filter(response => response.status === 200)).toHaveLength(1);
       expect(responses.filter(response => response.status === 409)).toHaveLength(3);
       for (const response of responses.filter(response => response.status === 409)) {
-        await expect(response.text()).resolves.toContain('SessionBusy');
+        await expect(response.json()).resolves.toMatchObject({ success: false, message: `Session ${target.id} already has an active coding-agent turn` });
       }
       const accepted = responses.find(response => response.status === 200)!;
       const payload = await accepted.json() as { data: ExecutionProcess };
@@ -80,7 +80,7 @@ test.describe.serial('auto-nudge compatibility with real VK QA-mode contracts', 
         body: JSON.stringify(body('must not start a second child', target)),
       });
       expect(retry.status).toBe(409);
-      await expect(retry.text()).resolves.toContain('SessionBusy');
+      await expect(retry.json()).resolves.toMatchObject({ success: false, message: `Session ${target.id} already has an active coding-agent turn` });
       expect(await client.getSessionProcesses(target.id)).toHaveLength(1);
     } finally { await rm(value.dir, { recursive: true, force: true }); }
   });
@@ -169,10 +169,10 @@ test.describe.serial('auto-nudge compatibility with real VK QA-mode contracts', 
       await expect(replay.json()).resolves.toMatchObject({ data: { status: 'consuming', message: { id: queueId, owner } } });
       const cancel = await api(`/api/sessions/${target.id}/queue?queue_id=${queueId}&owner=${owner}`, { method: 'DELETE' });
       expect(cancel.status).toBe(409);
-      await expect(cancel.text()).resolves.toContain('TooLate');
+      await expect(cancel.json()).resolves.toMatchObject({ success: false, message: expect.stringContaining('has already been consumed or is no longer queued') });
       const amend = await api(`/api/sessions/${target.id}/queue`, { method: 'PUT', body: JSON.stringify({ ...queueBody, message: 'changed too late' }) });
       expect(amend.status).toBe(409);
-      await expect(amend.text()).resolves.toContain('TooLate');
+      await expect(amend.json()).resolves.toMatchObject({ success: false, message: expect.stringContaining('has already been consumed or is no longer queued') });
 
       await expect.poll(async () => {
         const payload = await (await api(`/api/sessions/${target.id}/queue/${queueId}/process`)).json() as { data: { lifecycle: string; process: ExecutionProcess | null } | null };
@@ -197,9 +197,9 @@ test.describe.serial('auto-nudge compatibility with real VK QA-mode contracts', 
       }, { timeout: 20_000 }).toEqual({ lifecycle: 'indeterminate', processId: expect.any(String) });
       await expect(api(`/api/sessions/${target.id}/queue`).then(response => response.json())).resolves.toMatchObject({ data: { status: 'consuming', message: { id: queueId, owner } } });
       const cancel = await api(`/api/sessions/${target.id}/queue?queue_id=${queueId}&owner=${owner}`, { method: 'DELETE' });
-      expect(cancel.status).toBe(409); await expect(cancel.text()).resolves.toContain('TooLate');
+      expect(cancel.status).toBe(409); await expect(cancel.json()).resolves.toMatchObject({ success: false, message: expect.stringContaining('has already been consumed or is no longer queued') });
       const amend = await api(`/api/sessions/${target.id}/queue`, { method: 'PUT', body: JSON.stringify({ ...queueBody, message: 'must stay immutable' }) });
-      expect(amend.status).toBe(409); await expect(amend.text()).resolves.toContain('TooLate');
+      expect(amend.status).toBe(409); await expect(amend.json()).resolves.toMatchObject({ success: false, message: expect.stringContaining('has already been consumed or is no longer queued') });
     } finally { await rm(value.dir, { recursive: true, force: true }); }
   });
 
@@ -240,9 +240,9 @@ test.describe.serial('auto-nudge compatibility with real VK QA-mode contracts', 
       }, { timeout: 20_000 }).toBe('consuming');
       await expect(api(`/api/sessions/${target.id}/queue/${queueId}/process`).then(response => response.json())).resolves.toMatchObject({ data: { lifecycle: 'indeterminate', process: { id: expect.any(String) } } });
       const retry = await api(`/api/sessions/${target.id}/follow-up`, { method: 'POST', body: JSON.stringify(body('must remain busy', target)) });
-      expect(retry.status).toBe(409); await expect(retry.text()).resolves.toContain('SessionBusy');
+      expect(retry.status).toBe(409); await expect(retry.json()).resolves.toMatchObject({ success: false, message: `Session ${target.id} already has an active coding-agent turn` });
       const cancel = await api(`/api/sessions/${target.id}/queue?queue_id=${queueId}&owner=${owner}`, { method: 'DELETE' });
-      expect(cancel.status).toBe(409); await expect(cancel.text()).resolves.toContain('TooLate');
+      expect(cancel.status).toBe(409); await expect(cancel.json()).resolves.toMatchObject({ success: false, message: expect.stringContaining('has already been consumed or is no longer queued') });
     } finally { await rm(value.dir, { recursive: true, force: true }); }
   });
 

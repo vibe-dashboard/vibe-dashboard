@@ -254,7 +254,7 @@ describe('VK mocked sandbox helpers', () => {
     );
     expect(plan.commands[0]).toMatchObject({
       command: 'cargo',
-      args: ['run', '--bin', 'server'],
+      args: ['run', '--bin', 'server', '--features', 'qa-mode'],
       env: {
         VK_QA_MODE: '1',
         BACKEND_PORT: '4107',
@@ -345,7 +345,7 @@ describe('VK mocked sandbox helpers', () => {
     expect(plan.setupCommands[1]).toMatchObject({
       cwd: '/tmp/worktrees/example/vibe-kanban-vscode-web/vibe-kanban',
       command: 'cargo',
-      args: ['build', '--bin', 'server'],
+      args: ['build', '--bin', 'server', '--features', 'qa-mode'],
       env: { VK_QA_MODE: '1' },
     });
     expect(plan.commands[0]).toMatchObject({

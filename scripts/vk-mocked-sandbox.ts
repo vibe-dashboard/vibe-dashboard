@@ -578,7 +578,7 @@ export function createSandboxPlan(input: {
       name: 'vk-build-backend-qa',
       cwd: vkRoot,
       command: 'cargo',
-      args: ['build', '--bin', 'server'],
+      args: ['build', '--bin', 'server', '--features', 'qa-mode'],
       env: commonEnv,
     });
   }
@@ -613,7 +613,7 @@ export function createSandboxPlan(input: {
       args:
         env.VK_MOCKED_PREBUILD_BACKEND === '1'
           ? []
-          : ['run', '--bin', 'server'],
+          : ['run', '--bin', 'server', '--features', 'qa-mode'],
       env: {
         ...commonEnv,
         HOST: '127.0.0.1',
