@@ -197,7 +197,7 @@ async fn build_status(
             }
             let has_active = latest
                 .as_ref()
-                .is_some_and(|process| is_active_codingagent(process));
+                .is_some_and(is_active_codingagent);
             session_statuses.push(AutoNudgeStatusSession {
                 id: session.id,
                 workspace_id: session.workspace_id,

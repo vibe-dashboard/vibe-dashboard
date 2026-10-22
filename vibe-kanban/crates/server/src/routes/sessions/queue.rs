@@ -38,11 +38,9 @@ fn queue_error(error: QueueError) -> ApiError {
     ApiError::Conflict(error.to_string())
 }
 
-fn validate_identity(payload: &QueueMessageRequest) -> Result<(), ApiError> {
+fn validate_identity(payload: &QueueMessageRequest) -> Result<(), String> {
     if payload.owner.trim().is_empty() {
-        return Err(ApiError::BadRequest(
-            "Queue owner must not be empty".to_string(),
-        ));
+        return Err("Queue owner must not be empty".to_string());
     }
     Ok(())
 }
@@ -53,7 +51,7 @@ async fn queue_message(
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<QueueMessageRequest>,
 ) -> Result<ResponseJson<ApiResponse<QueueStatus>>, ApiError> {
-    validate_identity(&payload)?;
+    validate_identity(&payload).map_err(ApiError::BadRequest)?;
     if let Some(message) = super::invalid_session_command_message(&payload.message) {
         return Err(ApiError::BadRequest(message));
     }
@@ -111,7 +109,7 @@ async fn amend_queued_message(
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<QueueMessageRequest>,
 ) -> Result<ResponseJson<ApiResponse<QueueStatus>>, ApiError> {
-    validate_identity(&payload)?;
+    validate_identity(&payload).map_err(ApiError::BadRequest)?;
     if let Some(message) = super::invalid_session_command_message(&payload.message) {
         return Err(ApiError::BadRequest(message));
     }
