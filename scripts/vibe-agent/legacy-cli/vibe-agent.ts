@@ -8,6 +8,7 @@ import { execFileSync, spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { client } from '../core/client.js';
 import { resolveSendProfile } from '../core/executor-profile.js';
+import { resolveSendReasoning } from '../core/reasoning.js';
 import type { ConversationEntry, ExecutionProcess, Session } from '../types.js';
 import {
   WORKSPACE_DATA_DIR,
@@ -1300,8 +1301,9 @@ export async function send(args: string[]): Promise<void> {
   }
 
   try {
-    const executorConfig = resolveSendProfile(await client.getExecutorProfiles());
-    const { executor } = executorConfig;
+    const profiles = await client.getExecutorProfiles();
+    const profile = resolveSendProfile(profiles);
+    const { executor, variant } = profile;
     let newSession = false;
 
     // Find existing session for target role
@@ -1316,11 +1318,9 @@ export async function send(args: string[]): Promise<void> {
         name: targetRole,
       });
       newSession = true;
-      // Register the newly created session with the role
-      registerSession(workspaceId, session.id, targetRole);
       if (!jsonOutput) {
         if (previousSession) {
-          console.log(`Created new ${executor} session for ${targetRole}: ${session.id} (replaced ${previousSession.executor} session ${previousSession.id})`);
+          console.log(`Created new ${executor} session for ${targetRole}: ${session.id} (previous role session: ${previousSession.executor} ${previousSession.id})`);
         } else {
           console.log(`Created new ${executor} session for ${targetRole}: ${session.id}`);
         }
@@ -1339,15 +1339,27 @@ export async function send(args: string[]): Promise<void> {
     }
 
     const finalMessage = buildSendPrompt(message, newSession);
+    const executorConfig = { executor, variant, ...await resolveSendReasoning(profiles, profile, session) };
 
     // Send message using the live follow-up API shape
     const result = await client.sendMessage(session.id, {
       prompt: finalMessage,
-      executor_config: { ...executorConfig, reasoning_id: 'medium' },
+      executor_config: executorConfig,
       retry_process_id: null,
       force_when_dirty: null,
       perform_git_reset: null,
     });
+
+    let registrationError: string | null = null;
+    if (newSession) {
+      try {
+        // Publish only after acceptance: rejected first sends must not replace the role mapping.
+        registerSession(workspaceId, session.id, targetRole);
+      } catch (error) {
+        registrationError = (error as Error).message;
+        console.error(`Message accepted for session ${session.id}, process ${result.id}, but role registration failed: ${registrationError}. Do not resend this message; register the accepted session as ${targetRole}.`);
+      }
+    }
 
     let respondRunnerPid: number | undefined;
     let replySessionId: string | null = null;
@@ -1387,6 +1399,7 @@ export async function send(args: string[]): Promise<void> {
         session_id: session.id,
         process_id: result.id,
         status: result.status,
+        ...(registrationError ? { registration_error: registrationError } : {}),
         ...(respond ? {
           respond_monitor_pid: respondRunnerPid ?? null,
           reply_session_id: replySessionId,
@@ -2236,7 +2249,7 @@ Environment variables:
   VK_TASK_ID         Task ID
   VK_WORKSPACE_BRANCH  Workspace branch
   VIBE_API_URL       VK API URL (default: http://localhost:3007)
-  VIBE_AGENT_EXECUTOR_PROFILE  Saved VK agent,configuration (default: OpenCode,Default)
+  VIBE_AGENT_EXECUTOR_PROFILE  Saved VK agent,configuration[,reasoning] (default: OpenCode,Default,medium)
 `);
 }
 
