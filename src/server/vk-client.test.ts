@@ -1,8 +1,9 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { VibeClient as AgentPolicyClient } from '../../scripts/vibe-agent/core/client.js';
+import { readRuntimeExecutorProfile } from '../../scripts/vibe-agent/core/runtime-config.js';
 import {
   VibeKanbanServerClient,
   VkApiError,
@@ -11,11 +12,13 @@ import {
   type Session,
 } from './vk-client';
 
+vi.mock('../../scripts/vibe-agent/core/runtime-config.js', { spy: true });
+
 let home: string;
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), 'vk-server-policy-'));
   vi.stubEnv('HOME', home);
-  vi.stubEnv('VIBE_AGENT_EXECUTOR_PROFILE', 'Codex,Default');
+  vi.mocked(readRuntimeExecutorProfile).mockReturnValue({ executor: 'Codex', variant: 'Default' });
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -119,10 +122,10 @@ describe('VibeKanbanServerClient', () => {
   });
 
   it.each([
-    ['Codex,Review,high', 'REVIEW', 'high'],
-    ['OpenCode,Default,medium', 'DEFAULT', 'medium'],
-  ])('keeps CI/hotswap follow-ups on their target with selection %s', async (selection, variant, reasoning_id) => {
-    vi.stubEnv('VIBE_AGENT_EXECUTOR_PROFILE', selection);
+    [{ executor: 'Codex', variant: 'Review', reasoning: 'high' }, 'REVIEW', 'high'],
+    [{ executor: 'OpenCode', variant: 'Default', reasoning: 'medium' }, 'DEFAULT', 'medium'],
+  ] as const)('keeps CI/hotswap follow-ups on their target with selection %j', async (selection, variant, reasoning_id) => {
+    vi.mocked(readRuntimeExecutorProfile).mockReturnValue(selection);
     const discovery = vi.spyOn(AgentPolicyClient.prototype, 'getReasoningCapabilities').mockResolvedValue({
       model_id: 'codex-model', default_model: null,
       models: [{ id: 'codex-model', reasoning_options: [{ id: 'high' }, { id: 'medium' }] }],
@@ -146,6 +149,42 @@ describe('VibeKanbanServerClient', () => {
     await expect(client.sendFollowUp('session-1', 'Continue')).resolves.toMatchObject({ session_id: 'session-1' });
     expect(discovery).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ executor: 'CODEX', variant }), expect.objectContaining({ id: 'session-1' }));
     expect(discovery.mock.contexts[0]).toMatchObject({ apiBaseUrl: 'http://vk.local' });
+  });
+
+  it('reloads the actual file for each follow-up on a long-lived server client', async () => {
+    const actual = await vi.importActual<typeof import('../../scripts/vibe-agent/core/runtime-config.js')>('../../scripts/vibe-agent/core/runtime-config.js');
+    const file = join(home, 'vibe-agent.json');
+    vi.mocked(readRuntimeExecutorProfile).mockImplementation(() => actual.readRuntimeExecutorProfile(file));
+    vi.spyOn(AgentPolicyClient.prototype, 'getReasoningCapabilities').mockResolvedValue({
+      model_id: 'codex-model', default_model: null,
+      models: [{ id: 'codex-model', reasoning_options: [{ id: 'high' }] }],
+    });
+    const sent: unknown[] = [];
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === 'http://vk.local/api/sessions/session-1') {
+        return jsonResponse({ success: true, data: { id: 'session-1', workspace_id: 'ws1', executor: 'CODEX' } });
+      }
+      if (url === 'http://vk.local/api/info') {
+        return jsonResponse({ success: true, data: { executors: { CODEX: { DEFAULT: { CODEX: {} }, REVIEW: { CODEX: {} } } } } });
+      }
+      if (url.endsWith('/session-1/follow-up') && init?.method === 'POST') {
+        sent.push(JSON.parse(String(init.body)).executor_config);
+        return jsonResponse({ success: true, data: { id: 'process', session_id: 'session-1', status: 'running' } });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    const client = new VibeKanbanServerClient({ baseUrl: 'http://vk.local/api', fetch: fetchImpl });
+    writeFileSync(file, JSON.stringify({ version: 1, executorProfile: { executor: 'Codex', variant: 'Default' } }));
+    await client.sendFollowUp('session-1', 'First message');
+    writeFileSync(file, JSON.stringify({ version: 1, executorProfile: { executor: 'Codex', variant: 'Review', reasoning: 'high' } }));
+    await client.sendFollowUp('session-1', 'Second message');
+    expect(sent).toEqual([
+      { executor: 'CODEX', variant: 'DEFAULT' },
+      { executor: 'CODEX', variant: 'REVIEW', reasoning_id: 'high' },
+    ]);
+    writeFileSync(file, '{broken json');
+    await expect(client.sendFollowUp('session-1', 'Must not send')).rejects.toThrow(`Invalid vibe-agent config ${file}:`);
+    expect(sent).toHaveLength(2);
   });
 
   it('fetches, stops, and checks readiness endpoints used by hotswap seams', async () => {

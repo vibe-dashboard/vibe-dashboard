@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ConversationEntry, ExecutionProcess, SendMessageBody, Session, Workspace } from '../types.js';
+import { readRuntimeExecutorProfile } from '../core/runtime-config.js';
 import {
   createNudgeDaemonOptions,
   isNudgeDaemonEnabled,
@@ -13,10 +14,12 @@ import {
   type NudgeDaemonClient,
 } from './daemon.js';
 
+vi.mock('../core/runtime-config.js', { spy: true });
+
 const tempDirs: string[] = [];
 
 beforeEach(() => {
-  vi.stubEnv('VIBE_AGENT_EXECUTOR_PROFILE', 'Codex,Default');
+  vi.mocked(readRuntimeExecutorProfile).mockReturnValue({ executor: 'Codex', variant: 'Default' });
   const home = mkdtempSync(join(tmpdir(), 'vd-nudge-home-'));
   tempDirs.push(home);
   vi.stubEnv('HOME', home);
@@ -184,10 +187,10 @@ describe('nudge daemon', () => {
   });
 
   it.each([
-    ['Codex,Review,high', 'REVIEW', 'high'],
-    ['OpenCode,Default,medium', 'DEFAULT', 'medium'],
-  ])('applies %s without moving the nudge from its original session', async (selection, variant, reasoning_id) => {
-    vi.stubEnv('VIBE_AGENT_EXECUTOR_PROFILE', selection);
+    [{ executor: 'Codex', variant: 'Review', reasoning: 'high' }, 'REVIEW', 'high'],
+    [{ executor: 'OpenCode', variant: 'Default', reasoning: 'medium' }, 'DEFAULT', 'medium'],
+  ] as const)('applies %j without moving the nudge from its original session', async (selection, variant, reasoning_id) => {
+    vi.mocked(readRuntimeExecutorProfile).mockReturnValue(selection);
     const { client, sent } = fakeClient({});
     const result = await runNudgeDaemonCycle(client, options(), readNudgeDaemonState(tempStatePath()), () => {});
     expect(result.errors).toEqual([]);

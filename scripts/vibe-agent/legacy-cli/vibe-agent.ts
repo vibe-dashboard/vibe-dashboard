@@ -2242,7 +2242,11 @@ Environment variables:
   VK_TASK_ID         Task ID
   VK_WORKSPACE_BRANCH  Workspace branch
   VIBE_API_URL       VK API URL (default: http://localhost:3007)
-  VIBE_AGENT_EXECUTOR_PROFILE  Saved VK agent,configuration[,reasoning] (default: OpenCode,Default,medium)
+
+Send configuration:
+  /var/lib/vd/instance-config/vibe-agent.json
+  {"version":1,"executorProfile":{"executor":"OpenCode","variant":"Default","reasoning":"medium"}}
+  Read on every outgoing message. Omit reasoning to retain the saved preset setting.
 `);
 }
 

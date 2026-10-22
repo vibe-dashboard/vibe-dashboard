@@ -264,6 +264,15 @@ mkdir -p /var/lib/vd/instance-config /var/lib/vd/vk-config /var/lib/vd/beads /va
 ensure_shared_dir /var/lib/vd /var/lib/vd/instance-config /var/lib/vd/vk-config /var/lib/vd/beads /var/lib/vd/plugin-cache /var/lib/vd/plugins /var/lib/vd/plugin-bin /var/lib/vd/toolchains /var/lib/vd/plugin-data /var/lib/vd/silverbullet
 startup_debug_path_summary /var/lib/vd
 startup_step_end
+
+# Instance-wide send policy is read for every message. Seed once; retain edits
+# across service restarts and image deployments through the /var/lib/vd volume.
+if [ ! -e /var/lib/vd/instance-config/vibe-agent.json ]; then
+    install -m 0660 -o vkuser -g vkadmin \
+        /opt/vibe-kanban-vscode-web-seed/scripts/vibe-agent/vibe-agent.example.json \
+        /var/lib/vd/instance-config/vibe-agent.json
+fi
+
 if [ ! -f /etc/caddy/plugins.caddy ]; then
     cat > /etc/caddy/plugins.caddy <<'EOF'
 # VD plugin-owned Caddy routes.

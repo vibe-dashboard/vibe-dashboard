@@ -1196,7 +1196,8 @@ function printHelp() {
   console.log('  --timeout <ms>        WebSocket log wait time (default: 2000)');
   console.log('');
   console.log(`Executors: ${Object.keys(config.executors).join(', ')}`);
-  console.log('Send profile: VIBE_AGENT_EXECUTOR_PROFILE=agent,configuration[,reasoning] (default: OpenCode,Default,medium)');
+  console.log('Send config: /var/lib/vd/instance-config/vibe-agent.json (read for every send)');
+  console.log('  {"version":1,"executorProfile":{"executor":"OpenCode","variant":"Default","reasoning":"medium"}}');
 }
 
 const invokedPath = process.argv[1] ?? '';

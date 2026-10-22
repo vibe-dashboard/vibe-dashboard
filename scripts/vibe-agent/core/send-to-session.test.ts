@@ -2,11 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { VKService } from '../cli/vk-service.js';
 import { client } from './client.js';
 import { resolveSendReasoning } from './reasoning.js';
+import { DEFAULT_SEND_PROFILE, readRuntimeExecutorProfile } from './runtime-config.js';
 import { getRoleForSession, registerSession } from './session-file.js';
 import type { Session } from '../types.js';
 
 vi.mock('./session-file.js', () => ({ getRoleForSession: vi.fn(), registerSession: vi.fn() }));
 vi.mock('./reasoning.js', () => ({ resolveSendReasoning: vi.fn() }));
+vi.mock('./runtime-config.js', { spy: true });
 
 const profiles = {
   OPENCODE: { DEFAULT: { OPENCODE: {} }, REVIEW: { OPENCODE: {} } },
@@ -18,7 +20,7 @@ const service = new VKService();
 
 beforeEach(() => {
   vi.resetAllMocks();
-  vi.stubEnv('VIBE_AGENT_EXECUTOR_PROFILE', 'OpenCode,Default,medium');
+  vi.mocked(readRuntimeExecutorProfile).mockReturnValue({ ...DEFAULT_SEND_PROFILE });
   vi.spyOn(console, 'error').mockImplementation(() => {});
   vi.spyOn(client, 'getExecutorProfiles').mockResolvedValue(profiles);
   vi.spyOn(client, 'getSession').mockResolvedValue(original);
@@ -49,7 +51,7 @@ describe('vk send session routing', () => {
   });
 
   it('reuses matching sessions with a selected preset and no catch-up', async () => {
-    vi.stubEnv('VIBE_AGENT_EXECUTOR_PROFILE', 'OpenCode,Review,high');
+    vi.mocked(readRuntimeExecutorProfile).mockReturnValue({ executor: 'OpenCode', variant: 'Review', reasoning: 'high' });
     vi.mocked(client.getSession).mockResolvedValue({ ...original, executor: 'OPENCODE' });
     await service.sendMessage('original', 'Review');
     expect(client.createSession).not.toHaveBeenCalled();
@@ -59,8 +61,8 @@ describe('vk send session routing', () => {
     expect(registerSession).not.toHaveBeenCalled();
   });
 
-  it('preserves saved reasoning for two-part selections', async () => {
-    vi.stubEnv('VIBE_AGENT_EXECUTOR_PROFILE', 'Codex,Default');
+  it('preserves saved reasoning when the config omits reasoning', async () => {
+    vi.mocked(readRuntimeExecutorProfile).mockReturnValue({ executor: 'Codex', variant: 'Default' });
     await service.sendMessage('original', 'Continue');
     expect(client.sendMessage).toHaveBeenCalledWith('original', expect.objectContaining({
       executor_config: { executor: 'CODEX', variant: 'DEFAULT' },
@@ -94,7 +96,7 @@ describe('vk send session routing', () => {
   });
 
   it('validates the configured profile before any session changes', async () => {
-    vi.stubEnv('VIBE_AGENT_EXECUTOR_PROFILE', 'OpenCode,Missing,high');
+    vi.mocked(readRuntimeExecutorProfile).mockReturnValue({ executor: 'OpenCode', variant: 'Missing', reasoning: 'high' });
     await expect(service.sendMessage('original', 'Review')).rejects.toThrow('Unknown or ambiguous configuration');
     expect(client.getSession).not.toHaveBeenCalled();
     expect(client.createSession).not.toHaveBeenCalled();

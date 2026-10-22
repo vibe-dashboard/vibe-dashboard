@@ -45,7 +45,6 @@ services:
       VK_CODEX_BINARY: ${VK_CODEX_BINARY:-/usr/local/bin/codex}
       CODEX_SQLITE_LOGS: ${CODEX_SQLITE_LOGS:-off}
       VK_SETTINGS_DIRECTORY: ${VK_SETTINGS_DIRECTORY:-/var/lib/vd/vk-config}
-      VIBE_AGENT_EXECUTOR_PROFILE: ${VIBE_AGENT_EXECUTOR_PROFILE:-OpenCode,Default,medium}
       VD_BEADS_DIRECTORY: ${VD_BEADS_DIRECTORY:-/var/lib/vd/beads}
 
       # ENABLE_BOSUN: ${ENABLE_BOSUN:-false}

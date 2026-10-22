@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "executorProfile": {
+    "executor": "OpenCode",
+    "variant": "Default",
+    "reasoning": "medium"
+  }
+}

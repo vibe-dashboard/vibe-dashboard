@@ -1,7 +1,6 @@
 import type { Executor } from '../config.js';
 import type { ExecutorProfiles } from '../types.js';
-
-export const DEFAULT_SEND_PROFILE = 'OpenCode,Default,medium';
+import { parseExecutorProfileSelection, readRuntimeExecutorProfile } from './runtime-config.js';
 
 export type SendProfile = { executor: Executor; variant: string; reasoning?: string };
 
@@ -12,23 +11,19 @@ function normalizeProfileName(value: string): string {
 
 export function resolveSendProfile(
   profiles: ExecutorProfiles,
-  selection = process.env.VIBE_AGENT_EXECUTOR_PROFILE,
+  selection: unknown = readRuntimeExecutorProfile(),
 ): SendProfile {
-  const value = selection?.trim() || DEFAULT_SEND_PROFILE;
-  const parts = value.split(',').map(part => part.trim());
-  if ((parts.length !== 2 && parts.length !== 3) || parts.some(part => !part)) {
-    throw new Error(`VIBE_AGENT_EXECUTOR_PROFILE must be "<agent>,<configuration>[,<reasoning>]", for example "${DEFAULT_SEND_PROFILE}"`);
-  }
+  const configured = parseExecutorProfileSelection(selection);
 
-  const executors = Object.keys(profiles).filter(key => normalizeProfileName(key) === normalizeProfileName(parts[0]!));
+  const executors = Object.keys(profiles).filter(key => normalizeProfileName(key) === normalizeProfileName(configured.executor));
   if (executors.length !== 1) {
-    throw new Error(`Unknown or ambiguous agent "${parts[0]}" in VIBE_AGENT_EXECUTOR_PROFILE. Available agents: ${Object.keys(profiles).join(', ')}`);
+    throw new Error(`Unknown or ambiguous executorProfile.executor "${configured.executor}". Available agents: ${Object.keys(profiles).join(', ')}`);
   }
   const executor = executors[0] as Executor;
   const configurations = Object.keys(profiles[executor]!).filter(key => key !== 'recently_used_models');
-  const variants = configurations.filter(key => normalizeProfileName(key) === normalizeProfileName(parts[1]!));
+  const variants = configurations.filter(key => normalizeProfileName(key) === normalizeProfileName(configured.variant));
   if (variants.length !== 1) {
-    throw new Error(`Unknown or ambiguous configuration "${parts[1]}" for ${executor}. Available configurations: ${configurations.join(', ')}`);
+    throw new Error(`Unknown or ambiguous configuration "${configured.variant}" in executorProfile.variant for ${executor}. Available configurations: ${configurations.join(', ')}`);
   }
-  return { executor, variant: variants[0]!, ...(parts[2] ? { reasoning: parts[2] } : {}) };
+  return { executor, variant: variants[0]!, ...(configured.reasoning ? { reasoning: configured.reasoning } : {}) };
 }

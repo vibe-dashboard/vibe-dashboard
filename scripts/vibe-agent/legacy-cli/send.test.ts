@@ -4,12 +4,14 @@ import { getSessionForRole } from '../core/context.js';
 import { registerSession } from '../core/session-file.js';
 import { resolveSendProfile } from '../core/executor-profile.js';
 import { resolveSendReasoning } from '../core/reasoning.js';
+import { DEFAULT_SEND_PROFILE, readRuntimeExecutorProfile } from '../core/runtime-config.js';
 import type { ExecutorProfiles, Session } from '../types.js';
 import { send, sendRespondMessage } from './vibe-agent.js';
 
 vi.mock('../core/context.js', () => ({ getSessionForRole: vi.fn() }));
 vi.mock('../core/session-file.js', () => ({ registerSession: vi.fn() }));
 vi.mock('../core/reasoning.js', () => ({ resolveSendReasoning: vi.fn() }));
+vi.mock('../core/runtime-config.js', { spy: true });
 
 const profiles: ExecutorProfiles = {
   OPENCODE: {
@@ -25,6 +27,10 @@ const session: Session = {
   name: 'reviewer', created_at: '', updated_at: '',
 };
 
+beforeEach(() => {
+  vi.mocked(readRuntimeExecutorProfile).mockReturnValue({ ...DEFAULT_SEND_PROFILE });
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
@@ -32,23 +38,28 @@ afterEach(() => {
 });
 
 describe('send profile resolution', () => {
-  it.each([undefined, '', '   '])('defaults to OpenCode,Default for %j', value => {
-    vi.stubEnv('VIBE_AGENT_EXECUTOR_PROFILE', value);
+  it('resolves the runtime configuration on every call', () => {
     expect(resolveSendProfile(profiles)).toEqual({ executor: 'OPENCODE', variant: 'DEFAULT', reasoning: 'medium' });
+    vi.mocked(readRuntimeExecutorProfile).mockReturnValue({ executor: 'Codex', variant: 'High' });
+    expect(resolveSendProfile(profiles)).toEqual({ executor: 'CODEX', variant: 'HIGH' });
   });
 
   it('resolves friendly names to actual saved keys', () => {
-    expect(resolveSendProfile(profiles, ' openCode , Deep Review ')).toEqual({ executor: 'OPENCODE', variant: 'DEEP_REVIEW' });
-    expect(resolveSendProfile(profiles, 'Codex,High')).toEqual({ executor: 'CODEX', variant: 'HIGH' });
-    expect(resolveSendProfile(profiles, ' Codex , Default , HIGH ')).toEqual({ executor: 'CODEX', variant: 'DEFAULT', reasoning: 'HIGH' });
+    expect(resolveSendProfile(profiles, { executor: ' openCode ', variant: ' Deep Review ' })).toEqual({ executor: 'OPENCODE', variant: 'DEEP_REVIEW' });
+    expect(resolveSendProfile(profiles, { executor: 'Codex', variant: 'High' })).toEqual({ executor: 'CODEX', variant: 'HIGH' });
+    expect(resolveSendProfile(profiles, { executor: ' Codex ', variant: ' Default ', reasoning: ' HIGH ' })).toEqual({ executor: 'CODEX', variant: 'DEFAULT', reasoning: 'HIGH' });
   });
 
-  it.each(['OpenCode', 'OpenCode,', ',Default', 'OpenCode,Default,', 'OpenCode,Default,high,extra', 'Missing,Default', 'OpenCode,Missing', 'OpenCode,recently_used_models'])('rejects invalid selection %j', value => {
+  it.each([
+    { executor: 'Missing', variant: 'Default' },
+    { executor: 'OpenCode', variant: 'Missing' },
+    { executor: 'OpenCode', variant: 'recently_used_models' },
+  ])('rejects unavailable selection %j', value => {
     expect(() => resolveSendProfile(profiles, value)).toThrow();
   });
 
   it('rejects ambiguous saved names', () => {
-    expect(() => resolveSendProfile({ OPENCODE: { DEEP_REVIEW: {}, DEEPREVIEW: {} } }, 'OpenCode,Deep Review')).toThrow(/ambiguous/);
+    expect(() => resolveSendProfile({ OPENCODE: { DEEP_REVIEW: {}, DEEPREVIEW: {} } }, { executor: 'OpenCode', variant: 'Deep Review' })).toThrow(/ambiguous/);
   });
 
   it('reads configurations from the live VK info response', async () => {
@@ -68,7 +79,6 @@ describe('send routing', () => {
     vi.mocked(resolveSendReasoning).mockImplementation(async (_profiles, profile) =>
       profile.reasoning ? { reasoning_id: profile.reasoning.toLowerCase() } : {});
     vi.stubEnv('VK_WORKSPACE_ID', 'workspace');
-    vi.stubEnv('VIBE_AGENT_EXECUTOR_PROFILE', '');
     vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.spyOn(client, 'getExecutorProfiles').mockResolvedValue(profiles);
@@ -89,20 +99,20 @@ describe('send routing', () => {
     }));
   });
 
-  it.each(['OpenCode,Default', 'OpenCode,Deep Review'])('reuses same-executor sessions for %s without adding instructions', async selection => {
-    vi.stubEnv('VIBE_AGENT_EXECUTOR_PROFILE', selection);
+  it.each(['Default', 'Deep Review'])('reuses same-executor sessions for %s without adding instructions', async variant => {
+    vi.mocked(readRuntimeExecutorProfile).mockReturnValue({ executor: 'OpenCode', variant });
     vi.mocked(getSessionForRole).mockResolvedValue(session);
     await send(['reviewer', 'Original message', '--json']);
     expect(client.createSession).not.toHaveBeenCalled();
     expect(registerSession).not.toHaveBeenCalled();
     expect(client.sendMessage).toHaveBeenCalledWith('existing-session', expect.objectContaining({
       prompt: 'Original message',
-      executor_config: { executor: 'OPENCODE', variant: selection.endsWith('Default') ? 'DEFAULT' : 'DEEP_REVIEW' },
+      executor_config: { executor: 'OPENCODE', variant: variant === 'Default' ? 'DEFAULT' : 'DEEP_REVIEW' },
     }));
   });
 
   it.each(['reviewer', 'implementer', 'reviewer-codex', 'custom-role'])('uses the explicit profile regardless of role: %s', async role => {
-    vi.stubEnv('VIBE_AGENT_EXECUTOR_PROFILE', 'Codex,High,high');
+    vi.mocked(readRuntimeExecutorProfile).mockReturnValue({ executor: 'Codex', variant: 'High', reasoning: 'high' });
     vi.mocked(getSessionForRole).mockResolvedValue({ ...session, executor: 'CODEX', name: role });
     await send([role, 'Review', '--json']);
     expect(resolveSendReasoning).toHaveBeenCalledWith(profiles, { executor: 'CODEX', variant: 'HIGH', reasoning: 'high' }, expect.objectContaining({ id: 'existing-session', workspace_id: 'workspace', executor: 'CODEX' }));
@@ -119,10 +129,10 @@ describe('send routing', () => {
   });
 
   it.each([
-    ['Codex,High,high', 'HIGH', 'high'],
-    ['OpenCode,Default,medium', 'DEFAULT', 'medium'],
-  ])('keeps responses in the requester session with selection %s', async (selection, variant, reasoning_id) => {
-    vi.stubEnv('VIBE_AGENT_EXECUTOR_PROFILE', selection);
+    [{ executor: 'Codex', variant: 'High', reasoning: 'high' }, 'HIGH', 'high'],
+    [{ executor: 'OpenCode', variant: 'Default', reasoning: 'medium' }, 'DEFAULT', 'medium'],
+  ] as const)('keeps responses in the requester session with selection %j', async (selection, variant, reasoning_id) => {
+    vi.mocked(readRuntimeExecutorProfile).mockReturnValue(selection);
     vi.spyOn(client, 'getSession').mockResolvedValue({ ...session, id: 'requester', executor: 'CODEX' });
     await sendRespondMessage('requester', 'Review completed');
     expect(client.sendMessage).toHaveBeenCalledExactlyOnceWith('requester', expect.objectContaining({
@@ -166,12 +176,22 @@ describe('send routing', () => {
   });
 
   it('fails invalid selection before session lookup or mutations', async () => {
-    vi.stubEnv('VIBE_AGENT_EXECUTOR_PROFILE', 'OpenCode,Missing');
+    vi.mocked(readRuntimeExecutorProfile).mockReturnValue({ executor: 'OpenCode', variant: 'Missing' });
     vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
     await expect(send(['reviewer', 'Review', '--json'])).rejects.toThrow('exit');
     expect(getSessionForRole).not.toHaveBeenCalled();
     expect(client.createSession).not.toHaveBeenCalled();
     expect(client.updateSession).not.toHaveBeenCalled();
+    expect(registerSession).not.toHaveBeenCalled();
+    expect(client.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('rejects a malformed runtime file before looking up or changing recipient sessions', async () => {
+    vi.mocked(readRuntimeExecutorProfile).mockImplementation(() => { throw new Error('Invalid vibe-agent config: invalid JSON'); });
+    vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+    await expect(send(['reviewer', 'Review', '--json'])).rejects.toThrow('exit');
+    expect(getSessionForRole).not.toHaveBeenCalled();
+    expect(client.createSession).not.toHaveBeenCalled();
     expect(registerSession).not.toHaveBeenCalled();
     expect(client.sendMessage).not.toHaveBeenCalled();
   });

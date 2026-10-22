@@ -18,7 +18,7 @@ export async function resolvePinnedExecutorConfig(
   const configured = resolveSendProfile(profiles);
   const profile = configured.executor === session.executor
     ? configured
-    : { ...resolveSendProfile(profiles, `${session.executor},Default`), reasoning: configured.reasoning };
+    : { ...resolveSendProfile(profiles, { executor: session.executor, variant: 'Default' }), reasoning: configured.reasoning };
   return {
     executor: profile.executor,
     variant: profile.variant,
