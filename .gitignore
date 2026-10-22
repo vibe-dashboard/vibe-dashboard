@@ -5,6 +5,7 @@ data/kv.db
 data/*.bak-*
 .springboard
 index.html
+!tests/browser/inline-chat/index.html
 storybook-static
 debug-*
 .env.vkcloud
