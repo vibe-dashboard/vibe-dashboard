@@ -121,141 +121,6 @@ async fn persist_queue_start_outcome(
     Ok(outcome)
 }
 
-#[cfg(test)]
-mod queue_start_outcome_tests {
-    use sqlx::{Executor, sqlite::SqlitePoolOptions};
-
-    use super::*;
-
-    async fn setup() -> (sqlx::SqlitePool, CreateExecutionProcess) {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
-        pool.execute("PRAGMA foreign_keys = ON").await.unwrap();
-        pool.execute("CREATE TABLE sessions (id BLOB PRIMARY KEY NOT NULL)")
-            .await
-            .unwrap();
-        pool.execute(
-            "CREATE TABLE execution_processes (
-                id BLOB PRIMARY KEY NOT NULL,
-                session_id BLOB NOT NULL,
-                status TEXT NOT NULL,
-                run_reason TEXT NOT NULL
-            )",
-        )
-        .await
-        .unwrap();
-        sqlx::raw_sql(include_str!(
-            "../../../db/migrations/20261020000000_enforce_single_active_coding_agent.sql"
-        ))
-        .execute(&pool)
-        .await
-        .unwrap();
-        let session_id = Uuid::new_v4();
-        sqlx::query("INSERT INTO sessions (id) VALUES (?)")
-            .bind(session_id)
-            .execute(&pool)
-            .await
-            .unwrap();
-        let data = CreateExecutionProcess {
-            session_id,
-            executor_action: ExecutorAction::new(
-                ExecutorActionType::ScriptRequest(ScriptRequest {
-                    script: "echo queue start".into(),
-                    language: ScriptRequestLanguage::Bash,
-                    context: ScriptContext::SetupScript,
-                    working_dir: None,
-                    env: HashMap::new(),
-                }),
-                None,
-            ),
-            run_reason: ExecutionProcessRunReason::SetupScript,
-        };
-        (pool, data)
-    }
-
-    async fn reserve(
-        pool: &sqlx::SqlitePool,
-        queue_id: Uuid,
-        process_id: Uuid,
-        data: &CreateExecutionProcess,
-    ) {
-        assert!(matches!(
-            ExecutionProcess::reserve_queue_effect(pool, queue_id, "workflow", process_id, data)
-                .await
-                .unwrap(),
-            QueueEffectReservation::Proceed
-        ));
-    }
-
-    #[tokio::test]
-    async fn only_not_spawned_allows_same_identity_retry() {
-        let (pool, data) = setup().await;
-        let retryable_id = Uuid::new_v4();
-        let retryable_process = Uuid::new_v4();
-        reserve(&pool, retryable_id, retryable_process, &data).await;
-        ExecutionProcess::set_queue_effect_lifecycle(
-            &pool,
-            retryable_id,
-            retryable_process,
-            QueueEffectLifecycle::Indeterminate,
-        )
-        .await
-        .unwrap();
-        persist_queue_start_outcome(
-            &pool,
-            Some((retryable_id, retryable_process)),
-            StartExecutionOutcome::NotSpawned(ContainerError::Other(anyhow!("not spawned"))),
-        )
-        .await
-        .unwrap();
-        assert!(matches!(
-            ExecutionProcess::reserve_queue_effect(
-                &pool,
-                retryable_id,
-                "workflow",
-                Uuid::new_v4(),
-                &data,
-            )
-            .await
-            .unwrap(),
-            QueueEffectReservation::Proceed
-        ));
-
-        let uncertain_id = Uuid::new_v4();
-        let uncertain_process = Uuid::new_v4();
-        reserve(&pool, uncertain_id, uncertain_process, &data).await;
-        ExecutionProcess::set_queue_effect_lifecycle(
-            &pool,
-            uncertain_id,
-            uncertain_process,
-            QueueEffectLifecycle::Indeterminate,
-        )
-        .await
-        .unwrap();
-        persist_queue_start_outcome(
-            &pool,
-            Some((uncertain_id, uncertain_process)),
-            StartExecutionOutcome::Uncertain(ContainerError::Other(anyhow!("maybe spawned"))),
-        )
-        .await
-        .unwrap();
-        assert!(matches!(
-            ExecutionProcess::reserve_queue_effect(
-                &pool,
-                uncertain_id,
-                "workflow",
-                Uuid::new_v4(),
-                &data,
-            )
-            .await,
-            Err(ExecutionProcessError::QueueEffectIndeterminate { .. })
-        ));
-    }
-}
-
 #[async_trait]
 pub trait ContainerService {
     fn msg_stores(&self) -> &Arc<RwLock<HashMap<Uuid, Arc<MsgStore>>>>;
@@ -1769,5 +1634,140 @@ pub trait ContainerService {
 
         tracing::debug!("Started next action: {:?}", next_action);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod queue_start_outcome_tests {
+    use sqlx::{Executor, sqlite::SqlitePoolOptions};
+
+    use super::*;
+
+    async fn setup() -> (sqlx::SqlitePool, CreateExecutionProcess) {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        pool.execute("PRAGMA foreign_keys = ON").await.unwrap();
+        pool.execute("CREATE TABLE sessions (id BLOB PRIMARY KEY NOT NULL)")
+            .await
+            .unwrap();
+        pool.execute(
+            "CREATE TABLE execution_processes (
+                id BLOB PRIMARY KEY NOT NULL,
+                session_id BLOB NOT NULL,
+                status TEXT NOT NULL,
+                run_reason TEXT NOT NULL
+            )",
+        )
+        .await
+        .unwrap();
+        sqlx::raw_sql(include_str!(
+            "../../../db/migrations/20261020000000_enforce_single_active_coding_agent.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        let session_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO sessions (id) VALUES (?)")
+            .bind(session_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let data = CreateExecutionProcess {
+            session_id,
+            executor_action: ExecutorAction::new(
+                ExecutorActionType::ScriptRequest(ScriptRequest {
+                    script: "echo queue start".into(),
+                    language: ScriptRequestLanguage::Bash,
+                    context: ScriptContext::SetupScript,
+                    working_dir: None,
+                    env: HashMap::new(),
+                }),
+                None,
+            ),
+            run_reason: ExecutionProcessRunReason::SetupScript,
+        };
+        (pool, data)
+    }
+
+    async fn reserve(
+        pool: &sqlx::SqlitePool,
+        queue_id: Uuid,
+        process_id: Uuid,
+        data: &CreateExecutionProcess,
+    ) {
+        assert!(matches!(
+            ExecutionProcess::reserve_queue_effect(pool, queue_id, "workflow", process_id, data)
+                .await
+                .unwrap(),
+            QueueEffectReservation::Proceed
+        ));
+    }
+
+    #[tokio::test]
+    async fn only_not_spawned_allows_same_identity_retry() {
+        let (pool, data) = setup().await;
+        let retryable_id = Uuid::new_v4();
+        let retryable_process = Uuid::new_v4();
+        reserve(&pool, retryable_id, retryable_process, &data).await;
+        ExecutionProcess::set_queue_effect_lifecycle(
+            &pool,
+            retryable_id,
+            retryable_process,
+            QueueEffectLifecycle::Indeterminate,
+        )
+        .await
+        .unwrap();
+        persist_queue_start_outcome(
+            &pool,
+            Some((retryable_id, retryable_process)),
+            StartExecutionOutcome::NotSpawned(ContainerError::Other(anyhow!("not spawned"))),
+        )
+        .await
+        .unwrap();
+        assert!(matches!(
+            ExecutionProcess::reserve_queue_effect(
+                &pool,
+                retryable_id,
+                "workflow",
+                Uuid::new_v4(),
+                &data,
+            )
+            .await
+            .unwrap(),
+            QueueEffectReservation::Proceed
+        ));
+
+        let uncertain_id = Uuid::new_v4();
+        let uncertain_process = Uuid::new_v4();
+        reserve(&pool, uncertain_id, uncertain_process, &data).await;
+        ExecutionProcess::set_queue_effect_lifecycle(
+            &pool,
+            uncertain_id,
+            uncertain_process,
+            QueueEffectLifecycle::Indeterminate,
+        )
+        .await
+        .unwrap();
+        persist_queue_start_outcome(
+            &pool,
+            Some((uncertain_id, uncertain_process)),
+            StartExecutionOutcome::Uncertain(ContainerError::Other(anyhow!("maybe spawned"))),
+        )
+        .await
+        .unwrap();
+        assert!(matches!(
+            ExecutionProcess::reserve_queue_effect(
+                &pool,
+                uncertain_id,
+                "workflow",
+                Uuid::new_v4(),
+                &data,
+            )
+            .await,
+            Err(ExecutionProcessError::QueueEffectIndeterminate { .. })
+        ));
     }
 }
