@@ -30,11 +30,6 @@ async function terminal(processId: string): Promise<ExecutionProcess> {
   }
   throw new Error(`QA process ${processId} did not become terminal`);
 }
-async function stop(processId: string): Promise<void> {
-  const response = await api(`/api/execution-processes/${processId}/stop`, { method: 'POST' });
-  expect(response.status).toBe(200);
-  await terminal(processId);
-}
 async function context() {
   const workspace = (await client.getAllWorkspaces()).find(item => item.name === 'Basic Seeded VK Craft') ?? (await client.getAllWorkspaces())[0];
   if (!workspace) throw new Error('QA sandbox has no seeded workspace');
@@ -63,31 +58,6 @@ test.describe.serial('auto-nudge compatibility with real VK QA-mode contracts', 
       const accepted = responses.find(response => response.status === 200)!;
       const payload = await accepted.json() as { data: ExecutionProcess };
       await terminal(payload.data.id);
-    } finally { await rm(value.dir, { recursive: true, force: true }); }
-  });
-
-  test('post-spawn stdin failure remains indeterminate and blocks a second child', async () => {
-    test.setTimeout(60_000); const value = await context();
-    try {
-      const target = await client.createSession({ workspace_id: value.workspace.id, executor: 'CODEX', name: `post-spawn-failure-${Date.now()}` });
-      const failed = await api(`/api/sessions/${target.id}/follow-up`, {
-        method: 'POST',
-        body: JSON.stringify(body('QA_FAIL_STDIN_AFTER_SPAWN', target)),
-      });
-      expect(failed.status).toBe(500);
-
-      const processes = await client.getSessionProcesses(target.id);
-      expect(processes).toHaveLength(1);
-      expect(processes[0]).toMatchObject({ status: 'running' });
-
-      const retry = await api(`/api/sessions/${target.id}/follow-up`, {
-        method: 'POST',
-        body: JSON.stringify(body('must not start a second child', target)),
-      });
-      expect(retry.status).toBe(409);
-      await expect(retry.json()).resolves.toMatchObject({ success: false, message: `Session ${target.id} already has an active coding-agent turn` });
-      expect(await client.getSessionProcesses(target.id)).toHaveLength(1);
-      await stop(processes[0]!.id);
     } finally { await rm(value.dir, { recursive: true, force: true }); }
   });
 
@@ -190,31 +160,6 @@ test.describe.serial('auto-nudge compatibility with real VK QA-mode contracts', 
     } finally { await rm(value.dir, { recursive: true, force: true }); }
   });
 
-  test('failed durable-start persistence retains the claimed queue slot', async () => {
-    test.setTimeout(90_000); const value = await context();
-    try {
-      const target = await client.createSession({ workspace_id: value.workspace.id, executor: 'CODEX', name: `queue-start-persist-${Date.now()}` });
-      const active = await client.sendMessage(target.id, body(`persist predecessor ${Date.now()}`, target));
-      const queueId = randomUUID(); const owner = 'qa-start-persist';
-      const queueBody = { queue_id: queueId, owner, message: 'QA_FAIL_STARTED_PERSISTENCE', executor_config: { executor: target.executor } };
-      expect((await api(`/api/sessions/${target.id}/queue`, { method: 'POST', body: JSON.stringify(queueBody) })).status).toBe(200);
-      await terminal(active.id);
-
-      let indeterminateProcessId: string | null = null;
-      await expect.poll(async () => {
-        const payload = await (await api(`/api/sessions/${target.id}/queue/${queueId}/process`)).json() as { data: { lifecycle: string; process: ExecutionProcess | null } | null };
-        indeterminateProcessId = payload.data?.process?.id ?? null;
-        return payload.data && { lifecycle: payload.data.lifecycle, processId: indeterminateProcessId };
-      }, { timeout: 20_000 }).toEqual({ lifecycle: 'indeterminate', processId: expect.any(String) });
-      await expect(api(`/api/sessions/${target.id}/queue`).then(response => response.json())).resolves.toMatchObject({ data: { status: 'consuming', message: { id: queueId, owner } } });
-      const cancel = await api(`/api/sessions/${target.id}/queue?queue_id=${queueId}&owner=${owner}`, { method: 'DELETE' });
-      expect(cancel.status).toBe(409); await expect(cancel.json()).resolves.toMatchObject({ success: false, message: expect.stringContaining('has already been consumed or is no longer queued') });
-      const amend = await api(`/api/sessions/${target.id}/queue`, { method: 'PUT', body: JSON.stringify({ ...queueBody, message: 'must stay immutable' }) });
-      expect(amend.status).toBe(409); await expect(amend.json()).resolves.toMatchObject({ success: false, message: expect.stringContaining('has already been consumed or is no longer queued') });
-      await stop(indeterminateProcessId!);
-    } finally { await rm(value.dir, { recursive: true, force: true }); }
-  });
-
   test('post-start setup failure completes the accepted slot and replays exact identity', async () => {
     test.setTimeout(90_000); const value = await context();
     try {
@@ -233,30 +178,6 @@ test.describe.serial('auto-nudge compatibility with real VK QA-mode contracts', 
       }, { timeout: 20_000 }).toEqual({ lifecycle: 'started', processId: expect.any(String) });
       await expect(api(`/api/sessions/${target.id}/queue`).then(response => response.json())).resolves.toMatchObject({ data: { status: 'empty' } });
       await expect(api(`/api/sessions/${target.id}/queue/${queueId}/process`).then(response => response.json())).resolves.toMatchObject({ data: { lifecycle: 'started', process: { id: processId } } });
-    } finally { await rm(value.dir, { recursive: true, force: true }); }
-  });
-
-  test('reconciliation failure retains consuming state after an uncertain real child start', async () => {
-    test.setTimeout(90_000); const value = await context();
-    try {
-      const target = await client.createSession({ workspace_id: value.workspace.id, executor: 'CODEX', name: `queue-reconcile-failure-${Date.now()}` });
-      const active = await client.sendMessage(target.id, body(`reconcile predecessor ${Date.now()}`, target));
-      const queueId = randomUUID(); const owner = 'qa-reconcile-failure';
-      const queueBody = { queue_id: queueId, owner, message: 'QA_FAIL_STDIN_AFTER_SPAWN\nQA_FAIL_QUEUE_RECONCILIATION', executor_config: { executor: target.executor } };
-      expect((await api(`/api/sessions/${target.id}/queue`, { method: 'POST', body: JSON.stringify(queueBody) })).status).toBe(200);
-      await terminal(active.id);
-
-      await expect.poll(async () => {
-        const payload = await (await api(`/api/sessions/${target.id}/queue`)).json() as { data: { status: string } };
-        return payload.data.status;
-      }, { timeout: 20_000 }).toBe('consuming');
-      await expect(api(`/api/sessions/${target.id}/queue/${queueId}/process`).then(response => response.json())).resolves.toMatchObject({ data: { lifecycle: 'indeterminate', process: { id: expect.any(String) } } });
-      const retry = await api(`/api/sessions/${target.id}/follow-up`, { method: 'POST', body: JSON.stringify(body('must remain busy', target)) });
-      expect(retry.status).toBe(409); await expect(retry.json()).resolves.toMatchObject({ success: false, message: `Session ${target.id} already has an active coding-agent turn` });
-      const cancel = await api(`/api/sessions/${target.id}/queue?queue_id=${queueId}&owner=${owner}`, { method: 'DELETE' });
-      expect(cancel.status).toBe(409); await expect(cancel.json()).resolves.toMatchObject({ success: false, message: expect.stringContaining('has already been consumed or is no longer queued') });
-      const reconciliation = await (await api(`/api/sessions/${target.id}/queue/${queueId}/process`)).json() as { data: { process: ExecutionProcess | null } | null };
-      await stop(reconciliation.data!.process!.id);
     } finally { await rm(value.dir, { recursive: true, force: true }); }
   });
 
@@ -336,6 +257,76 @@ test.describe.serial('auto-nudge compatibility with real VK QA-mode contracts', 
       expect(fireAndForgetJson.response_routing).toBeUndefined();
       await terminal(fireAndForgetJson.process_id);
       expect(Object.values(readResponseRouteState(routePath).routes)).toHaveLength(1);
+    } finally { await rm(value.dir, { recursive: true, force: true }); }
+  });
+
+  // These fault cases deliberately leave admission fail-closed. Keep them last so
+  // their indeterminate real processes cannot suppress later workspace scans.
+  test('post-spawn stdin failure remains indeterminate and blocks a second child', async () => {
+    test.setTimeout(60_000); const value = await context();
+    try {
+      const target = await client.createSession({ workspace_id: value.workspace.id, executor: 'CODEX', name: `post-spawn-failure-${Date.now()}` });
+      const failed = await api(`/api/sessions/${target.id}/follow-up`, {
+        method: 'POST',
+        body: JSON.stringify(body('QA_FAIL_STDIN_AFTER_SPAWN', target)),
+      });
+      expect(failed.status).toBe(500);
+
+      const processes = await client.getSessionProcesses(target.id);
+      expect(processes).toHaveLength(1);
+      expect(processes[0]).toMatchObject({ status: 'running' });
+
+      const retry = await api(`/api/sessions/${target.id}/follow-up`, {
+        method: 'POST',
+        body: JSON.stringify(body('must not start a second child', target)),
+      });
+      expect(retry.status).toBe(409);
+      await expect(retry.json()).resolves.toMatchObject({ success: false, message: `Session ${target.id} already has an active coding-agent turn` });
+      expect(await client.getSessionProcesses(target.id)).toHaveLength(1);
+    } finally { await rm(value.dir, { recursive: true, force: true }); }
+  });
+
+  test('failed durable-start persistence retains the claimed queue slot', async () => {
+    test.setTimeout(90_000); const value = await context();
+    try {
+      const target = await client.createSession({ workspace_id: value.workspace.id, executor: 'CODEX', name: `queue-start-persist-${Date.now()}` });
+      const active = await client.sendMessage(target.id, body(`persist predecessor ${Date.now()}`, target));
+      const queueId = randomUUID(); const owner = 'qa-start-persist';
+      const queueBody = { queue_id: queueId, owner, message: 'QA_FAIL_STARTED_PERSISTENCE', executor_config: { executor: target.executor } };
+      expect((await api(`/api/sessions/${target.id}/queue`, { method: 'POST', body: JSON.stringify(queueBody) })).status).toBe(200);
+      await terminal(active.id);
+
+      await expect.poll(async () => {
+        const payload = await (await api(`/api/sessions/${target.id}/queue/${queueId}/process`)).json() as { data: { lifecycle: string; process: ExecutionProcess | null } | null };
+        return payload.data && { lifecycle: payload.data.lifecycle, processId: payload.data.process?.id ?? null };
+      }, { timeout: 20_000 }).toEqual({ lifecycle: 'indeterminate', processId: expect.any(String) });
+      await expect(api(`/api/sessions/${target.id}/queue`).then(response => response.json())).resolves.toMatchObject({ data: { status: 'consuming', message: { id: queueId, owner } } });
+      const cancel = await api(`/api/sessions/${target.id}/queue?queue_id=${queueId}&owner=${owner}`, { method: 'DELETE' });
+      expect(cancel.status).toBe(409); await expect(cancel.json()).resolves.toMatchObject({ success: false, message: expect.stringContaining('has already been consumed or is no longer queued') });
+      const amend = await api(`/api/sessions/${target.id}/queue`, { method: 'PUT', body: JSON.stringify({ ...queueBody, message: 'must stay immutable' }) });
+      expect(amend.status).toBe(409); await expect(amend.json()).resolves.toMatchObject({ success: false, message: expect.stringContaining('has already been consumed or is no longer queued') });
+    } finally { await rm(value.dir, { recursive: true, force: true }); }
+  });
+
+  test('reconciliation failure retains consuming state after an uncertain real child start', async () => {
+    test.setTimeout(90_000); const value = await context();
+    try {
+      const target = await client.createSession({ workspace_id: value.workspace.id, executor: 'CODEX', name: `queue-reconcile-failure-${Date.now()}` });
+      const active = await client.sendMessage(target.id, body(`reconcile predecessor ${Date.now()}`, target));
+      const queueId = randomUUID(); const owner = 'qa-reconcile-failure';
+      const queueBody = { queue_id: queueId, owner, message: 'QA_FAIL_STDIN_AFTER_SPAWN\nQA_FAIL_QUEUE_RECONCILIATION', executor_config: { executor: target.executor } };
+      expect((await api(`/api/sessions/${target.id}/queue`, { method: 'POST', body: JSON.stringify(queueBody) })).status).toBe(200);
+      await terminal(active.id);
+
+      await expect.poll(async () => {
+        const payload = await (await api(`/api/sessions/${target.id}/queue`)).json() as { data: { status: string } };
+        return payload.data.status;
+      }, { timeout: 20_000 }).toBe('consuming');
+      await expect(api(`/api/sessions/${target.id}/queue/${queueId}/process`).then(response => response.json())).resolves.toMatchObject({ data: { lifecycle: 'indeterminate', process: { id: expect.any(String) } } });
+      const retry = await api(`/api/sessions/${target.id}/follow-up`, { method: 'POST', body: JSON.stringify(body('must remain busy', target)) });
+      expect(retry.status).toBe(409); await expect(retry.json()).resolves.toMatchObject({ success: false, message: `Session ${target.id} already has an active coding-agent turn` });
+      const cancel = await api(`/api/sessions/${target.id}/queue?queue_id=${queueId}&owner=${owner}`, { method: 'DELETE' });
+      expect(cancel.status).toBe(409); await expect(cancel.json()).resolves.toMatchObject({ success: false, message: expect.stringContaining('has already been consumed or is no longer queued') });
     } finally { await rm(value.dir, { recursive: true, force: true }); }
   });
 });
