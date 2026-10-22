@@ -28,7 +28,7 @@ exec 9>"$PORT_LOCK"
 flock 9
 
 echo "::group::Prepare VK mocked sandbox"
-VK_MOCKED_PREBUILD_BACKEND=1 \
+VK_MOCKED_VK_BACKEND=source VK_MOCKED_PREBUILD_BACKEND=1 \
   node --experimental-strip-types scripts/vk-mocked-sandbox.ts setup
 echo "::endgroup::"
 
@@ -41,7 +41,7 @@ VK_HEALTH_URL="http://127.0.0.1:$VK_MOCKED_BACKEND_PORT/api/health"
 SANDBOX_LOG="$VK_MOCKED_SANDBOX_RUN_DIR/sandbox.log"
 
 echo "Starting VK mocked sandbox; log: $SANDBOX_LOG"
-VK_MOCKED_PREBUILD_BACKEND=1 VK_MOCKED_SKIP_LOCAL_WEB_BUILD=1 VK_MOCKED_SKIP_SETUP_COMMANDS=1 \
+VK_MOCKED_VK_BACKEND=source VK_MOCKED_PREBUILD_BACKEND=1 VK_MOCKED_SKIP_LOCAL_WEB_BUILD=1 VK_MOCKED_SKIP_SETUP_COMMANDS=1 \
   node --experimental-strip-types scripts/vk-mocked-sandbox.ts start >"$SANDBOX_LOG" 2>&1 &
 sandbox_pid=$!
 

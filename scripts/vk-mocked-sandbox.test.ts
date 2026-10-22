@@ -18,6 +18,15 @@ import {
 import { sandboxRuntimeRepoPath } from './e2e-vk-mocked-sandbox-fixtures';
 
 describe('VK mocked sandbox helpers', () => {
+  it('forces the real CI QA gate to use the matching source backend', async () => {
+    const script = await readFile(
+      join(process.cwd(), 'scripts/ci-run-vk-mocked-sandbox-e2e.sh'),
+      'utf8',
+    );
+
+    expect(script.match(/VK_MOCKED_VK_BACKEND=source/g)).toHaveLength(2);
+  });
+
   it('reuses the prepared backend command without resolving it again', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vk-mocked-prepared-plan-'));
     const runDir = join(root, 'run');
