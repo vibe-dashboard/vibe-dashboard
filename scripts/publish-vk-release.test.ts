@@ -32,7 +32,7 @@ fs.writeFileSync(process.env.MOCK_STATE, JSON.stringify(state));
 if (operation === 'api rate_limit') {
   console.log(process.env.MOCK_RESET ?? Math.floor(Date.now() / 1000) - 1);
 } else if (response !== 'ok') {
-  console.error({ rate: 'HTTP 403: API rate limit exceeded', missing: 'release not found', forbidden: 'HTTP 403: Resource not accessible by integration' }[response]);
+  console.error({ rate: 'HTTP 403: API rate limit exceeded', missing: 'release not found', forbidden: 'HTTP 403: Resource not accessible by integration', ambiguous404: 'HTTP 404: Not Found' }[response]);
   process.exit(1);
 }
 `, { mode: 0o755 });
@@ -82,6 +82,13 @@ it('creates only after a genuine missing release and retries rate-limited creati
 it('propagates authorization failures without creating or uploading', () => {
   const result = publish({ 'release view': ['forbidden'] });
   expect(result.status).toBe(1);
+  expect(result.calls).toEqual(['release view']);
+});
+
+it('does not treat an ambiguous HTTP 404 as proof that the release is absent', () => {
+  const result = publish({ 'release view': ['ambiguous404'] });
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain('HTTP 404: Not Found');
   expect(result.calls).toEqual(['release view']);
 });
 

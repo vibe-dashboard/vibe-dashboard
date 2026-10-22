@@ -56,7 +56,7 @@ else
   status=$?
   cat "$scratch/lookup-error" >&2
   # Authentication, quota, and transport errors must not become creates.
-  if ! grep -Eiq 'release not found|HTTP 404' "$scratch/lookup-error"; then
+  if ! grep -qi 'release not found' "$scratch/lookup-error"; then
     exit "$status"
   fi
   gh_retry release create "$RELEASE_TAG" --repo "$VK_ASSET_REPOSITORY" \
