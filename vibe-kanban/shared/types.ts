@@ -10,6 +10,10 @@ export type Project = { id: string, name: string, default_agent_working_dir: str
 
 export type UpdateRepo = { display_name?: string | null, setup_script?: string | null, cleanup_script?: string | null, archive_script?: string | null, copy_files?: string | null, parallel_setup_script?: boolean | null, dev_server_script?: string | null, dev_server_scripts?: Array<UpdateRepoDevServerScript>, default_target_branch?: string | null, default_working_dir?: string | null, };
 
+export type RepoDevServerScript = { id: string, repo_id: string, name: string, script: string, working_dir: string | null, is_default: boolean, created_at: Date, updated_at: Date, };
+
+export type UpdateRepoDevServerScript = { id?: string, name: string, script: string, working_dir: string | null, is_default: boolean, };
+
 export type SearchResult = { path: string, is_file: boolean, match_type: SearchMatchType,
 /**
  * Ranking score based on git history (higher = more recently/frequently edited)
@@ -57,6 +61,8 @@ parent_issue_id: string | null, };
 export type PreviewSettingsData = { url: string, screen_size: string | null, responsive_width: number | null, responsive_height: number | null, };
 
 export type WorkspaceNotesData = { content: string, };
+
+export type WorkspaceDevServerSelectionData = { selected_repo_ids: Array<string>, };
 
 export type WorkspacePanelStateData = { right_main_panel_mode: string | null, is_left_main_panel_visible: boolean, };
 
