@@ -80,6 +80,7 @@
     "@tanstack/react-query": "^5.101.0",
     "@vibe-dashboard/workflow-core": "workspace:*",
     "@vitejs/plugin-react": "^5.1.4",
+    "ajv": "^8.12.0",
     "better-auth": "^1.6.23",
     "better-sqlite3": "^12.6.2",
     "crossws": "^0.4.4",
@@ -96,6 +97,7 @@
     "rxjs": "^7.8.2",
     "springboard": "0.0.1-dev-jamapp-16",
     "tailwindcss": "^4.1.18",
+    "yaml": "^2.9.0",
     "@vibe-dashboard/beads-form": "workspace:*"
   },
   "devDependencies": {

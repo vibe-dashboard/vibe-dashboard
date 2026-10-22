@@ -1,8 +1,5 @@
 use axum::{
-    Json as RequestJson, Router,
-    extract::State,
-    response::Json as ResponseJson,
-    routing::post,
+    Json as RequestJson, Router, extract::State, response::Json as ResponseJson, routing::post,
 };
 use chrono::{DateTime, Utc};
 use db::models::{
@@ -106,7 +103,9 @@ async fn session_status(
     RequestJson(request): RequestJson<AutoNudgeStatusRequest>,
 ) -> Result<ResponseJson<ApiResponse<AutoNudgeStatusResponse>>, ApiError> {
     let pool = &deployment.db().pool;
-    Ok(ResponseJson(ApiResponse::success(build_status(pool, request).await?)))
+    Ok(ResponseJson(ApiResponse::success(
+        build_status(pool, request).await?,
+    )))
 }
 
 async fn build_status(
@@ -161,8 +160,15 @@ async fn build_status(
         .bind(global_offset)
         .fetch_all(pool)
         .await?;
-        let registered = request.registered_workspace_ids.iter().copied().collect::<std::collections::HashSet<_>>();
-        for workspace in global_workspaces.iter().filter(|workspace| !registered.contains(&workspace.id)) {
+        let registered = request
+            .registered_workspace_ids
+            .iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>();
+        for workspace in global_workspaces
+            .iter()
+            .filter(|workspace| !registered.contains(&workspace.id))
+        {
             workspaces.push((workspace.clone(), false));
         }
     }
@@ -238,8 +244,8 @@ async fn build_status(
         });
     }
 
-    let truncated = request.include_global_recent
-        && (global_workspaces.len() as i64) == limit_workspaces;
+    let truncated =
+        request.include_global_recent && (global_workspaces.len() as i64) == limit_workspaces;
     let next_cursor = if truncated {
         Some((global_offset + limit_workspaces).to_string())
     } else {
@@ -249,7 +255,10 @@ async fn build_status(
     Ok(AutoNudgeStatusResponse {
         counts: AutoNudgeStatusCounts {
             registered_workspaces: request.registered_workspace_ids.len(),
-            global_workspaces: workspace_statuses.iter().filter(|workspace| !workspace.registered).count(),
+            global_workspaces: workspace_statuses
+                .iter()
+                .filter(|workspace| !workspace.registered)
+                .count(),
             sessions: session_count,
             processes: process_count,
             pages: 1,
@@ -310,7 +319,11 @@ fn is_active_codingagent(process: &ExecutionProcess) -> bool {
 
 fn unique_uuids(values: &[Uuid]) -> Vec<Uuid> {
     let mut seen = std::collections::HashSet::new();
-    values.iter().copied().filter(|value| seen.insert(*value)).collect()
+    values
+        .iter()
+        .copied()
+        .filter(|value| seen.insert(*value))
+        .collect()
 }
 
 pub fn router() -> Router<DeploymentImpl> {
@@ -319,8 +332,9 @@ pub fn router() -> Router<DeploymentImpl> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use sqlx::{Executor, SqlitePool, sqlite::SqlitePoolOptions};
+
+    use super::*;
 
     async fn test_pool() -> SqlitePool {
         let pool = SqlitePoolOptions::new()
@@ -342,7 +356,9 @@ mod tests {
                 name TEXT,
                 worktree_deleted INTEGER NOT NULL DEFAULT 0
             )"#,
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
         pool.execute(
             r#"CREATE TABLE sessions (
                 id BLOB PRIMARY KEY,
@@ -354,7 +370,9 @@ mod tests {
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )"#,
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
         pool.execute(
             r#"CREATE TABLE execution_processes (
                 id BLOB PRIMARY KEY,
@@ -369,7 +387,9 @@ mod tests {
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )"#,
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
         pool
     }
 
@@ -393,7 +413,13 @@ mod tests {
             .unwrap();
     }
 
-    async fn insert_process(pool: &SqlitePool, id: Uuid, session_id: Uuid, status: &str, created_at: &str) {
+    async fn insert_process(
+        pool: &SqlitePool,
+        id: Uuid,
+        session_id: Uuid,
+        status: &str,
+        created_at: &str,
+    ) {
         sqlx::query("INSERT INTO execution_processes (id, session_id, run_reason, executor_action, status, exit_code, dropped, started_at, completed_at, created_at, updated_at) VALUES (?1, ?2, 'codingagent', '{\"typ\":{\"prompt\":\"work\"}}', ?3, 1, 0, ?4, ?4, ?4, ?4)")
             .bind(id)
             .bind(session_id)
@@ -418,24 +444,50 @@ mod tests {
         insert_workspace(&pool, global_workspace, "2026-09-21T00:00:00Z").await;
         insert_session(&pool, impl_session, registered_workspace, "impl").await;
         insert_session(&pool, global_session, global_workspace, "impl").await;
-        insert_process(&pool, old_process, impl_session, "completed", "2026-09-20T00:00:00Z").await;
-        insert_process(&pool, latest_process, impl_session, "completed", "2026-09-20T00:01:00Z").await;
-        insert_process(&pool, failed_process, global_session, "failed", "2026-09-21T00:00:00Z").await;
+        insert_process(
+            &pool,
+            old_process,
+            impl_session,
+            "completed",
+            "2026-09-20T00:00:00Z",
+        )
+        .await;
+        insert_process(
+            &pool,
+            latest_process,
+            impl_session,
+            "completed",
+            "2026-09-20T00:01:00Z",
+        )
+        .await;
+        insert_process(
+            &pool,
+            failed_process,
+            global_session,
+            "failed",
+            "2026-09-21T00:00:00Z",
+        )
+        .await;
 
-        let response = build_status(&pool, AutoNudgeStatusRequest {
-            registered_workspace_ids: vec![registered_workspace],
-            include_global_recent: true,
-            global_cursor: None,
-            updated_after: "2026-09-19T00:00:00Z".parse().unwrap(),
-            limit_workspaces: Some(1),
-            limit_sessions: Some(10),
-            process_window_queries: vec![AutoNudgeProcessWindowQuery {
-                id: "route".to_string(),
-                session_id: impl_session,
-                started_at: "2026-09-20T00:00:30Z".parse().unwrap(),
-                ended_at: "2026-09-20T00:02:00Z".parse().unwrap(),
-            }],
-        }).await.unwrap();
+        let response = build_status(
+            &pool,
+            AutoNudgeStatusRequest {
+                registered_workspace_ids: vec![registered_workspace],
+                include_global_recent: true,
+                global_cursor: None,
+                updated_after: "2026-09-19T00:00:00Z".parse().unwrap(),
+                limit_workspaces: Some(1),
+                limit_sessions: Some(10),
+                process_window_queries: vec![AutoNudgeProcessWindowQuery {
+                    id: "route".to_string(),
+                    session_id: impl_session,
+                    started_at: "2026-09-20T00:00:30Z".parse().unwrap(),
+                    ended_at: "2026-09-20T00:02:00Z".parse().unwrap(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
 
         assert_eq!(response.counts.registered_workspaces, 1);
         assert_eq!(response.counts.global_workspaces, 1);
@@ -452,10 +504,16 @@ mod tests {
                 .id,
             latest_process
         );
-        assert_eq!(response.process_window_results[0].process_ids, vec![latest_process]);
+        assert_eq!(
+            response.process_window_results[0].process_ids,
+            vec![latest_process]
+        );
         assert!(response.workspaces.iter().any(|workspace| {
             workspace.sessions.iter().any(|session| {
-                session.latest_codingagent_process.as_ref().is_some_and(|process| process.terminal_no_response == Some(true))
+                session
+                    .latest_codingagent_process
+                    .as_ref()
+                    .is_some_and(|process| process.terminal_no_response == Some(true))
             })
         }));
     }
