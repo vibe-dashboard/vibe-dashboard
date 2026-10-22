@@ -317,6 +317,9 @@ importers:
       tailwindcss:
         specifier: ^4.1.18
         version: 4.1.18
+      uuid:
+        specifier: ^11.1.0
+        version: 11.1.1
       wa-sqlite:
         specifier: ^1.0.0
         version: 1.0.0
@@ -7911,6 +7914,10 @@ packages:
 
   util-deprecate@1.0.2:
     resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
+
+  uuid@11.1.1:
+    resolution: {integrity: sha512-vIYxrBCC/N/K+Js3qSN88go7kIfNPssr/hHCesKCQNAjmgvYS2oqr69kIufEG+O4+PfezOH4EbIeHCfFov8ZgQ==}
+    hasBin: true
 
   uuid@13.0.2:
     resolution: {integrity: sha512-vzi9uRZ926x4XV73S/4qQaTwPXM2JBj6/6lI/byHH1jOpCzb0zDbfytgA9LcN/hzb2l7WQSQnxITOVx5un/wGw==}
@@ -17144,6 +17151,8 @@ snapshots:
       react: 19.2.4
 
   util-deprecate@1.0.2: {}
+
+  uuid@11.1.1: {}
 
   uuid@13.0.2: {}
 

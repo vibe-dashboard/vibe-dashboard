@@ -850,6 +850,9 @@ importers:
       tailwindcss-animate:
         specifier: ^1.0.7
         version: 1.0.7(tailwindcss@3.4.17)
+      uuid:
+        specifier: ^11.1.0
+        version: 11.1.0
       wa-sqlite:
         specifier: ^1.0.0
         version: 1.0.0

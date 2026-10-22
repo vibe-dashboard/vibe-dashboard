@@ -53,6 +53,10 @@ export { expect };
 export class InlineChatBackend {
   requests: Array<{ path: string; method: string; body: any }> = [];
   unexpected: string[] = [];
+  scratches = new Map<
+    string,
+    { id: string; payload: any; created_at: string; updated_at: string }
+  >();
   sessions = [
     session('session-1'),
     session('session-2'),
@@ -183,6 +187,9 @@ export class InlineChatBackend {
           loading_slash_commands: false,
           error: null,
         });
+      } else if (url.pathname.startsWith('/api/scratch/')) {
+        const path = url.pathname.replace(/\/stream\/ws$/, '');
+        this.patch(socket, '/scratch', this.scratches.get(path) ?? null);
       } else if (url.pathname.includes('/stream/session/')) {
         const process = this.processes.get(
           url.searchParams.get('session_id') ?? '',
@@ -567,11 +574,34 @@ export class InlineChatBackend {
       ]);
     if (path.endsWith('/beads/tasks'))
       return route.fulfill({ json: this.tasks });
-    if (path.includes('/scratch/'))
-      return route.fulfill({
-        status: 404,
-        json: { success: false, message: 'No scratch' },
-      });
+    if (path.startsWith('/api/scratch/')) {
+      const id = path.split('/')[4] ?? '';
+      if (
+        !/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(id)
+      ) {
+        this.unexpected.push(`Invalid scratch UUID: ${id}`);
+        return route.fulfill({ status: 400, json: { success: false } });
+      }
+      if (method === 'PUT' || method === 'POST') {
+        this.scratches.set(path, {
+          id,
+          payload: body.payload,
+          created_at: now,
+          updated_at: now,
+        });
+      } else if (method === 'DELETE') {
+        this.scratches.delete(path);
+      }
+      if (method !== 'GET') {
+        for (const [key, sockets] of this.sockets) {
+          if (key === `${path}/stream/ws`) {
+            for (const socket of sockets)
+              this.patch(socket, '/scratch', this.scratches.get(path) ?? null);
+          }
+        }
+      }
+      return reply(method === 'DELETE' ? null : this.scratches.get(path) ?? null);
+    }
     if (path.includes('/queue')) return reply({ status: 'empty' });
     if (path.includes('/branch-status')) return reply([]);
     if (path.includes('/preset-options')) return reply({});

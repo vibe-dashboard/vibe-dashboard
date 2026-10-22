@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { v5 as uuidv5 } from 'uuid';
 import {
   ScratchType,
   type DraftFollowUpData,
@@ -27,6 +28,17 @@ export function resolveSessionMessageDraftStorageId(
 ): string | undefined {
   if (!scratchId) return undefined;
   return surfaceId ? `surface:${surfaceId}:${scratchId}` : scratchId;
+}
+
+export function resolveSessionMessageDraftServerId(
+  scratchId: string | undefined,
+  surfaceId?: string
+): string | undefined {
+  if (!scratchId || !surfaceId) return scratchId;
+  return uuidv5(
+    JSON.stringify(['vd:inline-agent-draft:v1', surfaceId, scratchId]),
+    uuidv5.URL
+  );
 }
 
 export function resolveSessionMessageScratchId(params: {
@@ -148,17 +160,17 @@ export function useSessionMessageEditor({
     scratchId,
     surfaceId
   );
-  const persistServerDraft = surfaceId === undefined;
+  const serverScratchId = resolveSessionMessageDraftServerId(
+    scratchId,
+    surfaceId
+  );
   const {
     scratch,
     deleteScratch,
     updateScratchForId,
     isLoading: isScratchLoading,
     isConnected: isScratchConnected,
-  } = useScratch(ScratchType.DRAFT_FOLLOW_UP, scratchId ?? '', {
-    enabled: persistServerDraft,
-  });
-  const effectiveScratchLoading = persistServerDraft ? isScratchLoading : false;
+  } = useScratch(ScratchType.DRAFT_FOLLOW_UP, serverScratchId ?? '');
 
   const scratchData: DraftFollowUpData | undefined =
     scratch?.payload?.type === 'DRAFT_FOLLOW_UP'
@@ -167,31 +179,55 @@ export function useSessionMessageEditor({
 
   const [localMessage, setLocalMessage] = useState('');
   const [hasInitialValue, setHasInitialValue] = useState(false);
+  const pendingScratchWrite = useRef<Promise<void>>(Promise.resolve());
 
   const saveToScratch = useCallback(
-    async (
+    (
       targetScratchId: string,
+      targetStorageId: string,
       message: string,
       executorConfig: ExecutorConfig
     ) => {
-      if (!targetScratchId || !persistServerDraft) return;
+      if (!targetScratchId) return Promise.resolve();
       const payload: DraftFollowUpData = {
         message,
         executor_config: executorConfig,
         session_command: null,
       };
-      try {
-        await updateScratchForId(targetScratchId, {
-          payload: {
-            type: 'DRAFT_FOLLOW_UP',
-            data: payload,
-          },
-        });
-      } catch (e) {
-        console.error('Failed to save follow-up draft', e);
-      }
+      const write = pendingScratchWrite.current.then(async () => {
+        try {
+          await updateScratchForId(targetScratchId, {
+            payload: {
+              type: 'DRAFT_FOLLOW_UP',
+              data: payload,
+            },
+          });
+          const cachedDraft = readStoredScratchDraft<DraftFollowUpData>(
+            ScratchType.DRAFT_FOLLOW_UP,
+            targetStorageId
+          );
+          if (
+            cachedDraft?.value.message === message &&
+            areScratchDraftValuesEqual(
+              cachedDraft.value.executor_config,
+              executorConfig
+            )
+          ) {
+            writeStoredScratchDraft(
+              ScratchType.DRAFT_FOLLOW_UP,
+              targetStorageId,
+              payload,
+              false
+            );
+          }
+        } catch (e) {
+          console.error('Failed to save follow-up draft', e);
+        }
+      });
+      pendingScratchWrite.current = write;
+      return write;
     },
-    [persistServerDraft, updateScratchForId]
+    [updateScratchForId]
   );
 
   const {
@@ -208,7 +244,7 @@ export function useSessionMessageEditor({
     return () => {
       flushDebouncedSave();
     };
-  }, [scratchId, flushDebouncedSave]);
+  }, [draftStorageId, flushDebouncedSave]);
 
   useEffect(() => {
     hasLoadedRef.current = false;
@@ -224,7 +260,7 @@ export function useSessionMessageEditor({
 
   // Sync local message from scratch only on initial load
   useEffect(() => {
-    if (effectiveScratchLoading) return;
+    if (isScratchLoading) return;
     if (hasLoadedRef.current) return;
     hasLoadedRef.current = true;
     const cachedDraft = draftStorageId
@@ -254,7 +290,7 @@ export function useSessionMessageEditor({
 
     setLocalMessage(preferredDraft?.message ?? serverData?.message ?? '');
     setHasInitialValue(true);
-  }, [draftStorageId, effectiveScratchLoading, scratchData]);
+  }, [draftStorageId, isScratchLoading, scratchData]);
 
   useEffect(() => {
     if (!draftStorageId || !scratchData) return;
@@ -267,7 +303,7 @@ export function useSessionMessageEditor({
   }, [draftStorageId, scratchData]);
 
   useEffect(() => {
-    if (!scratchId || !draftStorageId || !isScratchConnected) return;
+    if (!serverScratchId || !draftStorageId || !isScratchConnected) return;
 
     const cachedDraft = readStoredScratchDraft<DraftFollowUpData>(
       ScratchType.DRAFT_FOLLOW_UP,
@@ -276,37 +312,43 @@ export function useSessionMessageEditor({
     if (!cachedDraft?.dirty) return;
 
     void saveToScratch(
-      scratchId,
+      serverScratchId,
+      draftStorageId,
       cachedDraft.value.message,
       cachedDraft.value.executor_config
     );
-  }, [draftStorageId, isScratchConnected, saveToScratch, scratchId]);
+  }, [draftStorageId, isScratchConnected, saveToScratch, serverScratchId]);
 
   const saveCurrentScratch = useCallback(
     async (message: string, executorConfig: ExecutorConfig) => {
-      if (!scratchId || !draftStorageId) return;
+      if (!serverScratchId || !draftStorageId) return;
       writeStoredScratchDraft(
         ScratchType.DRAFT_FOLLOW_UP,
         draftStorageId,
-        { message, executor_config: executorConfig },
+        { message, executor_config: executorConfig, session_command: null },
         true
       );
-      await saveToScratch(scratchId, message, executorConfig);
+      await saveToScratch(
+        serverScratchId,
+        draftStorageId,
+        message,
+        executorConfig
+      );
     },
-    [draftStorageId, saveToScratch, scratchId]
+    [draftStorageId, saveToScratch, serverScratchId]
   );
 
   const discardLocalDraft = useCallback(() => {
     discardFollowUpLocalDraft(draftStorageId);
   }, [draftStorageId]);
 
-  const deleteDraftScratch = useCallback(
-    () =>
-      persistServerDraft
-        ? deleteDraftScratchBestEffort(deleteScratch)
-        : Promise.resolve(),
-    [deleteScratch, persistServerDraft]
-  );
+  const deleteDraftScratch = useCallback(() => {
+    const write = pendingScratchWrite.current.then(() =>
+      deleteDraftScratchBestEffort(deleteScratch)
+    );
+    pendingScratchWrite.current = write;
+    return write;
+  }, [deleteScratch]);
 
   const clearDraft = useCallback(
     () =>
@@ -323,27 +365,28 @@ export function useSessionMessageEditor({
   const handleMessageChange = useCallback(
     (value: string, executorConfig: ExecutorConfig) => {
       setLocalMessage(value);
-      if (scratchId && draftStorageId) {
+      if (serverScratchId && draftStorageId) {
         writeStoredScratchDraft(
           ScratchType.DRAFT_FOLLOW_UP,
           draftStorageId,
           {
             message: value,
             executor_config: executorConfig,
+            session_command: null,
           },
           true
         );
-        debouncedSave(scratchId, value, executorConfig);
+        debouncedSave(serverScratchId, draftStorageId, value, executorConfig);
       }
     },
-    [debouncedSave, draftStorageId, scratchId]
+    [debouncedSave, draftStorageId, serverScratchId]
   );
 
   return {
     localMessage,
     setLocalMessage,
     scratchData,
-    isScratchLoading: effectiveScratchLoading,
+    isScratchLoading,
     hasInitialValue,
     saveToScratch: saveCurrentScratch,
     discardLocalDraft,

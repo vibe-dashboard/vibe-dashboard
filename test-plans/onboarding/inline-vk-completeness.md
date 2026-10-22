@@ -38,6 +38,7 @@ substitute for that server integration, or for the real-provider checks below.
 | Contract | Automated evidence |
 | --- | --- |
 | Same-session drafts and mode selection remain independent | Two-pane browser test, including unmount/remount and reload |
+| Server-backed pane drafts | Fresh browser context restores both panes; acknowledged caches yield to newer server drafts; sending clears only the submitted pane; delayed saves cannot resurrect it; existing browser-only drafts upload on reconnect |
 | Session selection and streaming remain independent | Two concurrent sessions, distinct streamed messages, selection restoration |
 | Local diff expansion and diff summaries remain independent | Same-session expansion; distinct-workspace stats; unmount cleanup |
 | Unsupported settings/navigation are not presented as working actions | Creation preset menu and inline diff browser tests |
@@ -55,6 +56,12 @@ The preview harness serves a small HTTP fixture. It does not prove that a real
 repository's preview process or staging wildcard host/proxy is reachable.
 Likewise, controlled OpenCode discovery does not establish real model support,
 permissions enforcement, or token reporting.
+
+Inline follow-up drafts use the existing VK SQLite scratch API with stable
+per-pane/session UUIDs. No database migration is required. Browser-local drafts
+remain a dirty-write recovery cache; standalone VK scratch IDs are unchanged.
+Opening the same craft, Agent view and session in another browser restores its
+server draft. Selected-session and chat-mode preferences remain browser-local.
 
 ## Real OpenCode staging acceptance
 

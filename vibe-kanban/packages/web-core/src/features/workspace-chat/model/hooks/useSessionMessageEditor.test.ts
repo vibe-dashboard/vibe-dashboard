@@ -7,9 +7,33 @@ import {
 import {
   clearFollowUpDraft,
   resolveSessionMessageDraftStorageId,
+  resolveSessionMessageDraftServerId,
   resolveSessionMessageScratchId,
   restoreQueuedFollowUpDraftAfterCancel,
 } from './useSessionMessageEditor';
+
+describe('server draft identities', () => {
+  it('uses stable server-compatible UUIDs for independent pane/session drafts', () => {
+    const left = resolveSessionMessageDraftServerId('session-1', 'left');
+    expect(left).toMatch(
+      /^[\da-f]{8}-[\da-f]{4}-5[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/
+    );
+    expect(resolveSessionMessageDraftServerId('session-1', 'left')).toBe(left);
+    expect(resolveSessionMessageDraftServerId('session-1', 'right')).not.toBe(
+      left
+    );
+    expect(resolveSessionMessageDraftServerId('session-2', 'left')).not.toBe(
+      left
+    );
+  });
+
+  it('preserves the standalone scratch identity', () => {
+    expect(resolveSessionMessageDraftServerId('session-1')).toBe('session-1');
+    expect(
+      resolveSessionMessageDraftServerId(undefined, 'left')
+    ).toBeUndefined();
+  });
+});
 
 describe('resolveSessionMessageDraftStorageId', () => {
   it('isolates embedded drafts by stable surface id', () => {
