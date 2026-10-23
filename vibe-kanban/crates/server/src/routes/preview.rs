@@ -62,23 +62,6 @@ pub struct NamedPreviewResolveResponse {
     pub execution_process_id: Option<Uuid>,
 }
 
-#[cfg(test)]
-mod contract_tests {
-    use super::NamedPreviewResolveRequest;
-
-    #[test]
-    fn named_preview_resolve_accepts_router_payload() {
-        let request: NamedPreviewResolveRequest = serde_json::from_value(serde_json::json!({
-            "host": "0123456789abcdef-repo-web-user.example.com",
-            "workspaceToken": "0123456789abcdef", "repoSlug": "repo", "slotSlug": "web",
-            "ensure": true, "method": "GET", "path": "/"
-        }))
-        .unwrap();
-        assert_eq!(request.slot_slug, "web");
-        assert!(request.ensure);
-    }
-}
-
 async fn resolve_named_preview(
     State(deployment): State<DeploymentImpl>,
     RequestJson(payload): RequestJson<NamedPreviewResolveRequest>,
@@ -438,4 +421,21 @@ async fn subdomain_proxy_request(
         request,
     )
     .await
+}
+
+#[cfg(test)]
+mod contract_tests {
+    use super::NamedPreviewResolveRequest;
+
+    #[test]
+    fn named_preview_resolve_accepts_router_payload() {
+        let request: NamedPreviewResolveRequest = serde_json::from_value(serde_json::json!({
+            "host": "0123456789abcdef-repo-web-user.example.com",
+            "workspaceToken": "0123456789abcdef", "repoSlug": "repo", "slotSlug": "web",
+            "ensure": true, "method": "GET", "path": "/"
+        }))
+        .unwrap();
+        assert_eq!(request.slot_slug, "web");
+        assert!(request.ensure);
+    }
 }
