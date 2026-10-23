@@ -109,6 +109,45 @@ record the authentication mechanism/role needed to interpret that identity.
 Existing `backend` rows must remain distinguishable as legacy unattributed
 events rather than being retroactively assigned to a user.
 
+## Run-config environment boundary
+
+V1 run-config processes use the common script executor. The executor adds
+`VK_WORKSPACE_ID`, `VK_WORKSPACE_BRANCH`, `VK_SESSION_ID`, and the assigned
+`PORT`, but it does **not** clear the parent process environment. Run configs
+therefore inherit every environment variable visible to VK. Treat stored run
+config commands as trusted workspace administration, not as an isolation
+boundary for untrusted repository code.
+
+Do not describe V1 as having a sanitized environment allowlist. In particular,
+an inherited token, credential, proxy setting, or integration secret may be
+read by the started process even when it is unrelated to that preview. This is
+accepted temporarily for compatibility with existing package managers and
+toolchains; it is not the production security target.
+
+The production change should clear the parent environment for PreviewServer
+processes and rebuild it from these groups:
+
+- Runtime identity supplied by VK: `PORT`, `VK_WORKSPACE_ID`,
+  `VK_WORKSPACE_BRANCH`, and `VK_SESSION_ID`.
+- Basic process execution: `PATH`, `HOME`, `USER`, `SHELL`, `TMPDIR`, locale
+  variables (`LANG`, `LC_*`), and `TERM` where required.
+- Explicit non-secret tool configuration needed by the shipped image, including
+  narrowly reviewed Node/npm/pnpm/yarn, uv/Python, and Rust/Cargo home/cache
+  paths. Prefix-wide inheritance such as every `NPM_CONFIG_*`, `YARN_*`,
+  `UV_*`, or `CARGO_*` variable is not an allowlist because those namespaces
+  can contain registry credentials and tokens.
+- Secrets selected for that run config and injected by the future VarDash
+  integration. Secrets must not enter through a checked-in run-config command
+  or a blanket copy of the VK environment.
+
+Before enabling environment clearing, inventory the actual variables required
+by `Dockerfile.vkvd` and test npm, pnpm, yarn, uv, Python, Cargo, and Rust startup
+inside the production image. Authentication variables for GitHub, Jira, Linear,
+Sentry, package registries, cloud providers, coding agents, and databases are
+excluded unless explicitly attached to that run config. The cutover belongs
+with first-class secret injection so compatibility does not require restoring
+blanket inheritance.
+
 ## Hard-break compatibility contract
 
 The named-host shape is the only supported Preview URL contract for this branch.
