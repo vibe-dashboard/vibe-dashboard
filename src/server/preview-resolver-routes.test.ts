@@ -57,6 +57,39 @@ describe('registerPreviewResolverRoutes', () => {
     expect(resolvePreview).toHaveBeenCalledWith(payload);
   });
 
+  it('returns bounded redacted logs for the process selected by host resolution', async () => {
+    const payload: PreviewResolveRequest = {
+      host: 'web-vibekanban-0123456789abcdef--preview.localhost',
+      workspaceToken: '0123456789abcdef', repoSlug: 'vibekanban', slotSlug: 'web',
+      customerSlug: 'preview', ensure: false, method: 'GET', path: '/.well-known/vibe-preview-status',
+      includeLogs: true,
+    };
+    const client = {
+      resolvePreview: vi.fn(async () => ({
+        status: 'starting' as const, workspaceId: 'ws1', previewSlotId: 'slot1', executionProcessId: 'process1',
+      })),
+      getRunConfigs: vi.fn(async () => ({
+        run_configs: [], preview_slots: [], preview_url_parts: [], preview_process_links: [{
+          id: 'link1', workspace_id: 'ws1', repo_id: 'repo1', run_config_id: 'run1', preview_slot_id: 'slot1',
+          execution_process_id: 'process1', assigned_port: 4000, status_snapshot: 'starting' as const,
+          started_at: '', updated_at: '',
+        }],
+      })),
+      getExecutionProcess: vi.fn(async () => ({ session_id: 'session1' } as never)),
+      getSession: vi.fn(async () => ({ workspace_id: 'ws1' } as never)),
+      fetchRawExecutionLogs: vi.fn(async () => [{ type: 'STDOUT' as const, content: 'API_TOKEN=hunter2\n<script>x</script>' }]),
+    };
+    const app = new Hono();
+    registerPreviewResolverRoutes(app, { vkClient: client });
+    const response = await app.request('/internal/preview/resolve', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    await expect(response.json()).resolves.toMatchObject({
+      status: 'starting', logs: [{ type: 'STDOUT', content: 'API_TOKEN=[REDACTED]\n<script>x</script>' }],
+    });
+    expect(client.fetchRawExecutionLogs).toHaveBeenCalledWith('process1', { timeoutMs: 1000, maxEntries: 200 });
+  });
+
   it('rejects impossible tokens locally without calling VK', async () => {
     const resolvePreview = vi.fn();
     const app = new Hono();

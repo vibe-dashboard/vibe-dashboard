@@ -110,13 +110,43 @@ func TestPreviewResolverUsesRequestedHostHeaderAndEnsuresOnlyDocumentNavigations
 	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "Preview server is starting") {
 		t.Fatalf("unexpected starting response %d %q", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), `http-equiv="refresh"`) {
-		t.Fatalf("expected starting page to auto-refresh, got %q", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), previewStatusPath) || !strings.Contains(rec.Body.String(), "location.reload()") {
+		t.Fatalf("expected starting page to poll logs and reload when ready, got %q", rec.Body.String())
 	}
 	if !strings.Contains(rec.Body.String(), "Open logs in VD") ||
 		!strings.Contains(rec.Body.String(), "previewWorkspaceId=workspace-1") ||
 		!strings.Contains(rec.Body.String(), "previewSlotId=slot-1") {
 		t.Fatalf("expected starting page to link to authoritative slot logs, got %q", rec.Body.String())
+	}
+}
+
+func TestPreviewStatusPollUsesHostIdentityAndReturnsOnlySafeFields(t *testing.T) {
+	var got previewResolveRequest
+	resolver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		_, _ = w.Write([]byte(`{"status":"starting","upstream":"http://secret:4000","executionProcessId":"process-1","logs":[{"type":"STDOUT","content":"<script>alert(1)</script>"}]}`))
+	}))
+	defer resolver.Close()
+	handler := &PreviewResolver{ResolverURL: resolver.URL, client: resolver.Client()}
+	req := httptest.NewRequest(http.MethodGet, "http://web-vibekanban-0123456789abcdef--preview.localhost"+previewStatusPath, nil)
+	rec := httptest.NewRecorder()
+	if err := handler.ServeHTTP(rec, req, caddyhttp.HandlerFunc(func(http.ResponseWriter, *http.Request) error {
+		t.Fatal("status poll must not reach the preview upstream")
+		return nil
+	})); err != nil {
+		t.Fatal(err)
+	}
+	if !got.IncludeLogs || got.Ensure {
+		t.Fatalf("unexpected status request: %+v", got)
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, "secret:4000") || strings.Contains(body, "process-1") {
+		t.Fatalf("status response leaked internal routing identity: %s", body)
+	}
+	if !strings.Contains(body, `\u003cscript\u003ealert(1)\u003c/script\u003e`) {
+		t.Fatalf("expected JSON-safe log content, got %s", body)
 	}
 }
 
@@ -145,8 +175,8 @@ func TestPreviewResolverStartingWithoutIdentityUsesGeneratedAutoRefreshPage(t *t
 	body := rec.Body.String()
 	if rec.Code != http.StatusServiceUnavailable ||
 		!strings.Contains(body, "Preview server is starting") ||
-		!strings.Contains(body, `http-equiv="refresh"`) {
-		t.Fatalf("expected generated starting page with auto-refresh, got %d %q", rec.Code, body)
+		!strings.Contains(body, previewStatusPath) {
+		t.Fatalf("expected generated starting page with live status polling, got %d %q", rec.Code, body)
 	}
 	if strings.Contains(body, "Open logs in VD") || strings.Contains(body, "App Server Starting Up") {
 		t.Fatalf("expected no logs link or generic startup page without identity, got %q", body)
@@ -176,9 +206,9 @@ func TestPreviewResolverReadyUpstreamDialFailureShowsStartingPageForNavigation(t
 	if rec.Code != http.StatusServiceUnavailable ||
 		strings.Contains(body, "<h1>Bad Gateway</h1>") ||
 		!strings.Contains(body, "Preview server is starting") ||
-		!strings.Contains(body, `http-equiv="refresh"`) ||
+		!strings.Contains(body, previewStatusPath) ||
 		!strings.Contains(body, "Open logs in VD") {
-		t.Fatalf("expected generated auto-refresh starting page with logs link for first-hit dial race, got %d %q", rec.Code, body)
+		t.Fatalf("expected generated live-log starting page with logs link for first-hit dial race, got %d %q", rec.Code, body)
 	}
 }
 

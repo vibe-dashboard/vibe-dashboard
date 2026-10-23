@@ -142,6 +142,7 @@ export interface PreviewResolveRequest {
   ensure: boolean;
   method: string;
   path: string;
+  includeLogs?: boolean;
 }
 
 export interface PreviewResolveResponse {
@@ -151,6 +152,7 @@ export interface PreviewResolveResponse {
   executionProcessId?: string | null;
   workspaceId?: string | null;
   previewSlotId?: string | null;
+  logs?: RawLogEntry[];
 }
 
 export type RunConfigKind = 'long_running' | 'one_shot' | 'test';
@@ -367,6 +369,8 @@ export class VibeKanbanServerClient {
 
     return new Promise((resolve, reject) => {
       const logs: RawLogEntry[] = [];
+      let retainedBytes = 0;
+      const maxRetainedBytes = 64 * 1024;
       let settled = false;
       let ws: WebSocketLike | null = null;
       const finish = (result: RawLogEntry[]) => {
@@ -378,7 +382,7 @@ export class VibeKanbanServerClient {
         } catch {
           // Ignore close errors after the log request has already succeeded.
         }
-        resolve(result.slice(-maxEntries));
+        resolve(result);
       };
       const fail = (error: unknown) => {
         if (settled) return;
@@ -414,7 +418,15 @@ export class VibeKanbanServerClient {
               (value?.type === 'STDOUT' || value?.type === 'STDERR') &&
               typeof value.content === 'string'
             ) {
-              logs.push({ type: value.type, content: value.content });
+              const content = value.content.slice(-(16 * 1024));
+              const bytes = Buffer.byteLength(content);
+              logs.push({ type: value.type, content });
+              retainedBytes += bytes;
+              while (logs.length > maxEntries || retainedBytes > maxRetainedBytes) {
+                const removed = logs.shift();
+                if (!removed) break;
+                retainedBytes -= Buffer.byteLength(removed.content);
+              }
             }
           }
           if (message.Ready !== undefined || message.finished === true) {

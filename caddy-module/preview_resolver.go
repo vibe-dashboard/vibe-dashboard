@@ -26,6 +26,7 @@ const defaultPreviewResolverTimeout = 2 * time.Second
 const defaultTrustedRequestedHostHeader = "X-Vibe-Requested-Host"
 const previewHostnameGrammar = "slot-repo-workspace--customer-v2"
 const previewRoutingCapability = "domain-independent-v1"
+const previewStatusPath = "/.well-known/vibe-preview-status"
 
 var encodedPreviewLabelPattern = regexp.MustCompile(`^([a-z0-9]{1,10})-([a-z0-9]{1,18})-([a-f0-9]{16})--([a-z0-9](?:[a-z0-9-]{0,14}[a-z0-9])?)$`)
 
@@ -61,15 +62,22 @@ type previewResolveRequest struct {
 	Ensure         bool   `json:"ensure"`
 	Method         string `json:"method"`
 	Path           string `json:"path"`
+	IncludeLogs    bool   `json:"includeLogs,omitempty"`
+}
+
+type previewLogEntry struct {
+	Type    string `json:"type"`
+	Content string `json:"content"`
 }
 
 type previewResolveResponse struct {
-	Status             string `json:"status"`
-	Upstream           string `json:"upstream,omitempty"`
-	Message            string `json:"message,omitempty"`
-	ExecutionProcessID string `json:"executionProcessId,omitempty"`
-	WorkspaceID        string `json:"workspaceId,omitempty"`
-	PreviewSlotID      string `json:"previewSlotId,omitempty"`
+	Status             string            `json:"status"`
+	Upstream           string            `json:"upstream,omitempty"`
+	Message            string            `json:"message,omitempty"`
+	ExecutionProcessID string            `json:"executionProcessId,omitempty"`
+	WorkspaceID        string            `json:"workspaceId,omitempty"`
+	PreviewSlotID      string            `json:"previewSlotId,omitempty"`
+	Logs               []previewLogEntry `json:"logs,omitempty"`
 }
 
 // CaddyModule returns the Caddy module information.
@@ -127,6 +135,10 @@ func (p *PreviewResolver) ServeHTTP(w http.ResponseWriter, r *http.Request, next
 			p.logger.Warn("preview resolver call failed", zap.String("host", match.Host), zap.Error(err))
 		}
 		p.writePreviewUnavailable(w, r, http.StatusBadGateway, "Preview resolver is unavailable")
+		return nil
+	}
+	if r.Method == http.MethodGet && r.URL.Path == previewStatusPath {
+		p.writePreviewStatus(w, decision)
 		return nil
 	}
 
@@ -277,9 +289,10 @@ func (p *PreviewResolver) resolvePreview(ctx context.Context, r *http.Request, m
 		RepoSlug:       match.RepoSlug,
 		SlotSlug:       match.SlotSlug,
 		CustomerSlug:   match.CustomerSlug,
-		Ensure:         isPreviewEnsureRequest(r),
+		Ensure:         r.URL.Path != previewStatusPath && isPreviewEnsureRequest(r),
 		Method:         r.Method,
 		Path:           r.URL.RequestURI(),
+		IncludeLogs:    r.Method == http.MethodGet && r.URL.Path == previewStatusPath,
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -364,7 +377,7 @@ func scrubPreviewProxyHeaders(header http.Header) {
 func (p *PreviewResolver) writePreviewStarting(w http.ResponseWriter, r *http.Request, decision previewResolveResponse) {
 	if isPreviewEnsureRequest(r) {
 		logsURL := p.previewLogsURL(r, decision)
-		p.writePreviewHTML(w, http.StatusServiceUnavailable, "Preview starting", "Preview server is starting. This page will refresh automatically.", logsURL, true)
+		p.writePreviewHTML(w, http.StatusServiceUnavailable, "Preview starting", "Preview server is starting. Logs update automatically.", logsURL, true)
 		return
 	}
 	p.writePreviewPlain(w, http.StatusServiceUnavailable, "Preview server is starting")
@@ -384,6 +397,7 @@ func (p *PreviewResolver) writePreviewUnavailableWithDecision(w http.ResponseWri
 
 func (p *PreviewResolver) writePreviewHTML(w http.ResponseWriter, status int, title string, message string, logsURL string, autoRefresh bool) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	action := ""
 	if logsURL != "" {
@@ -391,9 +405,19 @@ func (p *PreviewResolver) writePreviewHTML(w http.ResponseWriter, status int, ti
 	}
 	refresh := ""
 	if autoRefresh {
-		refresh = `<meta http-equiv="refresh" content="2">`
+		refresh = `<pre id="preview-logs" aria-live="polite">Waiting for output…</pre><script>(()=>{let done=false;const deadline=Date.now()+600000;const out=document.getElementById('preview-logs');const state=document.getElementById('preview-state');async function poll(){if(done||Date.now()>deadline)return;try{const r=await fetch('/.well-known/vibe-preview-status',{cache:'no-store'});const d=await r.json();out.textContent=(d.logs||[]).map(x=>x.content).join('');if(d.status==='ready'){done=true;location.reload();return}if(['failed','stopped','not_found','unavailable','error'].includes(d.status)){done=true;state.textContent=d.message||('Preview server '+d.status+'.');return}}catch(e){}setTimeout(poll,1000)}poll()})()</script>`
 	}
-	_, _ = fmt.Fprintf(w, "<!doctype html><html><head><title>%s</title>%s</head><body><h1>%s</h1><p>%s</p>%s</body></html>", html.EscapeString(title), refresh, html.EscapeString(title), html.EscapeString(message), action)
+	_, _ = fmt.Fprintf(w, "<!doctype html><html><head><title>%s</title></head><body><h1>%s</h1><p id=\"preview-state\">%s</p>%s%s</body></html>", html.EscapeString(title), html.EscapeString(title), html.EscapeString(message), refresh, action)
+}
+
+func (p *PreviewResolver) writePreviewStatus(w http.ResponseWriter, decision previewResolveResponse) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(struct {
+		Status  string            `json:"status"`
+		Message string            `json:"message,omitempty"`
+		Logs    []previewLogEntry `json:"logs,omitempty"`
+	}{Status: decision.Status, Message: decision.Message, Logs: decision.Logs})
 }
 
 func (p *PreviewResolver) previewLogsURL(r *http.Request, decision previewResolveResponse) string {

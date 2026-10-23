@@ -79,8 +79,20 @@ export function registerPreviewResolverRoutes(
     }
 
     try {
-      const response = await vkClient.resolvePreview(payload);
-      return c.json(normalizeResolveResponse(response), 200);
+      const response = normalizeResolveResponse(await vkClient.resolvePreview(payload));
+      if (
+        payload.includeLogs &&
+        response.workspaceId &&
+        response.executionProcessId &&
+        await authorizePreviewProcess(response.workspaceId, response.executionProcessId)
+      ) {
+        const logs = await vkClient.fetchRawExecutionLogs!(response.executionProcessId, {
+          timeoutMs: 1000,
+          maxEntries: 200,
+        });
+        response.logs = logs.map((entry) => ({ ...entry, content: redactPreviewLog(entry.content) }));
+      }
+      return c.json(response, 200);
     } catch (error) {
       console.warn('Preview resolver VK request failed', error);
       return c.json({ status: 'unavailable', message: 'Preview resolver backend is unavailable' }, 200);
@@ -334,4 +346,11 @@ function normalizeResolveResponse(response: PreviewResolveResponse): PreviewReso
     workspaceId: response.workspaceId ?? undefined,
     previewSlotId: response.previewSlotId ?? undefined,
   };
+}
+
+function redactPreviewLog(content: string): string {
+  return content.replace(
+    /\b([A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY)[A-Z0-9_]*)=([^\s]+)/g,
+    '$1=[REDACTED]',
+  );
 }
