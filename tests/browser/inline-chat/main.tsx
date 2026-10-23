@@ -13,6 +13,17 @@ import {
 } from '../../../src/lib/themes';
 import { HeroUIProvider } from '@heroui/react';
 import { ThemeSelectorControls } from '../../../src/components/ThemeSelector';
+import { AddVKWorkspaceModalView } from '../../../src/components/dialogs/AddVKWorkspaceModal';
+
+function WorkspacePickerHarness() {
+  const [open, setOpen] = useState(false);
+  return <>
+    <textarea aria-label="Picker origin draft" defaultValue="Keep this draft" />
+    <button onClick={() => setOpen(true)}>Open workspace picker</button>
+    <AddVKWorkspaceModalView isOpen={open} onClose={() => setOpen(false)} workspaceOptions={[]} onAddWorkspace={() => {}}
+      isActionPending={new URLSearchParams(location.search).has('pending')} />
+  </>;
+}
 
 function Harness() {
   const [leftVisible, setLeftVisible] = useState(true);
@@ -26,6 +37,7 @@ function Harness() {
   const mode = getTheme(themeId).mode;
   const rightWorkspace =
     new URLSearchParams(location.search).get('right') ?? 'workspace-1';
+  if (new URLSearchParams(location.search).has('workspace-picker')) return <WorkspacePickerHarness />;
   if (new URLSearchParams(location.search).has('preview-config')) {
     return <PreviewRunConfigsPanel workspaceId="workspace-1" />;
   }
