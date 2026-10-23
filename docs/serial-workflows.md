@@ -214,3 +214,10 @@ Missing or malformed support stops delivery with a matching-backend error; there
 is no direct-send compatibility fallback. The matching VK backend must include
 the atomic single-active-coding-agent migration. A source fix does not activate
 that migration in an already running older backend.
+
+## External issue integration design
+
+The [bidirectional external-hook design](external-workflow-hooks.md) defines
+proposed outgoing form/status events, incoming correlated decisions, durable
+receipts, retries, and loop prevention. Provider integration is successor scope;
+the current workflow configuration does not enable those proposed records.
