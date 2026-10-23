@@ -2663,7 +2663,9 @@ export function WorkspaceShell({
                   className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
                   onClick={() => {
                     setDesktopTabMenuTarget(null);
-                    navigate(`/split-view?left=${encodeURIComponent(tabGroup.id)}`);
+                    navigate(
+                      `/split-view?left=${encodeURIComponent(session.activeTabGroupId)}&right=${encodeURIComponent(tabGroup.id)}`,
+                    );
                   }}
                 >
                   Show in split view
