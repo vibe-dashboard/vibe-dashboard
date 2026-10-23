@@ -1689,6 +1689,12 @@ mod queue_start_outcome_tests {
         .execute(&pool)
         .await
         .unwrap();
+        sqlx::raw_sql(include_str!(
+            "../../../db/migrations/20261023000000_add_queue_effect_requested_payload_fingerprint.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
         let session_id = Uuid::new_v4();
         sqlx::query("INSERT INTO sessions (id) VALUES (?)")
             .bind(session_id)
