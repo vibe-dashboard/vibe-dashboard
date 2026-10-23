@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   CheckIcon,
   CircleDashedIcon,
@@ -46,11 +47,6 @@ type WorkspaceTasksResult = {
   error?: string;
 };
 
-type LoadState =
-  | { status: 'loading'; data?: WorkspaceTasksResult; error?: undefined }
-  | { status: 'ready'; data: WorkspaceTasksResult; error?: undefined }
-  | { status: 'error'; data?: WorkspaceTasksResult; error: string };
-
 export function WorkspaceBeadsTaskList({
   workspaceId,
   sessions,
@@ -65,7 +61,25 @@ export function WorkspaceBeadsTaskList({
     message: string
   ) => Promise<boolean>;
 }) {
-  const [state, setState] = useState<LoadState>({ status: 'loading' });
+  const queryClient = useQueryClient();
+  const queryKey = ['workspaceBeadsTasks', workspaceId] as const;
+  const { data, error, refetch } = useQuery({
+    queryKey,
+    enabled: !!workspaceId,
+    staleTime: TASK_POLL_INTERVAL_MS,
+    refetchInterval: TASK_POLL_INTERVAL_MS,
+    queryFn: async ({ signal }) => {
+      const response = await fetch(
+        `/dashboard/api/workspaces/${encodeURIComponent(workspaceId!)}/beads/tasks`,
+        { credentials: 'same-origin', signal }
+      );
+      if (!response.ok)
+        throw new Error(
+          response.statusText || `Request failed with status ${response.status}`
+        );
+      return (await response.json()) as WorkspaceTasksResult;
+    },
+  });
   const [selectedHousekeepingSessionId, setSelectedHousekeepingSessionId] =
     useState('');
   const [isSendingHousekeeping, setIsSendingHousekeeping] = useState(false);
@@ -76,63 +90,6 @@ export function WorkspaceBeadsTaskList({
     );
   }, [selectedSessionId, sessions]);
 
-  const load = useCallback(
-    async (signal?: AbortSignal) => {
-      if (!workspaceId) return;
-      setState((current) => ({ status: 'loading', data: current.data }));
-      try {
-        const response = await fetch(
-          `/dashboard/api/workspaces/${encodeURIComponent(workspaceId)}/beads/tasks`,
-          {
-            credentials: 'same-origin',
-            signal,
-          }
-        );
-        if (!response.ok)
-          throw new Error(
-            response.statusText ||
-              `Request failed with status ${response.status}`
-          );
-        const data = (await response.json()) as WorkspaceTasksResult;
-        setState({ status: 'ready', data });
-      } catch (error) {
-        if (signal?.aborted) return;
-        setState((current) => ({
-          status: 'error',
-          data: current.data,
-          error: error instanceof Error ? error.message : String(error),
-        }));
-      }
-    },
-    [workspaceId]
-  );
-
-  useEffect(() => {
-    if (!workspaceId) return undefined;
-    const controller = new AbortController();
-    void load(controller.signal);
-
-    const poll = () => {
-      if (
-        typeof document !== 'undefined' &&
-        document.visibilityState !== 'visible'
-      )
-        return;
-      void load();
-    };
-    const interval = window.setInterval(poll, TASK_POLL_INTERVAL_MS);
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') void load();
-    };
-    document.addEventListener('visibilitychange', onVisibilityChange);
-    return () => {
-      controller.abort();
-      window.clearInterval(interval);
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-    };
-  }, [load, workspaceId]);
-
-  const data = state.data;
   const total = data
     ? data.counts.open + data.counts.inProgress + data.counts.done
     : 0;
@@ -154,7 +111,7 @@ export function WorkspaceBeadsTaskList({
         selectedHousekeepingSessionId,
         HOUSEKEEPING_MESSAGE
       );
-      if (sent) void load();
+      if (sent) void queryClient.invalidateQueries({ queryKey });
     } finally {
       setIsSendingHousekeeping(false);
     }
@@ -213,19 +170,20 @@ export function WorkspaceBeadsTaskList({
             </div>
             <button
               type="button"
-              onClick={() => void load()}
+              onClick={() => void refetch()}
+              disabled={!workspaceId}
               className="text-xs text-low hover:text-normal underline-offset-2 hover:underline"
             >
               Refresh
             </button>
           </div>
 
-          {state.status === 'error' ? (
+          {error ? (
             <p
               role="alert"
               className="rounded border border-error/30 bg-error/10 px-base py-2 text-xs text-error"
             >
-              {state.error}
+              {error.message}
             </p>
           ) : null}
 

@@ -90,6 +90,48 @@ test("two inline panes keep independent drafts, modes and lifetime", async ({
   await expect(composer(right)).toHaveText("Right unsent draft");
 });
 
+test("workspace tasks share cached results across panes and remounts", async ({
+  page,
+  backend,
+}) => {
+  await page.goto("/");
+  const left = page.getByRole("region", { name: "Left Agent" });
+  const right = page.getByRole("region", { name: "Right Agent" });
+  await expect(left).toContainText("History for session-1");
+  await expect(right).toContainText("History for session-1");
+  const taskRequests = () =>
+    backend.requests.filter(
+      (request) =>
+        request.path === "/dashboard/api/workspaces/workspace-1/beads/tasks",
+    );
+  await left.getByRole("button", { name: "Workspace tasks" }).click();
+  await expect(
+    page.getByText("task-active · Active task", { exact: true }),
+  ).toBeVisible();
+  expect(taskRequests()).toHaveLength(1);
+
+  await page.getByRole("button", { name: "Unmount left" }).click();
+  await page.getByRole("button", { name: "Mount left" }).click();
+  await expect(left).toContainText("History for session-1");
+  await left.getByRole("button", { name: "Workspace tasks" }).click();
+  await expect(
+    page.getByText("task-active · Active task", { exact: true }),
+  ).toBeVisible();
+  expect(taskRequests()).toHaveLength(1);
+
+  backend.tasks.groups.inProgress[0]!.title = "Updated shared task";
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(
+    page.getByText("task-active · Updated shared task", { exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+  await right.getByRole("button", { name: "Workspace tasks" }).click();
+  await expect(
+    page.getByText("task-active · Updated shared task", { exact: true }),
+  ).toBeVisible();
+  expect(taskRequests()).toHaveLength(2);
+});
+
 test("two sessions stream independently and restore their selections after reload", async ({
   page,
   backend,
