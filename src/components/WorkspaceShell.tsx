@@ -2176,7 +2176,7 @@ export function WorkspaceShell({
     <div className="w-full h-full flex bg-background text-foreground">
       {isSidebarOpen && (
         <button
-          className="fixed inset-0 z-[60] cursor-default bg-black/40 md:bg-transparent"
+          className="fixed inset-0 z-[60] cursor-default bg-overlay/40 md:bg-transparent"
           onClick={() => setIsSidebarOpen(false)}
           aria-label="Close sidebar overlay"
         />
@@ -2545,7 +2545,7 @@ export function WorkspaceShell({
 
       {moveVoyageEntryPrompt && (
         <div
-          className="fixed inset-0 z-[94] flex items-center justify-center bg-black/60 p-4"
+          className="fixed inset-0 z-[94] flex items-center justify-center bg-overlay/60 p-4"
           onClick={(event) => {
             if (event.target === event.currentTarget) {
               setMoveVoyageEntryPrompt(null);

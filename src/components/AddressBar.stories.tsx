@@ -9,7 +9,7 @@ const meta: Meta<typeof AddressBar> = {
   component: AddressBar,
   decorators: [
     (Story) => (
-      <div className="h-32 w-full bg-neutral-950 pt-6">
+      <div className="h-32 w-full bg-background pt-6">
         <Story />
       </div>
     ),

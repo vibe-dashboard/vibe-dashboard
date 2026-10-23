@@ -1102,19 +1102,19 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
     };
 
     return (
-      <main className="dark min-h-screen bg-zinc-950 text-zinc-100 p-8">
+      <main className="min-h-screen bg-background text-foreground p-8">
         <div className="mx-auto max-w-6xl">
           <div className="flex items-center justify-between gap-4">
             <div>
               <h1 className="text-2xl font-semibold">Plugin Admin</h1>
-              <p className="mt-1 text-sm text-zinc-400">
+              <p className="mt-1 text-sm text-default-500">
                 Persistent desired state controls sync runtime Supervisor and
                 Caddy exposure.
               </p>
             </div>
             <button
               type="button"
-              className="rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-900 disabled:opacity-50"
+              className="rounded-md border border-divider/30 px-3 py-2 text-sm hover:bg-content1 disabled:opacity-50"
               onClick={() => void loadStatuses()}
               disabled={loading || updatingPluginId !== null}
             >
@@ -1125,15 +1125,15 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
           {error ? (
             <div
               role="alert"
-              className="mt-6 rounded-md border border-red-800 bg-red-950/40 p-4 text-sm text-red-200"
+              className="mt-6 rounded-md border border-danger/40 bg-danger/10 p-4 text-sm text-danger"
             >
               {error}
             </div>
           ) : null}
 
-          <div className="mt-6 overflow-hidden rounded-lg border border-zinc-800">
+          <div className="mt-6 overflow-hidden rounded-lg border border-divider/30">
             <table className="w-full border-collapse text-left text-sm">
-              <thead className="bg-zinc-900 text-xs uppercase tracking-wide text-zinc-400">
+              <thead className="bg-content1 text-xs uppercase tracking-wide text-default-500">
                 <tr>
                   <th className="px-4 py-3">Plugin</th>
                   <th className="px-4 py-3">Desired</th>
@@ -1145,13 +1145,13 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td className="px-4 py-6 text-zinc-400" colSpan={5}>
+                    <td className="px-4 py-6 text-default-500" colSpan={5}>
                       Loading plugin status…
                     </td>
                   </tr>
                 ) : plugins.length === 0 ? (
                   <tr>
-                    <td className="px-4 py-6 text-zinc-400" colSpan={5}>
+                    <td className="px-4 py-6 text-default-500" colSpan={5}>
                       No plugins are configured.
                     </td>
                   </tr>
@@ -1159,11 +1159,11 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
                   plugins.map((plugin) => (
                     <tr
                       key={plugin.pluginId}
-                      className="border-t border-zinc-800"
+                      className="border-t border-divider/30"
                     >
                       <td className="px-4 py-3">
                         <div className="font-medium">{plugin.name}</div>
-                        <div className="text-xs text-zinc-500">
+                        <div className="text-xs text-default-500">
                           {plugin.pluginId} · {plugin.version}
                         </div>
                       </td>
@@ -1173,13 +1173,13 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
                       <td className="px-4 py-3">
                         <div>{plugin.observedState}</div>
                         {plugin.error ? (
-                          <div className="mt-1 text-xs text-red-300">
+                          <div className="mt-1 text-xs text-danger">
                             {plugin.error}
                           </div>
                         ) : null}
                       </td>
                       <td
-                        className="max-w-md truncate px-4 py-3 text-xs text-zinc-400"
+                        className="max-w-md truncate px-4 py-3 text-xs text-default-500"
                         title={plugin.installPath ?? plugin.pluginPath}
                       >
                         {plugin.installPath ??
@@ -1189,7 +1189,7 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
                       <td className="px-4 py-3 text-right">
                         <button
                           type="button"
-                          className="rounded-md border border-zinc-700 px-3 py-2 hover:bg-zinc-900 disabled:opacity-50"
+                          className="rounded-md border border-divider/30 px-3 py-2 hover:bg-content1 disabled:opacity-50"
                           disabled={updatingPluginId !== null}
                           onClick={() =>
                             void updatePluginEnabled(

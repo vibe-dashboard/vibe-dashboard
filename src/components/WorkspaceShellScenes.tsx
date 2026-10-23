@@ -517,7 +517,7 @@ export function NewVoyagePromptDialog({
 }) {
   return (
     <div
-      className="fixed inset-0 z-[94] flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-[94] flex items-center justify-center bg-overlay/60 p-4"
       onClick={onBackdropClick}
     >
       <div className="w-full max-w-md rounded-xl border border-divider bg-content1 p-5 shadow-2xl">
@@ -607,7 +607,7 @@ export function VoyageSwitcherDialog({
 }) {
   return (
     <div
-      className="fixed inset-0 z-[94] flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-[94] flex items-center justify-center bg-overlay/60 p-4"
       onClick={onBackdropClick}
     >
       <div
@@ -760,7 +760,7 @@ export function DuplicateCraftPromptDialog({
   onCancel: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/60 p-4">
+    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-overlay/60 p-4">
       <div className="w-full max-w-lg rounded-xl border border-divider bg-content1 p-5 shadow-2xl">
         <div className="text-base font-semibold text-foreground">
           {craftLabel} is already embarked
@@ -857,7 +857,7 @@ export function MobileCraftMenu({
   onCloseOverlay: () => void;
 }) {
   return (
-    <div className="md:hidden fixed inset-0 z-[90] bg-black/60 flex items-end">
+    <div className="md:hidden fixed inset-0 z-[90] bg-overlay/60 flex items-end">
       <button
         className="absolute inset-0"
         aria-label="Close mobile tab menu"

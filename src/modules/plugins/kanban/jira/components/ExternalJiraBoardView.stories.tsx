@@ -137,7 +137,7 @@ function board(overrides: Partial<ExternalJiraBoardViewDto>): ExternalJiraBoardV
 function StoryFrame({ children }: { children: React.ReactNode }) {
   return (
     <div
-      className="h-dvh overflow-y-auto overscroll-contain bg-neutral-950"
+      className="h-dvh overflow-y-auto overscroll-contain bg-background"
       style={{ WebkitOverflowScrolling: 'touch' }}
     >
       {children}
