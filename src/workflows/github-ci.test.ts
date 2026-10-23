@@ -66,6 +66,28 @@ describe('formatGitHubCiFailurePrompt', () => {
 });
 
 describe('GitHub CI failure workflow', () => {
+  it('reports a retained queued notification without claiming that an agent started', async () => {
+    const vk = createFakeVkClient();
+    vk.sendIdentifiedFollowUp.mockImplementation(async (_session, _prompt, identity) => ({ status: 'queued', queueId: identity.queueId }));
+    const workflow = createGitHubCiFailureWorkflow({ vkClient: vk });
+    const result = await runWorkflow(workflowRegistry(workflow), workflow.id, { event: 'workflow_run', payload: workflowRunPayload({ conclusion: 'failure' }) });
+    expect(result.output).toMatchObject({ outcome: 'message_queued', workspaceId: 'ws-new', sessionId: 'session-new', queueId: expect.any(String) });
+    expect(result.output).not.toHaveProperty('executionProcessId');
+  });
+
+  it('reuses exact notification identity after a lost response and workflow reconstruction', async () => {
+    const vk = createFakeVkClient();
+    vk.sendIdentifiedFollowUp.mockRejectedValueOnce(new Error('start response lost'));
+    const input = { event: 'workflow_run', payload: workflowRunPayload({ conclusion: 'failure' }) };
+    const first = createGitHubCiFailureWorkflow({ vkClient: vk });
+    await runWorkflow(workflowRegistry(first), first.id, input);
+    const restarted = createGitHubCiFailureWorkflow({ vkClient: vk });
+    await runWorkflow(workflowRegistry(restarted), restarted.id, input);
+    expect(vk.sendIdentifiedFollowUp).toHaveBeenCalledTimes(2);
+    expect(vk.sendIdentifiedFollowUp.mock.calls[1]).toEqual(vk.sendIdentifiedFollowUp.mock.calls[0]);
+    expect(vk.sendIdentifiedFollowUp.mock.calls[0]?.[2]).toMatchObject({ owner: 'github-ci', queueId: expect.stringMatching(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-a[a-f0-9]{3}-[a-f0-9]{12}$/) });
+  });
+
   it('matches repo and branch, selects latest session, and sends failure prompt', async () => {
     const vk = createFakeVkClient();
     const workflow = createGitHubCiFailureWorkflow({ vkClient: vk });
@@ -88,8 +110,8 @@ describe('GitHub CI failure workflow', () => {
       sessionId: 'session-new',
       executionProcessId: 'process-1',
     });
-    expect(vk.sendFollowUp).toHaveBeenCalledOnce();
-    const firstFollowUpCall = vk.sendFollowUp.mock.calls[0];
+    expect(vk.sendIdentifiedFollowUp).toHaveBeenCalledOnce();
+    const firstFollowUpCall = vk.sendIdentifiedFollowUp.mock.calls[0];
     expect(firstFollowUpCall?.[0]).toBe('session-new');
     expect(firstFollowUpCall?.[1]).toContain('GitHub CI failed');
     expect(result.logs.map((entry) => entry.stepId)).toEqual([
@@ -121,7 +143,7 @@ describe('GitHub CI failure workflow', () => {
       branch: 'feature/ci-break',
       sha: 'abc123',
     });
-    expect(vk.sendFollowUp).toHaveBeenCalledOnce();
+    expect(vk.sendIdentifiedFollowUp).toHaveBeenCalledOnce();
     expect(duplicateResult.logs.map((entry) => entry.stepId)).toEqual([
       'normalize',
       'dedupe_commit',
@@ -138,7 +160,7 @@ describe('GitHub CI failure workflow', () => {
     });
 
     expect(result.output).toMatchObject({ outcome: 'no_matching_workspace' });
-    expect(vk.sendFollowUp).not.toHaveBeenCalled();
+    expect(vk.sendIdentifiedFollowUp).not.toHaveBeenCalled();
     expect(result.logs.at(-1)).toMatchObject({ stepId: 'match_workspace', level: 'warn' });
   });
 
@@ -161,7 +183,7 @@ describe('GitHub CI failure workflow', () => {
       outcome: 'message_sent',
       workspaceId: 'ws-new',
     });
-    expect(vk.sendFollowUp).toHaveBeenCalledOnce();
+    expect(vk.sendIdentifiedFollowUp).toHaveBeenCalledOnce();
   });
 
   it('skips and logs when matching workspace has no sessions', async () => {
@@ -174,7 +196,7 @@ describe('GitHub CI failure workflow', () => {
     });
 
     expect(result.output).toMatchObject({ outcome: 'no_sessions', workspaceId: 'ws-new' });
-    expect(vk.sendFollowUp).not.toHaveBeenCalled();
+    expect(vk.sendIdentifiedFollowUp).not.toHaveBeenCalled();
     expect(result.logs.at(-1)).toMatchObject({ stepId: 'select_session', level: 'warn' });
   });
 
@@ -223,7 +245,7 @@ function createFakeVkClient(
       { id: 'session-old', workspace_id: 'ws-new', executor: 'CODEX' as const, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' },
       { id: 'session-new', workspace_id: 'ws-new', executor: 'CODEX' as const, created_at: '2026-01-03T00:00:00Z', updated_at: '2026-01-03T00:00:00Z' },
     ]),
-    sendFollowUp: vi.fn<GitHubCiVkClient['sendFollowUp']>(async () => ({ id: 'process-1', session_id: 'session-new', status: 'running' as const })),
+    sendIdentifiedFollowUp: vi.fn<GitHubCiVkClient['sendIdentifiedFollowUp']>(async (_sessionId, _prompt, identity) => ({ status: 'started', queueId: identity.queueId, process: { id: 'process-1', session_id: 'session-new', status: 'running' } })),
   } satisfies GitHubCiVkClient;
   return client;
 }

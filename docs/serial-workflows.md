@@ -79,3 +79,17 @@ is registered. `--respond` is an alias for the default routing behavior;
 execution deadlines and the script-oriented `vk send --sync` interface retain
 their separate semantics. If local route binding fails after acceptance, the CLI
 reports the accepted process and route identity for reconciliation; do not resend.
+
+## Automatic CI notifications
+
+CI failures use identified queue delivery rather than direct follow-up. A busy
+session retains the notification in its single queue slot; an unrelated occupied
+slot produces a conflict rather than replacement. Webhook replay retains the same
+notification queue identity, and a durable accepted process is reconciled exactly.
+
+VD checks the identified reconciliation API before writing. Older VK versions may
+return the web app for an unknown API path, so HTTP 200 alone is insufficient.
+Missing or malformed support stops delivery with a matching-backend error; there
+is no direct-send compatibility fallback. The matching VK backend must include
+the atomic single-active-coding-agent migration. A source fix does not activate
+that migration in an already running older backend.

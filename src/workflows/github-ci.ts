@@ -1,7 +1,8 @@
 import type { WorkflowDefinition } from '@vibe-dashboard/workflow-core';
+import { createHash } from 'node:crypto';
 import {
   selectLatestSession,
-  type ExecutionProcess,
+  type IdentifiedFollowUpOutcome,
   type RepoWithBranch,
   type Session,
   type Workspace,
@@ -39,6 +40,7 @@ export type GitHubCiWorkflowOutput =
   | { outcome: 'duplicate_commit_failure'; repoFullName: string; branch: string; sha: string }
   | { outcome: 'no_matching_workspace'; repoFullName: string; branch: string }
   | { outcome: 'no_sessions'; workspaceId: string; repoFullName: string; branch: string }
+  | { outcome: 'message_queued'; workspaceId: string; sessionId: string; queueId: string; repoFullName: string; branch: string }
   | {
       outcome: 'message_sent';
       workspaceId: string;
@@ -52,7 +54,7 @@ export interface GitHubCiVkClient {
   getWorkspaces: () => Promise<Workspace[]>;
   getWorkspaceRepos: (workspaceId: string) => Promise<RepoWithBranch[]>;
   getSessions: (workspaceId: string) => Promise<Session[]>;
-  sendFollowUp: (sessionId: string, prompt: string) => Promise<ExecutionProcess>;
+  sendIdentifiedFollowUp: (sessionId: string, prompt: string, identity: { queueId: string; owner: string }) => Promise<IdentifiedFollowUpOutcome>;
 }
 
 export interface CreateGitHubCiFailureWorkflowOptions {
@@ -156,22 +158,31 @@ export function createGitHubCiFailureWorkflow(
       ctx.log('select_session', `Selected latest VK session ${session.id}`);
 
       const prompt = formatGitHubCiFailurePrompt(normalized);
-      let process: ExecutionProcess;
+      // The same notification keeps its identity across webhook redelivery and
+      // VD restart. A lost response cannot authorize another uncorrelated turn.
+      const hex = createHash('sha256').update(JSON.stringify({ workspace: match.workspace.id, session: session.id, event: normalized })).digest('hex');
+      const queueId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+      let delivery: IdentifiedFollowUpOutcome;
       try {
-        process = await options.vkClient.sendFollowUp(session.id, prompt);
+        delivery = await options.vkClient.sendIdentifiedFollowUp(session.id, prompt, { queueId, owner: 'github-ci' });
       } catch (error) {
         notifiedFailureShas.delete(normalized.sha);
+        ctx.log('send_follow_up', `CI delivery requires reconciliation of queue ${queueId}; no direct follow-up fallback`, 'error', {
+          sessionId: session.id, queueId, error: (error as Error).message,
+        });
         throw error;
       }
-      ctx.log('send_follow_up', `Sent CI failure prompt to session ${session.id}`, 'info', {
-        executionProcessId: process.id,
+      ctx.log('send_follow_up', `CI failure prompt ${delivery.status} for session ${session.id}`, 'info', {
+        queueId, ...(delivery.status === 'started' ? { executionProcessId: delivery.process.id } : {}),
       });
+
+      if (delivery.status === 'queued') return { outcome: 'message_queued', workspaceId: match.workspace.id, sessionId: session.id, queueId, repoFullName: normalized.repoFullName, branch: normalized.branch };
 
       return {
         outcome: 'message_sent',
         workspaceId: match.workspace.id,
         sessionId: session.id,
-        executionProcessId: process.id,
+        executionProcessId: delivery.process.id,
         repoFullName: normalized.repoFullName,
         branch: normalized.branch,
       };

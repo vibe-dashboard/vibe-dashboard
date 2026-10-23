@@ -26,6 +26,71 @@ describe('resolveVibeApiBaseUrl', () => {
 });
 
 describe('VibeKanbanServerClient', () => {
+  it.each([404, 200])('refuses unidentified CI delivery on an old backend returning HTTP %s', async status => {
+    const fetchImpl = vi.fn(async (_url: string, _init?: RequestInit) => new Response(status === 200 ? '<html>old VK</html>' : 'Not found', { status }));
+    const client = new VibeKanbanServerClient({ baseUrl: 'http://vk.local/api', fetch: fetchImpl });
+    await expect(client.sendIdentifiedFollowUp('session', 'CI failure', { queueId: 'queue', owner: 'github-ci' })).rejects.toThrow(/identified queue admission/);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(fetchImpl.mock.calls[0]?.[1]?.method).not.toBe('POST');
+  });
+
+  it.each(['pending', 'started'])('uses exact queue identity for CI delivery when the outcome is %s', async status => {
+    const calls: string[] = [];
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push(`${init?.method ?? 'GET'} ${url}`);
+      if (url.endsWith('/queue/queue/process')) return jsonResponse({ success: true, data: null });
+      if (url.endsWith('/sessions/session')) return jsonResponse({ success: true, data: { id: 'session', executor: 'CODEX' } });
+      if (url.endsWith('/queue')) {
+        expect(JSON.parse(String(init?.body))).toEqual({ queue_id: 'queue', owner: 'github-ci', message: 'CI failure', executor_config: { executor: 'CODEX' } });
+        return jsonResponse({ success: true, data: { status: 'queued', message: { id: 'queue', owner: 'github-ci' } } });
+      }
+      if (url.endsWith('/queue/queue/start')) return jsonResponse({ success: true, data: { status, ...(status === 'started' ? { process: { id: 'accepted', session_id: 'session', status: 'running' } } : {}) } });
+      throw new Error(`unexpected ${url}`);
+    });
+    const client = new VibeKanbanServerClient({ baseUrl: 'http://vk.local/api', fetch: fetchImpl });
+    await expect(client.sendIdentifiedFollowUp('session', 'CI failure', { queueId: 'queue', owner: 'github-ci' })).resolves.toMatchObject({ status: status === 'started' ? 'started' : 'queued', queueId: 'queue' });
+    expect(calls.some(call => call.includes('/follow-up'))).toBe(false);
+    expect(calls[0]).toBe('GET http://vk.local/api/sessions/session/queue/queue/process');
+  });
+
+  it('replays an accepted CI identity without enqueuing over an unrelated slot', async () => {
+    const calls: string[] = [];
+    const client = new VibeKanbanServerClient({ baseUrl: 'http://vk.local/api', fetch: async (url: string) => {
+      calls.push(url);
+      if (url.endsWith('/process')) return jsonResponse({ success: true, data: { queue_id: 'queue', session_id: 'session', owner: 'github-ci', lifecycle: 'started' } });
+      if (url.endsWith('/sessions/session')) return jsonResponse({ success: true, data: { id: 'session', executor: 'CODEX' } });
+      if (url.endsWith('/start')) return jsonResponse({ success: true, data: { status: 'started', process: { id: 'accepted', session_id: 'session', status: 'running' } } });
+      throw new Error(`unexpected ${url}`);
+    } });
+    await expect(client.sendIdentifiedFollowUp('session', 'CI failure', { queueId: 'queue', owner: 'github-ci' })).resolves.toMatchObject({ status: 'started', process: { id: 'accepted' } });
+    expect(calls.some(url => url.endsWith('/queue'))).toBe(false);
+  });
+
+  it('preserves an occupied slot conflict without trying direct follow-up or start', async () => {
+    const requests: string[] = [];
+    const client = new VibeKanbanServerClient({ baseUrl: 'http://vk.local/api', fetch: async (url: string) => {
+      requests.push(url);
+      if (url.endsWith('/process')) return jsonResponse({ success: true, data: null });
+      if (url.endsWith('/sessions/session')) return jsonResponse({ success: true, data: { id: 'session', executor: 'CODEX' } });
+      if (url.endsWith('/queue')) return new Response('occupied by someone else', { status: 409 });
+      throw new Error(`unexpected mutation ${url}`);
+    } });
+    await expect(client.sendIdentifiedFollowUp('session', 'CI failure', { queueId: 'queue', owner: 'github-ci' })).rejects.toMatchObject({ status: 409 });
+    expect(requests.some(url => url.endsWith('/start') || url.endsWith('/follow-up'))).toBe(false);
+  });
+
+  it('retains indeterminate CI identity without a replacement enqueue or direct send', async () => {
+    const requests: string[] = [];
+    const client = new VibeKanbanServerClient({ baseUrl: 'http://vk.local/api', fetch: async (url: string) => {
+      requests.push(url);
+      if (url.endsWith('/process')) return jsonResponse({ success: true, data: { queue_id: 'queue', session_id: 'session', owner: 'github-ci', lifecycle: 'indeterminate' } });
+      if (url.endsWith('/sessions/session')) return jsonResponse({ success: true, data: { id: 'session', executor: 'CODEX' } });
+      if (url.endsWith('/start')) return jsonResponse({ success: true, data: { status: 'indeterminate' } });
+      throw new Error(`unexpected mutation ${url}`);
+    } });
+    await expect(client.sendIdentifiedFollowUp('session', 'CI failure', { queueId: 'queue', owner: 'github-ci' })).rejects.toThrow(/requires exact reconciliation/);
+    expect(requests.some(url => url.endsWith('/queue') || url.endsWith('/follow-up'))).toBe(false);
+  });
   it('fetches workspaces and workspace repos from VK API envelope', async () => {
     const fetchImpl = vi.fn(async (url: string) => {
       if (url === 'http://vk.local/api/workspaces') {

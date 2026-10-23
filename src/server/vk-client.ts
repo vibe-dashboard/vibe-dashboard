@@ -130,6 +130,10 @@ export interface ExecutionProcess {
   executor_action?: unknown;
 }
 
+export type IdentifiedFollowUpOutcome =
+  | { status: 'started'; queueId: string; process: ExecutionProcess }
+  | { status: 'queued'; queueId: string; reason?: string };
+
 export interface PreviewResolveRequest {
   host: string;
   workspaceToken: string;
@@ -400,6 +404,38 @@ export class VibeKanbanServerClient {
     return this.get(
       `/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots/${encodeURIComponent(previewSlotId)}/url?${params}`,
     );
+  }
+
+  async sendIdentifiedFollowUp(
+    sessionId: string,
+    prompt: string,
+    identity: { queueId: string; owner: string },
+  ): Promise<IdentifiedFollowUpOutcome> {
+    const queuePath = `/sessions/${encodeURIComponent(sessionId)}/queue`;
+    const effectPath = `${queuePath}/${encodeURIComponent(identity.queueId)}`;
+    let effect: { queue_id: string; owner: string; session_id: string; lifecycle: string } | null;
+    try {
+      // Read-only capability check before any write. Old VK versions can serve
+      // their SPA with HTTP 200 for unknown API paths; a JSON envelope is required.
+      effect = await this.get(`${effectPath}/process`);
+      if (effect !== null && (!effect || effect.queue_id !== identity.queueId || effect.owner !== identity.owner || effect.session_id !== sessionId || !['reserved', 'started', 'failed_before_start', 'indeterminate'].includes(effect.lifecycle))) {
+        throw new Error('Invalid queue reconciliation identity');
+      }
+    } catch (error) {
+      throw new Error(`Cannot verify identified queue admission; use a matching VK backend with atomic session admission. No follow-up was sent. ${(error as Error).message}`);
+    }
+    const session = await this.getSession(sessionId);
+    const body = { owner: identity.owner, message: prompt, executor_config: { executor: session.executor } };
+    if (!effect) {
+      const queued = await this.post<{ status: string; message?: { id: string; owner: string } }>(queuePath, { ...body, queue_id: identity.queueId });
+      if (!['queued', 'consuming'].includes(queued.status) || queued.message?.id !== identity.queueId || queued.message.owner !== identity.owner) throw new Error(`VK did not preserve CI queue identity ${identity.queueId}`);
+    }
+    // The server validates owner/session/full payload against the durable effect
+    // before replaying a started process, preserving an unrelated occupied slot.
+    const outcome = await this.post<{ status: string; process?: ExecutionProcess; message?: string }>(`${effectPath}/start`, body);
+    if (outcome.status === 'started' && outcome.process?.id && outcome.process.session_id === sessionId) return { status: 'started', queueId: identity.queueId, process: outcome.process };
+    if (outcome.status === 'pending' || outcome.status === 'failed_before_start') return { status: 'queued', queueId: identity.queueId, ...(outcome.message ? { reason: outcome.message } : {}) };
+    throw new Error(`CI queue ${identity.queueId} requires exact reconciliation (${outcome.status}); refusing a replacement follow-up`);
   }
 
   async sendFollowUp(
