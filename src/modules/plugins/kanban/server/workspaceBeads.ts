@@ -17,6 +17,7 @@ const REQUIRED_FRAGMENT = `## Workspace Beads
 Run \`bd\` commands from this workspace root/top-level directory.
 This workspace uses \`.beads/redirect\` to store beads in persisted VD storage.
 Do not initialize beads inside repository subdirectories.
+Use \`bd\` for all task tracking instead of built-in todo tracking mechanisms.
 
 Useful commands:
 - \`bd list\` — list tasks

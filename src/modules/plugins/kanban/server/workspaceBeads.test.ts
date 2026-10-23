@@ -43,6 +43,7 @@ describe('workspaceBeads', () => {
         beadsDirectory: '/var/lib/vd/beads',
       });
       expect(instructions).toContain('Run `bd` commands from this workspace root/top-level directory.');
+      expect(instructions).toContain('Use `bd` for all task tracking instead of built-in todo tracking mechanisms.');
       expect(instructions).toContain('`bd list` — list tasks');
       expect(instructions).toContain('`bd show <id>` — inspect a task');
       expect(instructions).toContain('custom local note');
