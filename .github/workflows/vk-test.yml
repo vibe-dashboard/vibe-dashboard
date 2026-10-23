@@ -212,6 +212,8 @@ jobs:
     env:
       CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_PROFILE_TEST_DEBUG: "0"
+      # Bound concurrent rustc/linker memory use on the hosted runner.
+      CARGO_BUILD_JOBS: "2"
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
     steps:
@@ -224,7 +226,7 @@ jobs:
           dotnet: true
           haskell: true
           large-packages: false
-          swap-storage: true
+          swap-storage: false
           docker-images: true
           tools-cache: false
 
@@ -242,7 +244,7 @@ jobs:
           rev: 6e4a9d6f2c4964f30ff54a8cd5466f8869267daa # cargo-nextest-0.9.132
 
       - name: Run Cargo tests
-        run: cargo nextest run --workspace --exclude vibe-kanban-tauri
+        run: cargo nextest run --workspace --exclude vibe-kanban-tauri --test-threads 2
 
   coding-agent-upgrade-gate:
     name: Coding-agent upgrade gate
