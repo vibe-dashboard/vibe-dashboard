@@ -33,9 +33,22 @@ test('all presets style chat and portals without losing two drafts or expanded d
   for (const id of ['neutral-dark', 'midnight', 'forest', 'sand', 'plum']) {
     await page.getByLabel('Theme preview', { exact: true }).selectOption(id);
     await expect(page.locator('html')).toHaveAttribute('data-theme', id);
-    const background = await left
-      .locator('[data-testid="inline-vk-agent-chat"]')
-      .evaluate((el) => getComputedStyle(el).backgroundColor);
+    // Theme attributes update before the 220ms color transition finishes.
+    // Resolve the target color on a fresh element, then wait for the live pane
+    // to reach it instead of sampling an intermediate (or previous) palette.
+    const expectedBackground = await page.evaluate(() => {
+      const probe = document.createElement('div');
+      probe.style.backgroundColor = 'hsl(var(--heroui-background))';
+      document.body.append(probe);
+      const color = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return color;
+    });
+    const chatSurface = left.locator('[data-testid="inline-vk-agent-chat"]');
+    await expect(chatSurface).toHaveCSS('background-color', expectedBackground);
+    const background = await chatSurface.evaluate(
+      (el) => getComputedStyle(el).backgroundColor,
+    );
     surfaces.add(background);
     expect(background).not.toBe('rgba(0, 0, 0, 0)');
     await expect(composer(left)).toHaveText('Left theme-switch draft');
