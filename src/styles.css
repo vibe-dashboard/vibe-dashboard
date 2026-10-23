@@ -150,6 +150,31 @@ textarea {
 @layer base {
   *, ::before, ::after { border-color: hsl(var(--heroui-divider) / 0.3); }
 }
+
+/* Resolve these against the page palette before remapping the chat's tokens.
+ * This keeps every preset in charge of its hues without changing other pages. */
+:root {
+  --vd-chat-surface: var(--heroui-content2);
+  --vd-chat-divider: var(--heroui-content3);
+  --vd-chat-canvas: color-mix(
+    in srgb,
+    hsl(var(--heroui-content1)) 94%,
+    hsl(var(--heroui-primary))
+  );
+}
+
+[data-testid="react-craft-surface:vd.built-in/agent-chat"] {
+  --heroui-content1: var(--vd-chat-surface);
+  --heroui-divider: var(--vd-chat-divider);
+  background-color: var(--vd-chat-canvas);
+}
+
+/* The transcript, sticky controls and outer chat container share one canvas;
+ * tool cards and the composer retain the raised content1 surface above it. */
+[data-testid="react-craft-surface:vd.built-in/agent-chat"] .bg-background {
+  background-color: var(--vd-chat-canvas);
+}
+
 @media (max-width: 767px) {
   :root {
     --mobile-footer-offset: var(--mobile-footer-height);
