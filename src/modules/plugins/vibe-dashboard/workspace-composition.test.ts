@@ -5,14 +5,20 @@ import type { TabGroupFactoryContribution } from './types';
 const factory: TabGroupFactoryContribution = {
   key: 'open-existing-workspace',
   title: 'Open Existing Workspace',
-  description: 'Add workspace with Agent + Code split view',
+  description: 'Add workspace with Agent + Code + Diff split views',
   launchMode: 'vk-workspace',
   workspaceComposition: {
     primaryTabKey: 'agent',
-    defaultPairTabKeys: ['agent', 'code'],
+    defaultPairTabKeys: ['agent', 'code', 'diff'],
     tabs: [
       { key: 'agent', title: 'Agent', urlTemplate: '{{origin}}/workspaces/{{workspaceId}}' },
       { key: 'code', title: 'Code', urlTemplate: '{{origin}}/?folder={{containerRef}}' },
+      {
+        key: 'diff',
+        title: 'Diff',
+        urlTemplate:
+          'internal://diff?workspaceId={{workspaceId}}&workspaceDir={{containerRef}}',
+      },
     ],
   },
 };
@@ -31,10 +37,15 @@ describe('plugin-owned workspace composition', () => {
       }),
     ).toEqual({
       primaryTabKey: 'agent',
-      pairTabKeys: ['agent', 'code'],
+      pairTabKeys: ['agent', 'code', 'diff'],
       tabs: [
         { key: 'agent', title: 'Agent', url: 'https://vd.example.test/workspaces/workspace-1' },
         { key: 'code', title: 'Code', url: 'https://vd.example.test/?folder=/home/vkuser/repos/plugin-system' },
+        {
+          key: 'diff',
+          title: 'Diff',
+          url: 'internal://diff?workspaceId=workspace-1&workspaceDir=/home/vkuser/repos/plugin-system',
+        },
       ],
     });
   });

@@ -11,12 +11,12 @@ const manifest: PluginManifest = createPluginManifest({
       {
         key: 'open-existing-workspace',
         title: 'Open Existing Workspace',
-        description: 'Add workspace with Agent + Code split view',
+        description: 'Add workspace with Agent + Code + Diff split views',
         launchMode: 'vk-workspace',
         order: 10,
         workspaceComposition: {
           primaryTabKey: 'agent',
-          defaultPairTabKeys: ['agent', 'code'],
+          defaultPairTabKeys: ['agent', 'code', 'diff'],
           tabs: [
             {
               key: 'agent',
@@ -27,6 +27,12 @@ const manifest: PluginManifest = createPluginManifest({
               key: 'code',
               title: 'Code',
               urlTemplate: '{{origin}}/?folder={{containerRef}}',
+            },
+            {
+              key: 'diff',
+              title: 'Diff',
+              urlTemplate:
+                'internal://diff?workspaceId={{workspaceId}}&workspaceDir={{containerRef}}',
             },
           ],
         },

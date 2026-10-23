@@ -25,7 +25,7 @@ import (
 const defaultPreviewResolverTimeout = 2 * time.Second
 const defaultTrustedRequestedHostHeader = "X-Vibe-Requested-Host"
 
-var encodedPreviewLabelPattern = regexp.MustCompile(`^([a-f0-9]{16})-([a-z0-9]{1,18})-([a-z0-9]{1,10})-([a-z0-9]{1,16})$`)
+var encodedPreviewLabelPattern = regexp.MustCompile(`^([a-f0-9]{16})-([a-z0-9]{1,18})-([a-z0-9]{1,10})(?:-[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)?$`)
 
 // PreviewResolver routes encoded preview hostnames through a local resolver API.
 type PreviewResolver struct {
@@ -44,7 +44,6 @@ type previewHostMatch struct {
 	WorkspaceToken string
 	RepoSlug       string
 	SlotSlug       string
-	CustomerSlug   string
 }
 
 type previewResolveRequest struct {
@@ -52,7 +51,6 @@ type previewResolveRequest struct {
 	WorkspaceToken string `json:"workspaceToken"`
 	RepoSlug       string `json:"repoSlug"`
 	SlotSlug       string `json:"slotSlug"`
-	CustomerSlug   string `json:"customerSlug"`
 	Ensure         bool   `json:"ensure"`
 	Method         string `json:"method"`
 	Path           string `json:"path"`
@@ -224,7 +222,7 @@ func parseEncodedPreviewHost(host string, baseDomain string) (previewHostMatch, 
 	if baseDomain != "" && rest != baseDomain {
 		return previewHostMatch{}, false
 	}
-	if strings.Count(firstLabel, "-") != 3 {
+	if len(firstLabel) > 63 {
 		return previewHostMatch{}, false
 	}
 	matches := encodedPreviewLabelPattern.FindStringSubmatch(firstLabel)
@@ -236,7 +234,6 @@ func parseEncodedPreviewHost(host string, baseDomain string) (previewHostMatch, 
 		WorkspaceToken: matches[1],
 		RepoSlug:       matches[2],
 		SlotSlug:       matches[3],
-		CustomerSlug:   matches[4],
 	}, true
 }
 
@@ -246,7 +243,6 @@ func (p *PreviewResolver) resolvePreview(ctx context.Context, r *http.Request, m
 		WorkspaceToken: match.WorkspaceToken,
 		RepoSlug:       match.RepoSlug,
 		SlotSlug:       match.SlotSlug,
-		CustomerSlug:   match.CustomerSlug,
 		Ensure:         isPreviewEnsureRequest(r),
 		Method:         r.Method,
 		Path:           r.URL.RequestURI(),
@@ -304,7 +300,6 @@ func (p *PreviewResolver) proxyPreview(w http.ResponseWriter, r *http.Request, m
 		out.Header.Set("X-Vibe-Preview-Workspace-Token", match.WorkspaceToken)
 		out.Header.Set("X-Vibe-Preview-Repo", match.RepoSlug)
 		out.Header.Set("X-Vibe-Preview-Slot", match.SlotSlug)
-		out.Header.Set("X-Vibe-Preview-Customer", match.CustomerSlug)
 	}
 	proxy.ErrorHandler = func(w http.ResponseWriter, req *http.Request, err error) {
 		if p.logger != nil {

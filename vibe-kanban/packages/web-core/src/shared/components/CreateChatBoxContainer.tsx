@@ -22,7 +22,6 @@ import {
 } from '@/shared/lib/string';
 import type { BaseCodingAgent, Repo } from 'shared/types';
 import { CreateChatBox } from '@vibe/ui/components/CreateChatBox';
-import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
 import { CreateModeRepoPickerBar } from './CreateModeRepoPickerBar';
 import { ModelSelectorContainer } from '@/shared/components/ModelSelectorContainer';
 import type { ChatViewMode } from '@/shared/stores/useUiPreferencesStore';
@@ -196,10 +195,6 @@ export function CreateChatBoxContainer({
     });
   };
 
-  const handleCustomise = () => {
-    SettingsDialog.show({ initialSection: 'agents' });
-  };
-
   // Handle executor change - use saved variant if switching to default executor
   const handleExecutorChange = useCallback(
     (executor: BaseCodingAgent) => {
@@ -314,12 +309,12 @@ export function CreateChatBoxContainer({
   }
 
   return (
-    <div className="relative flex flex-1 flex-col bg-primary h-full">
+    <div className="relative flex flex-1 flex-col bg-background h-full">
       <div className="flex flex-1 items-center justify-center px-base">
         <div className="flex w-chat max-w-full flex-col gap-base">
           {showRepoPickerStep && (
             <>
-              <h2 className="mb-double text-center text-4xl font-medium tracking-tight text-high">
+              <h2 className="mb-double text-center text-4xl font-medium tracking-tight text-foreground">
                 {t('createMode.headings.repoStep')}
               </h2>
               <CreateModeRepoPickerBar
@@ -330,7 +325,7 @@ export function CreateChatBoxContainer({
 
           {showChatStep && (
             <>
-              <h2 className="mb-double text-center text-4xl font-medium tracking-tight text-high">
+              <h2 className="mb-double text-center text-4xl font-medium tracking-tight text-foreground">
                 {t('createMode.headings.chatStep')}
               </h2>
 
@@ -393,7 +388,6 @@ export function CreateChatBoxContainer({
                       <ModelSelectorContainer
                         agent={effectiveExecutor}
                         workspaceId={undefined}
-                        onAdvancedSettings={handleCustomise}
                         presets={variantOptions}
                         selectedPreset={selectedVariant}
                         onPresetSelect={handlePresetSelect}

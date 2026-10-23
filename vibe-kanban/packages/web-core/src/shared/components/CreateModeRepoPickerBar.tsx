@@ -15,7 +15,6 @@ import { repoApi } from '@/shared/lib/api';
 import { cn } from '@/shared/lib/utils';
 import { useCreateMode } from '@/features/create-mode/model/useCreateMode';
 import { FolderPickerDialog } from '@/shared/dialogs/shared/FolderPickerDialog';
-import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
 import { PrimaryButton } from '@vibe/ui/components/PrimaryButton';
 import { CreateRepoDialog } from '@vibe/ui/components/CreateRepoDialog';
 import {
@@ -374,10 +373,10 @@ export function CreateModeRepoPickerBar({
                 const unconfiguredRepo = repos.find(
                   (repo) => !repo.setup_script
                 );
-                SettingsDialog.show({
-                  initialSection: 'repos',
-                  initialState: { repoId: unconfiguredRepo?.id },
-                });
+                console.warn(
+                  'Repository settings are not available in the inline VD create workspace view yet.',
+                  { repoId: unconfiguredRepo?.id }
+                );
               }}
             >
               {t('createMode.repoPicker.setupHintLink')}

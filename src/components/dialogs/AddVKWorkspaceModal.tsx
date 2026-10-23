@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useId } from 'react';
 import {
   Modal,
   ModalContent,
@@ -228,6 +228,31 @@ export function AddVKWorkspaceModalView({
   initialCustomName = '',
   initialSpacePickerTargetId = null,
 }: AddVKWorkspaceModalViewProps) {
+  const dialogId = useId();
+  useEffect(() => {
+    if (!isOpen || isActionPending) return;
+    const dismissBeforeFocusTransfer = (event: KeyboardEvent) => {
+      if (
+        event.key !== 'Escape' ||
+        event.defaultPrevented ||
+        !(event.target instanceof Node) ||
+        document.getElementById(dialogId)?.contains(event.target)
+      ) {
+        return;
+      }
+      if (
+        event.target instanceof Element &&
+        event.target.closest('[role="dialog"], [role="menu"], [role="listbox"]')
+      ) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+    };
+    window.addEventListener('keydown', dismissBeforeFocusTransfer, true);
+    return () => window.removeEventListener('keydown', dismissBeforeFocusTransfer, true);
+  }, [isOpen, isActionPending, onClose, dialogId]);
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
   const [selectedRepo, setSelectedRepo] = useState(initialSelectedRepo);
   const [showPathInput, setShowPathInput] = useState(initialShowPathInput);
@@ -386,12 +411,12 @@ export function AddVKWorkspaceModalView({
       isDismissable={!isActionPending}
       isKeyboardDismissDisabled={isActionPending}
     >
-      <ModalContent className="max-h-[85vh] bg-neutral-900 border border-neutral-800 text-neutral-100">
-        <ModalHeader className="flex flex-col gap-1 border-b border-neutral-800">
-          <h2 className="text-lg font-semibold text-white">
+      <ModalContent id={dialogId} className="max-h-[85vh] bg-content1 border border-divider/30 text-foreground">
+        <ModalHeader className="flex flex-col gap-1 border-b border-divider/30">
+          <h2 className="text-lg font-semibold text-foreground">
             {spacePickerTarget ? 'Choose Space' : 'Open VK Workspace'}
           </h2>
-          <p className="text-sm text-neutral-400 font-normal">
+          <p className="text-sm text-default-500 font-normal">
             {spacePickerTarget
               ? `Select a space for ${spacePickerTarget.name || 'Untitled Workspace'}`
               : showPathInput
@@ -403,7 +428,7 @@ export function AddVKWorkspaceModalView({
           {surfacedActionError && (
             <div
               role="alert"
-              className="rounded-md border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200"
+              className="rounded-md border border-danger/40 bg-danger/10 p-3 text-sm text-danger"
             >
               {surfacedActionError}
             </div>
@@ -412,7 +437,7 @@ export function AddVKWorkspaceModalView({
           {spacePickerTarget ? (
             <div className="max-h-[55vh] space-y-2 overflow-y-auto pr-1">
               {availableSpaces.length === 0 ? (
-                <div className="text-neutral-500 text-center py-8">
+                <div className="text-default-500 text-center py-8">
                   No spaces available
                 </div>
               ) : (
@@ -429,13 +454,13 @@ export function AddVKWorkspaceModalView({
                         void handleSelectSpace(space.id);
                       }}
                       disabled={isActionPending}
-                      className="w-full p-3 rounded-lg bg-neutral-800 hover:bg-neutral-700 border border-transparent transition-colors text-left disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-neutral-800"
+                      className="w-full p-3 rounded-lg bg-content2 hover:bg-content3 border border-transparent focus-visible:outline-focus transition-colors text-left disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-content2"
                     >
                       <div className="flex items-center justify-between gap-3">
-                        <span className="font-medium text-sm text-white">
+                        <span className="font-medium text-sm text-foreground">
                           {space.name}
                         </span>
-                        <span className="text-xs text-neutral-500">
+                        <span className="text-xs text-default-500">
                           {tabGroupCount} craft
                           {tabGroupCount === 1 ? '' : 's'}
                         </span>
@@ -454,9 +479,9 @@ export function AddVKWorkspaceModalView({
                 onChange={(e) => setCustomName(e.target.value)}
                 size="sm"
                 classNames={{
-                  inputWrapper: 'bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800',
-                  input: 'text-white',
-                  label: 'text-neutral-300',
+                  inputWrapper: 'bg-content2 border-divider/30 data-[hover=true]:bg-content2 group-data-[focus=true]:bg-content2',
+                  input: 'text-foreground',
+                  label: 'text-default-500',
                 }}
               />
               <Input
@@ -470,10 +495,10 @@ export function AddVKWorkspaceModalView({
                   if (e.key === 'Enter') void handleAddWithPath();
                 }}
                 classNames={{
-                  inputWrapper: 'bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800',
-                  input: 'text-white',
-                  label: 'text-neutral-300',
-                  description: 'text-neutral-500',
+                  inputWrapper: 'bg-content2 border-divider/30 data-[hover=true]:bg-content2 group-data-[focus=true]:bg-content2',
+                  input: 'text-foreground',
+                  label: 'text-default-500',
+                  description: 'text-default-500',
                 }}
                 description="Provide an absolute directory path or VK workspace ID/URL"
               />
@@ -489,8 +514,8 @@ export function AddVKWorkspaceModalView({
                     size="sm"
                     autoFocus
                     classNames={{
-                      inputWrapper: 'bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800',
-                      input: 'text-white',
+                      inputWrapper: 'bg-content2 border-divider/30 data-[hover=true]:bg-content2 group-data-[focus=true]:bg-content2',
+                      input: 'text-foreground',
                     }}
                     className="flex-1"
                   />
@@ -507,14 +532,14 @@ export function AddVKWorkspaceModalView({
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <label htmlFor="repo-filter" className="text-xs text-neutral-400 whitespace-nowrap">
+                  <label htmlFor="repo-filter" className="text-xs text-default-500 whitespace-nowrap">
                     Repository
                   </label>
                   <select
                     id="repo-filter"
                     value={selectedRepo}
                     onChange={(e) => setSelectedRepo(e.target.value)}
-                    className="flex-1 h-8 px-2 rounded-md border border-neutral-700 bg-neutral-800 text-neutral-100 text-sm"
+                    className="flex-1 h-8 px-2 rounded-md border border-divider/30 bg-content2 text-foreground text-sm focus-visible:outline-focus"
                   >
                     <option value="all">All repositories</option>
                     {repoOptions.map((repoName) => (
@@ -527,7 +552,7 @@ export function AddVKWorkspaceModalView({
               </div>
 
               {refreshing && (
-                <div className="flex items-center gap-2 text-xs text-neutral-500">
+                <div className="flex items-center gap-2 text-xs text-default-500">
                   <Spinner size="sm" />
                   <span>Refreshing results…</span>
                 </div>
@@ -540,13 +565,13 @@ export function AddVKWorkspaceModalView({
               )}
 
               {error && (
-                <div className="text-red-400 text-sm p-4 bg-red-500/10 rounded">
+                <div className="text-danger text-sm p-4 bg-danger/10 rounded">
                   {error}
                 </div>
               )}
 
               {!loading && !error && filteredAttempts.length === 0 && (
-                <div className="text-neutral-500 text-center py-8">
+                <div className="text-default-500 text-center py-8">
                   {searchQuery
                     ? 'No workspaces match your search'
                     : 'No workspaces available'}
@@ -562,44 +587,44 @@ export function AddVKWorkspaceModalView({
                         void handleWorkspaceSelect(ta);
                       }}
                       disabled={isActionPending}
-                      className="p-3 rounded-lg cursor-pointer transition-colors bg-neutral-800 hover:bg-neutral-700 border border-transparent text-left disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-neutral-800"
+                      className="p-3 rounded-lg cursor-pointer transition-colors bg-content2 hover:bg-content3 border border-transparent focus-visible:outline-focus text-left disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-content2"
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            {ta.pinned && <span className="text-yellow-500">📌</span>}
+                            {ta.pinned && <span className="text-warning">📌</span>}
                             <h3 className="font-medium text-sm truncate">
                               {ta.name || 'Untitled'}
                             </h3>
                             {pendingWorkspaceId === ta.id && (
                               <>
                                 <Spinner size="sm" />
-                                <span className="text-xs text-primary-200">
+                                <span className="text-xs text-primary">
                                   Opening…
                                 </span>
                               </>
                             )}
                           </div>
-                          <p className="text-xs text-neutral-400 mt-1">
+                          <p className="text-xs text-default-500 mt-1">
                             Branch: {ta.branch}
                           </p>
                           {ta.agent_working_dir && (
-                            <p className="text-xs text-neutral-500 mt-0.5">
+                            <p className="text-xs text-default-500 mt-0.5">
                               Dir: {ta.agent_working_dir}
                             </p>
                           )}
                           {getRepoNames(ta).length > 0 && (
-                            <p className="text-xs text-neutral-500 mt-0.5">
+                            <p className="text-xs text-default-500 mt-0.5">
                               Repo: {getRepoNames(ta).join(', ')}
                             </p>
                           )}
                           {workspaceTabGroupMap.get(ta.id) ? (
-                            <p className="text-xs text-primary-300 mt-1">
+                            <p className="text-xs text-primary mt-1">
                               Open in {workspaceTabGroupMap.get(ta.id)?.spaceName} /{' '}
                               {workspaceTabGroupMap.get(ta.id)?.tabGroupLabel}
                             </p>
                           ) : onAddWorkspaceToSpace ? (
-                            <p className="text-xs text-neutral-500 mt-1">
+                            <p className="text-xs text-default-500 mt-1">
                               Choose a space for this craft
                             </p>
                           ) : null}
@@ -612,7 +637,7 @@ export function AddVKWorkspaceModalView({
             </>
           )}
         </ModalBody>
-        <ModalFooter className="border-t border-neutral-800">
+        <ModalFooter className="border-t border-divider/30">
           {(showPathInput || spacePickerTarget) && (
             <Button
               size="sm"
@@ -625,7 +650,7 @@ export function AddVKWorkspaceModalView({
                 }
               }}
               isDisabled={isActionPending}
-              className="bg-neutral-800 text-neutral-200"
+              className="bg-content2 text-foreground"
             >
               Back
             </Button>
@@ -635,7 +660,7 @@ export function AddVKWorkspaceModalView({
             variant="light"
             onPress={handleClose}
             isDisabled={isActionPending}
-            className="text-neutral-300"
+            className="text-foreground"
           >
             Cancel
           </Button>

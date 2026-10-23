@@ -1,4 +1,5 @@
 // Vibe Kanban Service Layer - API interactions for PM operations
+import { buildPreviewSlotUrl } from '../../../src/lib/previewSlotUrl.js';
 type WebSocketMessageHandler = (data: string | Buffer) => void;
 type WebSocketErrorHandler = (error: Error) => void;
 type WebSocketCloseHandler = () => void;
@@ -286,7 +287,6 @@ export interface RunConfigStartResponse {
 }
 
 export interface PreviewSlotUrlResponse extends PreviewSlotUrlParts {
-  customerSlug: string;
   host: string;
   url: string;
 }
@@ -604,6 +604,16 @@ export class VKService {
     return this.parseApiResponse<RunConfigStartResponse>(response, 'start run config');
   }
 
+  async deleteRunConfig(workspaceId: string, runConfigId: string): Promise<void> {
+    const response = await fetch(config.endpoints.runConfig(workspaceId, runConfigId), { method: 'DELETE' });
+    return this.parseApiResponse<void>(response, 'delete run config');
+  }
+
+  async deletePreviewSlot(workspaceId: string, previewSlotId: string): Promise<void> {
+    const response = await fetch(config.endpoints.previewSlot(workspaceId, previewSlotId), { method: 'DELETE' });
+    return this.parseApiResponse<void>(response, 'delete preview slot');
+  }
+
   async startPreviewSlot(workspaceId: string, previewSlotId: string): Promise<RunConfigStartResponse> {
     const response = await fetch(config.endpoints.startPreviewSlot(workspaceId, previewSlotId), {
       method: 'POST',
@@ -614,13 +624,11 @@ export class VKService {
   async getPreviewSlotUrl(
     workspaceId: string,
     previewSlotId: string,
-    args: { customerSlug: string; baseDomain?: string; urlScheme?: 'http' | 'https' },
   ): Promise<PreviewSlotUrlResponse> {
-    const query = new URLSearchParams({ customerSlug: args.customerSlug });
-    if (args.baseDomain) query.set('baseDomain', args.baseDomain);
-    if (args.urlScheme) query.set('urlScheme', args.urlScheme);
-    const response = await fetch(config.endpoints.previewSlotUrl(workspaceId, previewSlotId, query.toString()));
-    return this.parseApiResponse<PreviewSlotUrlResponse>(response, 'fetch preview slot URL');
+    const configs = await this.getRunConfigs(workspaceId);
+    const parts = configs.preview_url_parts.find((entry) => entry.previewSlotId === previewSlotId);
+    if (!parts) throw new Error('Preview slot was not found');
+    return buildPreviewSlotUrl(parts, process.env.SITE_ORIGIN);
   }
 
   async fetchRawLogs(processId: string, timeoutMs = 2000): Promise<RawLogEntry[]> {

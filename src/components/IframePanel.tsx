@@ -5,6 +5,10 @@ import type { WorkspaceState, SavedWorkspaceSession } from '../types';
 import { AppLoadingScreen } from './AppLoadingScreen';
 import { SpacesOverview } from './SpacesOverview';
 import { hasSameBaseOrigin } from '../lib/originTrust';
+import {
+  getEffectivePairs,
+  getEffectiveTabs,
+} from '../modules/plugins/vibe-dashboard/craft-surfaces';
 import { getPluginIframePolicy, getPluginIframePostMessageTargetOrigin, parsePluginInternalUrl } from '../modules/plugins/vibe-dashboard/runtime';
 import { getRegisteredPluginIframePolicy, resolvePluginInternalRouteIframeSrc } from '../modules/plugins/vibe-dashboard/registry';
 import {
@@ -40,6 +44,11 @@ interface IframePanelProps {
   onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void | Promise<void>;
   onBeadReferenceClick?: (agentTabId: string, beadId: string) => void | Promise<void>;
   onBeadFormSubmitted?: (formsTabId: string) => void | Promise<void>;
+  onConfigurePreviewSlots?: () => void;
+  onWorkspaceCreated?: (workspaceId: string) => void;
+  onOpenCraft?: () => void;
+  onRemoveCraft?: () => void;
+  onViewDiffs?: (agentTabId: string) => void;
 }
 
 /**
@@ -84,7 +93,6 @@ export const IFRAME_VISUAL_READY_TIMEOUT_MS = 5000;
 
 // Preserve iframe store across HMR updates using Vite's HMR API.
 try {
-  // @ts-expect-error -- import.meta.hot is Vite-specific, not available under module: commonjs
   const hot = import.meta.hot;
   if (hot) {
     if (hot.data.iframeStore) {
@@ -476,7 +484,7 @@ function isSelfAppOrigin(origin: string): boolean {
 
 function getTabRenderTargetForTab(
   tab: Tab,
-  tabGroup?: Pick<TabGroup, 'tabs' | 'workspace'>,
+  tabGroup?: Pick<TabGroup, 'tabs' | 'workspace'> & { id?: string },
 ): TabRenderTarget {
   const reactSurface = tabGroup
     ? getReactCraftSurfaceTarget(tab, tabGroup)
@@ -612,7 +620,7 @@ export const __iframePanelTestUtils = {
   },
   getTabRenderTargetForTest(
     tab: Tab,
-    tabGroup?: Pick<TabGroup, 'tabs' | 'workspace'>,
+    tabGroup?: Pick<TabGroup, 'tabs' | 'workspace'> & { id?: string },
   ) {
     return getTabRenderTargetForTab(tab, tabGroup);
   },
@@ -1020,11 +1028,18 @@ export function IframePanel({
   onOpenVKWorkspace,
   onBeadReferenceClick,
   onBeadFormSubmitted,
+  onConfigurePreviewSlots,
+  onWorkspaceCreated,
+  onOpenCraft,
+  onRemoveCraft,
+  onViewDiffs,
 }: IframePanelProps) {
-  const activeTab = tabGroup.tabs.find(
+  const tabs = getEffectiveTabs(tabGroup);
+  const pairs = getEffectivePairs(tabGroup);
+  const activeTab = tabs.find(
     (t) => t.id === activeItemId
   );
-  const activePair = tabGroup.pairs.find(
+  const activePair = pairs.find(
     (p) => p.id === activeItemId
   );
 
@@ -1035,10 +1050,22 @@ export function IframePanel({
     visibleTabIds.add(activeTab.id);
   }
 
+  const visibleIframeTabs = tabs.filter((tab) => {
+    if (!visibleTabIds.has(tab.id)) return false;
+    return getTabRenderTargetForTab(tab, tabGroup).kind === 'iframe';
+  });
+
+  const visibleRetainedIframeTabs = visibleIframeTabs.map((tab): RetainedIframeTab => ({
+    tab,
+    tabGroup,
+    iframeKey: getIframeRetentionKey(tabGroup.id, tab.id),
+  }));
+
   if (iframeRenderMode !== 'real') {
     return (
       <StaticIframePanelContent
         tabGroup={tabGroup}
+        tabs={tabs}
         activeTab={activeTab}
         activePair={activePair}
         iframeRenderMode={iframeRenderMode}
@@ -1057,18 +1084,8 @@ export function IframePanel({
     );
   }
 
-  const visibleIframeTabs = tabGroup.tabs.filter((tab) => {
-    if (!visibleTabIds.has(tab.id)) return false;
-    return getTabRenderTargetForTab(tab, tabGroup).kind === 'iframe';
-  });
-
-  const visibleRetainedIframeTabs = visibleIframeTabs.map((tab): RetainedIframeTab => ({
-    tab,
-    tabGroup,
-    iframeKey: getIframeRetentionKey(tabGroup.id, tab.id),
-  }));
   const allKnownIframeTabs = workspace?.tabGroups.flatMap((group) =>
-    group.tabs
+    getEffectiveTabs(group)
       .filter((tab) => getTabRenderTargetForTab(tab, group).kind === 'iframe')
       .map((tab): RetainedIframeTab => ({
         tab,
@@ -1102,7 +1119,7 @@ export function IframePanel({
 
       const sourceTabId = findTabIdForMessageSource(event.source);
       if (!sourceTabId) return;
-      if (!tabGroup.tabs.some((tab) => tab.id === sourceTabId)) return;
+      if (!tabs.some((tab) => tab.id === sourceTabId)) return;
 
       if (isBeadReferenceClickMessage(event.data)) {
         void onBeadReferenceClick?.(sourceTabId, event.data.beadId);
@@ -1114,7 +1131,7 @@ export function IframePanel({
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [onBeadFormSubmitted, onBeadReferenceClick, tabGroup.tabs]);
+  }, [onBeadFormSubmitted, onBeadReferenceClick, tabs]);
 
   return (
     <div className="w-full h-full relative">
@@ -1123,6 +1140,7 @@ export function IframePanel({
         activeTab={activeTab}
         activePair={activePair}
         tabGroup={tabGroup}
+        tabs={tabs}
         storeVersion={storeVersion}
         loadingState={loadingState}
         activationShieldState={activationShieldState}
@@ -1131,11 +1149,26 @@ export function IframePanel({
         <PairView
           activePair={activePair}
           tabGroup={tabGroup}
+          tabs={tabs}
           loadingState={loadingState}
           errorState={errorState}
           activationShieldState={activationShieldState}
           retryTab={retryTab}
           onUpdatePairRatios={onUpdatePairRatios}
+          onConfigurePreviewSlots={onConfigurePreviewSlots}
+          onWorkspaceCreated={onWorkspaceCreated}
+          onOpenCraft={onOpenCraft}
+          onRemoveCraft={onRemoveCraft}
+          onViewDiffs={onViewDiffs}
+          {...(workspace ? { workspace } : {})}
+          {...(savedSessions ? { savedSessions } : {})}
+          {...(currentSessionId ? { currentSessionId } : {})}
+          {...(onResumeSession ? { onResumeSession } : {})}
+          {...(onRenameSession ? { onRenameSession } : {})}
+          {...(onDeleteSession ? { onDeleteSession } : {})}
+          {...(onStartNewSession ? { onStartNewSession } : {})}
+          {...(onNavigateToTabGroup ? { onNavigateToTabGroup } : {})}
+          {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
         />
       ) : activeTab ? (
           <SingleTabView
@@ -1155,6 +1188,11 @@ export function IframePanel({
             {...(onStartNewSession ? { onStartNewSession } : {})}
             {...(onNavigateToTabGroup ? { onNavigateToTabGroup } : {})}
             {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
+            {...(onConfigurePreviewSlots ? { onConfigurePreviewSlots } : {})}
+            {...(onWorkspaceCreated ? { onWorkspaceCreated } : {})}
+            {...(onOpenCraft ? { onOpenCraft } : {})}
+            {...(onRemoveCraft ? { onRemoveCraft } : {})}
+            {...(onViewDiffs ? { onViewDiffs } : {})}
           />
       ) : (
         <EmptyView />
@@ -1165,6 +1203,7 @@ export function IframePanel({
 
 function StaticIframePanelContent({
   tabGroup,
+  tabs,
   activeTab,
   activePair,
   iframeRenderMode,
@@ -1181,6 +1220,7 @@ function StaticIframePanelContent({
   onOpenVKWorkspace,
 }: {
   tabGroup: TabGroup;
+  tabs: Tab[];
   activeTab?: Tab;
   activePair?: { id: string; tabIds: string[]; ratios: number[] };
   iframeRenderMode: Exclude<IframeRenderMode, 'real'>;
@@ -1203,7 +1243,7 @@ function StaticIframePanelContent({
 }) {
   if (activePair) {
     const pairTabs = activePair.tabIds
-      .map((id) => tabGroup.tabs.find((tab) => tab.id === id))
+      .map((id) => tabs.find((tab) => tab.id === id))
       .filter((tab): tab is Tab => tab != null);
 
     const handleLayoutChange = (layout: { [id: string]: number }) => {
@@ -1228,6 +1268,7 @@ function StaticIframePanelContent({
               >
                 <StaticTabContent
                   tab={tab}
+                  tabGroup={tabGroup}
                   iframeRenderMode={iframeRenderMode}
                   iframePreviewStatus={iframePreviewStatus}
                   {...(workspace ? { workspace } : {})}
@@ -1242,7 +1283,7 @@ function StaticIframePanelContent({
                 />
               </Panel>
               {index < pairTabs.length - 1 && (
-                <Separator className="w-1 bg-neutral-700 hover:bg-neutral-500 data-[resize-handle-state=drag]:bg-primary-500 transition-colors cursor-col-resize flex-shrink-0 z-20" />
+                <Separator className="w-1 bg-content2 hover:bg-primary data-[resize-handle-state=drag]:bg-primary transition-colors cursor-col-resize flex-shrink-0 z-20" />
               )}
             </React.Fragment>
           ))}
@@ -1263,6 +1304,7 @@ function StaticIframePanelContent({
     <div className="w-full h-full relative">
       <StaticTabContent
         tab={activeTab}
+        tabGroup={tabGroup}
         iframeRenderMode={iframeRenderMode}
         iframePreviewStatus={iframePreviewStatus}
         {...(workspace ? { workspace } : {})}
@@ -1281,6 +1323,7 @@ function StaticIframePanelContent({
 
 function StaticTabContent({
   tab,
+  tabGroup,
   iframeRenderMode,
   iframePreviewStatus,
   workspace,
@@ -1294,6 +1337,7 @@ function StaticTabContent({
   onOpenVKWorkspace,
 }: {
   tab: Tab;
+  tabGroup: TabGroup;
   iframeRenderMode: Exclude<IframeRenderMode, 'real'>;
   iframePreviewStatus: IframePreviewStatus;
   workspace?: WorkspaceState;
@@ -1311,7 +1355,7 @@ function StaticTabContent({
     spaceId: string,
   ) => void | Promise<void>;
 }) {
-  const target = getTabRenderTarget(tab.url);
+  const target = getTabRenderTargetForTab(tab, tabGroup);
 
   if (target.kind === 'internal') {
     const { internalPath } = target;
@@ -1347,6 +1391,10 @@ function StaticTabContent({
     return <BlockedSelfAppPlaceholder url={tab.url} />;
   }
 
+  if (target.kind === 'react-surface') {
+    return <ReactCraftSurfaceHost target={target.target} />;
+  }
+
   return (
     <div className="relative w-full h-full">
       <IframePlaceholder
@@ -1376,22 +1424,22 @@ function IframePlaceholder({
   const isDisabled = mode === 'disabled';
 
   return (
-    <div className="w-full h-full bg-neutral-950 text-neutral-300 flex items-center justify-center">
-      <div className="max-w-lg rounded-2xl border border-neutral-800 bg-neutral-900/80 p-6 text-center shadow-2xl">
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full border border-neutral-700 bg-neutral-950 text-xl">
+    <div className="w-full h-full bg-background text-foreground flex items-center justify-center">
+      <div className="max-w-lg rounded-2xl border border-divider bg-content1/80 p-6 text-center shadow-2xl">
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full border border-divider bg-background text-xl">
           {isDisabled ? '⏸' : '🖼️'}
         </div>
-        <p className="text-sm font-semibold text-neutral-100">
+        <p className="text-sm font-semibold text-foreground">
           {isDisabled ? 'Iframe disabled for Storybook' : 'Iframe placeholder'}
         </p>
-        <p className="mt-2 text-xs leading-5 text-neutral-500">
+        <p className="mt-2 text-xs leading-5 text-default-500">
           {isDisabled
             ? 'This story intentionally avoids creating iframe DOM.'
             : 'The real iframe is replaced with a stable preview placeholder.'}
         </p>
-        <div className="mt-4 rounded-lg border border-neutral-800 bg-neutral-950 p-3 text-left">
-          <p className="text-xs font-medium text-neutral-300">{title}</p>
-          <p className="mt-1 break-all text-xs text-neutral-500">{url}</p>
+        <div className="mt-4 rounded-lg border border-divider bg-background p-3 text-left">
+          <p className="text-xs font-medium text-foreground">{title}</p>
+          <p className="mt-1 break-all text-xs text-default-500">{url}</p>
         </div>
       </div>
     </div>
@@ -1403,6 +1451,7 @@ function PersistentIframeLayer({
   activeTab,
   activePair,
   tabGroup,
+  tabs,
   storeVersion,
   loadingState,
   activationShieldState,
@@ -1411,6 +1460,7 @@ function PersistentIframeLayer({
   activeTab?: Tab;
   activePair?: { id: string; tabIds: string[]; ratios: number[] };
   tabGroup: TabGroup;
+  tabs: Tab[];
   storeVersion: number;
   loadingState: Map<string, boolean>;
   activationShieldState: Map<string, boolean>;
@@ -1419,8 +1469,9 @@ function PersistentIframeLayer({
 
   if (activePair) {
     const pairTabs = activePair.tabIds
-      .map((id) => tabGroup.tabs.find((tab) => tab.id === id))
-      .filter((tab): tab is Tab => tab != null);
+      .map((id) => tabs.find((tab) => tab.id === id))
+      .filter((tab): tab is Tab => tab != null)
+      .filter((tab) => getTabRenderTargetForTab(tab, tabGroup).kind === 'iframe');
 
     const separatorWidth = 4;
     const totalSeparatorWidth = Math.max(pairTabs.length - 1, 0) * separatorWidth;
@@ -1457,7 +1508,7 @@ function PersistentIframeLayer({
 
   return (
     <div
-      className="absolute inset-x-0 top-0 overflow-hidden box-border bg-neutral-950 md:bottom-0"
+      className="absolute inset-x-0 top-0 overflow-hidden box-border bg-background md:bottom-0"
       style={MOBILE_VIEWPORT_INSET_STYLE}
     >
       {retainedTabs.map(({ tab, iframeKey }) => {
@@ -1503,6 +1554,11 @@ function SingleTabView({
   onStartNewSession,
   onNavigateToTabGroup,
   onOpenVKWorkspace,
+  onConfigurePreviewSlots,
+  onWorkspaceCreated,
+  onOpenCraft,
+  onRemoveCraft,
+  onViewDiffs,
 }: {
   activeTab: Tab;
   tabGroup: TabGroup;
@@ -1520,6 +1576,11 @@ function SingleTabView({
   onStartNewSession?: () => void;
   onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void | Promise<void>;
   onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void | Promise<void>;
+  onConfigurePreviewSlots?: () => void;
+  onWorkspaceCreated?: (workspaceId: string) => void;
+  onOpenCraft?: () => void;
+  onRemoveCraft?: () => void;
+  onViewDiffs?: (agentTabId: string) => void;
 }) {
   const isLoaded = loadingState.get(activeIframeKey) ?? false;
   const hasError = errorState.get(activeIframeKey) ?? false;
@@ -1541,7 +1602,7 @@ function SingleTabView({
       onStartNewSession
     ) {
       return (
-        <div className="flex-1 min-h-0 relative h-full">
+        <div className="flex-1 min-h-0 relative h-full pointer-events-auto">
           <SpacesOverview
             workspace={workspace}
             savedSessions={savedSessions || []}
@@ -1575,7 +1636,16 @@ function SingleTabView({
         className="absolute inset-x-0 top-0 md:bottom-0 z-10 pointer-events-auto"
         style={MOBILE_VIEWPORT_INSET_STYLE}
       >
-        <ReactCraftSurfaceHost target={target.target} />
+        <ReactCraftSurfaceHost
+          target={target.target}
+          context={{
+            onConfigurePreviewSlots,
+            onWorkspaceCreated,
+            onOpenCraft,
+            onRemoveCraft,
+            onViewDiffs: onViewDiffs ? () => onViewDiffs(activeTab.id) : undefined,
+          }}
+        />
       </div>
     );
   }
@@ -1594,22 +1664,52 @@ function SingleTabView({
 function PairView({
   activePair,
   tabGroup,
+  tabs,
   loadingState,
   errorState,
   activationShieldState,
   retryTab,
   onUpdatePairRatios,
+  onConfigurePreviewSlots,
+  onWorkspaceCreated,
+  onOpenCraft,
+  onRemoveCraft,
+  onViewDiffs,
+  workspace,
+  savedSessions,
+  currentSessionId,
+  onResumeSession,
+  onRenameSession,
+  onDeleteSession,
+  onStartNewSession,
+  onNavigateToTabGroup,
+  onOpenVKWorkspace,
 }: {
   activePair: { id: string; tabIds: string[]; ratios: number[] };
   tabGroup: TabGroup;
+  tabs: Tab[];
   loadingState: Map<string, boolean>;
   errorState: Map<string, boolean>;
   activationShieldState: Map<string, boolean>;
   retryTab: (tabId: string) => void;
   onUpdatePairRatios: (pairId: string, ratios: number[]) => void;
+  onConfigurePreviewSlots?: () => void;
+  onWorkspaceCreated?: (workspaceId: string) => void;
+  onOpenCraft?: () => void;
+  onRemoveCraft?: () => void;
+  onViewDiffs?: (agentTabId: string) => void;
+  workspace?: WorkspaceState;
+  savedSessions?: SavedWorkspaceSession[];
+  currentSessionId?: string;
+  onResumeSession?: (sessionId: string) => void;
+  onRenameSession?: (sessionId: string, name: string) => void;
+  onDeleteSession?: (sessionId: string) => void;
+  onStartNewSession?: () => void;
+  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void | Promise<void>;
+  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void | Promise<void>;
 }) {
   const pairTabs = activePair.tabIds
-    .map((id) => tabGroup.tabs.find((t) => t.id === id))
+    .map((id) => tabs.find((t) => t.id === id))
     .filter((t): t is Tab => t != null);
 
   const percentages = activePair.ratios;
@@ -1643,10 +1743,24 @@ function PairView({
                 hasError={hasError}
                 isActivationShielded={isActivationShielded}
                 retryTab={retryTab}
+                onConfigurePreviewSlots={onConfigurePreviewSlots}
+                onWorkspaceCreated={onWorkspaceCreated}
+                onOpenCraft={onOpenCraft}
+                onRemoveCraft={onRemoveCraft}
+                onViewDiffs={onViewDiffs}
+                {...(workspace ? { workspace } : {})}
+                {...(savedSessions ? { savedSessions } : {})}
+                {...(currentSessionId ? { currentSessionId } : {})}
+                {...(onResumeSession ? { onResumeSession } : {})}
+                {...(onRenameSession ? { onRenameSession } : {})}
+                {...(onDeleteSession ? { onDeleteSession } : {})}
+                {...(onStartNewSession ? { onStartNewSession } : {})}
+                {...(onNavigateToTabGroup ? { onNavigateToTabGroup } : {})}
+                {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
               />
             </Panel>
             {i < pairTabs.length - 1 && (
-              <Separator className="w-1 bg-neutral-700 hover:bg-neutral-500 data-[resize-handle-state=drag]:bg-primary-500 transition-colors cursor-col-resize flex-shrink-0 z-20 pointer-events-auto" />
+              <Separator className="w-1 bg-content2 hover:bg-primary data-[resize-handle-state=drag]:bg-primary transition-colors cursor-col-resize flex-shrink-0 z-20 pointer-events-auto" />
             )}
           </React.Fragment>
         );
@@ -1663,6 +1777,20 @@ function PairTabView({
   hasError,
   isActivationShielded,
   retryTab,
+  onConfigurePreviewSlots,
+  onWorkspaceCreated,
+  onOpenCraft,
+  onRemoveCraft,
+  onViewDiffs,
+  workspace,
+  savedSessions,
+  currentSessionId,
+  onResumeSession,
+  onRenameSession,
+  onDeleteSession,
+  onStartNewSession,
+  onNavigateToTabGroup,
+  onOpenVKWorkspace,
 }: {
   tab: Tab;
   tabGroup: TabGroup;
@@ -1671,9 +1799,37 @@ function PairTabView({
   hasError: boolean;
   isActivationShielded: boolean;
   retryTab: (tabId: string) => void;
+  onConfigurePreviewSlots?: () => void;
+  onWorkspaceCreated?: (workspaceId: string) => void;
+  onOpenCraft?: () => void;
+  onRemoveCraft?: () => void;
+  onViewDiffs?: (agentTabId: string) => void;
+  workspace?: WorkspaceState;
+  savedSessions?: SavedWorkspaceSession[];
+  currentSessionId?: string;
+  onResumeSession?: (sessionId: string) => void;
+  onRenameSession?: (sessionId: string, name: string) => void;
+  onDeleteSession?: (sessionId: string) => void;
+  onStartNewSession?: () => void;
+  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void | Promise<void>;
+  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void | Promise<void>;
 }) {
   const target = getTabRenderTargetForTab(tab, tabGroup);
   const shouldShowLoadingOverlay = shouldShowIframeLoadingOverlay(isLoaded, isActivationShielded);
+
+  if (target.kind === 'internal') {
+    return renderInternalView(target.internalPath, {
+      workspace,
+      savedSessions,
+      currentSessionId,
+      onResumeSession,
+      onRenameSession,
+      onDeleteSession,
+      onStartNewSession,
+      onNavigateToTabGroup,
+      onOpenVKWorkspace,
+    });
+  }
 
   if (target.kind === 'blocked-self-app') {
     return <BlockedSelfAppPlaceholder url={tab.url} />;
@@ -1681,8 +1837,17 @@ function PairTabView({
 
   if (target.kind === 'react-surface') {
     return (
-      <div className="relative w-full h-full pointer-events-auto bg-neutral-950">
-        <ReactCraftSurfaceHost target={target.target} />
+      <div className="relative w-full h-full pointer-events-auto bg-background">
+        <ReactCraftSurfaceHost
+          target={target.target}
+          context={{
+            onConfigurePreviewSlots,
+            onWorkspaceCreated,
+            onOpenCraft,
+            onRemoveCraft,
+            onViewDiffs: onViewDiffs ? () => onViewDiffs(tab.id) : undefined,
+          }}
+        />
       </div>
     );
   }
@@ -1700,17 +1865,76 @@ function PairTabView({
 
 function EmptyView() {
   return (
-    <div className="absolute inset-x-0 top-0 md:bottom-0 flex items-center justify-center text-neutral-500" style={MOBILE_VIEWPORT_INSET_STYLE}>
+    <div className="absolute inset-x-0 top-0 md:bottom-0 flex items-center justify-center text-default-500" style={MOBILE_VIEWPORT_INSET_STYLE}>
       <p>No tab selected. Click + to add a tab.</p>
     </div>
   );
 }
 
+type InternalViewContext = {
+  workspace?: WorkspaceState;
+  savedSessions?: SavedWorkspaceSession[];
+  currentSessionId?: string;
+  onResumeSession?: (sessionId: string) => void;
+  onRenameSession?: (sessionId: string, name: string) => void;
+  onDeleteSession?: (sessionId: string) => void;
+  onStartNewSession?: () => void;
+  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void | Promise<void>;
+  onOpenVKWorkspace?: (
+    taskAttemptId: string,
+    name: string,
+    containerRef: string,
+    spaceId: string,
+  ) => void | Promise<void>;
+};
+
+function renderInternalView(internalPath: string, context: InternalViewContext) {
+  if (
+    internalPath === 'spaces-overview' &&
+    context.workspace &&
+    context.onNavigateToTabGroup &&
+    context.onResumeSession &&
+    context.onRenameSession &&
+    context.onDeleteSession &&
+    context.onStartNewSession
+  ) {
+    return (
+      <div className="flex-1 min-h-0 relative h-full pointer-events-auto">
+        <SpacesOverview
+          workspace={context.workspace}
+          savedSessions={context.savedSessions || []}
+          currentSessionId={context.currentSessionId}
+          onResumeSession={context.onResumeSession}
+          onRenameSession={context.onRenameSession}
+          onDeleteSession={context.onDeleteSession}
+          onStartNewSession={context.onStartNewSession}
+          onNavigateToTabGroup={context.onNavigateToTabGroup}
+          {...(context.onOpenVKWorkspace
+            ? { onOpenVKWorkspace: context.onOpenVKWorkspace }
+            : {})}
+        />
+      </div>
+    );
+  }
+
+  const pluginRoute = parsePluginInternalUrl(`internal://${internalPath}`);
+  if (pluginRoute) {
+    return (
+      <PluginInternalRoutePlaceholder
+        pluginId={pluginRoute.pluginId}
+        routePath={pluginRoute.routePath}
+      />
+    );
+  }
+
+  return <UnknownInternalRoutePlaceholder url={`internal://${internalPath}`} />;
+}
+
 function PluginInternalRoutePlaceholder({ pluginId, routePath }: { pluginId: string; routePath: string }) {
   return (
-    <div className="flex-1 h-full bg-neutral-950 text-neutral-400 flex items-center justify-center">
+    <div className="flex-1 h-full bg-background text-default-500 flex items-center justify-center">
       <div className="max-w-md px-6 text-center">
-        <p className="text-sm font-medium text-neutral-200">Plugin route unavailable</p>
+        <p className="text-sm font-medium text-foreground">Plugin route unavailable</p>
         <p className="mt-2 text-xs">This plugin-owned route is not active in the host registry yet.</p>
         <p className="mt-2 text-xs break-all">{pluginId}{routePath}</p>
       </div>
@@ -1720,9 +1944,9 @@ function PluginInternalRoutePlaceholder({ pluginId, routePath }: { pluginId: str
 
 function UnknownInternalRoutePlaceholder({ url }: { url: string }) {
   return (
-    <div className="flex-1 h-full bg-neutral-950 text-neutral-400 flex items-center justify-center">
+    <div className="flex-1 h-full bg-background text-default-500 flex items-center justify-center">
       <div className="max-w-md px-6 text-center">
-        <p className="text-sm font-medium text-neutral-200">Unknown internal route</p>
+        <p className="text-sm font-medium text-foreground">Unknown internal route</p>
         <p className="mt-2 text-xs break-all">{url}</p>
       </div>
     </div>
@@ -1731,9 +1955,9 @@ function UnknownInternalRoutePlaceholder({ url }: { url: string }) {
 
 function BlockedSelfAppPlaceholder({ url }: { url: string }) {
   return (
-    <div className="flex-1 h-full bg-neutral-950 text-neutral-400 flex items-center justify-center">
+    <div className="flex-1 h-full bg-background text-default-500 flex items-center justify-center">
       <div className="max-w-md px-6 text-center">
-        <p className="text-sm font-medium text-neutral-200">
+        <p className="text-sm font-medium text-foreground">
           stopped loading app recursively
         </p>
         <p className="mt-2 text-xs break-all">{url}</p>
@@ -1744,20 +1968,20 @@ function BlockedSelfAppPlaceholder({ url }: { url: string }) {
 
 function ErrorOverlay({ url, onRetry }: { url: string; onRetry: () => void }) {
   return (
-    <div className="absolute inset-0 bg-neutral-950 flex items-center justify-center z-10 pointer-events-auto">
+    <div className="absolute inset-0 bg-background flex items-center justify-center z-10 pointer-events-auto">
       <div className="flex flex-col items-center gap-4 max-w-md px-6 text-center">
-        <div className="w-10 h-10 rounded-full bg-red-500/15 flex items-center justify-center">
-          <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="w-10 h-10 rounded-full bg-danger/15 flex items-center justify-center">
+          <svg className="w-5 h-5 text-danger" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
           </svg>
         </div>
         <div>
-          <p className="text-neutral-300 text-sm font-medium mb-1">Failed to load</p>
-          <p className="text-neutral-500 text-xs break-all">{url}</p>
+          <p className="text-foreground text-sm font-medium mb-1">Failed to load</p>
+          <p className="text-default-500 text-xs break-all">{url}</p>
         </div>
         <button
           onClick={onRetry}
-          className="px-4 py-2 rounded-lg text-sm font-medium bg-neutral-800 text-neutral-300 border border-neutral-700 hover:bg-neutral-700 hover:text-white transition-colors"
+          className="px-4 py-2 rounded-lg text-sm font-medium bg-content1 text-foreground border border-divider hover:bg-content2 transition-colors"
         >
           Try again
         </button>

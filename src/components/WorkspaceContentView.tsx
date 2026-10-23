@@ -2,6 +2,7 @@ import React from 'react';
 import { UnifiedTabView } from './UnifiedTabView';
 import type { TabGroup, WorkspaceState, SavedWorkspaceSession } from '../types';
 import type { WorkspaceActions, SessionActions } from './WorkspaceShell';
+import type { WorkspaceCreationOrigin } from '../lib/workspaceCreationTransition';
 
 interface WorkspaceContentViewProps {
   activeTabGroups: TabGroup[];
@@ -27,6 +28,8 @@ interface WorkspaceContentViewProps {
     containerRef: string,
     spaceId: string,
   ) => Promise<void>;
+  onOpenCraft: () => void;
+  onWorkspaceCreated: (origin: WorkspaceCreationOrigin) => Promise<void>;
 }
 
 export function WorkspaceContentView({
@@ -48,10 +51,12 @@ export function WorkspaceContentView({
   onStartNewSession,
   onNavigateToTabGroup,
   onOpenVKWorkspace,
+  onOpenCraft,
+  onWorkspaceCreated,
 }: WorkspaceContentViewProps) {
   if (activeTabGroups.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center text-neutral-500">
+      <div className="flex-1 flex items-center justify-center text-default-500">
         <p>
           No craft in this space. Hover left to switch spaces.
         </p>
@@ -76,6 +81,8 @@ export function WorkspaceContentView({
       onStartNewSession={onStartNewSession}
       onNavigateToTabGroup={onNavigateToTabGroup}
       onOpenVKWorkspace={onOpenVKWorkspace}
+      onOpenCraft={onOpenCraft}
+      onWorkspaceCreated={onWorkspaceCreated}
     />
   );
 }

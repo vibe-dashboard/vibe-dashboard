@@ -116,17 +116,17 @@ function ExternalKanbanMessage({
   action?: string;
 }) {
   return (
-    <div className="min-h-screen bg-neutral-950 p-6 text-neutral-100">
-      <Card className="mx-auto mt-16 max-w-2xl border border-neutral-800 bg-neutral-900">
+    <div className="min-h-screen bg-background p-6 text-foreground">
+      <Card className="mx-auto mt-16 max-w-2xl border border-divider/30 bg-content1">
         <CardBody className="gap-4 p-6">
-          <Chip size="sm" variant="flat" className="w-fit bg-neutral-800 text-neutral-300">
+          <Chip size="sm" variant="flat" className="w-fit bg-content2 text-foreground">
             External Kanban
           </Chip>
           <div>
-            <h1 className="text-2xl font-semibold text-neutral-50">{title}</h1>
-            <p className="mt-2 text-sm text-neutral-300">{message}</p>
+            <h1 className="text-2xl font-semibold text-foreground">{title}</h1>
+            <p className="mt-2 text-sm text-default-500">{message}</p>
           </div>
-          {action ? <p className="text-sm text-neutral-400">{action}</p> : null}
+          {action ? <p className="text-sm text-default-500">{action}</p> : null}
         </CardBody>
       </Card>
     </div>

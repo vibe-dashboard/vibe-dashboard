@@ -1,6 +1,11 @@
 import React from 'react';
 import { AddressBar } from './AddressBar';
 import { IframePanel } from './IframePanel';
+import {
+  getEffectivePairs,
+  getEffectiveTabs,
+  BUILT_IN_DIFF_TAB_ID,
+} from '../modules/plugins/vibe-dashboard/craft-surfaces';
 import type {
   TabGroup,
   WorkspaceState,
@@ -8,6 +13,8 @@ import type {
 } from '../types';
 import type { WorkspaceActions, SessionActions } from './WorkspaceShell';
 import { BUILT_IN_AGENT_TAB_ID } from '../modules/plugins/vibe-dashboard/craft-surfaces';
+import { getPreviewServerTabId } from '../modules/plugins/vibe-dashboard/react-craft-surfaces';
+import type { WorkspaceCreationOrigin } from '../lib/workspaceCreationTransition';
 
 interface UnifiedTabViewProps {
   tabGroups: TabGroup[];
@@ -30,6 +37,8 @@ interface UnifiedTabViewProps {
     containerRef: string,
     spaceId: string,
   ) => Promise<void>;
+  onOpenCraft: () => void;
+  onWorkspaceCreated: (origin: WorkspaceCreationOrigin) => Promise<void>;
 }
 
 export function UnifiedTabView({
@@ -48,6 +57,8 @@ export function UnifiedTabView({
   onStartNewSession,
   onNavigateToTabGroup,
   onOpenVKWorkspace,
+  onOpenCraft,
+  onWorkspaceCreated,
 }: UnifiedTabViewProps) {
   const activeTabGroup = tabGroups.find((tg) => tg.id === activeTabGroupId);
   const activeItemId = activeTabGroup
@@ -108,9 +119,53 @@ export function UnifiedTabView({
             onBeadFormSubmitted={() => {
               sessionActions.selectTab(activeTabGroup.id, BUILT_IN_AGENT_TAB_ID);
             }}
+            onConfigurePreviewSlots={() => {
+              const previewTabId = getPreviewServerTabId(activeTabGroup);
+              if (previewTabId) {
+                sessionActions.selectTab(activeTabGroup.id, previewTabId);
+              }
+            }}
+            onWorkspaceCreated={(workspaceId) => {
+              void (async () => {
+                const spaceId =
+                  workspace.spaces.find((space) =>
+                    space.tabGroupIds.includes(activeTabGroup.id),
+                  )?.id ?? workspace.spaces[0]?.id;
+                if (!spaceId) throw new Error('No voyage space is available');
+                await onWorkspaceCreated({
+                  workspaceId,
+                  sourceTabGroupId: activeTabGroup.id,
+                  spaceId,
+                  sessionId: currentSessionId,
+                });
+              })().catch((error) => {
+                console.error('Failed to open the created workspace', error);
+              });
+            }}
+            onOpenCraft={onOpenCraft}
+            onViewDiffs={(agentTabId) => {
+              const pair = getEffectivePairs(activeTabGroup).find(
+                (item) =>
+                  item.tabIds[0] === agentTabId &&
+                  item.tabIds[1] === BUILT_IN_DIFF_TAB_ID,
+              );
+              if (pair) sessionActions.selectPair(activeTabGroup.id, pair.id);
+            }}
+            onRemoveCraft={() => {
+              const spaceId = workspace.spaces.find((space) =>
+                space.tabGroupIds.includes(activeTabGroup.id),
+              )?.id;
+              if (!spaceId) return;
+              if (confirm('Remove this stale craft?')) {
+                void actions.deleteTabGroup({
+                  spaceId,
+                  tabGroupId: activeTabGroup.id,
+                });
+              }
+            }}
           />
         ) : (
-          <div className="flex-1 flex items-center justify-center text-neutral-500">
+          <div className="flex-1 flex items-center justify-center text-default-500">
             <p>No craft selected</p>
           </div>
         )}
@@ -126,8 +181,8 @@ function getSingleViewActiveItemId(
 ): string {
   if (!disableSplitViews) return activeItemId;
 
-  const activePair = tabGroup.pairs.find((pair) => pair.id === activeItemId);
+  const activePair = getEffectivePairs(tabGroup).find((pair) => pair.id === activeItemId);
   if (!activePair) return activeItemId;
 
-  return tabGroup.tabs[0]?.id || activePair.tabIds[0] || activeItemId;
+  return getEffectiveTabs(tabGroup)[0]?.id || activePair.tabIds[0] || activeItemId;
 }

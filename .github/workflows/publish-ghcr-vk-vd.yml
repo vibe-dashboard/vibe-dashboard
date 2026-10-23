@@ -565,6 +565,17 @@ jobs:
           echo "assets_exist=${ASSETS_EXIST}; publish_result=${PUBLISH_RESULT}" >&2
           exit 1
 
+  # Start the browser-test timeout only after the content-addressed runtime is
+  # available. Cold builds and runner queues can exceed the sandbox's release wait.
+  tests-e2e:
+    needs: ensure-vk-assets
+    if: ${{ always() && github.event_name == 'push' && needs.ensure-vk-assets.result == 'success' }}
+    uses: ./.github/workflows/tests-e2e.yml
+    permissions:
+      contents: read
+    secrets:
+      VK_RELEASE_REPOSITORY_TOKEN: ${{ secrets.VK_RELEASE_REPOSITORY_TOKEN }}
+
   publish:
     needs: [resolve-vk-ref, check-types, ensure-vk-assets]
     if: >-

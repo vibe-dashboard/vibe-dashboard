@@ -6,9 +6,81 @@ import {
 } from '../../../../shared/lib/scratchDraftStore';
 import {
   clearFollowUpDraft,
+  resolveSessionMessageDraftStorageId,
+  resolveSessionMessageDraftServerId,
   resolveSessionMessageScratchId,
   restoreQueuedFollowUpDraftAfterCancel,
 } from './useSessionMessageEditor';
+
+describe('server draft identities', () => {
+  it('uses stable server-compatible UUIDs for independent pane/session drafts', () => {
+    const left = resolveSessionMessageDraftServerId('session-1', 'left');
+    expect(left).toMatch(
+      /^[\da-f]{8}-[\da-f]{4}-5[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/
+    );
+    expect(resolveSessionMessageDraftServerId('session-1', 'left')).toBe(left);
+    expect(resolveSessionMessageDraftServerId('session-1', 'right')).not.toBe(
+      left
+    );
+    expect(resolveSessionMessageDraftServerId('session-2', 'left')).not.toBe(
+      left
+    );
+  });
+
+  it('preserves the standalone scratch identity', () => {
+    expect(resolveSessionMessageDraftServerId('session-1')).toBe('session-1');
+    expect(
+      resolveSessionMessageDraftServerId(undefined, 'left')
+    ).toBeUndefined();
+  });
+});
+
+describe('resolveSessionMessageDraftStorageId', () => {
+  it('isolates embedded drafts by stable surface id', () => {
+    const left = resolveSessionMessageDraftStorageId('session-1', 'left-pane');
+    const right = resolveSessionMessageDraftStorageId(
+      'session-1',
+      'right-pane'
+    );
+
+    expect(left).toBe('surface:left-pane:session-1');
+    expect(right).toBe('surface:right-pane:session-1');
+
+    writeStoredScratchDraft(
+      ScratchType.DRAFT_FOLLOW_UP,
+      left!,
+      { message: 'left', executor_config: { executor: 'codex' } },
+      true
+    );
+    writeStoredScratchDraft(
+      ScratchType.DRAFT_FOLLOW_UP,
+      right!,
+      { message: 'right', executor_config: { executor: 'codex' } },
+      true
+    );
+
+    expect(
+      readStoredScratchDraft<{ message: string }>(
+        ScratchType.DRAFT_FOLLOW_UP,
+        left!
+      )?.value.message
+    ).toBe('left');
+    expect(
+      readStoredScratchDraft<{ message: string }>(
+        ScratchType.DRAFT_FOLLOW_UP,
+        right!
+      )?.value.message
+    ).toBe('right');
+    localStorage.clear();
+  });
+
+  it('preserves standalone VK scratch keys', () => {
+    expect(resolveSessionMessageDraftStorageId('session-1')).toBe('session-1');
+    expect(
+      resolveSessionMessageDraftStorageId(undefined, 'left-pane')
+    ).toBeUndefined();
+  });
+});
 
 describe('resolveSessionMessageScratchId', () => {
   it('uses the workspace id for new-session drafts', () => {

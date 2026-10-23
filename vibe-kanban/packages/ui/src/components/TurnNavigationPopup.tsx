@@ -135,8 +135,10 @@ export function TurnNavigationPopup({
       >
         <div className="flex flex-col gap-base min-h-0">
           <div className="flex items-center justify-between shrink-0">
-            <h4 className="text-sm font-medium text-normal">Your Messages</h4>
-            <span className="text-xs text-low">
+            <h4 className="text-sm font-medium text-foreground">
+              Your Messages
+            </h4>
+            <span className="text-xs text-default-500">
               {turns.length} turn{turns.length === 1 ? '' : 's'}
             </span>
           </div>
@@ -151,8 +153,8 @@ export function TurnNavigationPopup({
                     className={cn(
                       'w-full text-left px-base py-half rounded transition-colors group',
                       isActive
-                        ? 'bg-brand/10 border-l-2 border-brand'
-                        : 'hover:bg-secondary'
+                        ? 'bg-primary/10 border-l-2 border-primary'
+                        : 'hover:bg-content2'
                     )}
                     onClick={() => handleNavigate(turn.patchKey)}
                   >
@@ -160,7 +162,7 @@ export function TurnNavigationPopup({
                       <span
                         className={cn(
                           'text-xs shrink-0 tabular-nums',
-                          isActive ? 'text-brand' : 'text-low'
+                          isActive ? 'text-primary' : 'text-default-500'
                         )}
                       >
                         #{turn.turnNumber}
@@ -169,8 +171,8 @@ export function TurnNavigationPopup({
                         className={cn(
                           'text-sm truncate',
                           isActive
-                            ? 'text-brand font-medium'
-                            : 'text-normal group-hover:text-high'
+                            ? 'text-primary font-medium'
+                            : 'text-foreground group-hover:text-foreground'
                         )}
                       >
                         {turn.content}

@@ -13,6 +13,21 @@ describe('BeadsForm dev server config helpers', () => {
       port: 55123,
       host: true,
       hmr: false,
+      proxy: {
+        '/api': {
+          target: 'http://localhost:3007',
+          changeOrigin: true,
+          ws: true,
+          rewriteWsOrigin: true,
+          headers: { Origin: 'http://localhost:3007' },
+        },
+        '/vk-api': {
+          target: 'http://localhost:3007',
+          changeOrigin: true,
+          rewrite: expect.any(Function),
+          headers: { Origin: 'http://localhost:3007' },
+        },
+      },
     });
   });
 
@@ -20,7 +35,46 @@ describe('BeadsForm dev server config helpers', () => {
     expect(buildViteDevServerOptions({ PORT: '55123' })).toEqual({
       port: 55123,
       host: true,
+      proxy: {
+        '/api': {
+          target: 'http://localhost:3007',
+          changeOrigin: true,
+          ws: true,
+          rewriteWsOrigin: true,
+          headers: { Origin: 'http://localhost:3007' },
+        },
+        '/vk-api': {
+          target: 'http://localhost:3007',
+          changeOrigin: true,
+          rewrite: expect.any(Function),
+          headers: { Origin: 'http://localhost:3007' },
+        },
+      },
     });
+  });
+
+  it('proxies VK HTTP and WebSocket traffic to the configured backend', () => {
+    expect(buildViteDevServerOptions({
+      BACKEND_PORT: '4123',
+      VK_ALLOWED_ORIGINS: 'https://dashboard.example,https://*.example',
+    }).proxy).toEqual({
+      '/api': {
+        target: 'http://localhost:4123',
+        changeOrigin: true,
+        ws: true,
+        rewriteWsOrigin: true,
+        headers: { Origin: 'https://dashboard.example' },
+      },
+      '/vk-api': {
+        target: 'http://localhost:4123',
+        changeOrigin: true,
+        rewrite: expect.any(Function),
+        headers: { Origin: 'https://dashboard.example' },
+      },
+    });
+
+    const rewrite = buildViteDevServerOptions({ BACKEND_PORT: '4123' }).proxy['/vk-api'].rewrite;
+    expect(rewrite('/vk-api/workspaces')).toBe('/api/workspaces');
   });
 
   it('makes the folder preview command opt out of browser auto-reload by default', () => {

@@ -118,18 +118,18 @@ const DEFAULT_COLUMN_VISIBILITY: ExternalJiraColumnVisibility = { showBacklog: f
 
 const jiraFieldClassNames = {
   base: 'justify-end',
-  inputWrapper: 'h-8 min-h-8 border border-neutral-700 bg-neutral-950 px-2 py-0 data-[hover=true]:bg-neutral-900 group-data-[focus=true]:bg-neutral-950',
-  input: 'text-[11px] text-neutral-100 placeholder:text-neutral-600',
-  label: 'text-xs text-neutral-300',
+  inputWrapper: 'h-8 min-h-8 border border-divider/30 bg-background px-2 py-0 data-[hover=true]:bg-content1 group-data-[focus=true]:bg-background',
+  input: 'text-[11px] text-foreground placeholder:text-default-500',
+  label: 'text-xs text-default-500',
 };
 
 const jiraSelectClassNames = {
   base: 'justify-end',
-  trigger: 'h-8 min-h-8 rounded-lg border border-neutral-700 bg-neutral-950 px-2 pr-7 text-neutral-100 data-[hover=true]:bg-neutral-900',
-  value: 'text-[11px] text-neutral-100',
-  label: 'text-xs text-neutral-300',
-  selectorIcon: 'right-2 text-neutral-500',
-  popoverContent: 'border border-neutral-800 bg-neutral-950 text-neutral-100',
+  trigger: 'h-8 min-h-8 rounded-lg border border-divider/30 bg-background px-2 pr-7 text-foreground data-[hover=true]:bg-content1',
+  value: 'text-[11px] text-foreground',
+  label: 'text-xs text-default-500',
+  selectorIcon: 'right-2 text-default-500',
+  popoverContent: 'border border-divider/30 bg-background text-foreground',
   listbox: 'text-[11px]',
 };
 
@@ -294,23 +294,23 @@ export function ExternalJiraBoardShell({
 
 export function ExternalJiraBoardHeader({ boardView, columns, columnVisibility, onBulkConvert, onColumnVisibilityChange }: { boardView: ExternalJiraBoardViewDto; columns: ExternalKanbanColumnDto[]; columnVisibility: ExternalJiraColumnVisibility; onBulkConvert?: () => void; onColumnVisibilityChange: (visibility: ExternalJiraColumnVisibility) => void }) {
   return (
-    <header className="relative overflow-hidden border-b border-neutral-800 bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.18),transparent_30%),linear-gradient(135deg,rgba(15,23,42,0.98),rgba(10,10,10,0.98))] px-6 py-5">
-      <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-sky-400/60 to-transparent" />
+    <header className="relative overflow-hidden border-b border-divider/30 bg-content1 px-6 py-5">
+      <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-primary/60 to-transparent" />
       <div className="relative flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <Chip size="sm" variant="flat" className="border border-sky-400/20 bg-sky-500/10 text-sky-100">Jira board</Chip>
-            <Chip size="sm" variant="flat" className="border border-emerald-400/20 bg-emerald-500/10 text-emerald-100">{boardView.cards.length} issues</Chip>
+            <Chip size="sm" variant="flat" className="border border-primary/20 bg-primary/10 text-primary">Jira board</Chip>
+            <Chip size="sm" variant="flat" className="border border-success/20 bg-success/10 text-success">{boardView.cards.length} issues</Chip>
           </div>
-          <h1 className="mt-3 text-2xl font-semibold tracking-tight text-neutral-50">{boardView.board.name || `Jira board ${boardView.board.id}`}</h1>
-          <p className="mt-1 text-sm text-neutral-400">{boardView.resource.name}</p>
+          <h1 className="mt-3 text-2xl font-semibold tracking-tight text-foreground">{boardView.board.name || `Jira board ${boardView.board.id}`}</h1>
+          <p className="mt-1 text-sm text-default-500">{boardView.resource.name}</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <ExternalJiraColumnVisibilityControls columns={columns} visibility={columnVisibility} onChange={onColumnVisibilityChange} />
-          <Button size="sm" color="success" variant="flat" className="border border-emerald-400/30 bg-emerald-500/15 text-emerald-50" onClick={onBulkConvert}>
+          <Button size="sm" color="success" variant="flat" className="border border-success/30 bg-success/15 text-success" onClick={onBulkConvert}>
             Create Jira tickets
           </Button>
-          <Button as="a" size="sm" variant="bordered" className="border-neutral-700 text-neutral-100" href={boardView.sourceUrl} rel="noreferrer" target="_blank">
+          <Button as="a" size="sm" variant="bordered" className="border-divider/30 text-foreground" href={boardView.sourceUrl} rel="noreferrer" target="_blank">
             Open in Jira
           </Button>
         </div>
@@ -325,8 +325,8 @@ export function ExternalJiraColumnVisibilityControls({ columns, visibility, onCh
   if (!hasBacklog && !hasDone) return null;
 
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-full border border-neutral-800 bg-neutral-900/70 px-2 py-1 shadow-lg shadow-black/10" aria-label="Column visibility">
-      <span className="px-1 text-xs font-medium uppercase tracking-wide text-neutral-500">Columns</span>
+    <div className="flex flex-wrap items-center gap-2 rounded-full border border-divider/30 bg-content1/70 px-2 py-1 shadow-lg shadow-overlay/10" aria-label="Column visibility">
+      <span className="px-1 text-xs font-medium uppercase tracking-wide text-default-500">Columns</span>
       {hasBacklog ? (
         <Button
           size="sm"
@@ -379,9 +379,9 @@ export function ExternalJiraBoardBody({
   if (!hasIssues) {
     return (
       <section className="p-6">
-        <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-6 text-neutral-300">
+        <div className="rounded-xl border border-divider/30 bg-content1 p-6 text-foreground">
           <p>{hiddenIssueCount > 0 ? `${hiddenIssueCount} issues are in hidden Backlog/Done columns.` : 'This Jira board has no visible issues.'}</p>
-          {hiddenIssueCount > 0 ? <p className="mt-2 text-sm text-neutral-400">Use the column controls above to show Backlog or Done.</p> : null}
+          {hiddenIssueCount > 0 ? <p className="mt-2 text-sm text-default-500">Use the column controls above to show Backlog or Done.</p> : null}
           {diagnostics ? <ExternalJiraDiagnosticsPanel diagnostics={diagnostics} /> : null}
         </div>
       </section>
@@ -407,8 +407,8 @@ export function ExternalJiraBoardBody({
 
 export function ExternalJiraSwimlane({ lane, columns, onCreateWorkspace, onOpenWorkspacePanel, onSelectCard }: { lane: { id: string; title: string; cards: ExternalKanbanCardDto[] }; columns: ExternalKanbanColumnDto[]; onCreateWorkspace: (card: ExternalKanbanCardDto) => void; onOpenWorkspacePanel: (workspace: ExternalRelatedWorkspace) => void; onSelectCard: (card: ExternalKanbanCardDto) => void }) {
   return (
-    <div className="rounded-xl border border-neutral-800 bg-neutral-950/60 p-4">
-      <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-neutral-300">{lane.title}</h2>
+    <div className="rounded-xl border border-divider/30 bg-background/60 p-4">
+      <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-foreground">{lane.title}</h2>
       <ExternalJiraKanbanColumns columns={columns} cards={lane.cards} onCreateWorkspace={onCreateWorkspace} onOpenWorkspacePanel={onOpenWorkspacePanel} onSelectCard={onSelectCard} />
     </div>
   );
@@ -419,18 +419,18 @@ export function ExternalJiraDiagnosticsPanel({ diagnostics }: { diagnostics: Non
   const modeLabel = diagnostics.jiraMode === 'project-search' ? 'project search' : 'Agile board';
 
   return (
-    <div className="mt-4 rounded-lg border border-neutral-800 bg-neutral-950/70 p-3 text-sm text-neutral-300">
-      <div className="font-medium text-neutral-100">Load diagnostics</div>
+    <div className="mt-4 rounded-lg border border-divider/30 bg-background/70 p-3 text-sm text-foreground">
+      <div className="font-medium text-foreground">Load diagnostics</div>
       <p className="mt-1">
         Loaded using {authLabel}; mode {modeLabel}; Jira returned {diagnostics.issueCount} visible issues.
       </p>
       <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
-        <div><dt className="text-neutral-500">Site</dt><dd className="text-neutral-200">{diagnostics.siteHostname}</dd></div>
-        <div><dt className="text-neutral-500">View kind</dt><dd className="text-neutral-200">{diagnostics.locatorViewKind}</dd></div>
-        {diagnostics.projectKey ? <div><dt className="text-neutral-500">Project</dt><dd className="text-neutral-200">{diagnostics.projectKey}</dd></div> : null}
-        {diagnostics.boardId ? <div><dt className="text-neutral-500">Board id</dt><dd className="text-neutral-200">{diagnostics.boardId}</dd></div> : null}
-        <div><dt className="text-neutral-500">Endpoint family</dt><dd className="text-neutral-200">{diagnostics.endpointFamily}</dd></div>
-        {diagnostics.jql ? <div className="sm:col-span-2"><dt className="text-neutral-500">JQL</dt><dd className="break-words font-mono text-neutral-200">{diagnostics.jql}</dd></div> : null}
+        <div><dt className="text-default-500">Site</dt><dd className="text-foreground">{diagnostics.siteHostname}</dd></div>
+        <div><dt className="text-default-500">View kind</dt><dd className="text-foreground">{diagnostics.locatorViewKind}</dd></div>
+        {diagnostics.projectKey ? <div><dt className="text-default-500">Project</dt><dd className="text-foreground">{diagnostics.projectKey}</dd></div> : null}
+        {diagnostics.boardId ? <div><dt className="text-default-500">Board id</dt><dd className="text-foreground">{diagnostics.boardId}</dd></div> : null}
+        <div><dt className="text-default-500">Endpoint family</dt><dd className="text-foreground">{diagnostics.endpointFamily}</dd></div>
+        {diagnostics.jql ? <div className="sm:col-span-2"><dt className="text-default-500">JQL</dt><dd className="break-words font-mono text-foreground">{diagnostics.jql}</dd></div> : null}
       </dl>
     </div>
   );
@@ -475,7 +475,7 @@ export function ExternalJiraCard({ card, onCreateWorkspace, onOpenWorkspacePanel
 
   return (
     <article
-      className="cursor-pointer rounded-lg border border-neutral-800 bg-neutral-950 p-3 text-left shadow-sm transition hover:border-sky-500/40 hover:bg-neutral-900 focus:outline-none focus:ring-2 focus:ring-sky-500/70"
+      className="cursor-pointer rounded-lg border border-divider/30 bg-background p-3 text-left shadow-sm transition hover:border-primary/40 hover:bg-content1 focus:outline-none focus:ring-2 focus:ring-focus"
       onClick={(event) => {
         if (isFromNestedInteractiveControl(event.target, event.currentTarget)) return;
         onSelect(card);
@@ -490,13 +490,13 @@ export function ExternalJiraCard({ card, onCreateWorkspace, onOpenWorkspacePanel
       role="button"
       tabIndex={0}
     >
-      <span className="text-xs font-semibold text-sky-300">{card.key}</span>
-      <h4 className="mt-1 text-sm font-medium leading-5 text-neutral-100">{card.title}</h4>
-      <div className="mt-3 rounded-md border border-neutral-800 bg-neutral-900/70 px-2 py-1.5 text-[11px] text-neutral-300">
+      <span className="text-xs font-semibold text-primary">{card.key}</span>
+      <h4 className="mt-1 text-sm font-medium leading-5 text-foreground">{card.title}</h4>
+      <div className="mt-3 rounded-md border border-divider/30 bg-content1/70 px-2 py-1.5 text-[11px] text-foreground">
         {workspaceCount === 0 ? (
           <button
             type="button"
-            className="rounded border border-emerald-500/30 px-2 py-1 text-emerald-200 hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:text-emerald-200/60"
+            className="rounded border border-success/30 px-2 py-1 text-success hover:bg-success/10 disabled:cursor-not-allowed disabled:text-success/60"
             disabled={!onCreateWorkspace}
             onClick={(event) => {
               event.stopPropagation();
@@ -509,10 +509,10 @@ export function ExternalJiraCard({ card, onCreateWorkspace, onOpenWorkspacePanel
         ) : (
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <span className="font-medium text-neutral-200">{workspaceCount === 1 ? 'Existing workspace' : `${workspaceCount} linked workspaces`}</span>
+              <span className="font-medium text-foreground">{workspaceCount === 1 ? 'Existing workspace' : `${workspaceCount} linked workspaces`}</span>
               <button
                 type="button"
-                className="rounded border border-emerald-500/30 px-2 py-1 text-emerald-200 hover:bg-emerald-500/10"
+                className="rounded border border-success/30 px-2 py-1 text-success hover:bg-success/10"
                 onClick={(event) => {
                   event.stopPropagation();
                   if (primaryWorkspace) onOpenWorkspacePanel(primaryWorkspace);
@@ -527,22 +527,22 @@ export function ExternalJiraCard({ card, onCreateWorkspace, onOpenWorkspacePanel
         )}
       </div>
       {taskSummary.total > 0 ? (
-        <div className="mt-3 rounded-md border border-sky-500/20 bg-sky-500/10 px-2 py-1.5 text-xs text-sky-100">
-          <div className="font-medium text-sky-200">{taskSummary.completed}/{taskSummary.total} tasks complete</div>
+        <div className="mt-3 rounded-md border border-primary/20 bg-primary/10 px-2 py-1.5 text-xs text-foreground">
+          <div className="font-medium text-primary">{taskSummary.completed}/{taskSummary.total} tasks complete</div>
           {taskSummary.userAssignedTask ? (
-            <div className="mt-1 rounded bg-sky-400/10 px-2 py-1 text-sky-100">
+            <div className="mt-1 rounded bg-primary/10 px-2 py-1 text-foreground">
               Your task: {taskSummary.userAssignedTask}
             </div>
           ) : taskSummary.implicitReviewTask ? (
-            <div className="mt-1 rounded bg-sky-400/10 px-2 py-1 text-sky-100">
+            <div className="mt-1 rounded bg-primary/10 px-2 py-1 text-foreground">
               Suggested review: {taskSummary.implicitReviewTask}
             </div>
           ) : null}
           {taskSummary.inProgressTask ? (
-            <div className="mt-1 text-sky-100/80">In progress: {taskSummary.inProgressTask}</div>
+            <div className="mt-1 text-default-500">In progress: {taskSummary.inProgressTask}</div>
           ) : null}
           {taskSummary.nextUpTask ? (
-            <div className="mt-1 text-sky-100/70">Next up: {taskSummary.nextUpTask}</div>
+            <div className="mt-1 text-default-500">Next up: {taskSummary.nextUpTask}</div>
           ) : null}
         </div>
       ) : null}
@@ -665,70 +665,70 @@ export function ExternalWorkspaceCreateDialog({
   const availableRepos = options?.repos.filter((candidate) => !selectedRepos.some((repo) => repo.path === candidate.path)) ?? [];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center" role="dialog" aria-modal="true" aria-label={`Create VK workspace for ${card.key}`}>
-      <div className="max-h-[90dvh] w-full max-w-3xl overflow-y-auto rounded-xl border border-neutral-800 bg-neutral-950 p-5 text-neutral-100 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-overlay/60 p-4 sm:items-center" role="dialog" aria-modal="true" aria-label={`Create VK workspace for ${card.key}`}>
+      <div className="max-h-[90dvh] w-full max-w-3xl overflow-y-auto rounded-xl border border-divider/30 bg-background p-5 text-foreground shadow-2xl">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300">Create VK workspace</div>
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-success">Create VK workspace</div>
             <h2 className="mt-2 text-xl font-semibold">{card.key}: {card.title}</h2>
-            <p className="mt-1 text-sm text-neutral-400">{REPO_CLONE_HELPER_TEXT}</p>
+            <p className="mt-1 text-sm text-default-500">{REPO_CLONE_HELPER_TEXT}</p>
           </div>
-          <button type="button" className="rounded border border-neutral-800 px-2 py-1 text-sm hover:bg-neutral-900" onClick={onClose}>Close</button>
+          <button type="button" className="rounded border border-divider/30 px-2 py-1 text-sm hover:bg-content1" onClick={onClose}>Close</button>
         </div>
 
-        {loading ? <p className="mt-4 text-sm text-neutral-400">Loading VK workspace options…</p> : null}
-        {error ? <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-100">{error}</div> : null}
+        {loading ? <p className="mt-4 text-sm text-default-500">Loading VK workspace options…</p> : null}
+        {error ? <div className="mt-4 rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger">{error}</div> : null}
 
-        <label className="mt-4 block text-sm font-medium text-neutral-200">
+        <label className="mt-4 block text-sm font-medium text-foreground">
           Prompt
-          <textarea className="mt-2 min-h-24 w-full rounded-lg border border-neutral-800 bg-neutral-900 p-3 text-sm text-neutral-100" value={prompt} onChange={(event) => setPrompt(event.target.value)} />
+          <textarea className="mt-2 min-h-24 w-full rounded-lg border border-divider/30 bg-content1 p-3 text-sm text-foreground" value={prompt} onChange={(event) => setPrompt(event.target.value)} />
         </label>
 
         <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <label className="block text-sm font-medium text-neutral-200">
+          <label className="block text-sm font-medium text-foreground">
             Executor
-            <select className="mt-2 w-full rounded-lg border border-neutral-800 bg-neutral-900 p-2 text-sm text-neutral-100" value={executorConfig.executor} onChange={(event) => setExecutorConfig({ executor: event.target.value as VkExecutorConfigDto['executor'] })}>
+            <select className="mt-2 w-full rounded-lg border border-divider/30 bg-content1 p-2 text-sm text-foreground" value={executorConfig.executor} onChange={(event) => setExecutorConfig({ executor: event.target.value as VkExecutorConfigDto['executor'] })}>
               {(options?.executors.length ? options.executors : [executorConfig.executor]).map((executor) => <option key={executor} value={executor}>{executor}</option>)}
             </select>
           </label>
-          <label className="block text-sm font-medium text-neutral-200">
+          <label className="block text-sm font-medium text-foreground">
             {REPO_CLONE_LABEL}
             <div className="mt-2 flex gap-2">
-              <input className="min-w-0 flex-1 rounded-lg border border-neutral-800 bg-neutral-900 p-2 text-sm text-neutral-100" placeholder={REPO_CLONE_PLACEHOLDER} value={cloneUrl} onChange={(event) => setCloneUrl(event.target.value)} />
-              <button type="button" className="rounded-lg border border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-900 disabled:cursor-not-allowed disabled:opacity-50" disabled={submitting || !cloneUrl.trim()} onClick={cloneRepo}>Clone</button>
+              <input className="min-w-0 flex-1 rounded-lg border border-divider/30 bg-content1 p-2 text-sm text-foreground" placeholder={REPO_CLONE_PLACEHOLDER} value={cloneUrl} onChange={(event) => setCloneUrl(event.target.value)} />
+              <button type="button" className="rounded-lg border border-divider/30 px-3 py-2 text-sm hover:bg-content1 disabled:cursor-not-allowed disabled:opacity-50" disabled={submitting || !cloneUrl.trim()} onClick={cloneRepo}>Clone</button>
             </div>
           </label>
         </div>
 
         <section className="mt-5 grid gap-4 md:grid-cols-2">
           <div>
-            <h3 className="text-sm font-semibold text-neutral-200">Available repos under ~/repos</h3>
-            <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-neutral-800">
-              {availableRepos.length === 0 ? <p className="p-3 text-sm text-neutral-500">No more repositories found.</p> : null}
+            <h3 className="text-sm font-semibold text-foreground">Available repos under ~/repos</h3>
+            <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-divider/30">
+              {availableRepos.length === 0 ? <p className="p-3 text-sm text-default-500">No more repositories found.</p> : null}
               {availableRepos.map((repo) => (
-                <button key={repo.path} type="button" className="block w-full border-b border-neutral-900 px-3 py-2 text-left text-sm hover:bg-neutral-900" onClick={() => addRepo(repo)}>
-                  <span className="font-medium text-neutral-100">{repo.name}</span>
-                  <span className="block truncate text-xs text-neutral-500">{repo.path}</span>
+                <button key={repo.path} type="button" className="block w-full border-b border-divider/30 px-3 py-2 text-left text-sm hover:bg-content1" onClick={() => addRepo(repo)}>
+                  <span className="font-medium text-foreground">{repo.name}</span>
+                  <span className="block truncate text-xs text-default-500">{repo.path}</span>
                 </button>
               ))}
             </div>
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-neutral-200">Selected repositories</h3>
+            <h3 className="text-sm font-semibold text-foreground">Selected repositories</h3>
             <div className="mt-2 space-y-2">
-              {selectedRepos.length === 0 ? <p className="rounded-lg border border-dashed border-neutral-800 p-3 text-sm text-neutral-500">Select at least one repository.</p> : null}
+              {selectedRepos.length === 0 ? <p className="rounded-lg border border-dashed border-divider/30 p-3 text-sm text-default-500">Select at least one repository.</p> : null}
               {selectedRepos.map((repo) => (
-                <div key={repo.path} className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-3">
+                <div key={repo.path} className="rounded-lg border border-divider/30 bg-content1/70 p-3">
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium">{repo.name}</div>
-                      <div className="truncate text-xs text-neutral-500">{repo.path}</div>
+                      <div className="truncate text-xs text-default-500">{repo.path}</div>
                     </div>
-                    <button type="button" className="text-xs text-neutral-400 hover:text-neutral-100" onClick={() => setSelectedRepos((repos) => repos.filter((candidate) => candidate.path !== repo.path))}>Remove</button>
+                    <button type="button" className="text-xs text-default-500 hover:text-foreground" onClick={() => setSelectedRepos((repos) => repos.filter((candidate) => candidate.path !== repo.path))}>Remove</button>
                   </div>
-                  <label className="mt-2 block text-xs text-neutral-400">
+                  <label className="mt-2 block text-xs text-default-500">
                     Target branch
-                    <select className="mt-1 w-full rounded border border-neutral-800 bg-neutral-950 p-2 text-sm text-neutral-100" disabled={repo.loading} value={repo.targetBranch} onChange={(event) => setSelectedRepos((repos) => repos.map((candidate) => candidate.path === repo.path ? { ...candidate, targetBranch: event.target.value } : candidate))}>
+                    <select className="mt-1 w-full rounded border border-divider/30 bg-background p-2 text-sm text-foreground" disabled={repo.loading} value={repo.targetBranch} onChange={(event) => setSelectedRepos((repos) => repos.map((candidate) => candidate.path === repo.path ? { ...candidate, targetBranch: event.target.value } : candidate))}>
                       {repo.loading ? <option value={repo.targetBranch}>Loading branches…</option> : repo.branches.map((branch) => <option key={branch.name} value={branch.name}>{branch.name}</option>)}
                     </select>
                   </label>
@@ -739,8 +739,8 @@ export function ExternalWorkspaceCreateDialog({
         </section>
 
         <div className="mt-5 flex justify-end gap-2">
-          <button type="button" className="rounded-lg border border-neutral-800 px-3 py-2 text-sm hover:bg-neutral-900" onClick={onClose}>Cancel</button>
-          <button type="button" className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50" disabled={submitting || !prompt.trim() || selectedRepos.some((repo) => repo.loading) || selectedRepos.length === 0} onClick={createWorkspace}>Create workspace</button>
+          <button type="button" className="rounded-lg border border-divider/30 px-3 py-2 text-sm hover:bg-content1" onClick={onClose}>Cancel</button>
+          <button type="button" className="rounded-lg border border-success/40 bg-success/10 px-3 py-2 text-sm text-success hover:bg-success/20 disabled:cursor-not-allowed disabled:opacity-50" disabled={submitting || !prompt.trim() || selectedRepos.some((repo) => repo.loading) || selectedRepos.length === 0} onClick={createWorkspace}>Create workspace</button>
         </div>
       </div>
     </div>
@@ -838,16 +838,16 @@ export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boar
 
   const createdResultsCount = results?.filter((result) => result.status === 'created' || result.status === 'created_mapping_failed').length ?? 0;
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center" role="dialog" aria-modal="true" aria-label="Create Jira tickets from VK workspaces">
-      <div className="flex max-h-[90dvh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-100 shadow-2xl">
-        <header className="shrink-0 border-b border-neutral-800">
-          <div className="relative w-full overflow-hidden rounded-t-2xl bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.20),transparent_30%),linear-gradient(135deg,rgba(15,23,42,0.98),rgba(10,10,10,0.98))] px-5 py-4">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-overlay/70 p-4 backdrop-blur-sm sm:items-center" role="dialog" aria-modal="true" aria-label="Create Jira tickets from VK workspaces">
+      <div className="flex max-h-[90dvh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-divider/30 bg-background text-foreground shadow-2xl">
+        <header className="shrink-0 border-b border-divider/30">
+          <div className="relative w-full overflow-hidden rounded-t-2xl bg-content1 px-5 py-4">
             <div className="relative flex flex-wrap items-start justify-between gap-4">
               <div className="min-w-0">
                 {createdResultsCount > 0 ? <Chip size="sm" color="success" variant="flat">🎉 {createdResultsCount} created</Chip> : null}
-                <h2 className={createdResultsCount > 0 ? 'mt-2 text-2xl font-semibold tracking-tight text-neutral-50' : 'text-2xl font-semibold tracking-tight text-neutral-50'}>Create Jira tickets</h2>
+                <h2 className={createdResultsCount > 0 ? 'mt-2 text-2xl font-semibold tracking-tight text-foreground' : 'text-2xl font-semibold tracking-tight text-foreground'}>Create Jira tickets</h2>
               </div>
-              <Button size="sm" variant="flat" className="border border-neutral-700 bg-neutral-900/80 text-neutral-100" onClick={onClose}>
+              <Button size="sm" variant="flat" className="border border-divider/30 bg-content1/80 text-foreground" onClick={onClose}>
                 Close
               </Button>
             </div>
@@ -857,16 +857,16 @@ export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boar
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="space-y-4 px-5 py-4">
             {loading ? (
-              <Card className="border border-neutral-800 bg-neutral-900/70 text-neutral-300" shadow="none">
+              <Card className="border border-divider/30 bg-content1/70 text-foreground" shadow="none">
                 <CardBody className="flex-row items-center gap-3">
                   <Spinner size="sm" />
                   <span className="text-sm">Loading VK workspaces…</span>
                 </CardBody>
               </Card>
             ) : null}
-            {error ? <div role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-100">{error}</div> : null}
+            {error ? <div role="alert" className="rounded-xl border border-danger/30 bg-danger/10 p-3 text-sm text-danger">{error}</div> : null}
 
-            <section className="grid items-end gap-3 rounded-2xl border border-neutral-800 bg-neutral-900/45 p-3 md:grid-cols-4">
+            <section className="grid items-end gap-3 rounded-2xl border border-divider/30 bg-content1/45 p-3 md:grid-cols-4">
               <Select
                 label="Repository filter"
                 labelPlacement="outside"
@@ -917,31 +917,31 @@ export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boar
               </Select>
             </section>
 
-            <section className="rounded-2xl border border-neutral-800 bg-neutral-900/35">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-800 px-4 py-3 text-sm text-neutral-400">
+            <section className="rounded-2xl border border-divider/30 bg-content1/35">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-divider/30 px-4 py-3 text-sm text-default-500">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Chip size="sm" variant="flat" className="bg-neutral-800 text-neutral-200">{unlinkedCount} unlinked</Chip>
-                  <Chip size="sm" variant="flat" className="bg-neutral-800 text-neutral-200">{selectedCount} selected</Chip>
+                  <Chip size="sm" variant="flat" className="bg-content2 text-foreground">{unlinkedCount} unlinked</Chip>
+                  <Chip size="sm" variant="flat" className="bg-content2 text-foreground">{selectedCount} selected</Chip>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button size="sm" variant="flat" className="bg-neutral-800 text-neutral-100" onClick={() => setSelectedWorkspaceIds(new Set(getSelectableBulkWorkspaceIds(visibleWorkspaces)))}>
+                  <Button size="sm" variant="flat" className="bg-content2 text-foreground" onClick={() => setSelectedWorkspaceIds(new Set(getSelectableBulkWorkspaceIds(visibleWorkspaces)))}>
                     Select all unlinked
                   </Button>
-                  <Button size="sm" variant="light" className="text-neutral-300" onClick={() => setSelectedWorkspaceIds(deselectAllBulkWorkspaceIds())}>
+                  <Button size="sm" variant="light" className="text-foreground" onClick={() => setSelectedWorkspaceIds(deselectAllBulkWorkspaceIds())}>
                     Deselect all
                   </Button>
                 </div>
               </div>
 
               <div className="max-h-[32dvh] overflow-y-auto p-2">
-                {workspaces.length === 0 && !loading ? <p className="p-6 text-center text-sm text-neutral-500">No active VK workspaces found.</p> : null}
-                {workspaces.length > 0 && visibleWorkspaces.length === 0 && !loading ? <p className="p-6 text-center text-sm text-neutral-500">No workspaces match this repository filter.</p> : null}
+                {workspaces.length === 0 && !loading ? <p className="p-6 text-center text-sm text-default-500">No active VK workspaces found.</p> : null}
+                {workspaces.length > 0 && visibleWorkspaces.length === 0 && !loading ? <p className="p-6 text-center text-sm text-default-500">No workspaces match this repository filter.</p> : null}
                 <div className="space-y-2">
                   {visibleWorkspaces.map((workspace) => {
                     const disabled = workspace.hasLinkedJiraIssue;
                     const selected = selectedWorkspaceIds.has(workspace.workspaceId);
                     return (
-                      <label key={workspace.workspaceId} className={`block rounded-xl border p-3 text-sm transition ${disabled ? 'border-neutral-800 bg-neutral-900/40 text-neutral-500' : selected ? 'border-emerald-500/35 bg-emerald-500/10 text-neutral-100 shadow-lg shadow-emerald-950/20' : 'border-neutral-800 bg-neutral-950 text-neutral-200 hover:border-neutral-700 hover:bg-neutral-900/80'}`}>
+                      <label key={workspace.workspaceId} className={`block rounded-xl border p-3 text-sm transition ${disabled ? 'border-divider/30 bg-content1/40 text-default-500' : selected ? 'border-success/35 bg-success/10 text-foreground shadow-lg shadow-success/20' : 'border-divider/30 bg-background text-foreground hover:border-divider/50 hover:bg-content1/80'}`}>
                         <div className="flex items-start gap-3">
                           <Checkbox
                             className="mt-0.5"
@@ -952,12 +952,12 @@ export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boar
                           />
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-center gap-2">
-                              <span className="font-medium text-neutral-100">{workspace.displayName}</span>
-                              <Chip size="sm" variant="flat" className="bg-neutral-800 text-neutral-300">{workspace.branch}</Chip>
-                              {disabled ? <Chip size="sm" variant="flat" className="bg-sky-500/10 text-sky-200">Already linked to {workspace.linkedJiraIssues.map((issue) => issue.key).join(', ')}</Chip> : null}
+                              <span className="font-medium text-foreground">{workspace.displayName}</span>
+                              <Chip size="sm" variant="flat" className="bg-content2 text-foreground">{workspace.branch}</Chip>
+                              {disabled ? <Chip size="sm" variant="flat" className="bg-primary/10 text-primary">Already linked to {workspace.linkedJiraIssues.map((issue) => issue.key).join(', ')}</Chip> : null}
                             </div>
-                            {workspace.workspaceDir ? <div className="mt-1 truncate text-xs text-neutral-500">{workspace.workspaceDir}</div> : null}
-                            {workspace.repos.length ? <div className="mt-1 text-xs text-neutral-500">Repos: {workspace.repos.map((repo) => `${repo.displayName || repo.name} @ ${repo.targetBranch}`).join(', ')}</div> : null}
+                            {workspace.workspaceDir ? <div className="mt-1 truncate text-xs text-default-500">{workspace.workspaceDir}</div> : null}
+                            {workspace.repos.length ? <div className="mt-1 text-xs text-default-500">Repos: {workspace.repos.map((repo) => `${repo.displayName || repo.name} @ ${repo.targetBranch}`).join(', ')}</div> : null}
                           </div>
                         </div>
                       </label>
@@ -971,9 +971,9 @@ export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boar
           </div>
         </div>
 
-        <footer className="flex shrink-0 justify-end gap-2 border-t border-neutral-800 bg-neutral-950/95 px-5 py-3">
-          <Button variant="light" className="text-neutral-300" onClick={onClose}>Cancel</Button>
-          <Button color="success" variant="flat" className="border border-emerald-400/30 bg-emerald-500/15 text-emerald-50" isLoading={submitting} isDisabled={selectedCount === 0 || !siteHostname.trim() || !projectKey.trim() || !issueTypeName.trim()} onClick={submit}>
+        <footer className="flex shrink-0 justify-end gap-2 border-t border-divider/30 bg-background/95 px-5 py-3">
+          <Button variant="light" className="text-foreground" onClick={onClose}>Cancel</Button>
+          <Button color="success" variant="flat" className="border border-success/30 bg-success/15 text-success" isLoading={submitting} isDisabled={selectedCount === 0 || !siteHostname.trim() || !projectKey.trim() || !issueTypeName.trim()} onClick={submit}>
             {submitting ? 'Creating…' : `Create ${selectedCount} Jira ticket${selectedCount === 1 ? '' : 's'}`}
           </Button>
         </footer>
@@ -1022,16 +1022,16 @@ export function upsertRepoProjectMapping(mappings: BulkJiraRepoProjectMappingDto
 
 export function BulkJiraWorkspaceConversionResults({ results }: { results: BulkJiraWorkspaceConversionResultDto[] }) {
   return (
-    <section className="mt-4 rounded-lg border border-neutral-800 bg-neutral-900/50 p-3 text-sm">
-      <h3 className="font-semibold text-neutral-100">Conversion results</h3>
+    <section className="mt-4 rounded-lg border border-divider/30 bg-content1/50 p-3 text-sm">
+      <h3 className="font-semibold text-foreground">Conversion results</h3>
       <ul className="mt-2 space-y-2">
         {results.map((result) => (
-          <li key={result.workspaceId} className="rounded border border-neutral-800 bg-neutral-950 px-3 py-2">
+          <li key={result.workspaceId} className="rounded border border-divider/30 bg-background px-3 py-2">
             <span className="font-medium">{result.workspaceId}</span>
-            {result.status === 'created' ? <span className="ml-2 text-emerald-200">Created <a className="underline" href={result.issue.url} target="_blank" rel="noreferrer">{result.issue.key}</a></span> : null}
-            {result.status === 'created_mapping_failed' ? <span className="ml-2 text-amber-200">Created <a className="underline" href={result.issue.url} target="_blank" rel="noreferrer">{result.issue.key}</a>, but VD link failed: {result.error.message} {result.error.userAction}</span> : null}
-            {result.status === 'skipped' ? <span className="ml-2 text-sky-200">Skipped; already linked to {result.linkedJiraIssues.map((issue) => issue.key).join(', ')}</span> : null}
-            {result.status === 'failed' ? <span className="ml-2 text-red-200">Failed: {result.error.message} {result.error.userAction}</span> : null}
+            {result.status === 'created' ? <span className="ml-2 text-success">Created <a className="underline" href={result.issue.url} target="_blank" rel="noreferrer">{result.issue.key}</a></span> : null}
+            {result.status === 'created_mapping_failed' ? <span className="ml-2 text-warning">Created <a className="underline" href={result.issue.url} target="_blank" rel="noreferrer">{result.issue.key}</a>, but VD link failed: {result.error.message} {result.error.userAction}</span> : null}
+            {result.status === 'skipped' ? <span className="ml-2 text-primary">Skipped; already linked to {result.linkedJiraIssues.map((issue) => issue.key).join(', ')}</span> : null}
+            {result.status === 'failed' ? <span className="ml-2 text-danger">Failed: {result.error.message} {result.error.userAction}</span> : null}
           </li>
         ))}
       </ul>
@@ -1058,22 +1058,22 @@ export function ExternalVKSessionSidePanel({ workspace, onClose }: { workspace: 
   const workspaceUrl = buildVKWorkspaceSessionUrl(workspace.workspaceId);
 
   return (
-    <aside className="min-h-[32rem] border-t border-neutral-800 bg-neutral-950 lg:sticky lg:top-0 lg:h-screen lg:w-[min(36rem,42vw)] lg:min-w-[24rem] lg:border-l lg:border-t-0" aria-label="VK session side panel">
+    <aside className="min-h-[32rem] border-t border-divider/30 bg-background lg:sticky lg:top-0 lg:h-screen lg:w-[min(36rem,42vw)] lg:min-w-[24rem] lg:border-l lg:border-t-0" aria-label="VK session side panel">
       <div className="flex h-full min-h-0 flex-col">
-        <header className="shrink-0 border-b border-neutral-800 bg-neutral-950/95 px-4 py-3">
+        <header className="shrink-0 border-b border-divider/30 bg-background/95 px-4 py-3">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300">VK session</div>
-              <h2 className="mt-1 truncate text-sm font-semibold text-neutral-100">{workspaceTitle}</h2>
-              {workspace.workspaceDir ? <p className="mt-1 truncate text-xs text-neutral-500">{workspace.workspaceDir}</p> : null}
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-success">VK session</div>
+              <h2 className="mt-1 truncate text-sm font-semibold text-foreground">{workspaceTitle}</h2>
+              {workspace.workspaceDir ? <p className="mt-1 truncate text-xs text-default-500">{workspace.workspaceDir}</p> : null}
             </div>
-            <button type="button" className="rounded-md border border-neutral-800 px-2 py-1 text-sm text-neutral-200 hover:bg-neutral-900" onClick={onClose}>
+            <button type="button" className="rounded-md border border-divider/30 px-2 py-1 text-sm text-foreground hover:bg-content1" onClick={onClose}>
               Close
             </button>
           </div>
         </header>
         <iframe
-          className="min-h-0 flex-1 border-0 bg-neutral-900"
+          className="min-h-0 flex-1 border-0 bg-content1"
           src={workspaceUrl}
           title={`VK session for ${workspaceTitle}`}
         />
@@ -1113,9 +1113,9 @@ export function ExternalJiraIssueDetailSheet({
       hideCloseButton
       onClose={onClose}
       classNames={{
-        backdrop: 'bg-black/60 sm:bg-black/40',
+        backdrop: 'bg-overlay/60 sm:bg-overlay/40',
         wrapper: 'z-50 justify-end',
-        base: 'm-0 flex h-dvh w-full max-w-full flex-col rounded-none border-l border-neutral-800 bg-neutral-950 text-neutral-100 shadow-2xl sm:max-w-xl',
+        base: 'm-0 flex h-dvh w-full max-w-full flex-col rounded-none border-l border-divider/30 bg-background text-foreground shadow-2xl sm:max-w-xl',
         body: 'px-0 py-0',
       }}
     >
@@ -1162,14 +1162,14 @@ export function ExternalJiraIssueDetailDrawerContent({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="shrink-0 border-b border-neutral-800 bg-neutral-950/95 px-4 py-3">
+      <header className="shrink-0 border-b border-divider/30 bg-background/95 px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-1">
-            <button type="button" className="rounded-md border border-neutral-800 px-2 py-1 text-sm text-neutral-200 hover:bg-neutral-900 disabled:cursor-not-allowed disabled:opacity-40" disabled={!canGoPrevious} onClick={onPrevious} aria-label="Previous issue">←</button>
-            <button type="button" className="rounded-md border border-neutral-800 px-2 py-1 text-sm text-neutral-200 hover:bg-neutral-900 disabled:cursor-not-allowed disabled:opacity-40" disabled={!canGoNext} onClick={onNext} aria-label="Next issue">→</button>
-            <span className="ml-2 text-xs text-neutral-500">{cardIndex + 1} / {totalCards}</span>
+            <button type="button" className="rounded-md border border-divider/30 px-2 py-1 text-sm text-foreground hover:bg-content1 disabled:cursor-not-allowed disabled:opacity-40" disabled={!canGoPrevious} onClick={onPrevious} aria-label="Previous issue">←</button>
+            <button type="button" className="rounded-md border border-divider/30 px-2 py-1 text-sm text-foreground hover:bg-content1 disabled:cursor-not-allowed disabled:opacity-40" disabled={!canGoNext} onClick={onNext} aria-label="Next issue">→</button>
+            <span className="ml-2 text-xs text-default-500">{cardIndex + 1} / {totalCards}</span>
           </div>
-          <button type="button" className="rounded-md border border-neutral-800 px-2 py-1 text-sm text-neutral-200 hover:bg-neutral-900" onClick={onClose}>Close</button>
+          <button type="button" className="rounded-md border border-divider/30 px-2 py-1 text-sm text-foreground hover:bg-content1" onClick={onClose}>Close</button>
         </div>
       </header>
       <DrawerBody className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
@@ -1185,56 +1185,56 @@ export function ExternalJiraIssueDetailBodyContent({ boardView, card }: { boardV
 
   return (
     <>
-      <div className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300">{boardView.board.name || `Jira board ${boardView.board.id}`}</div>
+      <div className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">{boardView.board.name || `Jira board ${boardView.board.id}`}</div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <span className="rounded bg-sky-500/10 px-2 py-0.5 text-sm font-semibold text-sky-200">{card.key}</span>
-        {card.statusName ? <span className="rounded bg-neutral-800 px-2 py-0.5 text-xs text-neutral-300">{card.statusName}</span> : null}
-        {card.issueType ? <span className="rounded bg-neutral-800 px-2 py-0.5 text-xs text-neutral-300">{card.issueType}</span> : null}
-        {card.priority ? <span className="rounded bg-neutral-800 px-2 py-0.5 text-xs text-neutral-300">{card.priority}</span> : null}
+        <span className="rounded bg-primary/10 px-2 py-0.5 text-sm font-semibold text-primary">{card.key}</span>
+        {card.statusName ? <span className="rounded bg-content2 px-2 py-0.5 text-xs text-foreground">{card.statusName}</span> : null}
+        {card.issueType ? <span className="rounded bg-content2 px-2 py-0.5 text-xs text-foreground">{card.issueType}</span> : null}
+        {card.priority ? <span className="rounded bg-content2 px-2 py-0.5 text-xs text-foreground">{card.priority}</span> : null}
       </div>
-      <h2 className="mt-4 text-2xl font-semibold leading-8 text-neutral-50">{card.title}</h2>
-      <dl className="mt-5 grid gap-3 rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 text-sm sm:grid-cols-2">
-        <div><dt className="text-xs uppercase tracking-wide text-neutral-500">Assignee</dt><dd className="mt-1 text-neutral-200">{card.assignee?.displayName ?? 'Unassigned'}</dd></div>
-        <div><dt className="text-xs uppercase tracking-wide text-neutral-500">Workspace</dt><dd className="mt-1 text-neutral-200">{workspaceCount === 0 ? 'None' : workspaceCount === 1 ? 'Existing workspace' : `${workspaceCount} linked workspaces`}</dd></div>
-        <div><dt className="text-xs uppercase tracking-wide text-neutral-500">Tasks</dt><dd className="mt-1 text-neutral-200">{taskSummary.completed}/{taskSummary.total} tasks complete</dd></div>
-        <div><dt className="text-xs uppercase tracking-wide text-neutral-500">Source</dt><dd className="mt-1 text-neutral-200">{boardView.siteHostname}</dd></div>
+      <h2 className="mt-4 text-2xl font-semibold leading-8 text-foreground">{card.title}</h2>
+      <dl className="mt-5 grid gap-3 rounded-xl border border-divider/30 bg-content1/60 p-4 text-sm sm:grid-cols-2">
+        <div><dt className="text-xs uppercase tracking-wide text-default-500">Assignee</dt><dd className="mt-1 text-foreground">{card.assignee?.displayName ?? 'Unassigned'}</dd></div>
+        <div><dt className="text-xs uppercase tracking-wide text-default-500">Workspace</dt><dd className="mt-1 text-foreground">{workspaceCount === 0 ? 'None' : workspaceCount === 1 ? 'Existing workspace' : `${workspaceCount} linked workspaces`}</dd></div>
+        <div><dt className="text-xs uppercase tracking-wide text-default-500">Tasks</dt><dd className="mt-1 text-foreground">{taskSummary.completed}/{taskSummary.total} tasks complete</dd></div>
+        <div><dt className="text-xs uppercase tracking-wide text-default-500">Source</dt><dd className="mt-1 text-foreground">{boardView.siteHostname}</dd></div>
       </dl>
       {card.labels.length ? (
         <section className="mt-5">
-          <h3 className="text-sm font-semibold text-neutral-200">Labels</h3>
+          <h3 className="text-sm font-semibold text-foreground">Labels</h3>
           <div className="mt-2 flex flex-wrap gap-1">
-            {card.labels.map((label) => <span key={label} className="rounded bg-neutral-800 px-2 py-0.5 text-xs text-neutral-300">{label}</span>)}
+            {card.labels.map((label) => <span key={label} className="rounded bg-content2 px-2 py-0.5 text-xs text-foreground">{label}</span>)}
           </div>
         </section>
       ) : null}
-      <section className="mt-5 rounded-xl border border-neutral-800 bg-neutral-900/60 p-4">
-        <h3 className="text-sm font-semibold text-neutral-200">Related workspaces</h3>
+      <section className="mt-5 rounded-xl border border-divider/30 bg-content1/60 p-4">
+        <h3 className="text-sm font-semibold text-foreground">Related workspaces</h3>
         {card.relatedWorkspaces?.length ? (
           <ul className="mt-3 space-y-2">
             {card.relatedWorkspaces.map((workspace) => (
-              <li key={workspace.workspaceId} className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">
-                <div className="font-medium">{workspace.displayName || workspace.workspaceId}{workspace.isPrimary ? <span className="ml-2 text-xs text-emerald-300">Primary</span> : null}</div>
-                {workspace.workspaceDir ? <div className="mt-1 truncate text-xs text-emerald-200/70">{workspace.workspaceDir}</div> : null}
+              <li key={workspace.workspaceId} className="rounded-lg border border-success/20 bg-success/10 px-3 py-2 text-sm text-foreground">
+                <div className="font-medium">{workspace.displayName || workspace.workspaceId}{workspace.isPrimary ? <span className="ml-2 text-xs text-success">Primary</span> : null}</div>
+                {workspace.workspaceDir ? <div className="mt-1 truncate text-xs text-default-500">{workspace.workspaceDir}</div> : null}
               </li>
             ))}
           </ul>
-        ) : <p className="mt-2 text-sm text-neutral-400">No existing workspace is associated with this issue.</p>}
+        ) : <p className="mt-2 text-sm text-default-500">No existing workspace is associated with this issue.</p>}
       </section>
-      <section className="mt-5 rounded-xl border border-neutral-800 bg-neutral-900/60 p-4">
-        <h3 className="text-sm font-semibold text-neutral-200">Related tasks</h3>
+      <section className="mt-5 rounded-xl border border-divider/30 bg-content1/60 p-4">
+        <h3 className="text-sm font-semibold text-foreground">Related tasks</h3>
         {card.relatedBeads?.length ? (
           <ul className="mt-3 space-y-2">
             {card.relatedBeads.map((bead) => (
-              <li key={bead.id} className="rounded-lg border border-sky-500/20 bg-sky-500/10 px-3 py-2 text-sm text-sky-100">
+              <li key={bead.id} className="rounded-lg border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-foreground">
                 <div className="font-medium">{bead.id}: {bead.title}</div>
-                {bead.status ? <div className="mt-1 text-xs text-sky-200/70">Status: {bead.status}</div> : null}
+                {bead.status ? <div className="mt-1 text-xs text-default-500">Status: {bead.status}</div> : null}
               </li>
             ))}
           </ul>
-        ) : <p className="mt-2 text-sm text-neutral-400">No tasks have been created for this issue yet.</p>}
+        ) : <p className="mt-2 text-sm text-default-500">No tasks have been created for this issue yet.</p>}
       </section>
       <div className="mt-6">
-        <a className="inline-flex rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-900" href={card.url} rel="noreferrer" target="_blank">Open in Jira</a>
+        <a className="inline-flex rounded-lg border border-divider/30 px-3 py-2 text-sm text-foreground hover:bg-content1" href={card.url} rel="noreferrer" target="_blank">Open in Jira</a>
       </div>
     </>
   );
@@ -1242,11 +1242,11 @@ export function ExternalJiraIssueDetailBodyContent({ boardView, card }: { boardV
 
 function WorkspaceMetricsGrid({ metrics }: { metrics: WorkspaceMetrics }) {
   return (
-    <dl className="grid grid-cols-2 gap-1 text-[10px] text-neutral-400">
-      <div><dt>Files changed</dt><dd className="font-medium text-neutral-200">{metrics.filesChanged}</dd></div>
-      <div><dt>Lines changed</dt><dd className="font-medium text-neutral-200">{metrics.linesChanged}</dd></div>
-      <div><dt>Agent sessions</dt><dd className="font-medium text-neutral-200">{metrics.agentSessions}</dd></div>
-      <div><dt>Agent messages</dt><dd className="font-medium text-neutral-200">{metrics.agentMessages}</dd></div>
+    <dl className="grid grid-cols-2 gap-1 text-[10px] text-default-500">
+      <div><dt>Files changed</dt><dd className="font-medium text-foreground">{metrics.filesChanged}</dd></div>
+      <div><dt>Lines changed</dt><dd className="font-medium text-foreground">{metrics.linesChanged}</dd></div>
+      <div><dt>Agent sessions</dt><dd className="font-medium text-foreground">{metrics.agentSessions}</dd></div>
+      <div><dt>Agent messages</dt><dd className="font-medium text-foreground">{metrics.agentMessages}</dd></div>
     </dl>
   );
 }
@@ -1346,12 +1346,12 @@ export function isFromNestedInteractiveControl(target: EventTarget | null, curre
 
 export function ExternalTrackerMessage({ title, message, action, code }: { title: string; message: string; action?: string; code?: string }) {
   return (
-    <main className="dark flex min-h-screen items-center justify-center bg-neutral-950 p-6 text-neutral-100">
-      <section className="w-full max-w-xl rounded-2xl border border-neutral-800 bg-neutral-900 p-6 shadow-2xl">
-        {code ? <div className="text-xs font-semibold uppercase tracking-[0.2em] text-neutral-500">{code}</div> : null}
+    <main className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
+      <section className="w-full max-w-xl rounded-2xl border border-divider/30 bg-content1 p-6 shadow-2xl">
+        {code ? <div className="text-xs font-semibold uppercase tracking-[0.2em] text-default-500">{code}</div> : null}
         <h1 className="mt-2 text-2xl font-semibold">{title}</h1>
-        <p className="mt-3 text-sm leading-6 text-neutral-300">{message}</p>
-        {action ? <p className="mt-3 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-400">{action}</p> : null}
+        <p className="mt-3 text-sm leading-6 text-default-500">{message}</p>
+        {action ? <p className="mt-3 rounded-lg border border-divider/30 bg-background px-3 py-2 text-sm text-default-500">{action}</p> : null}
       </section>
     </main>
   );
@@ -1392,7 +1392,7 @@ function normalizeColumnTitle(title: string): string {
 function columnToggleClassName(active: boolean): string {
   return [
     'rounded-md border px-2.5 py-1 text-xs font-medium transition',
-    active ? 'border-sky-500/50 bg-sky-500/15 text-sky-100' : 'border-neutral-700 bg-neutral-950 text-neutral-300 hover:bg-neutral-800',
+    active ? 'border-primary/50 bg-primary/15 text-primary' : 'border-divider/30 bg-background text-foreground hover:bg-content2',
   ].join(' ');
 }
 

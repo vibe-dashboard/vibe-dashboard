@@ -186,6 +186,8 @@ interface SessionChatBoxProps<TExecutor extends string = string> {
   formatSessionDate?: (createdAt: string | Date) => string;
   todos?: TodoProgressItem[];
   inProgressTodo?: TodoProgressItem | null;
+  workspaceTasks?: ReactNode;
+  workspacePreview?: ReactNode;
   localAttachments?: LocalAttachmentMetadata[];
   onPrCommentClick?: () => void;
   onViewCode?: () => void;
@@ -250,6 +252,8 @@ export function SessionChatBox<TExecutor extends string = string>({
   formatSessionDate = defaultFormatSessionDate,
   todos,
   inProgressTodo,
+  workspaceTasks,
+  workspacePreview,
   localAttachments,
   onPrCommentClick,
   onViewCode,
@@ -593,17 +597,17 @@ export function SessionChatBox<TExecutor extends string = string>({
       banners.push(
         <div
           key="review-comments"
-          className="bg-accent/5 border-b px-double py-base flex items-center gap-base"
+          className="bg-content2/50 border-b border-divider px-double py-base flex items-center gap-base"
         >
-          <ChatCircleIcon className="h-4 w-4 text-brand flex-shrink-0" />
-          <span className="text-sm text-normal flex-1">
+          <ChatCircleIcon className="h-4 w-4 text-primary flex-shrink-0" />
+          <span className="text-sm text-foreground flex-1">
             {t('conversation.reviewComments.count', {
               count: reviewComments.count,
             })}
           </span>
           <button
             onClick={reviewComments.onClear}
-            className="text-low hover:text-normal transition-colors p-1 -m-1"
+            className="text-default-500 hover:text-foreground transition-colors p-1 -m-1"
             title={t('conversation.actions.clearReviewComments')}
           >
             <TrashIcon className="h-4 w-4" />
@@ -632,10 +636,10 @@ export function SessionChatBox<TExecutor extends string = string>({
       banners.push(
         <div
           key="queued"
-          className="bg-secondary border-b px-double py-base flex items-center gap-base"
+          className="bg-content2 border-b border-divider px-double py-base flex items-center gap-base"
         >
-          <ClockIcon className="h-4 w-4 text-low" />
-          <span className="text-sm text-low">
+          <ClockIcon className="h-4 w-4 text-default-500" />
+          <span className="text-sm text-default-500">
             {t('followUp.queuedMessage')}
           </span>
         </div>
@@ -680,9 +684,9 @@ export function SessionChatBox<TExecutor extends string = string>({
       visualVariant={getVisualVariant()}
       isRunning={showRunningAnimation}
       dropzone={dropzone}
-      modelSelector={isMinimalZen ? undefined : modelSelector}
+      modelSelector={chatViewMode === 'full' ? modelSelector : undefined}
       headerLeft={
-        shouldHideZenHeader ? undefined : (
+        chatViewMode !== 'full' ? undefined : (
           <>
             {/* New session mode: agent icon + executor dropdown */}
             {isNewSessionMode && executor && (
@@ -762,7 +766,7 @@ export function SessionChatBox<TExecutor extends string = string>({
                                 </span>
                               )}
                               {linesRemoved !== undefined && (
-                                <span className="text-error">
+                                <span className="text-danger">
                                   -{linesRemoved}
                                 </span>
                               )}
@@ -771,7 +775,7 @@ export function SessionChatBox<TExecutor extends string = string>({
                         </span>
                       </PrimaryButton>
                     ) : (
-                      <span className="text-sm text-low space-x-half whitespace-nowrap truncate min-w-0">
+                      <span className="text-sm text-default-500 space-x-half whitespace-nowrap truncate min-w-0">
                         <span>
                           {t('diff.filesChanged', { count: filesChanged })}
                         </span>
@@ -784,7 +788,7 @@ export function SessionChatBox<TExecutor extends string = string>({
                               </span>
                             )}
                             {linesRemoved !== undefined && (
-                              <span className="text-error">
+                              <span className="text-danger">
                                 -{linesRemoved}
                               </span>
                             )}
@@ -800,7 +804,9 @@ export function SessionChatBox<TExecutor extends string = string>({
         )
       }
       headerRight={
-        shouldHideZenHeader ? undefined : (
+        shouldHideZenHeader ? (
+          chatViewModeSelector
+        ) : (
           <>
             {/* Turn navigation + Agent icon for existing session mode */}
             {!isNewSessionMode && (
@@ -824,8 +830,9 @@ export function SessionChatBox<TExecutor extends string = string>({
                 {renderAgentIcon?.(agent, 'size-icon-xl')}
               </>
             )}
-            {/* Todo progress popup - always rendered, disabled when no todos */}
-            <TodoProgressPopup todos={todos ?? []} />
+            {/* Workspace task list replaces the conversation todo popup when supplied by the host app. */}
+            {workspaceTasks ?? <TodoProgressPopup todos={todos ?? []} />}
+            {workspacePreview}
             {supportsContextUsage && (
               <ContextUsageGauge tokenUsageInfo={tokenUsageInfo} />
             )}
@@ -895,12 +902,12 @@ export function SessionChatBox<TExecutor extends string = string>({
                 </>
               )}
             </ToolbarDropdown>
+            {chatViewModeSelector}
           </>
         )
       }
       footerLeft={
         <>
-          {chatViewModeSelector}
           {!isMinimalZen && (
             <>
               <ToolbarIconButton

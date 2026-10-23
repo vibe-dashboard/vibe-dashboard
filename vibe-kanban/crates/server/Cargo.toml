@@ -61,6 +61,7 @@ base64 = "0.22"
 mime_guess = "2.0"
 rust-embed = "8.2"
 url = "2.5"
+psl = "2.1"
 rand = { version = "0.8", features = ["std"] }
 spake2 = { version = "0.5.0-pre.0", features = ["getrandom"] }
 sha2 = "0.10"

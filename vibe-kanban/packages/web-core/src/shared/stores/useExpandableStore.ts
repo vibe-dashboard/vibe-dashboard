@@ -1,4 +1,8 @@
 import { create } from 'zustand';
+import {
+  scopeWorkspaceChatStateKey,
+  useWorkspaceChatSurfaceId,
+} from '@/shared/providers/WorkspaceChatSurfaceProvider';
 
 type State = {
   expanded: Record<string, boolean>;
@@ -27,13 +31,15 @@ export function useExpandable(
   key: string,
   defaultValue = false
 ): [boolean, (next?: boolean) => void] {
-  const expandedValue = useExpandableStore((s) => s.expanded[key]);
+  const surfaceId = useWorkspaceChatSurfaceId();
+  const scopedKey = scopeWorkspaceChatStateKey(key, surfaceId);
+  const expandedValue = useExpandableStore((s) => s.expanded[scopedKey]);
   const setKey = useExpandableStore((s) => s.setKey);
   const toggleKey = useExpandableStore((s) => s.toggleKey);
 
   const set = (next?: boolean) => {
-    if (typeof next === 'boolean') setKey(key, next);
-    else toggleKey(key, defaultValue);
+    if (typeof next === 'boolean') setKey(scopedKey, next);
+    else toggleKey(scopedKey, defaultValue);
   };
 
   return [expandedValue ?? defaultValue, set];

@@ -22,6 +22,7 @@ export function useWorkspaceExecution(workspaceId?: string) {
     executionProcessesVisible: executionProcesses,
     isAttemptRunningVisible: isAttemptRunning,
     isLoading: streamLoading,
+    error: streamError,
   } = useExecutionProcessesContext();
 
   const stopMutationKey = useMemo(
@@ -108,6 +109,7 @@ export function useWorkspaceExecution(workspaceId?: string) {
     isAttemptRunning,
     isLoading,
     isFetching,
+    error: streamError,
 
     // Actions
     stopExecution,

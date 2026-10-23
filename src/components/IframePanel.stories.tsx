@@ -36,8 +36,8 @@ const meta: Meta<typeof IframePanel> = {
   component: IframePanel,
   decorators: [
     (Story) => (
-      <div className="h-[520px] w-full bg-neutral-950 p-4">
-        <div className="h-full overflow-hidden rounded-xl border border-neutral-800">
+      <div className="h-[520px] w-full bg-background p-4">
+        <div className="h-full overflow-hidden rounded-xl border border-divider/30">
           <Story />
         </div>
       </div>

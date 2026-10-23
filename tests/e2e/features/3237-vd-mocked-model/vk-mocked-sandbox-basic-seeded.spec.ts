@@ -27,34 +27,69 @@ test.describe('VK mocked-provider basic-seeded fixture', () => {
     const proofFollowUp = `${manifest.followUpPrompt} Proof-of-concept reuse ${Date.now()}.`;
 
     await page.goto(sandboxUrl);
-    await expect(page.getByText(manifest.voyageName).first()).toBeVisible();
-
     await openSidebarIfNeeded(page);
-    await clickLocatorInViewport(
-      page,
-      page.getByRole('button', { name: 'Open Craft' }),
+    await expect(page.getByText(manifest.voyageName).first()).toBeVisible({
+      timeout: 30_000,
+    });
+    await openSeededCraft(page, manifest.craftTitle);
+    await closeSidebarOverlayIfPresent(page);
+
+    const agentChat = page.getByTestId('inline-vk-agent-chat').last();
+    await expect(agentChat).toContainText(manifest.followUpPrompt, {
+      timeout: 60_000,
+    });
+    await expect(agentChat.getByRole('button', { name: 'Custom' })).toBeVisible(
+      { timeout: 60_000 },
     );
     await expect(
-      page.getByRole('heading', { name: 'Open VK Workspace' }),
+      agentChat.getByRole('button', { name: 'Loading...' }),
+    ).toHaveCount(0);
+    await expect(
+      agentChat.getByRole('button', { name: 'Attach file' }),
     ).toBeVisible();
-    await page
-      .getByRole('textbox', { name: 'Search workspaces...' })
-      .fill(manifest.craftTitle);
-    await page
-      .getByRole('button', { name: new RegExp(escapeRegex(manifest.craftTitle)) })
-      .click();
+    await expect(
+      agentChat.getByRole('button', { name: 'Workspace tasks' }),
+    ).toBeVisible();
+    await expect(
+      agentChat.getByRole('button', { name: 'Preview slots' }),
+    ).toBeVisible();
+    await agentChat.getByRole('button', { name: 'Preview slots' }).click();
+    await expect(
+      agentChat.getByRole('menuitem', { name: 'Configure preview slots' }),
+    ).toBeVisible();
+    await page.keyboard.press('Escape');
 
-    const agentFrame = page.frameLocator('iframe[title="Agent"]').first();
-    await expect(agentFrame.locator('body')).toContainText(manifest.craftTitle);
+    const composer = getChatComposer(agentChat);
+    await composer.fill('Draft survives view mode changes');
+    for (const shortcut of ['Control+k', 'Meta+k']) {
+      await composer.focus();
+      await expect(composer).toBeFocused();
+      await composer.press(shortcut);
+      await expect(page.getByRole('dialog', { name: 'Open VK Workspace' })).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('dialog', { name: 'Open VK Workspace' })).toBeHidden();
+      await expect(composer).toHaveText('Draft survives view mode changes');
+    }
+    await agentChat.getByRole('combobox', { name: 'Chat view' }).click();
+    await page.getByRole('option', { name: 'Zen', exact: true }).click();
+    await expect(
+      agentChat.getByRole('button', { name: 'Attach file' }),
+    ).toHaveCount(0);
+    await expect(composer).toHaveText('Draft survives view mode changes');
+    await agentChat.getByRole('combobox', { name: 'Chat view' }).click();
+    await page.getByRole('option', { name: 'Full', exact: true }).click();
+    await expect(
+      agentChat.getByRole('button', { name: 'Attach file' }),
+    ).toBeVisible();
 
-    await agentFrame
-      .getByRole('textbox', { name: 'Markdown editor' })
-      .last()
-      .fill(proofFollowUp);
-    await sendFollowUpThroughVkApi(page, proofFollowUp);
+    await composer.fill(proofFollowUp);
+    await expect(agentChat.getByRole('button', { name: 'Send' })).toBeEnabled({
+      timeout: 60_000,
+    });
+    await agentChat.getByRole('button', { name: 'Send' }).click();
 
-    await expect(agentFrame.locator('body')).toContainText(proofFollowUp);
-    await expect(agentFrame.locator('body')).toContainText('Ran a test command', {
+    await expect(agentChat).toContainText(proofFollowUp);
+    await expect(agentChat).toContainText('Ran a test command', {
       timeout: 60_000,
     });
   });
@@ -64,12 +99,29 @@ async function openSidebarIfNeeded(page: Page) {
   const openCraftButton = page
     .getByRole('button', { name: 'Open Craft' })
     .first();
-  if (await openCraftButton.isVisible()) {
+  const openSidebarButton = page
+    .getByRole('button', { name: 'Open sidebar' })
+    .first();
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const shellReady = await expect
+      .poll(
+        async () =>
+          (await openCraftButton.isVisible().catch(() => false)) ||
+          (await openSidebarButton.isVisible().catch(() => false)),
+        { timeout: 30_000 },
+      )
+      .toBe(true)
+      .then(() => true)
+      .catch(() => false);
+    if (shellReady) break;
+    await page.reload({ waitUntil: 'domcontentloaded' });
+  }
+  if (await openCraftButton.isVisible().catch(() => false)) {
     const box = await openCraftButton.boundingBox();
     if (box && box.x >= 0) return;
   }
 
-  await page.getByRole('button', { name: 'Open sidebar' }).first().click();
+  await openSidebarButton.click();
   await expect(openCraftButton).toBeVisible();
 }
 
@@ -90,75 +142,50 @@ async function clickLocatorInViewport(page: Page, locator: Locator) {
     }
   }
 
-  await locator
-    .first()
-    .evaluate((element) => (element as HTMLButtonElement).click());
-}
-
-async function sendFollowUpThroughVkApi(page: Page, followUp: string) {
-  const agentFrameSrc = await page
-    .locator('iframe[title="Agent"]')
-    .first()
-    .evaluate((iframe) => (iframe as HTMLIFrameElement).src);
-  const sessionId = agentFrameSrc.match(
-    /\/sessions\/([0-9a-fA-F-]{36})(?:[/?#]|$)/,
-  )?.[1];
-  const workspaceId = agentFrameSrc.match(
-    /\/workspaces\/([0-9a-fA-F-]{36})(?:[/?#]|$)/,
-  )?.[1];
-  const resolvedSessionId =
-    sessionId ??
-    (workspaceId ? await latestSessionIdForWorkspace(page, workspaceId) : null);
-  if (!resolvedSessionId) {
-    throw new Error(`Could not resolve VK session id from ${agentFrameSrc}`);
+  for (let index = 0; index < count; index += 1) {
+    const candidate = locator.nth(index);
+    if (await candidate.isVisible().catch(() => false)) {
+      await candidate.evaluate((element) =>
+        (element as HTMLButtonElement).click(),
+      );
+      return;
+    }
   }
 
-  const response = await page.request.post(
-    new URL(
-      `/api/sessions/${resolvedSessionId}/follow-up`,
-      sandboxUrl,
-    ).toString(),
-    {
-      data: {
-        prompt: followUp,
-        executor_config: {
-          executor: 'CODEX',
-          permission_policy: 'AUTO',
-        },
-        retry_process_id: null,
-        force_when_dirty: null,
-        perform_git_reset: null,
-      },
-    },
+  await locator.first().evaluate((element) =>
+    (element as HTMLButtonElement).click(),
   );
+}
 
-  if (!response.ok()) {
-    throw new Error(
-      `VK follow-up API failed with ${response.status()}: ${await response.text()}`,
-    );
+async function closeSidebarOverlayIfPresent(page: Page) {
+  const overlay = page.getByRole('button', { name: 'Close sidebar overlay' });
+  if (await overlay.isVisible().catch(() => false)) {
+    await overlay.evaluate((button) => (button as HTMLButtonElement).click());
   }
 }
 
-async function latestSessionIdForWorkspace(page: Page, workspaceId: string) {
-  const response = await page.request.get(
-    new URL(`/api/sessions?workspace_id=${workspaceId}`, sandboxUrl).toString(),
+async function openSeededCraft(page: Page, craftTitle: string) {
+  await clickLocatorInViewport(
+    page,
+    page.getByRole('button', { name: 'Open Craft' }),
   );
-  if (!response.ok()) {
-    throw new Error(
-      `VK sessions API failed with ${response.status()}: ${await response.text()}`,
-    );
-  }
-
-  const body = (await response.json()) as {
-    data?: Array<{ id?: string; created_at?: string }>;
-  };
-  return body.data
-    ?.slice()
-    .sort((left, right) =>
-      String(right.created_at ?? '').localeCompare(String(left.created_at ?? '')),
-    )[0]?.id;
+  await expect(
+    page.getByRole('heading', { name: 'Open VK Workspace' }),
+  ).toBeVisible();
+  await page
+    .getByRole('textbox', { name: 'Search workspaces...' })
+    .fill(craftTitle);
+  await page
+    .getByRole('button', { name: new RegExp(escapeRegex(craftTitle)) })
+    .click();
 }
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function getChatComposer(agentChat: Locator) {
+  return agentChat
+    .getByRole('textbox', { name: /^(Follow up|Markdown editor)$/ })
+    .last();
 }

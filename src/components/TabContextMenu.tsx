@@ -158,7 +158,7 @@ export function TabContextMenu({
   return (
     <div
       ref={menuRef}
-      className="fixed z-[100] bg-neutral-800 border border-neutral-700 rounded-md shadow-xl py-1 min-w-[200px]"
+      className="fixed z-[100] bg-content1 border border-divider rounded-md shadow-xl py-1 min-w-[200px]"
       style={{
         left: `${adjustedPosition.x}px`,
         top: `${adjustedPosition.y}px`,
@@ -169,16 +169,16 @@ export function TabContextMenu({
         <>
           {onRenameTabGroup && (
             <button
-              className="w-full text-left px-4 py-2 text-sm text-neutral-200 hover:bg-neutral-700 transition-colors"
+              className="w-full text-left px-4 py-2 text-sm text-foreground hover:bg-content2 transition-colors"
               onClick={handleRenameTabGroup}
             >
               Rename Craft
             </button>
           )}
-          {onRenameTabGroup && onDeleteTabGroup && <div className="border-t border-neutral-700 my-1" />}
+          {onRenameTabGroup && onDeleteTabGroup && <div className="border-t border-divider/30 my-1" />}
           {onDeleteTabGroup && (
             <button
-              className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-neutral-700 transition-colors"
+              className="w-full text-left px-4 py-2 text-sm text-danger hover:bg-content2 transition-colors"
               onClick={handleDeleteTabGroup}
             >
               Delete Craft
@@ -191,12 +191,12 @@ export function TabContextMenu({
       {isPair && onSplitPair && (
         <>
           <button
-            className="w-full text-left px-4 py-2 text-sm text-neutral-200 hover:bg-neutral-700 transition-colors"
+            className="w-full text-left px-4 py-2 text-sm text-foreground hover:bg-content2 transition-colors"
             onClick={handleSplitPair}
           >
             Split Pair
           </button>
-          <div className="border-t border-neutral-700 my-1" />
+          <div className="border-t border-divider/30 my-1" />
         </>
       )}
 
@@ -205,7 +205,7 @@ export function TabContextMenu({
         <>
           {onRenameTab && !isEphemeralTab && (
             <button
-              className="w-full text-left px-4 py-2 text-sm text-neutral-200 hover:bg-neutral-700 transition-colors"
+              className="w-full text-left px-4 py-2 text-sm text-foreground hover:bg-content2 transition-colors"
               onClick={handleRenameTab}
             >
               Rename View
@@ -213,26 +213,26 @@ export function TabContextMenu({
           )}
           {availableTabs.length > 0 && (
             <>
-              {onRenameTab && <div className="border-t border-neutral-700 my-1" />}
-              <div className="px-4 py-2 text-xs text-neutral-500 uppercase tracking-wider">
+              {onRenameTab && <div className="border-t border-divider/30 my-1" />}
+              <div className="px-4 py-2 text-xs text-default-500 uppercase tracking-wider">
                 Open with...
               </div>
               {availableTabs.map((t) => (
                 <button
                   key={t.id}
-                  className="w-full text-left px-4 py-2 text-sm text-neutral-200 hover:bg-neutral-700 transition-colors"
+                  className="w-full text-left px-4 py-2 text-sm text-foreground hover:bg-content2 transition-colors"
                   onClick={() => handlePairWith(t.id)}
                 >
-                  <span className="text-neutral-500 mr-2">⊞</span>
+                  <span className="text-default-500 mr-2">⊞</span>
                   {t.title}
                 </button>
               ))}
             </>
           )}
-          {!tab.pinned && !isEphemeralTab && <div className="border-t border-neutral-700 my-1" />}
+          {!tab.pinned && !isEphemeralTab && <div className="border-t border-divider/30 my-1" />}
           {!tab.pinned && !isEphemeralTab && (
             <button
-              className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-neutral-700 transition-colors"
+              className="w-full text-left px-4 py-2 text-sm text-danger hover:bg-content2 transition-colors"
               onClick={handleCloseTab}
             >
               Close View
@@ -243,7 +243,7 @@ export function TabContextMenu({
 
       {/* If no actions available */}
       {!isGroupLabel && !isPair && availableTabs.length === 0 && (!tab || tab.pinned) && (
-        <div className="px-4 py-2 text-sm text-neutral-500 italic">
+        <div className="px-4 py-2 text-sm text-default-500 italic">
           No actions available
         </div>
       )}

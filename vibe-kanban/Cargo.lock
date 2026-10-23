@@ -10863,6 +10863,7 @@ dependencies = [
  "mime_guess",
  "os_info",
  "preview-proxy",
+ "psl",
  "rand 0.8.5",
  "relay-client",
  "relay-control",

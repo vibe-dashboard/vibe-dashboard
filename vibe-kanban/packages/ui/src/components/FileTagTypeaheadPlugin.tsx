@@ -520,7 +520,7 @@ export function FileTagTypeaheadPlugin({
                         <span>@{tag.tag_name}</span>
                       </div>
                       {tag.content && (
-                        <div className="text-xs text-low truncate">
+                        <div className="text-xs text-default-500 truncate">
                           {tag.content.slice(0, 60)}
                           {tag.content.length > 60 ? '...' : ''}
                         </div>
@@ -572,7 +572,7 @@ export function FileTagTypeaheadPlugin({
                             />
                             <span>{file.name}</span>
                           </div>
-                          <div className="text-xs text-low truncate">
+                          <div className="text-xs text-default-500 truncate">
                             {file.path}
                           </div>
                         </TypeaheadMenu.Item>

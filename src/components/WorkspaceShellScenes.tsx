@@ -34,17 +34,17 @@ export function PendingOpenCraftVoyageTab({
   const isError = tab.status === 'error';
   const label = tab.label || 'craft';
   const baseBorderClass = compact
-    ? 'border-r border-neutral-700'
-    : 'border-r border-neutral-600 border-b-2';
+    ? 'border-r border-divider'
+    : 'border-r border-divider/25 border-b-2';
 
   return (
     <div
       className={`shrink-0 inline-flex h-full max-w-[22rem] items-center gap-2 ${baseBorderClass} ${
         isError
-          ? 'border-b-red-400 bg-red-950/40 text-red-100'
+          ? 'border-b-danger bg-danger/10 text-danger'
           : active
-            ? 'border-b-amber-400 bg-neutral-800 text-neutral-100'
-            : 'border-b-amber-400 bg-neutral-900 text-neutral-200'
+            ? 'border-b-warning bg-content2 text-foreground'
+            : 'border-b-warning bg-content1 text-foreground'
       } px-3 text-xs`}
       role={isError ? 'alert' : 'status'}
       aria-live="polite"
@@ -52,13 +52,13 @@ export function PendingOpenCraftVoyageTab({
       title={isError ? tab.errorMessage || `Failed opening ${label}` : `Opening ${label}`}
     >
       {isError ? (
-        <span aria-hidden="true" className="font-semibold text-red-300">
+        <span aria-hidden="true" className="font-semibold text-danger">
           !
         </span>
       ) : (
         <span
           aria-hidden="true"
-          className="inline-block h-3 w-3 animate-spin rounded-full border border-neutral-500 border-t-amber-300"
+          className="inline-block h-3 w-3 animate-spin rounded-full border border-divider border-t-warning"
         />
       )}
       <span className="min-w-0 truncate">
@@ -68,14 +68,14 @@ export function PendingOpenCraftVoyageTab({
         <span className="ml-1 inline-flex shrink-0 items-center gap-1">
           <button
             type="button"
-            className="rounded border border-red-400/50 px-1.5 py-0.5 text-[10px] font-medium text-red-100 transition-colors hover:bg-red-500/20"
+            className="rounded border border-danger/50 px-1.5 py-0.5 text-[10px] font-medium text-danger transition-colors hover:bg-danger/20"
             onClick={onRetry}
           >
             Retry
           </button>
           <button
             type="button"
-            className="rounded border border-neutral-600 px-1.5 py-0.5 text-[10px] font-medium text-neutral-200 transition-colors hover:bg-neutral-800"
+            className="rounded border border-divider px-1.5 py-0.5 text-[10px] font-medium text-foreground transition-colors hover:bg-content2"
             onClick={onClose}
             aria-label={`Close failed ${label} tab`}
           >
@@ -100,28 +100,28 @@ export function PendingOpenCraftContent({
   const label = tab.label || 'craft';
 
   return (
-    <div className="flex-1 bg-neutral-950">
+    <div className="flex-1 bg-background">
       <div className="flex h-full items-center justify-center p-6 text-center">
         <div
           role={isError ? 'alert' : 'status'}
           aria-live="polite"
           className={`w-full max-w-md rounded-xl border p-6 shadow-2xl ${
             isError
-              ? 'border-red-500/40 bg-red-950/20'
-              : 'border-amber-400/30 bg-neutral-900'
+              ? 'border-danger/40 bg-danger/10'
+              : 'border-warning/30 bg-content1'
           }`}
         >
           {isError ? (
-            <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full border border-red-400/50 bg-red-500/10 text-lg font-semibold text-red-200">
+            <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full border border-danger/50 bg-danger/10 text-lg font-semibold text-danger">
               !
             </div>
           ) : (
-            <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-neutral-700 border-t-amber-300" />
+            <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-divider border-t-warning" />
           )}
-          <h2 className="mt-4 text-base font-semibold text-neutral-100">
+          <h2 className="mt-4 text-base font-semibold text-foreground">
             {isError ? `Could not open ${label}` : `Opening ${label}`}
           </h2>
-          <p className="mt-2 text-sm text-neutral-400">
+          <p className="mt-2 text-sm text-default-500">
             {isError
               ? tab.errorMessage || 'Open Craft failed. Please retry or close this pending craft.'
               : 'Allocating the craft and preparing its workspace view…'}
@@ -130,14 +130,14 @@ export function PendingOpenCraftContent({
             <div className="mt-5 flex justify-center gap-2">
               <button
                 type="button"
-                className="rounded-md border border-red-400/60 bg-red-500/10 px-3 py-2 text-sm font-medium text-red-100 transition-colors hover:bg-red-500/20"
+                className="rounded-md border border-danger/60 bg-danger/10 px-3 py-2 text-sm font-medium text-danger transition-colors hover:bg-danger/20"
                 onClick={onRetry}
               >
                 Retry
               </button>
               <button
                 type="button"
-                className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-neutral-800"
+                className="rounded-md border border-divider bg-content1 px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-content2"
                 onClick={onClose}
               >
                 Close
@@ -186,9 +186,9 @@ export function VoyageBarView({
   getEmoji: (tabGroup: TabGroup) => string;
 }) {
   return (
-    <div className="hidden md:flex h-9 border-b border-neutral-600 bg-neutral-900 items-stretch shrink-0 [&_button]:cursor-pointer">
+    <div className="hidden md:flex h-9 border-b border-divider/25 bg-content1 items-stretch shrink-0 [&_button]:cursor-pointer">
       <button
-        className="inline-flex h-full w-9 shrink-0 cursor-pointer items-center justify-center border-r border-b-2 border-neutral-600 bg-neutral-900 text-sm text-neutral-200 transition-colors hover:bg-neutral-800/80"
+        className="inline-flex h-full w-9 shrink-0 cursor-pointer items-center justify-center border-r border-b-2 border-divider/25 border-b-transparent bg-content1 text-sm text-foreground transition-colors hover:bg-content2/80"
         onClick={onOpenSidebar}
         title="Open sidebar"
         aria-label="Open sidebar"
@@ -196,7 +196,7 @@ export function VoyageBarView({
         <IconMenu2 size={16} stroke={2} aria-hidden="true" />
       </button>
       <button
-        className="inline-flex h-full w-9 shrink-0 cursor-pointer items-center justify-center border-r border-b-2 border-neutral-600 bg-neutral-900 text-sm text-neutral-200 transition-colors hover:bg-neutral-800/80"
+        className="inline-flex h-full w-9 shrink-0 cursor-pointer items-center justify-center border-r border-b-2 border-divider/25 border-b-transparent bg-content1 text-sm text-foreground transition-colors hover:bg-content2/80"
         onClick={onToggleVoyageActions}
         data-voyage-plus-trigger="true"
         title="Voyage actions"
@@ -219,10 +219,10 @@ export function VoyageBarView({
                 onDragStart={(event) => onDragStartItem(event, item.entry.id)}
                 onDragOver={onDragOver}
                 onDrop={(event) => onDropItem(event, item.entry.id)}
-                className={`shrink-0 inline-flex h-full cursor-pointer select-none items-center border-r border-neutral-600 border-b-2 text-xs text-neutral-200 transition-colors ${
+                className={`shrink-0 inline-flex h-full cursor-pointer select-none items-center border-r border-divider/25 border-b-2 text-xs text-foreground transition-colors ${
                   isActive
-                    ? 'border-b-primary-400 bg-neutral-900'
-                    : 'bg-neutral-900 hover:bg-neutral-800/80'
+                    ? 'border-b-primary bg-content1'
+                    : 'border-b-transparent bg-content1 hover:bg-content2/80'
                 }`}
                 title={`${item.space.name} / ${item.tabGroup.label}`}
               >
@@ -251,7 +251,7 @@ export function VoyageBarView({
         </div>
       </div>
       <button
-        className="inline-flex h-full w-9 shrink-0 cursor-pointer items-center justify-center border-l border-b-2 border-neutral-600 bg-neutral-900 text-neutral-300 transition-colors hover:bg-neutral-800/80"
+        className="inline-flex h-full w-9 shrink-0 cursor-pointer items-center justify-center border-l border-b-2 border-divider/25 border-b-transparent bg-content1 text-foreground transition-colors hover:bg-content2/80"
         onClick={onHide}
         title="Hide voyage bar"
         aria-label="Hide voyage bar"
@@ -274,26 +274,26 @@ export function ExpandedCraftStrip({
   if (mobile) {
     return (
       <div
-        className="md:hidden fixed inset-x-0 z-[64] border-y border-neutral-700 bg-neutral-900/95"
+        className="md:hidden fixed inset-x-0 z-[64] border-y border-divider bg-content1/95"
         style={{
           bottom: 'var(--mobile-footer-height)',
           maxHeight: 'min(50vh, calc(100dvh - 8rem - env(safe-area-inset-bottom)))',
         }}
       >
-        <div className="max-h-full overflow-y-auto flex flex-col gap-px bg-neutral-700 px-2 py-2">
+        <div className="max-h-full overflow-y-auto flex flex-col gap-px bg-content2 px-2 py-2">
           {items.map((item) => (
             <button
               key={item.id}
               className={`min-w-0 rounded-sm px-3 py-2 text-left text-xs transition-colors ${
                 item.isActive
-                  ? 'bg-neutral-700 text-neutral-100'
-                  : 'bg-neutral-900 text-neutral-300'
+                  ? 'bg-primary/15 text-foreground'
+                  : 'bg-content1 text-foreground'
               }`}
               onClick={() => onSelect(item)}
               title={item.label}
             >
               <span className="block truncate">{item.label}</span>
-              <span className="mt-1 block text-[10px] uppercase tracking-wide text-neutral-500">
+              <span className="mt-1 block text-[10px] uppercase tracking-wide text-default-500">
                 {item.kind === 'pair' ? 'Split view' : 'Tab'}
               </span>
             </button>
@@ -304,16 +304,16 @@ export function ExpandedCraftStrip({
   }
 
   return (
-    <div className="hidden md:flex h-9 border-b border-neutral-600 bg-neutral-900 items-stretch shrink-0 [&_button]:cursor-pointer">
+    <div className="hidden md:flex h-9 border-b border-divider bg-content1 items-stretch shrink-0 [&_button]:cursor-pointer">
       <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
         <div className="flex h-full items-stretch whitespace-nowrap">
           {items.map((item) => (
             <button
               key={item.id}
-              className={`shrink-0 inline-flex h-full cursor-pointer items-center border-r border-b-2 border-neutral-600 px-3 text-xs text-neutral-200 transition-colors ${
+              className={`shrink-0 inline-flex h-full cursor-pointer items-center border-r border-b-2 border-divider px-3 text-xs text-foreground transition-colors ${
                 item.isActive
-                  ? 'border-b-primary-400 bg-neutral-900'
-                  : 'bg-neutral-900 hover:bg-neutral-800/80'
+                  ? 'border-b-primary bg-content1'
+                  : 'bg-content1 hover:bg-content2/80'
               }`}
               onClick={() => onSelect(item)}
               title={item.label}
@@ -366,11 +366,11 @@ export function MobileCraftStrip({
 }) {
   return (
     <div
-      className="md:hidden fixed inset-x-0 bottom-0 z-[65] border-t border-neutral-700 bg-neutral-900 flex items-stretch shrink-0"
+      className="md:hidden fixed inset-x-0 bottom-0 z-[65] border-t border-divider bg-content1 flex items-stretch shrink-0"
       style={{ height: 'var(--mobile-footer-height)', paddingBottom: 'env(safe-area-inset-bottom)', boxSizing: 'border-box' }}
     >
       <button
-        className="h-full px-3 text-neutral-200 hover:bg-neutral-800 transition-colors flex items-center justify-center shrink-0 border-r border-neutral-700"
+        className="h-full px-3 text-foreground hover:bg-content2 transition-colors flex items-center justify-center shrink-0 border-r border-divider"
         onClick={onOpenSidebar}
         title="Open sidebar"
         aria-label="Open sidebar"
@@ -378,7 +378,7 @@ export function MobileCraftStrip({
         ☰
       </button>
       <button
-        className="h-full px-3 text-neutral-200 hover:bg-neutral-800 transition-colors flex items-center justify-center shrink-0 border-r border-neutral-700"
+        className="h-full px-3 text-foreground hover:bg-content2 transition-colors flex items-center justify-center shrink-0 border-r border-divider"
         onClick={onToggleVoyageActions}
         data-voyage-plus-trigger="true"
         title="Voyage actions"
@@ -399,10 +399,10 @@ export function MobileCraftStrip({
                 return (
                   <button
                     key={item.entry.id}
-                    className={`shrink-0 inline-flex h-full select-none items-center gap-2 border-r border-neutral-700 px-3 text-xs text-neutral-200 transition-colors ${
+                    className={`shrink-0 inline-flex h-full select-none items-center gap-2 border-r border-divider px-3 text-xs text-foreground transition-colors ${
                       isActive
-                        ? 'bg-neutral-800'
-                        : 'bg-neutral-900 hover:bg-neutral-800/80'
+                        ? 'bg-content2'
+                        : 'bg-content1 hover:bg-content2/80'
                     }`}
                     style={{ touchAction: 'manipulation' }}
                     onClick={() => onSelectItem(item)}
@@ -436,7 +436,7 @@ export function MobileCraftStrip({
             </>
           ) : (
             <>
-              <div className="h-full inline-flex items-center px-3 text-xs text-neutral-500 border-r border-neutral-700">
+              <div className="h-full inline-flex items-center px-3 text-xs text-default-500 border-r border-divider">
                 {activeTabGroupLabel || 'No craft'}
               </div>
               {pendingOpenCraftTab && (
@@ -467,7 +467,7 @@ export const VoyageActionsMenu = forwardRef<HTMLDivElement, {
       ref={ref}
       role="menu"
       aria-label="Voyage actions"
-      className="fixed z-[92] w-44 rounded-lg border border-neutral-700 bg-neutral-900 py-1 shadow-2xl"
+      className="fixed z-[92] w-44 rounded-lg border border-divider bg-content1 py-1 shadow-2xl"
       style={{
         left: position?.left ?? 12,
         top: position?.top ?? 44,
@@ -475,21 +475,21 @@ export const VoyageActionsMenu = forwardRef<HTMLDivElement, {
     >
       <button
         role="menuitem"
-        className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
+        className="block w-full px-4 py-2 text-left text-sm text-foreground transition-colors hover:bg-content2"
         onClick={onNewCraft}
       >
         New Craft
       </button>
       <button
         role="menuitem"
-        className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
+        className="block w-full px-4 py-2 text-left text-sm text-foreground transition-colors hover:bg-content2"
         onClick={onOpenCraft}
       >
         Open Craft
       </button>
       <button
         role="menuitem"
-        className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
+        className="block w-full px-4 py-2 text-left text-sm text-foreground transition-colors hover:bg-content2"
         onClick={onSwitchVoyage}
       >
         Switch Voyage
@@ -517,16 +517,16 @@ export function NewVoyagePromptDialog({
 }) {
   return (
     <div
-      className="fixed inset-0 z-[94] flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-[94] flex items-center justify-center bg-overlay/60 p-4"
       onClick={onBackdropClick}
     >
-      <div className="w-full max-w-md rounded-xl border border-neutral-700 bg-neutral-900 p-5 shadow-2xl">
-        <div className="text-base font-semibold text-neutral-100">New Voyage</div>
-        <p className="mt-2 text-sm text-neutral-400">
+      <div className="w-full max-w-md rounded-xl border border-divider bg-content1 p-5 shadow-2xl">
+        <div className="text-base font-semibold text-foreground">New Voyage</div>
+        <p className="mt-2 text-sm text-default-500">
           Name this voyage, then choose how you want to start it.
         </p>
 
-        <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+        <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-default-500">
           Voyage name
         </label>
         <input
@@ -539,19 +539,19 @@ export function NewVoyagePromptDialog({
           }}
           placeholder="Required voyage name"
           autoFocus
-          className="mt-2 w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-100 outline-none placeholder:text-neutral-500"
+          className="mt-2 w-full rounded-md border border-divider bg-content2 px-3 py-2 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-focus placeholder:text-default-500"
         />
 
         <div className="mt-5 grid gap-2 sm:grid-cols-2">
           <button
-            className="rounded-md border border-blue-400/70 bg-blue-500/20 px-3 py-2 text-sm text-neutral-50 transition-colors hover:bg-blue-500/30 disabled:cursor-not-allowed disabled:border-neutral-700 disabled:bg-neutral-800 disabled:text-neutral-500"
+            className="rounded-md border border-primary/70 bg-primary/20 px-3 py-2 text-sm text-foreground transition-colors hover:bg-primary/30 disabled:cursor-not-allowed disabled:border-divider disabled:bg-content2 disabled:text-default-500"
             disabled={isNameInvalid}
             onClick={onCreateNewCraft}
           >
             Create New Craft
           </button>
           <button
-            className="rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-200 transition-colors hover:bg-neutral-700 disabled:cursor-not-allowed disabled:text-neutral-500 disabled:hover:bg-neutral-800"
+            className="rounded-md border border-divider bg-content2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-content3 disabled:cursor-not-allowed disabled:text-default-500 disabled:hover:bg-content2"
             disabled={isNameInvalid}
             onClick={onOpenExistingCraft}
           >
@@ -561,7 +561,7 @@ export function NewVoyagePromptDialog({
 
         <div className="mt-5 flex justify-end">
           <button
-            className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-300 transition-colors hover:bg-neutral-800"
+            className="rounded-md border border-divider bg-content1 px-3 py-2 text-sm text-foreground transition-colors hover:bg-content2"
             onClick={onCancel}
           >
             Cancel
@@ -607,23 +607,23 @@ export function VoyageSwitcherDialog({
 }) {
   return (
     <div
-      className="fixed inset-0 z-[94] flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-[94] flex items-center justify-center bg-overlay/60 p-4"
       onClick={onBackdropClick}
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Switch Voyage"
-        className="flex max-h-[85dvh] w-full max-w-lg flex-col rounded-xl border border-neutral-700 bg-neutral-900 p-5 shadow-2xl"
+        className="flex max-h-[85dvh] w-full max-w-lg flex-col rounded-xl border border-divider bg-content1 p-5 shadow-2xl"
       >
-        <div className="text-base font-semibold text-neutral-100">Switch Voyage</div>
-        <p className="mt-2 text-sm text-neutral-400">
+        <div className="text-base font-semibold text-foreground">Switch Voyage</div>
+        <p className="mt-2 text-sm text-default-500">
           Choose a voyage, sorted by recent activity, or open Home in the current voyage.
         </p>
 
         <div className="mt-4 flex justify-start">
           <button
-            className="rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-neutral-800"
+            className="rounded-md border border-divider bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-content2"
             onClick={onGoHome}
           >
             Go Home
@@ -641,8 +641,8 @@ export function VoyageSwitcherDialog({
                   key={savedSession.id}
                   className={`w-full rounded-md border px-3 py-2 text-sm transition-colors ${
                     isCurrent
-                      ? 'border-blue-400/70 bg-blue-500/20 text-neutral-50'
-                      : 'border-neutral-700 bg-neutral-800 text-neutral-200'
+                      ? 'border-primary/70 bg-primary/20 text-foreground'
+                      : 'border-divider bg-content2 text-foreground'
                   }`}
                 >
                   {isRenaming ? (
@@ -653,7 +653,7 @@ export function VoyageSwitcherDialog({
                         onSubmitRename(savedSession.id);
                       }}
                     >
-                      <label className="block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                      <label className="block text-xs font-semibold uppercase tracking-wide text-default-500">
                         Voyage name
                       </label>
                       <input
@@ -666,12 +666,12 @@ export function VoyageSwitcherDialog({
                           }
                         }}
                         autoFocus
-                        className="w-full rounded-md border border-neutral-600 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 outline-none focus:border-blue-400"
+                        className="w-full rounded-md border border-divider bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:border-focus"
                       />
                       <div className="flex justify-end gap-2">
                         <button
                           type="button"
-                          className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-300 transition-colors hover:bg-neutral-800"
+                          className="rounded-md border border-divider bg-content1 px-2 py-1 text-xs text-foreground transition-colors hover:bg-content2"
                           onClick={onCancelRename}
                         >
                           Cancel
@@ -679,7 +679,7 @@ export function VoyageSwitcherDialog({
                         <button
                           type="submit"
                           disabled={renameIsInvalid}
-                          className="rounded-md border border-blue-400/70 bg-blue-500/20 px-2 py-1 text-xs text-neutral-50 transition-colors hover:bg-blue-500/30 disabled:cursor-not-allowed disabled:border-neutral-700 disabled:bg-neutral-800 disabled:text-neutral-500"
+                          className="rounded-md border border-primary/70 bg-primary/20 px-2 py-1 text-xs text-foreground transition-colors hover:bg-primary/30 disabled:cursor-not-allowed disabled:border-divider disabled:bg-content2 disabled:text-default-500"
                         >
                           Save
                         </button>
@@ -688,22 +688,22 @@ export function VoyageSwitcherDialog({
                   ) : (
                     <div className="flex items-start justify-between gap-3">
                       <button
-                        className="min-w-0 flex-1 rounded-sm text-left transition-colors hover:text-white"
+                        className="min-w-0 flex-1 rounded-sm text-left transition-colors hover:text-foreground"
                         onClick={() => onSelect(savedSession.id)}
                       >
                         <span className="block truncate font-medium">
                           {getVoyageDisplayName(savedSession)}
                         </span>
-                        <span className="mt-1 block text-xs text-neutral-500">
+                        <span className="mt-1 block text-xs text-default-500">
                           Updated {new Date(savedSession.updatedAt).toLocaleString()}
                         </span>
                       </button>
                       <div className="flex shrink-0 items-center gap-2">
                         {isCurrent && (
-                          <span className="text-xs text-blue-100">Current</span>
+                          <span className="text-xs text-primary">Current</span>
                         )}
                         <button
-                          className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-300 transition-colors hover:bg-neutral-800"
+                          className="rounded-md border border-divider bg-content1 px-2 py-1 text-xs text-foreground transition-colors hover:bg-content2"
                           onClick={() => onStartRename(savedSession)}
                         >
                           Rename
@@ -715,7 +715,7 @@ export function VoyageSwitcherDialog({
               );
             })
           ) : (
-            <div className="rounded-md border border-neutral-800 bg-neutral-950/40 px-3 py-4 text-sm text-neutral-500">
+            <div className="rounded-md border border-divider bg-background/40 px-3 py-4 text-sm text-default-500">
               No saved voyages yet.
             </div>
           )}
@@ -723,13 +723,13 @@ export function VoyageSwitcherDialog({
 
         <div className="mt-5 flex justify-between gap-3">
           <button
-            className="rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-neutral-800"
+            className="rounded-md border border-divider bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-content2"
             onClick={onNewVoyage}
           >
             New Voyage
           </button>
           <button
-            className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-300 transition-colors hover:bg-neutral-800"
+            className="rounded-md border border-divider bg-content1 px-3 py-2 text-sm text-foreground transition-colors hover:bg-content2"
             onClick={onCancel}
           >
             Cancel
@@ -760,24 +760,24 @@ export function DuplicateCraftPromptDialog({
   onCancel: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/60 p-4">
-      <div className="w-full max-w-lg rounded-xl border border-neutral-700 bg-neutral-900 p-5 shadow-2xl">
-        <div className="text-base font-semibold text-neutral-100">
+    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-overlay/60 p-4">
+      <div className="w-full max-w-lg rounded-xl border border-divider bg-content1 p-5 shadow-2xl">
+        <div className="text-base font-semibold text-foreground">
           {craftLabel} is already embarked
         </div>
-        <p className="mt-2 text-sm text-neutral-400">
+        <p className="mt-2 text-sm text-default-500">
           This craft is already in a Voyage. Switch to the existing embarked craft or open it in a new Voyage.
         </p>
 
         {currentEntries.length > 0 && (
           <div className="mt-4 space-y-2">
-            <div className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+            <div className="text-xs font-semibold uppercase tracking-wide text-default-500">
               This voyage
             </div>
             {currentEntries.map((entry, index) => (
               <button
                 key={entry.id}
-                className="block w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-700"
+                className="block w-full rounded-md border border-divider bg-content2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-content3"
                 onClick={() => onSwitchCurrent(entry.id)}
               >
                 Switch to embarked craft {index + 1}
@@ -789,13 +789,13 @@ export function DuplicateCraftPromptDialog({
 
         {otherVoyages.length > 0 && (
           <div className="mt-4 space-y-2">
-            <div className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+            <div className="text-xs font-semibold uppercase tracking-wide text-default-500">
               Other voyages
             </div>
             {otherVoyages.map(({ session: savedSession, entryId }) => (
               <button
                 key={`${savedSession.id}-${entryId || 'legacy'}`}
-                className="block w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-700"
+                className="block w-full rounded-md border border-divider bg-content2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-content3"
                 onClick={() => onSwitchOtherVoyage(savedSession.id, entryId)}
               >
                 Switch to {savedSession.name || savedSession.slug || 'untitled voyage'}
@@ -806,13 +806,13 @@ export function DuplicateCraftPromptDialog({
 
         <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button
-            className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-300 transition-colors hover:bg-neutral-800"
+            className="rounded-md border border-divider bg-content1 px-3 py-2 text-sm text-foreground transition-colors hover:bg-content2"
             onClick={onCancel}
           >
             Cancel
           </button>
           <button
-            className="rounded-md border border-blue-400/70 bg-blue-500/20 px-3 py-2 text-sm text-neutral-50 transition-colors hover:bg-blue-500/30"
+            className="rounded-md border border-primary/70 bg-primary/20 px-3 py-2 text-sm text-foreground transition-colors hover:bg-primary/30"
             onClick={onOpenInNewVoyage}
           >
             Open in new Voyage
@@ -857,40 +857,40 @@ export function MobileCraftMenu({
   onCloseOverlay: () => void;
 }) {
   return (
-    <div className="md:hidden fixed inset-0 z-[90] bg-black/60 flex items-end">
+    <div className="md:hidden fixed inset-0 z-[90] bg-overlay/60 flex items-end">
       <button
         className="absolute inset-0"
         aria-label="Close mobile tab menu"
         onClick={onCloseOverlay}
       />
-      <div className="relative w-full rounded-t-2xl border-t border-neutral-700 bg-neutral-900 p-4 space-y-4">
+      <div className="relative w-full rounded-t-2xl border-t border-divider bg-content1 p-4 space-y-4">
         <div>
-          <div className="text-sm font-semibold text-neutral-100">Edit Mobile Craft</div>
-          <div className="text-xs text-neutral-500 mt-1">
+          <div className="text-sm font-semibold text-foreground">Edit Mobile Craft</div>
+          <div className="text-xs text-default-500 mt-1">
             Long press opens this menu. Tap still switches craft. Closing here closes the whole craft.
           </div>
         </div>
 
         <div className="space-y-3">
           <label className="block">
-            <span className="text-xs text-neutral-400">Mobile name</span>
+            <span className="text-xs text-default-500">Mobile name</span>
             <input
               type="text"
               value={draftLabel}
               onChange={(event) => onDraftLabelChange(event.target.value)}
               placeholder={tabGroup.label}
-              className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-400"
+              className="mt-1 w-full rounded-md border border-divider bg-content2 px-3 py-2 text-sm text-foreground focus:outline-none focus:border-focus"
             />
           </label>
 
           <label className="block">
-            <span className="text-xs text-neutral-400">Emoji</span>
+            <span className="text-xs text-default-500">Emoji</span>
             <input
               type="text"
               value={draftEmoji}
               onChange={(event) => onDraftEmojiChange(event.target.value)}
               placeholder={draftEmoji}
-              className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-400"
+              className="mt-1 w-full rounded-md border border-divider bg-content2 px-3 py-2 text-sm text-foreground focus:outline-none focus:border-focus"
             />
             <div className="mt-2 flex flex-wrap gap-2">
               {emojiChoices.map((emoji) => (
@@ -899,8 +899,8 @@ export function MobileCraftMenu({
                   type="button"
                   className={`rounded-md border px-2 py-1 text-base ${
                     draftEmoji === emoji
-                      ? 'border-blue-400 bg-blue-500/25'
-                      : 'border-neutral-700 bg-neutral-800'
+                      ? 'border-primary bg-primary/25'
+                      : 'border-divider bg-content2'
                   }`}
                   onClick={() => onChooseEmoji(emoji)}
                 >
@@ -913,19 +913,19 @@ export function MobileCraftMenu({
 
         <div className="grid grid-cols-2 gap-2">
           <button
-            className="rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-200"
+            className="rounded-md border border-divider bg-content2 px-3 py-2 text-sm text-foreground"
             onClick={onCancel}
           >
             Cancel
           </button>
           <button
-            className="rounded-md border border-blue-400/70 bg-blue-500/20 px-3 py-2 text-sm text-neutral-50"
+            className="rounded-md border border-primary/70 bg-primary/20 px-3 py-2 text-sm text-foreground"
             onClick={onSave}
           >
             Save
           </button>
           <button
-            className="rounded-md border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-sm text-amber-300 disabled:cursor-not-allowed disabled:border-neutral-700 disabled:bg-neutral-800 disabled:text-neutral-500"
+            className="rounded-md border border-warning/40 bg-warning/15 px-3 py-2 text-sm text-warning disabled:cursor-not-allowed disabled:border-divider disabled:bg-content2 disabled:text-default-500"
             disabled={!canMoveToAnotherVoyage}
             title={
               canMoveToAnotherVoyage
@@ -937,14 +937,14 @@ export function MobileCraftMenu({
             Move to Voyage
           </button>
           <button
-            className="rounded-md border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-sm text-amber-300"
+            className="rounded-md border border-warning/40 bg-warning/15 px-3 py-2 text-sm text-warning"
             onClick={onRemoveFromVoyage}
           >
             Remove From Voyage
           </button>
         </div>
         <button
-          className="w-full rounded-md border border-red-500/40 bg-red-500/15 px-3 py-2 text-sm text-red-300"
+          className="w-full rounded-md border border-danger/40 bg-danger/15 px-3 py-2 text-sm text-danger"
           title={closeWarning}
           onClick={onCloseCraft}
         >
@@ -963,21 +963,21 @@ export function CreateFirstVoyageScene({
   onOpenExistingCraft: () => void;
 }) {
   return (
-    <div className="flex min-h-[360px] items-center justify-center bg-neutral-950 p-6 text-center text-neutral-100">
-      <div className="w-full max-w-md rounded-xl border border-neutral-800 bg-neutral-900 p-6 shadow-2xl">
+    <div className="flex min-h-[360px] items-center justify-center bg-background p-6 text-center text-foreground">
+      <div className="w-full max-w-md rounded-xl border border-divider bg-content1 p-6 shadow-2xl">
         <div className="text-lg font-semibold">Create your first Voyage</div>
-        <p className="mt-2 text-sm text-neutral-400">
+        <p className="mt-2 text-sm text-default-500">
           Start a new craft or embark an existing craft to build your first Voyage.
         </p>
         <div className="mt-5 grid gap-2 sm:grid-cols-2">
           <button
-            className="rounded-md border border-blue-400/70 bg-blue-500/20 px-3 py-2 text-sm text-neutral-50 transition-colors hover:bg-blue-500/30"
+            className="rounded-md border border-primary/70 bg-primary/20 px-3 py-2 text-sm text-foreground transition-colors hover:bg-primary/30"
             onClick={onCreateNewCraft}
           >
             Create New Craft
           </button>
           <button
-            className="rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-200 transition-colors hover:bg-neutral-700"
+            className="rounded-md border border-divider bg-content2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-content3"
             onClick={onOpenExistingCraft}
           >
             Open Existing Craft
@@ -998,23 +998,23 @@ export function VoyageNotFoundScene({
   onSwitchVoyage: () => void;
 }) {
   return (
-    <div className="flex min-h-[360px] items-center justify-center bg-neutral-950 p-6 text-center text-neutral-100">
-      <div className="w-full max-w-md rounded-xl border border-neutral-800 bg-neutral-900 p-6 shadow-2xl">
+    <div className="flex min-h-[360px] items-center justify-center bg-background p-6 text-center text-foreground">
+      <div className="w-full max-w-md rounded-xl border border-divider bg-content1 p-6 shadow-2xl">
         <div className="text-lg font-semibold">Voyage not found</div>
-        <p className="mt-2 text-sm text-neutral-400">
+        <p className="mt-2 text-sm text-default-500">
           {voyageName
             ? `We could not find “${voyageName}”. Choose another Voyage or return Home.`
             : 'Choose another Voyage or return Home.'}
         </p>
         <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-center">
           <button
-            className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-300 transition-colors hover:bg-neutral-800"
+            className="rounded-md border border-divider bg-content1 px-3 py-2 text-sm text-foreground transition-colors hover:bg-content2"
             onClick={onGoHome}
           >
             Go Home
           </button>
           <button
-            className="rounded-md border border-blue-400/70 bg-blue-500/20 px-3 py-2 text-sm text-neutral-50 transition-colors hover:bg-blue-500/30"
+            className="rounded-md border border-primary/70 bg-primary/20 px-3 py-2 text-sm text-foreground transition-colors hover:bg-primary/30"
             onClick={onSwitchVoyage}
           >
             Switch Voyage
