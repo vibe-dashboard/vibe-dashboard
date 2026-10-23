@@ -27,7 +27,9 @@ and dashless lowercase alphanumeric slugs:
   it is not a separate routing field. The fixed `-user` suffix follows it.
 
 The full first label must remain within DNS's 63-character limit. Bare versus
-subdomain detection uses the public suffix list, including suffixes like `co.uk`.
+subdomain detection uses the public suffix list, including suffixes like `co.uk`
+and private suffixes such as `github.io`. Native VK and VD share URL fixture cases
+in `vibe-kanban/shared/preview-url-cases.json`.
 For nested subdomains, only the first label is decorated; remaining labels stay
 unchanged. Old `preview-{workspace}-{slot}--{customer}` numeric hosts are
 intentionally rejected; this branch is a hard break with no backwards
@@ -104,12 +106,15 @@ Backend and Worker code must be deployed with the same grammar:
   Access-protected sandbox. The proper per-customer/runtime secret model is
    tracked separately.
 
-The Caddy parser and Worker must both accept the bare-domain three-part form
-before deploying the new URLs. The Worker is maintained outside this repository.
-VD currently adapts resolution to the running main-based VK backend with an empty
-legacy `customerSlug` transport key; VK does not use that key for slot lookup.
-Removal of that remaining VK API field, its generated types, and the old native
-VK URL endpoint is pending remote VK build/type generation under `task-6wh`.
+The Caddy parser and Worker must both accept the encoded form, including its fixed
+`-user` suffix, before deploying the new URLs. The Worker is maintained outside
+this repository. The native VK URL endpoint uses only the server's `SITE_ORIGIN`;
+the native CLI calls it with workspace and slot IDs, with no URL-origin override.
+VD forwards the resolver contract below directly. These changes require a matching
+VK runtime; an older runtime requiring the removed customer field is incompatible.
+Remote type generation, current-SHA Rust checks and matching-runtime routing
+acceptance are tracked under `task-6wh`; source changes alone do not establish
+deployment readiness.
 
 ## Resolver API
 

@@ -727,7 +727,7 @@ async function commandPreviewUrl(positional: string[], flags: FlagMap) {
         printPreviewSlot(slot);
         const urlParts = data.preview_url_parts.find(parts => parts.previewSlotId === slot.id);
         if (urlParts) {
-          console.log(`Host Parts:   ${urlParts.workspaceToken}-${urlParts.repoSlug}-${urlParts.slotSlug}-<customerSlug>`);
+          console.log(`Routing key:  ${urlParts.workspaceToken}-${urlParts.repoSlug}-${urlParts.slotSlug}`);
         }
         console.log('');
       }

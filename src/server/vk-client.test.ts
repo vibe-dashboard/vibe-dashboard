@@ -26,6 +26,21 @@ describe('resolveVibeApiBaseUrl', () => {
 });
 
 describe('VibeKanbanServerClient', () => {
+  it('resolves named previews with the routing contract accepted by VK', async () => {
+    const request = {
+      host: '0123456789abcdef-repo-web-user.example.com',
+      workspaceToken: '0123456789abcdef', repoSlug: 'repo', slotSlug: 'web',
+      ensure: true, method: 'GET', path: '/',
+    };
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toBe('http://vk.local/api/preview/resolve');
+      expect(JSON.parse(String(init?.body))).toEqual(request);
+      return jsonResponse({ success: true, data: { status: 'ready', upstream: 'http://127.0.0.1:3000' } });
+    });
+    const client = new VibeKanbanServerClient({ baseUrl: 'http://vk.local/api', fetch: fetchImpl });
+    await expect(client.resolvePreview(request)).resolves.toEqual({ status: 'ready', upstream: 'http://127.0.0.1:3000' });
+  });
+
   it('fetches workspaces and workspace repos from VK API envelope', async () => {
     const fetchImpl = vi.fn(async (url: string) => {
       if (url === 'http://vk.local/api/workspaces') {

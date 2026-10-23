@@ -2,7 +2,7 @@ use std::{collections::HashMap, net::TcpListener, sync::OnceLock};
 
 use axum::{
     Extension, Router,
-    extract::{Path as AxumPath, Query, State},
+    extract::{Path as AxumPath, State},
     response::Json as ResponseJson,
     routing::{delete, get, post},
 };
@@ -80,19 +80,8 @@ pub struct PreviewSlotUrlResponse {
     pub workspace_token: String,
     pub repo_slug: String,
     pub slot_slug: String,
-    pub customer_slug: String,
     pub host: String,
     pub url: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PreviewSlotUrlQuery {
-    pub customer_slug: String,
-    #[serde(default)]
-    pub base_domain: Option<String>,
-    #[serde(default)]
-    pub url_scheme: Option<String>,
 }
 
 fn repo_has_dev_server(repo: &db::models::repo::Repo) -> bool {
@@ -316,10 +305,8 @@ pub async fn preview_slot_url(
     Extension(workspace): Extension<Workspace>,
     State(deployment): State<DeploymentImpl>,
     AxumPath((workspace_id, preview_slot_id)): AxumPath<(Uuid, Uuid)>,
-    Query(query): Query<PreviewSlotUrlQuery>,
 ) -> Result<ResponseJson<ApiResponse<PreviewSlotUrlResponse>>, ApiError> {
     debug_assert_eq!(workspace_id, workspace.id);
-    validate_slug("customer slug", &query.customer_slug, 16)?;
     let pool = &deployment.db().pool;
     let slot = PreviewSlot::find_by_id(pool, preview_slot_id)
         .await?
@@ -333,23 +320,23 @@ pub async fn preview_slot_url(
         .await?
         .slug;
     let site_origin = std::env::var("SITE_ORIGIN").ok();
-    let (base_domain, url_scheme) = preview_url_origin(
-        query.base_domain.as_deref(),
-        query.url_scheme.as_deref(),
+    let preview_url = build_preview_slot_url(
+        &workspace_token,
+        &repo_slug,
+        &slot.slot_slug,
         site_origin.as_deref(),
     )
     .map_err(ApiError::BadRequest)?;
-    let host = format!(
-        "{}-{}-{}-{}.{}",
-        workspace_token, repo_slug, slot.slot_slug, query.customer_slug, base_domain
-    );
+    let host = match preview_url.port() {
+        Some(port) => format!("{}:{port}", preview_url.host_str().unwrap()),
+        None => preview_url.host_str().unwrap().to_string(),
+    };
     Ok(ResponseJson(ApiResponse::success(PreviewSlotUrlResponse {
         preview_slot_id: slot.id,
         workspace_token,
         repo_slug,
         slot_slug: slot.slot_slug,
-        customer_slug: query.customer_slug,
-        url: format!("{url_scheme}://{host}/"),
+        url: preview_url.to_string(),
         host,
     })))
 }
@@ -452,37 +439,59 @@ async fn stop_linked_preview_process(
     Ok(())
 }
 
-fn preview_url_origin(
-    configured_domain: Option<&str>,
-    configured_scheme: Option<&str>,
+fn build_preview_slot_url(
+    workspace_token: &str,
+    repo_slug: &str,
+    slot_slug: &str,
     site_origin: Option<&str>,
-) -> Result<(String, String), String> {
-    let site_url = site_origin.and_then(|origin| Url::parse(origin).ok());
-    let site_domain = site_url.as_ref().and_then(|url| {
-        let host = url.host_str()?;
-        Some(match url.port() {
-            Some(port) => format!("{host}:{port}"),
-            None => host.to_string(),
-        })
-    });
-    let base_domain = configured_domain
-        .map(str::to_string)
-        .or(site_domain)
-        .ok_or_else(|| "Preview URL generation requires baseDomain or SITE_ORIGIN".to_string())?
-        .trim()
-        .trim_start_matches('.')
-        .to_ascii_lowercase();
-    let url_scheme = configured_scheme
-        .map(str::to_string)
-        .or_else(|| site_url.as_ref().map(|url| url.scheme().to_string()))
-        .ok_or_else(|| "Preview URL generation requires urlScheme or SITE_ORIGIN".to_string())?
-        .trim()
-        .trim_end_matches(':')
-        .to_ascii_lowercase();
-    if !matches!(url_scheme.as_str(), "http" | "https") {
-        return Err("Preview URL scheme must be http or https".to_string());
+) -> Result<Url, String> {
+    let mut origin =
+        Url::parse(site_origin.ok_or("Preview URLs require SITE_ORIGIN on the server")?)
+            .map_err(|_| "Invalid SITE_ORIGIN".to_string())?;
+    if !matches!(origin.scheme(), "http" | "https") {
+        return Err("SITE_ORIGIN must use HTTP or HTTPS".to_string());
     }
-    Ok((base_domain, url_scheme))
+    if workspace_token.len() != 16
+        || !workspace_token
+            .bytes()
+            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+        || repo_slug.is_empty()
+        || repo_slug.len() > 18
+        || !repo_slug
+            .bytes()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        || slot_slug.is_empty()
+        || slot_slug.len() > 10
+        || !slot_slug
+            .bytes()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+    {
+        return Err("Invalid preview URL parts".to_string());
+    }
+    if !matches!(origin.host(), Some(url::Host::Domain(_))) {
+        return Err("Preview URLs require a DNS hostname in SITE_ORIGIN".to_string());
+    }
+    let hostname = origin.host_str().unwrap();
+    let prefix = format!("{workspace_token}-{repo_slug}-{slot_slug}");
+    let host = match psl::domain_str(hostname) {
+        Some(domain) if domain != hostname => {
+            let (label, rest) = hostname.split_once('.').unwrap();
+            format!("{prefix}-{label}-user.{rest}")
+        }
+        _ => format!("{prefix}-user.{hostname}"),
+    };
+    if host.split('.').next().unwrap().len() > 63 {
+        return Err("Preview hostname exceeds the DNS label limit".to_string());
+    }
+    origin
+        .set_host(Some(&host))
+        .map_err(|_| "Invalid preview hostname".to_string())?;
+    origin.set_path("/");
+    origin.set_query(None);
+    origin.set_fragment(None);
+    let _ = origin.set_username("");
+    let _ = origin.set_password(None);
+    Ok(origin)
 }
 
 #[axum::debug_handler]
@@ -1033,27 +1042,49 @@ mod tests {
     use tower::ServiceExt;
     use uuid::Uuid;
 
-    use super::preview_url_origin;
+    use super::build_preview_slot_url;
 
     #[test]
-    fn preview_urls_use_site_origin_without_a_hardcoded_domain() {
-        assert_eq!(
-            preview_url_origin(None, None, Some("https://Customer.Example:8443/path")).unwrap(),
-            ("customer.example:8443".to_string(), "https".to_string())
-        );
-        assert!(preview_url_origin(None, None, None).is_err());
+    fn preview_urls_follow_shared_site_origin_contract() {
+        let cases: Vec<serde_json::Value> =
+            serde_json::from_str(include_str!("../../../../../shared/preview-url-cases.json"))
+                .unwrap();
+        for case in cases {
+            let url =
+                build_preview_slot_url("0123456789abcdef", "repo", "web", case["origin"].as_str())
+                    .unwrap();
+            assert_eq!(url.as_str(), case["url"].as_str().unwrap());
+        }
     }
 
     #[test]
-    fn explicit_preview_url_options_override_site_origin() {
-        assert_eq!(
-            preview_url_origin(
-                Some(".Preview.Example "),
-                Some("HTTP:"),
-                Some("https://site.example")
+    fn preview_urls_require_valid_origin_and_routing_parts() {
+        for origin in [
+            None,
+            Some("not a URL"),
+            Some("ftp://example.com"),
+            Some("http://127.0.0.1"),
+            Some("http://[::1]"),
+        ] {
+            assert!(build_preview_slot_url("0123456789abcdef", "repo", "web", origin).is_err());
+        }
+        for (token, repo, slot) in [
+            ("INVALID", "repo", "web"),
+            ("0123456789abcdef", "repo-name", "web"),
+            ("0123456789abcdef", "repo", "Web"),
+        ] {
+            assert!(
+                build_preview_slot_url(token, repo, slot, Some("https://example.com")).is_err()
+            );
+        }
+        assert!(
+            build_preview_slot_url(
+                "0123456789abcdef",
+                "repo",
+                "web",
+                Some(&format!("https://{}.example.com", "x".repeat(60)))
             )
-            .unwrap(),
-            ("preview.example".to_string(), "http".to_string())
+            .is_err()
         );
     }
 

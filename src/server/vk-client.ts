@@ -361,7 +361,7 @@ export class VibeKanbanServerClient {
   }
 
   resolvePreview(request: PreviewResolveRequest): Promise<PreviewResolveResponse> {
-    return this.post('/preview/resolve', { ...request, customerSlug: '' });
+    return this.post('/preview/resolve', request);
   }
 
   getRunConfigs(workspaceId: string): Promise<WorkspaceRunConfigsResponse> {

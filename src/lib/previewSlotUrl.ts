@@ -24,7 +24,7 @@ export function buildPreviewSlotUrl(
   ) {
     throw new Error("Invalid preview URL parts");
   }
-  const domain = parse(origin.hostname);
+  const domain = parse(origin.hostname, { allowPrivateDomains: true });
   if (domain.isIp)
     throw new Error("Preview URLs require a DNS hostname in SITE_ORIGIN");
   const prefix = `${parts.workspaceToken}-${parts.repoSlug}-${parts.slotSlug}`;
