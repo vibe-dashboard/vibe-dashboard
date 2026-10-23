@@ -304,7 +304,7 @@ function validatePreviewResolveRequest(payload: PreviewResolveRequest): string |
   if (!/^[a-z0-9]{1,10}$/.test(payload.slotSlug)) {
     return 'Invalid preview slot slug';
   }
-  if (!/^[a-z0-9]{1,16}$/.test(payload.customerSlug)) {
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(payload.customerSlug) || payload.customerSlug.length > 16) {
     return 'Invalid preview customer slug';
   }
   return null;

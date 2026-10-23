@@ -337,7 +337,7 @@ pub async fn preview_slot_url(
 ) -> Result<ResponseJson<ApiResponse<PreviewSlotUrlResponse>>, ApiError> {
     debug_assert_eq!(workspace_id, workspace.id);
     let customer_slug = preview_url_customer_slug(query.customer_slug)?;
-    validate_slug("customer slug", &customer_slug, 16)?;
+    validate_customer_slug(&customer_slug)?;
     let pool = &deployment.db().pool;
     let slot = PreviewSlot::find_by_id(pool, preview_slot_id)
         .await?
@@ -369,7 +369,7 @@ pub async fn preview_slot_url(
         &workspace_token,
         &customer_slug,
         &base_domain,
-    );
+    )?;
     Ok(ResponseJson(ApiResponse::success(PreviewSlotUrlResponse {
         preview_slot_id: slot.id,
         workspace_token,
@@ -413,8 +413,14 @@ fn build_preview_hostname(
     workspace_token: &str,
     customer_slug: &str,
     base_domain: &str,
-) -> String {
-    format!("{slot_slug}-{repo_slug}-{workspace_token}-{customer_slug}.{base_domain}")
+) -> Result<String, ApiError> {
+    let first_label = format!("{slot_slug}-{repo_slug}-{workspace_token}--{customer_slug}");
+    if first_label.len() > 63 {
+        return Err(ApiError::BadRequest(
+            "Preview URL components exceed the 63-character DNS label limit".to_string(),
+        ));
+    }
+    Ok(format!("{first_label}.{base_domain}"))
 }
 
 #[axum::debug_handler]
@@ -903,6 +909,26 @@ fn validate_slug(label: &str, slug: &str, max_len: usize) -> Result<(), ApiError
 }
 
 #[allow(clippy::result_large_err)]
+fn validate_customer_slug(slug: &str) -> Result<(), ApiError> {
+    let valid = !slug.is_empty()
+        && slug.len() <= 16
+        && !slug.starts_with('-')
+        && !slug.ends_with('-')
+        && !slug.contains("--")
+        && slug
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-');
+    if valid {
+        Ok(())
+    } else {
+        Err(ApiError::BadRequest(
+            "customer slug must be 1-16 lowercase alphanumeric characters or single dashes, without leading or trailing dashes"
+                .to_string(),
+        ))
+    }
+}
+
+#[allow(clippy::result_large_err)]
 fn allocate_preview_port() -> Result<i64, ApiError> {
     let listener = TcpListener::bind(("127.0.0.1", 0))
         .map_err(|err| ApiError::BadRequest(format!("Failed to allocate preview port: {err}")))?;
@@ -1099,7 +1125,7 @@ mod tests {
     use tower::ServiceExt;
     use uuid::Uuid;
 
-    use super::build_preview_hostname;
+    use super::{build_preview_hostname, validate_customer_slug};
 
     #[test]
     fn preview_hostname_uses_slot_repo_workspace_customer_order() {
@@ -1110,8 +1136,34 @@ mod tests {
                 "0123456789abcdef",
                 "mickmister",
                 "vibedashboard.dev",
-            ),
-            "web-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev"
+            )
+            .unwrap(),
+            "web-vibekanban-0123456789abcdef--mickmister.vibedashboard.dev"
+        );
+    }
+
+    #[test]
+    fn preview_customer_slug_accepts_only_unambiguous_single_dashes() {
+        assert!(validate_customer_slug("mick-mister").is_ok());
+        for invalid in ["-mick", "mick-", "mick--mister", "Mick", ""] {
+            assert!(
+                validate_customer_slug(invalid).is_err(),
+                "accepted {invalid:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn preview_hostname_rejects_labels_over_dns_limit() {
+        assert!(
+            build_preview_hostname(
+                "ssssssssss",
+                "rrrrrrrrrrrrrrrrrr",
+                "0123456789abcdef",
+                "cccccccccccccccc",
+                "vibedashboard.dev",
+            )
+            .is_err()
         );
     }
 

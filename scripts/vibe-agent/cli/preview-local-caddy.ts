@@ -7,7 +7,7 @@ import { dirname, resolve } from 'path';
 import type { PreviewSlotUrlResponse } from './vk-service.js';
 
 const STATE_FILE = resolve(tmpdir(), 'vk-preview-local-caddy.json');
-const PREVIEW_CADDY_GRAMMAR = 'slot-repo-workspace-customer-v1' as const;
+const PREVIEW_CADDY_GRAMMAR = 'slot-repo-workspace--customer-v2' as const;
 const PREVIEW_CADDY_ROUTING = 'domain-independent-v1' as const;
 const DEFAULT_CUSTOM_CADDY = resolve(process.env.XDG_CACHE_HOME || resolve(homedir(), '.cache'), 'vibe-dashboard', 'preview-caddy', PREVIEW_CADDY_GRAMMAR, 'caddy');
 export interface LocalCaddyExecutableIdentity {

@@ -54,7 +54,7 @@ vk preview-url url <workspace-id> <preview-slot-id> --json
 The canonical hostname grammar is:
 
 ```text
-{slotSlug}-{repoSlug}-{workspaceToken}-{customerSlug}.{baseDomain}
+{slotSlug}-{repoSlug}-{workspaceToken}--{customerSlug}.{baseDomain}
 ```
 
 Present the returned `url` exactly; do not assemble production URLs yourself.

@@ -35,12 +35,12 @@ describe('preview-local-caddy', () => {
     expect(
       buildLocalPreviewUrl(
         {
-          host: 'web-vibekanban-0123456789abcdef-preview.localhost',
+          host: 'web-vibekanban-0123456789abcdef--preview.localhost',
         },
         55743,
       ),
     ).toBe(
-      'http://web-vibekanban-0123456789abcdef-preview.localhost:55743/',
+      'http://web-vibekanban-0123456789abcdef--preview.localhost:55743/',
     );
   });
 
@@ -56,7 +56,7 @@ describe('preview-local-caddy', () => {
       caddyPort: 55743,
       dashboardPort: 3005,
       readinessTimeoutMs: 5000,
-      caddyBin: expect.stringMatching(/\.cache\/vibe-dashboard\/preview-caddy\/slot-repo-workspace-customer-v1\/caddy$/),
+      caddyBin: expect.stringMatching(/\.cache\/vibe-dashboard\/preview-caddy\/slot-repo-workspace--customer-v2\/caddy$/),
     });
   });
 
@@ -66,7 +66,7 @@ describe('preview-local-caddy', () => {
         return { status: 0, stdout: 'http.handlers.vibe_preview_resolver\n', stderr: '' };
       }
       return { status: 1, stdout: '', stderr: 'unrecognized vk_preview_resolver option "grammar"' };
-    })).toThrow(/incompatible.*slot-repo-workspace-customer-v1.*bootstrap-custom-caddy/i);
+    })).toThrow(/incompatible.*slot-repo-workspace--customer-v2.*bootstrap-custom-caddy/i);
   });
 
   it('accepts a Caddy binary only when module and grammar capability checks pass', () => {
@@ -99,7 +99,7 @@ describe('preview-local-caddy', () => {
     expect(caddyfile).toContain('resolver_url {$PREVIEW_RESOLVER_URL}');
     expect(caddyfile).not.toContain('base_domain');
     expect(caddyfile).toContain('routing domain-independent-v1');
-    expect(caddyfile).toContain('grammar slot-repo-workspace-customer-v1');
+    expect(caddyfile).toContain('grammar slot-repo-workspace--customer-v2');
     expect(caddyfile).toContain('@vibe_dashboard_assets');
     expect(caddyfile).toContain('@vk_workspace_assets');
     expect(caddyfile).toContain('handle_response @wrapper_asset_error');
@@ -134,15 +134,15 @@ describe('preview-local-caddy', () => {
   });
 
   it('reuses only an unchanged compatible executable identity', () => {
-    const state = { executableIdentity: { sha256: 'same', grammar: 'slot-repo-workspace-customer-v1' as const, routing: 'domain-independent-v1' as const } };
+    const state = { executableIdentity: { sha256: 'same', grammar: 'slot-repo-workspace--customer-v2' as const, routing: 'domain-independent-v1' as const } };
     expect(getLocalCaddyReuseDecision(state, state.executableIdentity, true)).toEqual({ kind: 'reuse' });
     expect(getLocalCaddyReuseDecision(state, { ...state.executableIdentity, sha256: 'replacement' }, true)).toMatchObject({ kind: 'conflict' });
   });
 
   it('requires restart for legacy running state but permits stale-state migration', () => {
-    const current = { sha256: 'current', grammar: 'slot-repo-workspace-customer-v1' as const, routing: 'domain-independent-v1' as const };
+    const current = { sha256: 'current', grammar: 'slot-repo-workspace--customer-v2' as const, routing: 'domain-independent-v1' as const };
     expect(getLocalCaddyReuseDecision({}, current, true)).toMatchObject({ kind: 'conflict' });
     expect(getLocalCaddyReuseDecision({}, current, false)).toEqual({ kind: 'stale' });
-    expect(getLocalCaddyReuseDecision({ executableIdentity: { sha256: 'current', grammar: 'slot-repo-workspace-customer-v1' } }, current, true)).toMatchObject({ kind: 'conflict' });
+    expect(getLocalCaddyReuseDecision({ executableIdentity: { sha256: 'current', grammar: 'slot-repo-workspace--customer-v2' } }, current, true)).toMatchObject({ kind: 'conflict' });
   });
 });

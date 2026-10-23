@@ -12,20 +12,20 @@ import (
 )
 
 func TestParseEncodedPreviewHost(t *testing.T) {
-	match, ok := parseEncodedPreviewHost("web-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev")
+	match, ok := parseEncodedPreviewHost("web-vibekanban-0123456789abcdef--mick-mister.vibedashboard.dev")
 	if !ok {
 		t.Fatal("expected encoded preview host to match")
 	}
-	if match.WorkspaceToken != "0123456789abcdef" || match.RepoSlug != "vibekanban" || match.SlotSlug != "web" || match.CustomerSlug != "mickmister" {
+	if match.WorkspaceToken != "0123456789abcdef" || match.RepoSlug != "vibekanban" || match.SlotSlug != "web" || match.CustomerSlug != "mick-mister" {
 		t.Fatalf("unexpected match: %+v", match)
 	}
 }
 
 func TestParseEncodedPreviewHostAcceptsDnsBoundaryLengths(t *testing.T) {
-	repoSlug := strings.Repeat("r", 18)
+	repoSlug := strings.Repeat("r", 17)
 	slotSlug := strings.Repeat("s", 10)
 	customerSlug := strings.Repeat("c", 16)
-	host := slotSlug + "-" + repoSlug + "-0123456789abcdef-" + customerSlug + ".vibedashboard.dev"
+	host := slotSlug + "-" + repoSlug + "-0123456789abcdef--" + customerSlug + ".vibedashboard.dev"
 	firstLabel, _, _ := strings.Cut(host, ".")
 	if len(firstLabel) != 63 {
 		t.Fatalf("test host first label must be exactly 63 chars, got %d", len(firstLabel))
@@ -46,16 +46,19 @@ func TestParseEncodedPreviewHostRejectsInvalidHosts(t *testing.T) {
 		"old numeric preview":       "preview-workspace-6--mickmister.vibedashboard.dev",
 		"old double dash preview":   "preview-workspace-1--bad--slug.vibedashboard.dev",
 		"old workspace-first order": "0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev",
-		"bare encoded label":        "web-vibekanban-0123456789abcdef-mickmister",
-		"empty parent":              "web-vibekanban-0123456789abcdef-mickmister.",
-		"workspace token too short": "web-vibekanban-0123456789abcde-mickmister.vibedashboard.dev",
-		"workspace token too long":  "web-vibekanban-0123456789abcdef0-mickmister.vibedashboard.dev",
-		"workspace token non-hex":   "web-vibekanban-0123456789abcdeg-mickmister.vibedashboard.dev",
-		"repo with dash":            "web-vibe-kanban-0123456789abcdef-mickmister.vibedashboard.dev",
-		"repo too long":             "web-" + strings.Repeat("r", 19) + "-0123456789abcdef-mickmister.vibedashboard.dev",
-		"slot too long":             strings.Repeat("s", 11) + "-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev",
-		"customer too long":         "web-vibekanban-0123456789abcdef-" + strings.Repeat("c", 17) + ".vibedashboard.dev",
-		"extra label part":          "web-vibekanban-0123456789abcdef-mickmister-extra.vibedashboard.dev",
+		"legacy single delimiter":   "web-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev",
+		"bare encoded label":        "web-vibekanban-0123456789abcdef--mickmister",
+		"empty parent":              "web-vibekanban-0123456789abcdef--mickmister.",
+		"workspace token too short": "web-vibekanban-0123456789abcde--mickmister.vibedashboard.dev",
+		"workspace token too long":  "web-vibekanban-0123456789abcdef0--mickmister.vibedashboard.dev",
+		"workspace token non-hex":   "web-vibekanban-0123456789abcdeg--mickmister.vibedashboard.dev",
+		"repo with dash":            "web-vibe-kanban-0123456789abcdef--mickmister.vibedashboard.dev",
+		"repo too long":             "web-" + strings.Repeat("r", 19) + "-0123456789abcdef--mickmister.vibedashboard.dev",
+		"slot too long":             strings.Repeat("s", 11) + "-vibekanban-0123456789abcdef--mickmister.vibedashboard.dev",
+		"customer too long":         "web-vibekanban-0123456789abcdef--" + strings.Repeat("c", 17) + ".vibedashboard.dev",
+		"empty customer":            "web-vibekanban-0123456789abcdef--.vibedashboard.dev",
+		"extra delimiter":           "web-vibekanban-0123456789abcdef---mickmister.vibedashboard.dev",
+		"customer double dash":      "web-vibekanban-0123456789abcdef--mick--mister.vibedashboard.dev",
 	}
 	for name, tc := range cases {
 		if _, ok := parseEncodedPreviewHost(tc); ok {
@@ -65,7 +68,7 @@ func TestParseEncodedPreviewHostRejectsInvalidHosts(t *testing.T) {
 }
 
 func TestParseEncodedPreviewHostAcceptsAnyNonEmptyParentDomain(t *testing.T) {
-	label := "web-vibekanban-0123456789abcdef-mickmister"
+	label := "web-vibekanban-0123456789abcdef--mick-mister"
 	for _, parent := range []string{"localhost", "jamtools.dev", "vibedashboard.dev", "preview.example.internal"} {
 		if match, ok := parseEncodedPreviewHost(label + "." + parent); !ok || match.Host != label+"."+parent {
 			t.Fatalf("expected parent %q to route, got %+v ok=%v", parent, match, ok)
@@ -91,14 +94,14 @@ func TestPreviewResolverUsesRequestedHostHeaderAndEnsuresOnlyDocumentNavigations
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "https://mickmister.vibedashboard.dev/", nil)
-	req.Header.Set("X-Vibe-Requested-Host", "web-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev")
+	req.Header.Set("X-Vibe-Requested-Host", "web-vibekanban-0123456789abcdef--mickmister.vibedashboard.dev")
 	req.Header.Set("Sec-Fetch-Mode", "navigate")
 	rec := httptest.NewRecorder()
 
 	if err := handler.ServeHTTP(rec, req, caddyhttp.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error { t.Fatal("next handler should not run"); return nil })); err != nil {
 		t.Fatalf("ServeHTTP returned error: %v", err)
 	}
-	if got.Host != "web-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev" || got.WorkspaceToken != "0123456789abcdef" || got.RepoSlug != "vibekanban" || got.SlotSlug != "web" || got.CustomerSlug != "mickmister" {
+	if got.Host != "web-vibekanban-0123456789abcdef--mickmister.vibedashboard.dev" || got.WorkspaceToken != "0123456789abcdef" || got.RepoSlug != "vibekanban" || got.SlotSlug != "web" || got.CustomerSlug != "mickmister" {
 		t.Fatalf("unexpected resolver request: %+v", got)
 	}
 	if !got.Ensure {
@@ -129,7 +132,7 @@ func TestPreviewResolverStartingWithoutIdentityUsesGeneratedAutoRefreshPage(t *t
 		StartupPage: "/defensive/legacy/startup.html",
 		client:      resolver.Client(),
 	}
-	req := httptest.NewRequest(http.MethodGet, "http://web-vibekanban-0123456789abcdef-preview.localhost:55743/", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://web-vibekanban-0123456789abcdef--preview.localhost:55743/", nil)
 	req.Header.Set("Sec-Fetch-Mode", "navigate")
 	rec := httptest.NewRecorder()
 
@@ -159,7 +162,7 @@ func TestPreviewResolverReadyUpstreamDialFailureShowsStartingPageForNavigation(t
 	defer resolver.Close()
 
 	handler := &PreviewResolver{ResolverURL: resolver.URL, client: resolver.Client()}
-	req := httptest.NewRequest(http.MethodGet, "http://web-vibekanban-0123456789abcdef-preview.localhost:55743/", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://web-vibekanban-0123456789abcdef--preview.localhost:55743/", nil)
 	req.Header.Set("Sec-Fetch-Mode", "navigate")
 	rec := httptest.NewRecorder()
 
@@ -188,7 +191,7 @@ func TestPreviewResolverReadyUpstreamDialFailureStaysPlainForNonNavigation(t *te
 	defer resolver.Close()
 
 	handler := &PreviewResolver{ResolverURL: resolver.URL, client: resolver.Client()}
-	req := httptest.NewRequest(http.MethodGet, "http://web-vibekanban-0123456789abcdef-preview.localhost:55743/assets/app.js", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://web-vibekanban-0123456789abcdef--preview.localhost:55743/assets/app.js", nil)
 	rec := httptest.NewRecorder()
 
 	if err := handler.ServeHTTP(rec, req, caddyhttp.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
@@ -212,7 +215,7 @@ func TestPreviewResolverFailureLinksToLogsWhenProcessIdentityIsAvailable(t *test
 	defer resolver.Close()
 
 	handler := &PreviewResolver{ResolverURL: resolver.URL, client: resolver.Client()}
-	req := httptest.NewRequest(http.MethodGet, "http://web-vibekanban-0123456789abcdef-preview.localhost:55743/", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://web-vibekanban-0123456789abcdef--preview.localhost:55743/", nil)
 	req.Header.Set("Sec-Fetch-Mode", "navigate")
 	rec := httptest.NewRecorder()
 
@@ -247,7 +250,7 @@ func TestPreviewResolverUsesRequestedHostHeaderWithoutSharedSecret(t *testing.T)
 		client:                     resolver.Client(),
 	}
 	req := httptest.NewRequest(http.MethodGet, "https://mickmister.vibedashboard.dev/", nil)
-	req.Header.Set("X-Vibe-Requested-Host", "web-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev")
+	req.Header.Set("X-Vibe-Requested-Host", "web-vibekanban-0123456789abcdef--mickmister.vibedashboard.dev")
 	rec := httptest.NewRecorder()
 
 	if err := handler.ServeHTTP(rec, req, caddyhttp.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
@@ -256,7 +259,7 @@ func TestPreviewResolverUsesRequestedHostHeaderWithoutSharedSecret(t *testing.T)
 	})); err != nil {
 		t.Fatalf("ServeHTTP returned error: %v", err)
 	}
-	if got.Host != "web-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev" {
+	if got.Host != "web-vibekanban-0123456789abcdef--mickmister.vibedashboard.dev" {
 		t.Fatalf("expected requested-host header to be used without shared secret, got %+v", got)
 	}
 }
@@ -278,7 +281,7 @@ func TestPreviewResolverRoutesLocalhostSubdomainPreviewHosts(t *testing.T) {
 	defer resolver.Close()
 
 	handler := &PreviewResolver{ResolverURL: resolver.URL, client: resolver.Client()}
-	req := httptest.NewRequest(http.MethodGet, "http://web-vibekanban-0123456789abcdef-preview.localhost:55743/", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://web-vibekanban-0123456789abcdef--preview.localhost:55743/", nil)
 	rec := httptest.NewRecorder()
 
 	if err := handler.ServeHTTP(rec, req, caddyhttp.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
@@ -291,7 +294,7 @@ func TestPreviewResolverRoutesLocalhostSubdomainPreviewHosts(t *testing.T) {
 	if rec.Code != http.StatusOK || rec.Body.String() != "local-preview-ok" {
 		t.Fatalf("unexpected local proxy response %d %q", rec.Code, rec.Body.String())
 	}
-	if got.Host != "web-vibekanban-0123456789abcdef-preview.localhost" ||
+	if got.Host != "web-vibekanban-0123456789abcdef--preview.localhost" ||
 		got.WorkspaceToken != "0123456789abcdef" ||
 		got.RepoSlug != "vibekanban" ||
 		got.SlotSlug != "web" ||
@@ -303,7 +306,7 @@ func TestPreviewResolverRoutesLocalhostSubdomainPreviewHosts(t *testing.T) {
 func TestPreviewResolverIgnoresForwardedHostHeader(t *testing.T) {
 	handler := &PreviewResolver{ResolverURL: "http://127.0.0.1:1/resolve", client: http.DefaultClient}
 	req := httptest.NewRequest(http.MethodGet, "https://mickmister.vibedashboard.dev/", nil)
-	req.Header.Set("X-Forwarded-Host", "web-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev")
+	req.Header.Set("X-Forwarded-Host", "web-vibekanban-0123456789abcdef--mickmister.vibedashboard.dev")
 	rec := httptest.NewRecorder()
 
 	if err := handler.ServeHTTP(rec, req, caddyhttp.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
@@ -330,7 +333,7 @@ func TestPreviewResolverDoesNotEnsureForAssetsOrWebSockets(t *testing.T) {
 
 	handler := &PreviewResolver{ResolverURL: resolver.URL, client: resolver.Client()}
 
-	req := httptest.NewRequest(http.MethodGet, "https://web-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev/assets/app.js", nil)
+	req := httptest.NewRequest(http.MethodGet, "https://web-vibekanban-0123456789abcdef--mickmister.vibedashboard.dev/assets/app.js", nil)
 	rec := httptest.NewRecorder()
 	if err := handler.ServeHTTP(rec, req, caddyhttp.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error { t.Fatal("next handler should not run"); return nil })); err != nil {
 		t.Fatalf("ServeHTTP returned error: %v", err)
@@ -377,12 +380,12 @@ func TestPreviewResolverProxiesReadyUpstreamWithPreviewHeaders(t *testing.T) {
 
 	handler := &PreviewResolver{ResolverURL: resolver.URL, client: resolver.Client()}
 
-	req := httptest.NewRequest(http.MethodGet, "https://web-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev/ws", nil)
+	req := httptest.NewRequest(http.MethodGet, "https://web-vibekanban-0123456789abcdef--mickmister.vibedashboard.dev/ws", nil)
 	req.Header.Set("Upgrade", "websocket")
 	req.Header.Set("Connection", "Upgrade")
 	req.Header.Set("Forwarded", "host=spoof.example.com")
 	req.Header.Set("X-Forwarded-Host", "spoof.example.com")
-	req.Header.Set("X-Vibe-Requested-Host", "web-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev")
+	req.Header.Set("X-Vibe-Requested-Host", "web-vibekanban-0123456789abcdef--mickmister.vibedashboard.dev")
 	req.Header.Set("X-Vibe-Preview-Secret", "spoof-secret")
 	req.Header.Set("X-Vibe-Preview-Workspace-Id", "workspace-spoof")
 	rec := httptest.NewRecorder()
@@ -392,7 +395,7 @@ func TestPreviewResolverProxiesReadyUpstreamWithPreviewHeaders(t *testing.T) {
 	if rec.Code != http.StatusOK || rec.Body.String() != "preview ok" {
 		t.Fatalf("unexpected proxy response %d %q", rec.Code, rec.Body.String())
 	}
-	if upstreamHost == "" || requestedHost != "web-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev" {
+	if upstreamHost == "" || requestedHost != "web-vibekanban-0123456789abcdef--mickmister.vibedashboard.dev" {
 		t.Fatalf("unexpected upstream host/header: host=%q requested=%q", upstreamHost, requestedHost)
 	}
 	if workspaceToken != "0123456789abcdef" || repoSlug != "vibekanban" || slotSlug != "web" || customerSlug != "mickmister" {

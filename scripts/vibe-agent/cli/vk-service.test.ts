@@ -18,8 +18,8 @@ describe('VKService Preview URL helpers', () => {
           repoSlug: 'repo',
           slotSlug: 'web',
           customerSlug: 'preview',
-          host: 'web-repo-0123456789abcdef-preview.example.test',
-          url: 'https://web-repo-0123456789abcdef-preview.example.test/',
+          host: 'web-repo-0123456789abcdef--preview.example.test',
+          url: 'https://web-repo-0123456789abcdef--preview.example.test/',
         },
       });
     }));

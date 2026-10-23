@@ -4,27 +4,35 @@ Vibe Dashboard preview hosts use a first-level encoded hostname so Cloudflare TL
 and wildcard routing only need to cover `*.vibedashboard.dev`:
 
 ```text
-{slotSlug}-{repoSlug}-{workspaceToken}-{customerSlug}.vibedashboard.dev
+{slotSlug}-{repoSlug}-{workspaceToken}--{customerSlug}.vibedashboard.dev
 ```
 
 Example:
 
 ```text
-web-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev
+web-vibekanban-0123456789abcdef--mick-mister.vibedashboard.dev
 ```
 
-The encoded data must fit in the first DNS label, so V1 uses fixed separators
-and dashless lowercase alphanumeric slugs:
+The encoded data must fit in the first DNS label, so V1 uses fixed separators,
+dashless routing slugs, and a separately delimited customer slug:
 
 - `slotSlug`: 1–10 lowercase alphanumeric characters.
 - `repoSlug`: 1–18 lowercase alphanumeric characters.
 - `workspaceToken`: exactly 16 lowercase hexadecimal characters (`[a-f0-9]{16}`).
-- `customerSlug`: 1–16 lowercase alphanumeric characters. PreviewServer UI
+- `customerSlug`: 1–16 lowercase alphanumeric characters or internal single
+  dashes; leading, trailing, and consecutive dashes are rejected. PreviewServer UI
   callers do not expose this value; URL generation uses
   `PREVIEW_URL_DEFAULT_CUSTOMER` unless CLI/API automation passes an override.
 
-The full first-label budget is `16 + 18 + 10 + 16 + 3 separators = 63`
-characters. Old `preview-{workspace}-{slot}--{customer}` numeric hosts are
+Customer omission is an input convenience, not a second hostname form: URL
+generation substitutes `PREVIEW_URL_DEFAULT_CUSTOMER`. If neither an explicit
+customer nor that default exists, generation fails. A hostname without the
+double-dash customer suffix is never a Preview URL.
+
+Each component keeps its independent limit, but the complete first label must
+remain within DNS's 63-character limit. Therefore not every combination of
+maximum-length components is valid. Old single-delimiter and
+`preview-{workspace}-{slot}--{customer}` numeric hosts are
 intentionally rejected; this branch is a hard break with no backwards
 compatibility for numeric slots.
 Resolver routing does not configure or compare a base domain. The strict first
@@ -33,7 +41,7 @@ still required when generating a public URL, but it is separate from routing.
 
 This compact first-label pattern is reserved wherever the resolver is deployed.
 Customer hostnames that merely contain dashes are not preview hosts unless the
-first label satisfies the full `slotSlug-repoSlug-workspaceToken-customerSlug`
+first label satisfies the full `slotSlug-repoSlug-workspaceToken--customerSlug`
 grammar.
 
 For one migration window, the Caddyfile adapter accepts a legacy `base_domain`
@@ -99,11 +107,11 @@ Backend and Worker code must be deployed with the same grammar:
 
 ```json
 {
-  "host": "web-vibekanban-0123456789abcdef-mickmister.vibedashboard.dev",
+  "host": "web-vibekanban-0123456789abcdef--mick-mister.vibedashboard.dev",
   "workspaceToken": "0123456789abcdef",
   "repoSlug": "vibekanban",
   "slotSlug": "web",
-  "customerSlug": "mickmister",
+  "customerSlug": "mick-mister",
   "ensure": true,
   "method": "GET",
   "path": "/"
@@ -166,7 +174,7 @@ replaced with stronger attestation before release.
 
 Worker request to Caddy:
 
-- `X-Vibe-Requested-Host: {slotSlug}-{repoSlug}-{workspaceToken}-{customerSlug}.vibedashboard.dev`
+- `X-Vibe-Requested-Host: {slotSlug}-{repoSlug}-{workspaceToken}--{customerSlug}.vibedashboard.dev`
 
 Advanced deployments may override the requested-host header name with
 `PREVIEW_REQUESTED_HOST_HEADER` or the equivalent Caddyfile option

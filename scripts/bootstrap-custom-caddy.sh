@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cache_root="${XDG_CACHE_HOME:-${HOME:?HOME must be set}/.cache}"
-output_path="${1:-$cache_root/vibe-dashboard/preview-caddy/slot-repo-workspace-customer-v1/caddy}"
+output_path="${1:-$cache_root/vibe-dashboard/preview-caddy/slot-repo-workspace--customer-v2/caddy}"
 
 if command -v go >/dev/null 2>&1; then
   exec "$repo_root/scripts/build-custom-caddy.sh" "$repo_root/caddy-module" "$output_path"

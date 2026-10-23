@@ -24,10 +24,10 @@ import (
 
 const defaultPreviewResolverTimeout = 2 * time.Second
 const defaultTrustedRequestedHostHeader = "X-Vibe-Requested-Host"
-const previewHostnameGrammar = "slot-repo-workspace-customer-v1"
+const previewHostnameGrammar = "slot-repo-workspace--customer-v2"
 const previewRoutingCapability = "domain-independent-v1"
 
-var encodedPreviewLabelPattern = regexp.MustCompile(`^([a-z0-9]{1,10})-([a-z0-9]{1,18})-([a-f0-9]{16})-([a-z0-9]{1,16})$`)
+var encodedPreviewLabelPattern = regexp.MustCompile(`^([a-z0-9]{1,10})-([a-z0-9]{1,18})-([a-f0-9]{16})--([a-z0-9](?:[a-z0-9-]{0,14}[a-z0-9])?)$`)
 
 // PreviewResolver routes encoded preview hostnames through a local resolver API.
 type PreviewResolver struct {
@@ -254,11 +254,11 @@ func parseEncodedPreviewHost(host string) (previewHostMatch, bool) {
 	if !ok || rest == "" {
 		return previewHostMatch{}, false
 	}
-	if strings.Count(firstLabel, "-") != 3 {
+	if len(firstLabel) > 63 || strings.Contains(firstLabel, "---") {
 		return previewHostMatch{}, false
 	}
 	matches := encodedPreviewLabelPattern.FindStringSubmatch(firstLabel)
-	if matches == nil {
+	if matches == nil || strings.Contains(matches[4], "--") {
 		return previewHostMatch{}, false
 	}
 	return previewHostMatch{
