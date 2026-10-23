@@ -91,6 +91,14 @@ identity and payload before delivery. A retry after a *proven* pre-admission
 failure allocates a new attempt; an uncertain attempt blocks retry. Completion
 requires a result from the exact accepted process, not role name or timestamp.
 
+Current VK `POST /sessions/:id/queue` only stores a slot; consumption occurs on
+process finalization. It does not start a turn in an idle session. The dispatch
+adapter therefore needs a reviewed VK idle-drain operation behind the same
+atomic admission and durable queue-effect identity, or an equivalent identified
+start operation. It must not work around this with a dummy predecessor turn or
+an uncorrelated direct follow-up. Matching reserved/indeterminate effects stay
+blocked; only an explicitly proven unaccepted identity permits recreation.
+
 ### Template and result example
 
 The template section is a new config contract, not valid existing v2 YAML.

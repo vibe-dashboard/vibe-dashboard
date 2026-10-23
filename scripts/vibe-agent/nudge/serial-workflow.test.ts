@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { DEFAULT_WORKFLOW_CONFIG_YAML, parseWorkflowConfig } from './workflow-config.js';
 import { parseSerialWorkflowConfig } from './serial-workflow-config.js';
 import { schemaHash } from './workflow-xml.js';
@@ -40,7 +41,7 @@ function setup() {
   return { file, input, command, accepted, result };
 }
 
-describe('serial workflow transitions', () => {
+describe('serial workflow transitions', { timeout: 20_000 }, () => {
   it('snapshots a grouped template and completes three accepted role turns in order', () => {
     const value = setup(); value.input.template.items[0]!.prompt = 'changed live config';
     for (const id of ['implement', 'review', 'test']) {
@@ -136,7 +137,7 @@ describe('serial workflow transitions', () => {
   });
 });
 
-describe('durable mutation and journal boundaries', () => {
+describe('durable mutation and journal boundaries', { timeout: 20_000 }, () => {
   it('returns the original receipt before checking a now-stale expected version', () => {
     const value = setup(); const version = readSerialRun(value.file).version;
     const command = { type: 'start' as const, sessionId: 'session' };
@@ -167,12 +168,34 @@ describe('durable mutation and journal boundaries', () => {
     writeFileSync(value.file, '{'); expect(() => recoverSerialRun(value.file)).toThrow();
   });
 
-  it('rejects invalid JSON values before persisting a command', () => {
+  it.each([undefined, NaN, Infinity, new Date(), () => {}, BigInt(1)])('rejects non-JSON value %s before persisting a command', invalid => {
     const value = setup(); value.accepted(); const command = value.result();
     const before = readFileSync(value.file, 'utf8');
-    command.result.details = { invalid: new Date() };
+    command.result.details = { invalid };
     expect(() => value.command(command)).toThrow(/plain JSON/);
     expect(readFileSync(value.file, 'utf8')).toBe(before);
+  });
+
+  it('rejects hash-consistent malformed state, history, attempts and receipts', () => {
+    const value = setup(); value.accepted(); value.command(value.result());
+    const original = readSerialRun(value.file);
+    const mutations: Array<(run: typeof original) => void> = [
+      run => { run.receipts.create!.result.status = 'invented' as never; },
+      run => { run.receipts.create!.result.currentItemId = 'nonexistent'; },
+      run => { run.receipts.create!.result.dispatchId = 'nonexistent'; },
+      run => { run.items[0]!.result = null; },
+      run => { run.items[0]!.result!.revision = 99; },
+      run => { run.history[1]!.revision = 99; },
+      run => { run.history[1]!.itemId = 'nonexistent'; },
+      run => { run.history[1]!.details = { type: 'retry' }; },
+      run => { run.dispatches[0]!.attempt = 2; },
+      run => { run.dispatches[0]!.processId = 'unrelated'; },
+    ];
+    for (const mutate of mutations) {
+      const run = structuredClone(original); mutate(run);
+      writeFileSync(value.file, JSON.stringify({ hash: schemaHash(run), run }));
+      expect(() => readSerialRun(value.file)).toThrow();
+    }
   });
 
   it('recovers a proven dead lock owner without discarding run state', () => {
@@ -192,6 +215,58 @@ describe('durable mutation and journal boundaries', () => {
     await exited;
     expect(readSerialRun(value.file).dispatches).toHaveLength(1);
   });
+
+  it('allows exactly one of two real writers with the same expected version', async () => {
+    const value = setup(); const version = readSerialRun(value.file).version;
+    const modulePath = fileURLToPath(new URL('./serial-workflow.ts', import.meta.url));
+    const script = `
+      import { createServer } from 'vite';
+      const server = await createServer({configFile:false,logLevel:'silent',server:{middlewareMode:true,hmr:false}});
+      const runtime = await server.ssrLoadModule(process.argv[1]);
+      process.stdout.write('ready\\n');
+      process.stdin.once('data', async () => {
+        try {
+          const result = runtime.mutateSerialRun(process.argv[2], Number(process.argv[3]), process.argv[4], {type:'start',sessionId:process.argv[4]});
+          process.stdout.write(JSON.stringify({ok:true,result})+'\\n');
+        } catch(error) { process.stdout.write(JSON.stringify({ok:false,error:error.message})+'\\n'); }
+        await server.close();
+        process.stdin.destroy();
+      });
+    `;
+    const children = ['writer-a', 'writer-b'].map(key => {
+      const child = spawn(process.execPath, ['--input-type=module', '-e', script, modulePath, value.file, String(version), key], { stdio: ['pipe', 'pipe', 'pipe'] });
+      let stdout = ''; let stderr = '';
+      const ready = new Promise<void>((resolve, reject) => {
+        child.once('error', reject);
+        child.stdout.on('data', chunk => { stdout += String(chunk); if (stdout.includes('ready\n')) resolve(); });
+        child.once('exit', () => { if (!stdout.includes('ready\n')) reject(new Error(stderr || 'writer exited before ready')); });
+      });
+      child.stderr.on('data', chunk => { stderr += String(chunk); });
+      const finished = new Promise<{ ok: boolean; error?: string }>((resolve, reject) => {
+        child.once('error', reject);
+        child.once('exit', code => {
+          if (code !== 0) return reject(new Error(stderr || `writer exited ${code}`));
+          try { resolve(JSON.parse(stdout.split('\n').find(line => line.startsWith('{'))!)); }
+          catch (error) { reject(error); }
+        });
+      });
+      return { child, ready, finished };
+    });
+    try {
+      await Promise.all(children.map(entry => entry.ready));
+      for (const entry of children) entry.child.stdin.end('go');
+      const results = await Promise.all(children.map(entry => entry.finished));
+      expect(results.filter(result => result.ok)).toHaveLength(1);
+      expect(results.find(result => !result.ok)?.error).toMatch(/version conflict/);
+      const run = recoverSerialRun(value.file);
+      expect(run.version).toBe(version + 1);
+      expect(run.dispatches).toHaveLength(1);
+      expect(run.history).toHaveLength(2);
+      expect(readFileSync(`${value.file}.events.jsonl`, 'utf8')).toBe(run.history.map(event => JSON.stringify(event) + '\n').join(''));
+    } finally {
+      for (const entry of children) if (entry.child.exitCode === null) entry.child.kill('SIGKILL');
+    }
+  }, 30_000);
 });
 
 describe('strict version-3 workflow templates', () => {

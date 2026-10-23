@@ -39,6 +39,18 @@ export interface WorkflowEvent { sequence: number; type: string; itemId: string 
 export interface MutationReceipt { runId: string; version: number; status: RunStatus; revision: number; currentItemId: string | null; dispatchId: string | null }
 export type FormAuthority = { mode: 'human' } | { mode: 'decision_maker'; sessionId: string };
 const Ajv2020 = (Ajv2020Module.default ?? Ajv2020Module) as unknown as new () => { compile(schema: object): ValidateFunction };
+// Read/replay validates the same immutable schema repeatedly. Bound this compiler
+// registry so long-lived daemons do not retain every historical template.
+const validators = new Map<string, ValidateFunction>();
+function validator(schema: Record<string, unknown>): ValidateFunction {
+  const key = schemaHash(schema);
+  const existing = validators.get(key);
+  if (existing) return existing;
+  const compiled = new Ajv2020().compile(structuredClone(schema));
+  if (validators.size >= 64) validators.delete(validators.keys().next().value!);
+  validators.set(key, compiled);
+  return compiled;
+}
 export const SERIAL_RESULT_SCHEMA = {
   $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', additionalProperties: false,
   required: ['run_id', 'item_id', 'revision', 'dispatch_id', 'outcome', 'details'],
@@ -139,6 +151,7 @@ export function validateSchemaIdentity(value: unknown): asserts value is Workflo
   if (typeof schema.schemaHash !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(schema.schemaHash)) throw new Error('Invalid schemaHash');
 }
 export function validateSerialTemplate(value: unknown): asserts value is SerialTemplate {
+  jsonValue(value);
   const template = record(value, 'template');
   exact(template, ['id', 'version', 'items'], 'template');
   text(template.id, 'template.id'); positive(template.version, 'template.version');
@@ -153,7 +166,7 @@ export function validateSerialTemplate(value: unknown): asserts value is SerialT
     validateSchemaIdentity(item.schema);
     record(item.resultSchema, 'result schema');
     if (item.schema.schemaHash !== schemaHash(item.resultSchema)) throw new Error('Result schema snapshot hash mismatch');
-    new Ajv2020().compile(item.resultSchema as object);
+    validator(item.resultSchema as Record<string, unknown>);
     const outcomes = record(item.outcomes, 'outcomes');
     if (!Object.keys(outcomes).length) throw new Error('Item requires outcomes');
     for (const [outcome, rawTransition] of Object.entries(outcomes)) {
@@ -190,7 +203,7 @@ function dispatchFor(run: SerialRun, id: string): WorkflowDispatch {
   if (!dispatch || item?.dispatchId !== id || dispatch.itemId !== item.id || dispatch.revision !== run.revision) throw new Error('Stale dispatch');
   return dispatch;
 }
-function apply(run: SerialRun, command: WorkflowCommand): void {
+function apply(run: SerialRun, command: WorkflowCommand, allocateDispatchId: () => string = randomUUID): void {
   const fields: Record<WorkflowCommand['type'], string[]> = {
     start: ['type', 'sessionId'], submitting: ['type', 'dispatchId'], accept: ['type', 'dispatchId', 'processId'],
     delivery_failed: ['type', 'dispatchId', 'disposition', 'reason'], result: ['type', 'schema', 'sourceProcessId', 'result'],
@@ -203,7 +216,7 @@ function apply(run: SerialRun, command: WorkflowCommand): void {
   if (command.type === 'start') {
     text(command.sessionId, 'sessionId');
     if (run.status !== 'queued' || item.status !== 'pending' || item.dispatchId !== null) throw new Error('Current item cannot start');
-    const dispatch: WorkflowDispatch = { id: randomUUID(), itemId: item.id, revision: run.revision, attempt: run.dispatches.filter(entry => entry.itemId === item.id && entry.revision === run.revision).length + 1, sessionId: command.sessionId, status: 'intent', processId: null };
+    const dispatch: WorkflowDispatch = { id: allocateDispatchId(), itemId: item.id, revision: run.revision, attempt: run.dispatches.filter(entry => entry.itemId === item.id && entry.revision === run.revision).length + 1, sessionId: command.sessionId, status: 'intent', processId: null };
     run.dispatches.push(dispatch); item.dispatchId = dispatch.id; item.status = 'active'; run.status = 'active';
   } else if (command.type === 'submitting') {
     const dispatch = dispatchFor(run, command.dispatchId);
@@ -231,7 +244,7 @@ function apply(run: SerialRun, command: WorkflowCommand): void {
     validateSchemaIdentity(command.schema);
     const expected = run.template.items[run.currentIndex]!.schema;
     if (schemaHash(command.schema) !== schemaHash(expected)) throw new Error('Result schema identity mismatch');
-    if (!new Ajv2020().compile(run.template.items[run.currentIndex]!.resultSchema)(payload)) throw new Error('Result violates authoritative schema');
+    if (!validator(run.template.items[run.currentIndex]!.resultSchema)(payload)) throw new Error('Result violates authoritative schema');
     text(command.sourceProcessId, 'sourceProcessId');
     const dispatch = dispatchFor(run, command.result.dispatch_id);
     if (run.status !== 'active' || dispatch.status !== 'accepted' || dispatch.processId !== command.sourceProcessId) throw new Error('Result must come from current accepted process');
@@ -272,45 +285,70 @@ function atomicWrite(file: string, data: string): void {
   finally { fs.rmSync(temporary, { force: true }); }
 }
 function save(file: string, run: SerialRun): void {
+  validateSerialRun(run);
   atomicWrite(file, `${JSON.stringify({ hash: schemaHash(run), run })}\n`);
 }
-export function readSerialRun(file: string): SerialRun {
-  const envelope = record(JSON.parse(fs.readFileSync(file, 'utf8')), 'snapshot');
-  exact(envelope, ['hash', 'run'], 'snapshot');
-  const run = record(envelope.run, 'run') as unknown as SerialRun;
+function initialRun(input: CreateSerialRunInput): SerialRun {
+  return { formatVersion: 1, ...structuredClone(input), templateHash: schemaHash(input.template), version: 0, revision: 1, currentIndex: 0, status: 'queued', cancelRequested: false, items: input.template.items.map(item => ({ id: item.id, status: 'pending', revision: 1, dispatchId: null, result: null })), dispatches: [], history: [], receipts: {} };
+}
+export function validateSerialRun(value: unknown): asserts value is SerialRun {
+  jsonValue(value);
+  const run = record(value, 'run') as unknown as SerialRun;
   exact(run as unknown as Record<string, unknown>, ['formatVersion', 'id', 'workspaceId', 'beadIds', 'template', 'templateHash', 'authority', 'version', 'revision', 'currentIndex', 'status', 'cancelRequested', 'items', 'dispatches', 'history', 'receipts'], 'run');
-  if (envelope.hash !== schemaHash(run)) throw new Error('Workflow snapshot integrity mismatch');
   if (run.formatVersion !== 1) throw new Error('Unsupported workflow snapshot version');
   validateSerialTemplate(run.template); validateAuthority(run.authority);
   text(run.id, 'run.id'); text(run.workspaceId, 'workspaceId');
   positive(run.version, 'version'); positive(run.revision, 'revision');
-  if (run.templateHash !== schemaHash(run.template) || !Array.isArray(run.beadIds) || run.beadIds.some(id => typeof id !== 'string' || !id)) throw new Error('Invalid template snapshot or bead grouping');
-  if (!Array.isArray(run.items) || run.items.length !== run.template.items.length || !Number.isInteger(run.currentIndex) || run.currentIndex < 0 || run.currentIndex > run.items.length) throw new Error('Invalid workflow current item');
-  if (!['queued', 'active', 'waiting', 'needs_attention', 'completed', 'cancelled'].includes(run.status) || typeof run.cancelRequested !== 'boolean') throw new Error('Invalid workflow state');
-  if ((run.currentIndex === run.items.length) !== (run.status === 'completed')) throw new Error('Invalid completion state');
-  if (!Array.isArray(run.history) || run.history.length !== run.version || run.history.some((event, index) => !event || event.sequence !== index + 1 || typeof event.type !== 'string' || !Number.isFinite(Date.parse(event.at)))) throw new Error('Invalid workflow history');
+  if (!Array.isArray(run.beadIds) || run.beadIds.some(id => typeof id !== 'string' || !id.trim()) || new Set(run.beadIds).size !== run.beadIds.length) throw new Error('Invalid bead grouping');
+  if (!Array.isArray(run.history) || run.history.length !== run.version) throw new Error('Invalid workflow history');
   if (!Array.isArray(run.dispatches) || new Set(run.dispatches.map(dispatch => dispatch.id)).size !== run.dispatches.length) throw new Error('Invalid workflow dispatches');
-  for (const dispatch of run.dispatches) {
-    text(dispatch.id, 'dispatch.id'); text(dispatch.sessionId, 'dispatch.sessionId'); positive(dispatch.attempt, 'attempt'); positive(dispatch.revision, 'dispatch.revision');
-    if (!run.items.some(item => item.id === dispatch.itemId) || !['intent', 'submitting', 'accepted', 'proven_unaccepted', 'uncertain'].includes(dispatch.status) || (dispatch.status === 'accepted' ? typeof dispatch.processId !== 'string' || !dispatch.processId : dispatch.processId !== null)) throw new Error('Invalid dispatch state');
+  const input: CreateSerialRunInput = { id: run.id, workspaceId: run.workspaceId, beadIds: run.beadIds, template: run.template, authority: run.authority };
+  const replay = initialRun(input);
+  const expectedReceipts = new Map<number, { commandHash: string; result: MutationReceipt }>();
+  let dispatchIndex = 0;
+  // Replay the pure reducer to validate *all* persisted cross-references, rather
+  // than trusting a checksum or duplicating a weaker set of enum checks.
+  for (const [index, event] of run.history.entries()) {
+    exact(record(event, 'event'), ['sequence', 'type', 'itemId', 'revision', 'at', 'details'], 'event');
+    text(event.at, 'event.at');
+    if (!Number.isFinite(Date.parse(event.at))) throw new Error('Invalid event timestamp');
+    let commandHash: string;
+    if (index === 0) {
+      appendEvent(replay, 'created', { templateHash: replay.templateHash, beadIds: replay.beadIds }, new Date(event.at));
+      commandHash = schemaHash({ type: 'create', input });
+    } else {
+      const command = record(event.details, 'event command') as unknown as WorkflowCommand;
+      if (command.type !== event.type) throw new Error('History command type mismatch');
+      apply(replay, command, () => {
+        const id = run.dispatches[dispatchIndex++]?.id; text(id, 'dispatch.id'); return id;
+      });
+      appendEvent(replay, command.type, event.details, new Date(event.at));
+      commandHash = schemaHash(command);
+    }
+    if (schemaHash(event) !== schemaHash(replay.history[index])) throw new Error('Invalid workflow history transition');
+    expectedReceipts.set(replay.version, { commandHash, result: receipt(replay) });
   }
-  for (const [index, item] of run.items.entries()) {
-    if (item.id !== run.template.items[index]!.id || !['pending', 'active', 'waiting', 'needs_attention', 'completed'].includes(item.status) || !Number.isSafeInteger(item.revision) || item.revision < 1 || item.revision > run.revision) throw new Error('Invalid workflow item');
-    if (index < run.currentIndex && item.status !== 'completed') throw new Error('Invalid completed prefix');
-    if (index > run.currentIndex && (item.status !== 'pending' || item.dispatchId !== null || item.result !== null)) throw new Error('Invalid pending suffix');
-    if (item.dispatchId !== null && !run.dispatches.some(dispatch => dispatch.id === item.dispatchId && dispatch.itemId === item.id && dispatch.revision === item.revision)) throw new Error('Invalid item dispatch binding');
-  }
-  const current = run.items[run.currentIndex];
-  if (current && !run.cancelRequested && current.status !== ({ queued: 'pending', active: 'active', waiting: 'waiting', needs_attention: 'needs_attention' } as Record<string, string>)[run.status]) throw new Error('Run and current item state disagree');
-  if (current?.status === 'pending' && (current.dispatchId !== null || current.result !== null)) throw new Error('Pending item has prior effects');
-  if (new Set(run.dispatches.filter(dispatch => dispatch.processId !== null).map(dispatch => dispatch.processId)).size !== run.dispatches.filter(dispatch => dispatch.processId !== null).length) throw new Error('Process bound to multiple dispatches');
-  for (const entry of Object.values(record(run.receipts, 'receipts'))) {
+  const { receipts: _actualReceipts, ...actualState } = run;
+  const { receipts: _replayReceipts, ...expectedState } = replay;
+  if (schemaHash(actualState) !== schemaHash(expectedState)) throw new Error('Workflow state disagrees with transition history');
+  const seenVersions = new Set<number>();
+  for (const [key, entry] of Object.entries(record(run.receipts, 'receipts'))) {
+    text(key, 'receipt idempotency key');
     const stored = record(entry, 'receipt'); exact(stored, ['commandHash', 'result'], 'receipt');
-    if (typeof stored.commandHash !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(stored.commandHash)) throw new Error('Invalid receipt hash');
     const result = record(stored.result, 'receipt result');
-    exact(result, ['runId', 'version', 'status', 'revision', 'currentItemId', 'dispatchId'], 'receipt result');
-    if (result.runId !== run.id || !Number.isSafeInteger(result.version) || Number(result.version) < 1 || Number(result.version) > run.version || !Number.isSafeInteger(result.revision) || Number(result.revision) < 1 || Number(result.revision) > run.revision) throw new Error('Invalid receipt result');
+    const version = Number(result.version);
+    const expected = expectedReceipts.get(version);
+    if (!expected || seenVersions.has(version) || schemaHash(stored) !== schemaHash(expected)) throw new Error('Invalid persisted mutation receipt');
+    seenVersions.add(version);
   }
+  if (seenVersions.size !== run.version) throw new Error('Missing persisted mutation receipts');
+}
+export function readSerialRun(file: string): SerialRun {
+  const envelope = record(JSON.parse(fs.readFileSync(file, 'utf8')), 'snapshot');
+  exact(envelope, ['hash', 'run'], 'snapshot');
+  if (envelope.hash !== schemaHash(envelope.run)) throw new Error('Workflow snapshot integrity mismatch');
+  validateSerialRun(envelope.run);
+  const run = envelope.run;
   return run;
 }
 function reconcileJournal(file: string, run: SerialRun): void {
@@ -342,7 +380,7 @@ export function createSerialRun(file: string, input: CreateSerialRunInput, key: 
       if (previous?.commandHash !== commandHash) throw new Error('Run exists or idempotency key conflicts');
       return structuredClone(previous.result);
     }
-    const run: SerialRun = { formatVersion: 1, ...structuredClone(input), templateHash: schemaHash(input.template), version: 0, revision: 1, currentIndex: 0, status: 'queued', cancelRequested: false, items: input.template.items.map(item => ({ id: item.id, status: 'pending', revision: 1, dispatchId: null, result: null })), dispatches: [], history: [], receipts: {} };
+    const run = initialRun(input);
     appendEvent(run, 'created', { templateHash: run.templateHash, beadIds: run.beadIds }, now);
     const result = receipt(run);
     Object.defineProperty(run.receipts, key, { value: { commandHash, result }, enumerable: true, configurable: true, writable: true });
