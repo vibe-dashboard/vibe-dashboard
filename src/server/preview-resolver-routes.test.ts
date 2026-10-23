@@ -86,6 +86,36 @@ describe('registerPreviewResolverRoutes', () => {
     });
   });
 
+  it('proxies external preview target validation without persisting a slot', async () => {
+    const target = {
+      type: 'external_redirect' as const,
+      url_template: 'https://{branchSlug}.preview.example.test',
+      allowed_host_template: '{branchSlug}.preview.example.test',
+    };
+    const validatePreviewSlotTarget = vi.fn(async () => ({
+      valid: true,
+      destination: 'https://feature.preview.example.test/',
+      errors: [],
+    }));
+    const upsertPreviewSlot = vi.fn();
+    const app = new Hono();
+    registerPreviewResolverRoutes(app, { vkClient: {
+      resolvePreview: vi.fn(), validatePreviewSlotTarget, upsertPreviewSlot,
+    } });
+
+    const response = await app.request('/internal/preview/workspaces/ws1/preview-slots/validate-target', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ repo_id: 'repo-1', target }),
+    });
+
+    await expect(response.json()).resolves.toEqual({
+      valid: true, destination: 'https://feature.preview.example.test/', errors: [],
+    });
+    expect(validatePreviewSlotTarget).toHaveBeenCalledWith('ws1', { repo_id: 'repo-1', target });
+    expect(upsertPreviewSlot).not.toHaveBeenCalled();
+  });
+
   it('returns bounded redacted logs for the process selected by host resolution', async () => {
     const payload: PreviewResolveRequest = {
       host: 'web-vibekanban-0123456789abcdef--preview.localhost',

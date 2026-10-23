@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   PreviewSlot,
+  PreviewSlotTarget,
   PreviewProcessLink,
   RawLogEntry,
   RepoWithBranch,
@@ -8,6 +9,7 @@ import type {
   RunConfigKind,
   RunConfigStartResponse,
   WorkspaceRunConfigsResponse,
+  ValidatePreviewSlotTargetResponse,
 } from '../server/vk-client';
 
 type RepoOption = { id: string; label: string };
@@ -17,6 +19,11 @@ type LogPanelState =
   | { status: 'loaded'; processId: string; logs: RawLogEntry[] }
   | { status: 'error'; processId: string; message: string };
 type SlotActionState = 'stopping' | 'restarting';
+type SlotValidationState =
+  | { status: 'idle' }
+  | { status: 'validating' }
+  | { status: 'valid'; destination: string }
+  | { status: 'invalid'; message: string };
 
 export function PreviewRunConfigsPanel({
   workspaceId,
@@ -43,11 +50,17 @@ export function PreviewRunConfigsPanel({
     kind: 'long_running' as RunConfigKind,
   });
   const [slotForm, setSlotForm] = useState({
+    targetType: 'local_run_config' as PreviewSlotTarget['type'],
     runConfigId: '',
     slotSlug: 'web',
     title: 'Web',
     description: '',
+    urlTemplate: 'https://{branchSlug}.{projectSlug}.pages.dev',
+    allowedHostTemplate: '{branchSlug}.{projectSlug}.pages.dev',
+    projectSlug: '',
   });
+  const [editingSlotId, setEditingSlotId] = useState<string | null>(null);
+  const [slotValidation, setSlotValidation] = useState<SlotValidationState>({ status: 'idle' });
 
   function setStoppedPreviewSlotProcess(slotId: string, processId: string) {
     const next = { ...stoppedPreviewSlotProcessesRef.current, [slotId]: processId };
@@ -134,6 +147,10 @@ export function PreviewRunConfigsPanel({
   );
   const runConfigs = data?.run_configs ?? [];
   const previewSlots = data?.preview_slots ?? [];
+  const matchingPreviewSlot = useMemo(
+    () => previewSlots.find((slot) => slot.repo_id === selectedRepoId && slot.slot_slug === slotForm.slotSlug.trim()),
+    [previewSlots, selectedRepoId, slotForm.slotSlug],
+  );
   const repoLabelsById = useMemo(() => {
     const labels = new Map<string, string>();
     for (const repo of workspaceRepos) labels.set(repo.id, formatRepoLabel(repo));
@@ -195,6 +212,36 @@ export function PreviewRunConfigsPanel({
     await refresh();
   }
 
+  function externalTarget(): Extract<PreviewSlotTarget, { type: 'external_redirect' }> {
+    return {
+      type: 'external_redirect',
+      url_template: slotForm.urlTemplate.trim(),
+      allowed_host_template: slotForm.allowedHostTemplate.trim(),
+      project_slug: slotForm.projectSlug.trim() || null,
+    };
+  }
+
+  async function validateExternalTarget(): Promise<string | null> {
+    if (!selectedRepoId) return null;
+    setSlotValidation({ status: 'validating' });
+    const response = await fetch(
+      `/internal/preview/workspaces/${encodeURIComponent(workspaceId)}/preview-slots/validate-target`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ repo_id: selectedRepoId, target: externalTarget() }),
+      },
+    );
+    if (!response.ok) throw new Error(await responseErrorMessage(response, 'External preview validation failed'));
+    const result = await response.json() as ValidatePreviewSlotTargetResponse;
+    if (!result.valid || !result.destination) {
+      setSlotValidation({ status: 'invalid', message: result.errors.join('; ') || 'External preview target is invalid.' });
+      return null;
+    }
+    setSlotValidation({ status: 'valid', destination: result.destination });
+    return result.destination;
+  }
+
   async function upsertPreviewSlot() {
     if (!selectedRepoId) {
       setError('Select a repository before saving a preview slot.');
@@ -202,12 +249,21 @@ export function PreviewRunConfigsPanel({
     }
     setMessage(null);
     setError(null);
+    const target: PreviewSlotTarget = slotForm.targetType === 'external_redirect'
+      ? externalTarget()
+      : { type: 'local_run_config', run_config_id: slotForm.runConfigId };
+    if (slotForm.targetType === 'external_redirect' && !await validateExternalTarget()) return;
+    const existing = editingSlotId
+      ? previewSlots.find((slot) => slot.id === editingSlotId)
+      : matchingPreviewSlot;
     const response = await fetch(`/internal/preview/workspaces/${encodeURIComponent(workspaceId)}/preview-slots`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
+        id: existing?.id,
         repo_id: selectedRepoId,
-        run_config_id: slotForm.runConfigId,
+        run_config_id: null,
+        target,
         slot_slug: slotForm.slotSlug,
         title: slotForm.title,
         description: slotForm.description.trim() || null,
@@ -216,8 +272,41 @@ export function PreviewRunConfigsPanel({
     });
     if (!response.ok) throw new Error(await responseErrorMessage(response, 'Preview slot save failed'));
     const created = await response.json() as PreviewSlot;
-    setMessage(`Saved preview slot ${created.slot_slug}`);
+    setMessage(`${existing ? 'Updated' : 'Saved'} preview slot ${created.slot_slug}`);
+    setEditingSlotId(created.id);
     await refresh();
+  }
+
+  function editPreviewSlot(slot: PreviewSlot) {
+    const target = previewSlotTarget(slot);
+    setSelectedRepoId(slot.repo_id);
+    setEditingSlotId(slot.id);
+    setSlotValidation({ status: 'idle' });
+    setSlotForm({
+      targetType: target.type,
+      runConfigId: target.type === 'local_run_config' ? target.run_config_id : '',
+      slotSlug: slot.slot_slug,
+      title: slot.title,
+      description: slot.description ?? '',
+      urlTemplate: target.type === 'external_redirect' ? target.url_template : '',
+      allowedHostTemplate: target.type === 'external_redirect' ? target.allowed_host_template : '',
+      projectSlug: target.type === 'external_redirect' ? target.project_slug ?? '' : '',
+    });
+  }
+
+  function resetPreviewSlotEditor() {
+    setEditingSlotId(null);
+    setSlotValidation({ status: 'idle' });
+    setSlotForm({
+      targetType: 'local_run_config',
+      runConfigId: selectedRepoRunConfigs[0]?.id ?? '',
+      slotSlug: 'web',
+      title: 'Web',
+      description: '',
+      urlTemplate: 'https://{branchSlug}.{projectSlug}.pages.dev',
+      allowedHostTemplate: '{branchSlug}.{projectSlug}.pages.dev',
+      projectSlug: '',
+    });
   }
 
   async function deleteRunConfig(runConfig: RunConfig) {
@@ -491,29 +580,93 @@ export function PreviewRunConfigsPanel({
         </section>
 
         <section className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-4">
-          <h2 className="font-medium">Create preview slot</h2>
+          <h2 className="font-medium">{editingSlotId ? 'Edit preview slot' : 'Create preview slot'}</h2>
+          <p className="mt-1 text-sm text-neutral-400">
+            Use a local run config or redirect the canonical Preview URL to an existing hosted environment.
+          </p>
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             <SelectInput
-              label="Run config"
-              value={slotForm.runConfigId}
-              options={selectedRepoRunConfigs.map((item) => ({ id: item.id, label: `${item.name} (${item.slug})` }))}
-              disabled={!hasSelectedRepo || selectedRepoRunConfigs.length === 0}
-              onChange={(runConfigId) => setSlotForm((current) => ({ ...current, runConfigId }))}
+              label="Target type"
+              value={slotForm.targetType}
+              options={[
+                { id: 'local_run_config', label: 'Local run config' },
+                { id: 'external_redirect', label: 'External redirect' },
+              ]}
+              disabled={!hasSelectedRepo}
+              onChange={(targetType) => {
+                setSlotValidation({ status: 'idle' });
+                setSlotForm((current) => ({ ...current, targetType: targetType as PreviewSlotTarget['type'] }));
+              }}
             />
             <TextInput label="Slot slug" value={slotForm.slotSlug} onChange={(slotSlug) => setSlotForm((current) => ({ ...current, slotSlug }))} />
             <TextInput label="Title" value={slotForm.title} onChange={(title) => setSlotForm((current) => ({ ...current, title }))} />
           </div>
+          {slotForm.targetType === 'local_run_config' ? (
+            <div className="mt-3 max-w-xl">
+              <SelectInput
+                label="Run config"
+                value={slotForm.runConfigId}
+                options={selectedRepoRunConfigs.map((item) => ({ id: item.id, label: `${item.name} (${item.slug})` }))}
+                disabled={!hasSelectedRepo || selectedRepoRunConfigs.length === 0}
+                onChange={(runConfigId) => setSlotForm((current) => ({ ...current, runConfigId }))}
+              />
+            </div>
+          ) : (
+            <div className="mt-3 rounded border border-neutral-800 bg-neutral-950/50 p-3">
+              <div className="grid gap-3 md:grid-cols-2">
+                <TextInput label="URL template" value={slotForm.urlTemplate} onChange={(urlTemplate) => {
+                  setSlotValidation({ status: 'idle' });
+                  setSlotForm((current) => ({ ...current, urlTemplate }));
+                }} />
+                <TextInput label="Allowed host template" value={slotForm.allowedHostTemplate} onChange={(allowedHostTemplate) => {
+                  setSlotValidation({ status: 'idle' });
+                  setSlotForm((current) => ({ ...current, allowedHostTemplate }));
+                }} />
+                <TextInput label="Project slug (optional)" value={slotForm.projectSlug} onChange={(projectSlug) => {
+                  setSlotValidation({ status: 'idle' });
+                  setSlotForm((current) => ({ ...current, projectSlug }));
+                }} />
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <button
+                  className="rounded border border-neutral-700 px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:text-neutral-500"
+                  disabled={slotValidation.status === 'validating' || !slotForm.urlTemplate.trim() || !slotForm.allowedHostTemplate.trim()}
+                  onClick={() => void validateExternalTarget().catch((err) => setSlotValidation({ status: 'invalid', message: errorMessage(err) }))}
+                >
+                  {slotValidation.status === 'validating' ? 'Validating…' : 'Validate target'}
+                </button>
+                {slotValidation.status === 'valid' ? (
+                  <p className="min-w-0 break-all text-xs text-emerald-300">Destination: {slotValidation.destination}</p>
+                ) : null}
+                {slotValidation.status === 'invalid' ? (
+                  <p role="alert" className="text-xs text-red-300">{slotValidation.message}</p>
+                ) : null}
+              </div>
+            </div>
+          )}
           <TextArea label="Preview slot description" value={slotForm.description} onChange={(description) => setSlotForm((current) => ({ ...current, description }))} />
-          {hasSelectedRepo && selectedRepoRunConfigs.length === 0 ? (
+          {slotForm.targetType === 'local_run_config' && hasSelectedRepo && selectedRepoRunConfigs.length === 0 ? (
             <p className="mt-2 text-xs text-neutral-500">Create a run config for the selected repository before creating a preview slot.</p>
           ) : null}
-          <button
-            disabled={!hasSelectedRepo || !slotForm.runConfigId}
-            className="mt-3 rounded bg-blue-600 px-3 py-2 text-sm font-medium hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400"
-            onClick={() => void upsertPreviewSlot().catch((err) => setError(errorMessage(err)))}
-          >
-            Save preview slot
-          </button>
+          {matchingPreviewSlot && matchingPreviewSlot.id !== editingSlotId ? (
+            <p className="mt-2 text-xs text-neutral-500">Saving will update the existing /{matchingPreviewSlot.slot_slug} slot for this repository.</p>
+          ) : null}
+          <div className="mt-3 flex gap-2">
+            <button
+              disabled={!hasSelectedRepo || (slotForm.targetType === 'local_run_config'
+                ? !slotForm.runConfigId
+                : !slotForm.urlTemplate.trim() || !slotForm.allowedHostTemplate.trim())}
+              className="rounded bg-blue-600 px-3 py-2 text-sm font-medium hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400"
+              onClick={() => void upsertPreviewSlot().catch((err) => setError(errorMessage(err)))}
+            >
+              Save preview slot
+            </button>
+            {editingSlotId ? (
+              <button className="rounded border border-neutral-700 px-3 py-2 text-sm" onClick={resetPreviewSlotEditor}>
+                Cancel editing
+              </button>
+            ) : null}
+          </div>
         </section>
 
         <section className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-4">
@@ -540,6 +693,7 @@ export function PreviewRunConfigsPanel({
                 onStop={() => void stopPreviewSlot(slot).catch((err) => setError(errorMessage(err)))}
                 onRestart={() => void restartPreviewSlot(slot).catch((err) => setError(errorMessage(err)))}
                 onOpen={() => void openPreviewSlot(slot.id).catch((err) => setError(errorMessage(err)))}
+                onEdit={() => editPreviewSlot(slot)}
                 onLogs={() => showLogsWithErrorBoundary(`slot:${slot.id}`, previewSlotProcessLinks[slot.id]?.execution_process_id ?? previewSlotProcessIds[slot.id])}
                 onDelete={() => void deletePreviewSlot(slot).catch((err) => setError(errorMessage(err)))}
               />
@@ -630,6 +784,7 @@ function PreviewSlotRow({
   onStop,
   onRestart,
   onOpen,
+  onEdit,
   onLogs,
   onDelete,
 }: {
@@ -645,32 +800,41 @@ function PreviewSlotRow({
   onStop: () => void;
   onRestart: () => void;
   onOpen: () => void;
+  onEdit: () => void;
   onLogs: () => void;
   onDelete: () => void;
 }) {
   const running = processLink ? isRunningPreviewLink(processLink) : false;
   const busy = Boolean(action);
+  const external = previewSlotTarget(slot).type === 'external_redirect';
   return (
     <div className={`flex flex-wrap items-center justify-between gap-3 rounded border p-3 ${highlighted ? 'border-blue-500 bg-blue-950/20' : 'border-neutral-800'}`}>
       <div>
         <div className="font-medium">{slot.title} <span className="text-neutral-500">/{slot.slot_slug}</span></div>
         {slot.description ? <p className="text-sm text-neutral-300">{slot.description}</p> : null}
         <div className="text-xs text-neutral-500">
-          Repo {repoLabel} · Run config {runConfigLabel}
+          Repo {repoLabel} · {external ? 'Target external redirect' : `Run config ${runConfigLabel}`}
         </div>
-        <p className="mt-1 text-xs text-neutral-400">{formatSlotProcessStatus(processLink, processId, action)}</p>
+        {!external ? <p className="mt-1 text-xs text-neutral-400">{formatSlotProcessStatus(processLink, processId, action)}</p> : null}
       </div>
-      <div className="flex gap-2">
-        <button className="rounded border border-neutral-700 px-3 py-1 text-sm disabled:cursor-not-allowed disabled:text-neutral-500" disabled={busy} onClick={onStart}>Start</button>
-        <button className="rounded border border-neutral-700 px-3 py-1 text-sm disabled:cursor-not-allowed disabled:text-neutral-500" disabled={busy || !running} aria-label={`Stop preview slot ${slot.title}`} onClick={onStop}>Stop</button>
-        <button className="rounded border border-neutral-700 px-3 py-1 text-sm disabled:cursor-not-allowed disabled:text-neutral-500" disabled={busy} aria-label={`Restart preview slot ${slot.title}`} onClick={onRestart}>Restart</button>
+      <div className="flex flex-wrap gap-2">
+        {!external ? <>
+          <button className="rounded border border-neutral-700 px-3 py-1 text-sm disabled:cursor-not-allowed disabled:text-neutral-500" disabled={busy} aria-label={`Start preview slot ${slot.title}`} onClick={onStart}>Start</button>
+          <button className="rounded border border-neutral-700 px-3 py-1 text-sm disabled:cursor-not-allowed disabled:text-neutral-500" disabled={busy || !running} aria-label={`Stop preview slot ${slot.title}`} onClick={onStop}>Stop</button>
+          <button className="rounded border border-neutral-700 px-3 py-1 text-sm disabled:cursor-not-allowed disabled:text-neutral-500" disabled={busy} aria-label={`Restart preview slot ${slot.title}`} onClick={onRestart}>Restart</button>
+        </> : null}
         <button className="rounded border border-neutral-700 px-3 py-1 text-sm" onClick={onOpen}>Open URL</button>
-        <button className="rounded border border-neutral-700 px-3 py-1 text-sm" aria-label={`Show logs for preview slot ${slot.title}`} onClick={onLogs}>Logs</button>
+        <button className="rounded border border-neutral-700 px-3 py-1 text-sm" aria-label={`Edit preview slot ${slot.title}`} onClick={onEdit}>Edit</button>
+        {!external ? <button className="rounded border border-neutral-700 px-3 py-1 text-sm" aria-label={`Show logs for preview slot ${slot.title}`} onClick={onLogs}>Logs</button> : null}
         <button className="rounded border border-red-800 px-3 py-1 text-sm text-red-200" aria-label={`Delete preview slot ${slot.title}`} onClick={onDelete}>Delete</button>
       </div>
       <LogPanel state={logState} />
     </div>
   );
+}
+
+function previewSlotTarget(slot: PreviewSlot): PreviewSlotTarget {
+  return slot.target ?? { type: 'local_run_config', run_config_id: slot.run_config_id ?? '' };
 }
 
 function TextInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {

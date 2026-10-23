@@ -91,6 +91,105 @@ describe('PreviewRunConfigsPanel', () => {
     });
   });
 
+  it('edits, validates, saves, and opens external preview slots', async () => {
+    const requests: Array<{ url: string; method?: string; body?: Record<string, unknown> }> = [];
+    const externalSlot = {
+      id: 'slot-external',
+      repo_id: 'repo-alpha',
+      run_config_id: null,
+      target: {
+        type: 'external_redirect' as const,
+        url_template: 'https://{branchSlug}.{projectSlug}.pages.dev',
+        allowed_host_template: '{branchSlug}.{projectSlug}.pages.dev',
+        project_slug: 'alpha',
+      },
+      slot_slug: 'review',
+      title: 'Hosted review',
+      description: 'Cloud-hosted branch preview',
+      enabled: true,
+      created_at: '',
+      updated_at: '',
+    };
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : undefined;
+      requests.push({ url, method: init?.method, body });
+      if (url.endsWith('/repos')) {
+        return jsonResponse([{ id: 'repo-alpha', name: 'alpha', display_name: 'Alpha App', target_branch: 'feature/review' }]);
+      }
+      if (url.endsWith('/run-configs')) {
+        return jsonResponse({ run_configs: [], preview_slots: [externalSlot], preview_url_parts: [] });
+      }
+      if (url.endsWith('/preview-slots/validate-target') && init?.method === 'POST') {
+        return jsonResponse({ valid: true, destination: 'https://feature-review.alpha.pages.dev/', errors: [] });
+      }
+      if (url.endsWith('/preview-slots') && init?.method === 'POST') {
+        return jsonResponse({ ...externalSlot, ...body });
+      }
+      if (url.endsWith('/preview-slots/slot-external/url')) {
+        return jsonResponse({ url: 'https://review-alpha-token--customer.example.test/' });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    }));
+    const open = vi.fn();
+    vi.stubGlobal('open', open);
+
+    render(React.createElement(PreviewRunConfigsPanel, { workspaceId: 'ws-external' }));
+
+    await screen.findByText('Hosted review', { exact: false });
+    expect(screen.getByText(/Target external redirect/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Start preview slot Hosted review' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit preview slot Hosted review' }));
+    expect((screen.getByLabelText('Target type') as HTMLSelectElement).value).toBe('external_redirect');
+    expect((screen.getByLabelText('Project slug (optional)') as HTMLInputElement).value).toBe('alpha');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Validate target' }));
+    expect(await screen.findByText('Destination: https://feature-review.alpha.pages.dev/')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Save preview slot' }));
+
+    await waitFor(() => expect(requests).toContainEqual(expect.objectContaining({
+      url: '/internal/preview/workspaces/ws-external/preview-slots',
+      method: 'POST',
+      body: expect.objectContaining({
+        id: 'slot-external',
+        repo_id: 'repo-alpha',
+        run_config_id: null,
+        target: externalSlot.target,
+        description: 'Cloud-hosted branch preview',
+      }),
+    })));
+    fireEvent.click(screen.getByRole('button', { name: 'Open URL' }));
+    await waitFor(() => expect(open).toHaveBeenCalledWith(
+      'https://review-alpha-token--customer.example.test/', '_blank', 'noopener,noreferrer',
+    ));
+  });
+
+  it('keeps invalid external targets unsaved and shows the validation error beside the form', async () => {
+    const persistedWrites: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/repos')) {
+        return jsonResponse([{ id: 'repo-alpha', name: 'alpha', display_name: 'Alpha App', target_branch: 'main' }]);
+      }
+      if (url.endsWith('/run-configs')) {
+        return jsonResponse({ run_configs: [], preview_slots: [], preview_url_parts: [] });
+      }
+      if (url.endsWith('/preview-slots/validate-target')) {
+        return jsonResponse({ valid: false, destination: null, errors: ['Expanded host is not allowed'] });
+      }
+      if (init?.method === 'POST') persistedWrites.push(url);
+      throw new Error(`unexpected fetch ${url}`);
+    }));
+
+    render(React.createElement(PreviewRunConfigsPanel, { workspaceId: 'ws-invalid-external' }));
+    await screen.findByText(/Using Alpha App/);
+    fireEvent.change(screen.getByLabelText('Target type'), { target: { value: 'external_redirect' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save preview slot' }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain('Expanded host is not allowed');
+    expect(persistedWrites).toEqual([]);
+  });
+
   it('opens preview URLs with server-configured customer/domain defaults hidden from the UI', async () => {
     const requests: string[] = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {

@@ -217,6 +217,12 @@ export type PreviewSlotTarget =
     allowed_host_template: string;
   };
 
+export interface ValidatePreviewSlotTargetResponse {
+  valid: boolean;
+  destination?: string | null;
+  errors: string[];
+}
+
 export interface PreviewProcessLink {
   id: string;
   workspace_id: string;
@@ -503,6 +509,16 @@ export class VibeKanbanServerClient {
 
   upsertPreviewSlot(workspaceId: string, body: UpsertPreviewSlot): Promise<PreviewSlot> {
     return this.post(`/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots`, body);
+  }
+
+  validatePreviewSlotTarget(
+    workspaceId: string,
+    body: { repo_id: string; target: PreviewSlotTarget },
+  ): Promise<ValidatePreviewSlotTargetResponse> {
+    return this.post(
+      `/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots/validate-target`,
+      body,
+    );
   }
 
   startRunConfig(workspaceId: string, runConfigId: string): Promise<RunConfigStartResponse> {

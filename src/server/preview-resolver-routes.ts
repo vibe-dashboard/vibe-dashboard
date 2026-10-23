@@ -23,6 +23,7 @@ export interface RegisterPreviewResolverRoutesOptions {
     | 'getSession'
     | 'upsertRunConfig'
     | 'upsertPreviewSlot'
+    | 'validatePreviewSlotTarget'
     | 'startRunConfig'
     | 'startPreviewSlot'
     | 'stopExecutionProcess'
@@ -187,6 +188,19 @@ export function registerPreviewResolverRoutes(
     } catch (error) {
       console.warn('Preview slot upsert failed', error);
       return c.json({ message: error instanceof Error ? error.message : 'Preview slot backend failed' }, 502);
+    }
+  });
+
+  app.post('/internal/preview/workspaces/:workspaceId/preview-slots/validate-target', async (c) => {
+    const workspaceId = c.req.param('workspaceId');
+    const payload = await parseJson<{ repo_id: string; target: PreviewSlot['target'] }>(c.req.raw);
+    if (!payload.ok) return c.json({ message: payload.message }, 400);
+    try {
+      const response = await vkClient.validatePreviewSlotTarget!(workspaceId, payload.value);
+      return c.json(response, 200);
+    } catch (error) {
+      console.warn('Preview slot target validation failed', error);
+      return c.json({ message: error instanceof Error ? error.message : 'Preview slot target validation failed' }, 502);
     }
   });
 
