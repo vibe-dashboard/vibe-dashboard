@@ -1,0 +1,121 @@
+{
+  "format": "standard",
+  "id": "vd_themes_discussion",
+  "title": "VD Themes — chat-first HeroUI styling plan",
+  "description": "Standalone discussion artifact. All findings, proposed architecture, delivery steps and tradeoffs are in the questions and choices. Three decision sections plus master notes. Choices are checkboxes; follow each section's selection instructions. Application implementation has not started.",
+  "allowCodeFileChanges": {
+    "label": "Allow implementation after this response",
+    "description": "Submit discussion-only to revise the plan, or allow code/file changes to authorize the next agent to implement the agreed first slice. Conflicting or unresolved selections need clarification.",
+    "defaultChecked": false
+  },
+  "questions": [
+    {
+      "type": "choices",
+      "id": "delivery_boundary",
+      "title": "1. How should we convert agent chat and the unified shell to HeroUI tokens?",
+      "description": "GOAL / FIXED REQUIREMENTS\nUse HeroUI's existing tokens for colorful named themes, IBM monospace support, a Springboard module named Themes, durable preference state and a sidebar selector. Convert iteratively, beginning with agent chat and its surrounding shell. Create fresh theme state without migrations. This review is based on the current unified application, not outdated theme branches.\n\nCURRENT SOURCE FINDINGS\nsrc/hero.ts calls heroui() without custom presets. MainUIShellModule.tsx provides HeroUIProvider but forces .dark onto document.documentElement. src/styles.css forces dark color-scheme and literal root colors. Sidebar.tsx, WorkspaceShell.tsx, WorkspaceShellScenes.tsx, AgentSplitViewPage.tsx, RetryableInlineSurface.tsx and the React surface host contain hard-coded neutral colors.\n\nChat already renders as React in the parent document: src/modules/plugins/vibe-dashboard/react-craft-surfaces.tsx lazy-loads @vibe/inline-chat, which vite.config.ts resolves to vibe-kanban/packages/inline-chat/src/index.tsx. That component uses shared web-core and ui components. Consequently, a complete direct chat conversion reaches outside ./src even though theme ownership stays there. The original packages/local-web application is reference-only, not the VD development or acceptance surface.\n\nTOKEN COLLISIONS TO RESOLVE\nsrc/styles.css defines VK legacy variables/utilities such as --bg-primary, .bg-primary, .bg-secondary and text-normal. VK bg-primary means a background surface; HeroUI bg-primary means an accent/action color. Secondary also conflicts. The unlayered legacy rules can override generated HeroUI utilities, so a global blind mapping would be incorrect. Shared components sometimes consume hsl(var(--bg-panel)), but the parent currently supplies hex strings. Opacity utilities such as bg-secondary/60 also need generated coverage.\n\nPROPOSED DESIGN\nMake named HeroUI presets in src/hero.ts the sole palette authority. Use background, foreground, content1–4, divider, default, primary, secondary, success, warning, danger and focus roles rather than a new VD palette abstraction. Converted components use HeroUI utilities or hsl(var(--heroui-…)) for CSS/widget integration. Any compatibility aliases derive entirely from those tokens. Preserve existing layout, spacing and compact chat density.\n\nA single client applicator in the main provider applies named preset, light/dark base mode, color-scheme and independent font preference to the document root, so body-portaled HeroUI/Radix menus and dialogs inherit them. Register Themes isomorphically; keep DOM access browser-only. The inline chat theme prop only styles its wrapper. web-core's separate ThemeProviderContext defaults to SYSTEM and drives chat diff/icon mode; bridge it to the active preset's base mode without adding another saved preference. PierreConversationDiff.tsx also has hard-coded light/dark diff colors and injected renderer CSS, so it needs explicit token/font inspection rather than assuming wrapper CSS covers it. Document any intentionally retained syntax colors.\n\nPROPOSED BUILD ORDER\n1) Register Themes with typed state/actions, define presets and root application, and resolve legacy color collisions. 2) Theme the active chat path: transcript/prose, composer, tool/approval/error entries, code/diff containers, session/model menus, dialogs, loading/empty/unavailable states, preview menu and split-view host. 3) Convert the visible shell: sidebar, voyage/craft bars, address bar, borders, split dividers and their menus; expose the selector. These are one cohesive first release. Later page-sized passes can cover create-workspace, dashboard/SpacesOverview, external kanban, admin/plugins and BeadsForm; those routes also contain literal dark styling.\n\nFIRST-SLICE ACCEPTANCE\nRun npm run check-types after src edits and a web build to verify generated Tailwind/HeroUI utilities. Validate in parent VD, using its inline-chat/sandbox path for backend data: desktop/mobile sidebar, keyboard focus, body-portaled menus, loading/error/approval states, code/diff expansion and two agent panes. Switch between colorful dark and genuinely light presets without remounting chat or losing draft/session/scroll/split layout. Check theme/font persistence after refresh and restart, and ensure workspace/voyage records are untouched. Add focused state/fallback/persistence checks and extend meaningful existing inline-chat coverage. Update Storybook's currently forced-dark decorator so presets can be visually reviewed.\n\nSelect ONE approach. Both include Themes, presets and the sidebar selector.",
+      "choices": [
+        {
+          "id": "src_first_bridge",
+          "label": "Start in src with HeroUI-derived compatibility; convert shared chat incrementally",
+          "description": "Keep initial palette/state/root/shell work in src. Scope legacy aliases to inline surfaces and their portals, explicitly resolve primary/secondary class collisions, and provide HSL channels and required opacity utilities from HeroUI values. Permit small shared-chat changes for the mode context, diff/font integration and uncovered styling. Some chat components retain legacy names backed by HeroUI until directly converted; do not claim all legacy utilities are removed.",
+          "is_recommended_reason": "Matches the incremental, generally-src workflow and establishes HeroUI as the color source without a broad shared-UI rewrite."
+        },
+        {
+          "id": "direct_chat_conversion",
+          "label": "Directly convert the active shared chat path in the first slice",
+          "description": "Edit inline-chat, web-core and ui components as needed alongside src. Replace legacy colors throughout the active chat path and integrate mode/diff/font behavior directly. Remove conflicting parent utilities only after accounting for remaining consumers. Larger cross-package work with shared-consumer impact, but closer to final HeroUI vocabulary immediately. Keep unrelated shared UI out of scope."
+        },
+        {
+          "id": "revise_scope",
+          "label": "Revise the delivery boundary before implementation",
+          "description": "Use master notes to change scope or acceptance. A strict src-only change cannot guarantee direct conversion of every nested chat renderer."
+        }
+      ]
+    },
+    {
+      "type": "choices",
+      "id": "visual_direction",
+      "title": "2. Which colorful presets and IBM Plex Mono behavior should ship first?",
+      "description": "PALETTE PROPOSAL\nEach named theme is a complete HeroUI preset extending light or dark: tint main backgrounds, layered shell/chat surfaces, borders and selections as well as accents. Retain readable foregrounds and distinguishable success/warning/danger states. Names below are proposed directions, not existing assets or already-tested visual designs. Recommended set: Neutral Dark, Midnight, Forest and Sand; Plum is optional. Sand is genuinely light to reveal dark-only assumptions. Proposed initial/fallback theme is Neutral Dark; override in master notes. Custom palette editors and automatic OS switching are outside this first slice.\n\nFONT FINDINGS / PROPOSAL\nsrc/styles.css declares IBM Plex Sans and IBM Plex Mono names, and shared chat uses font-ibm-plex-mono, but no bundled .woff/.woff2/.ttf assets were found in parent public or VK packages. Family names alone silently fall back on machines without the font. Assume 'IBM monospace' means IBM Plex Mono; correct that in notes if needed. Bundle locally served font files and their license, only needed weights, font-display: swap, and monospace/emoji fallbacks. Make font-mono and font-ibm-plex-mono resolve consistently; also account for explicit font-sans declarations, editor content and diff renderer fonts. Font choice is independent of color theme. Proposed default is system UI with IBM Plex Mono for code, plus a selectable whole-interface IBM mode.\n\nSELECT MULTIPLE: choose desired presets, then choose ONE font policy. Master notes can specify exact colors, references, a different initial theme or typography details. Contrast and rendered font metrics will be validated during implementation.",
+      "choices": [
+        {
+          "id": "neutral_dark",
+          "label": "Preset: Neutral Dark — charcoal surfaces, blue accents",
+          "description": "Familiar dark option and proposed initial/fallback. Token-driven rather than retaining literal neutral colors.",
+          "is_recommended_reason": "Stable baseline alongside colorful options."
+        },
+        {
+          "id": "midnight",
+          "label": "Preset: Midnight — navy surfaces, cyan/periwinkle accents",
+          "description": "A visibly blue-tinted dark shell and chat, with cool bright selections, focus and actions.",
+          "is_recommended_reason": "Demonstrates full-surface color rather than button-only recoloring."
+        },
+        {
+          "id": "forest",
+          "label": "Preset: Forest — deep green surfaces, mint/gold accents",
+          "description": "A distinct dark hue family. Keep decorative accents distinguishable from success and warning indicators.",
+          "is_recommended_reason": "Exercises a second colorful family using identical HeroUI roles."
+        },
+        {
+          "id": "sand",
+          "label": "Preset: Sand — cream surfaces, teal/terracotta accents",
+          "description": "Genuinely light, warm layered surfaces and dark text. Native controls, diff mode and icons must also resolve to light.",
+          "is_recommended_reason": "Exposes hidden dark-only assumptions in the first conversion."
+        },
+        {
+          "id": "plum",
+          "label": "Preset: Plum — aubergine surfaces, lavender/rose accents",
+          "description": "Optional fifth preset; include if this visual direction is wanted immediately."
+        },
+        {
+          "id": "font_optional_mono",
+          "label": "Font: system UI by default, IBM code font, optional whole-interface IBM mode",
+          "description": "Persist uiFont as system or ibm-plex-mono independently of themeId. Add a compact sidebar font selector. IBM mode covers shell, transcript, composer, inputs and menus as well as code/diffs.",
+          "is_recommended_reason": "Supports IBM monospace without tying typography to one palette."
+        },
+        {
+          "id": "font_mono_default",
+          "label": "Font: whole-interface IBM Plex Mono by default; system UI selectable",
+          "description": "Same independent preference and control, but new state defaults to IBM mode. Validate wrapping, compact labels and mobile composer metrics."
+        },
+        {
+          "id": "font_code_only",
+          "label": "Font: IBM Plex Mono for code/diffs only",
+          "description": "Keep shell, prose and composer proportional. No whole-interface font control or uiFont state in the first slice. Choose only if code-only support meets your font intent."
+        }
+      ]
+    },
+    {
+      "type": "choices",
+      "id": "preference_scope",
+      "title": "3. Should the saved preference be shared across this VD instance or independent per browser?",
+      "description": "VERIFIED PERSISTENCE PATTERN\nsrc/index.tsx registers workspace with rpcMode: remote, uses moduleAPI.statesAPI.createPersistentState for workspace and workspace-sessions, exposes supervisors under states and updates through createActions. Installed Springboard StatesAPI documents and implements createPersistentState as durable state shared across connected devices. It is not automatically per-person. createUserAgentState is a distinct browser-localStorage API. A single persistent Themes preference therefore changes all connected clients sharing that state. Existing examples do not establish a suitable per-person preference identity.\n\nPROPOSED MODULE CONTRACT\nCreate src/modules/ThemesModule.ts with isomorphic registration, rpcMode: remote, fresh persistent key preferences, state {themeId: 'neutral-dark', uiFont: 'system'} (omit uiFont for code-only policy), typed registry declaration, states.preferences and actions.setTheme/setUIFont. Validate writes against the finite catalog; render a safe default for unknown stored IDs. No DB/schema migration, state-version conversion, workspace/voyage rewrite or import of old-branch preferences. Keep preset IDs/base modes aligned between HeroUI config and the simple UI catalog.\n\nDATA FLOW / STARTUP\nSidebar selection → Themes action → persistent supervisor → subscribed root applicator → document preset/base-mode/font → HeroUI, chat aliases or converted components, portals and chat diff-context adapter. Apply fallback during startup/loading, then saved values when state is ready. This proposal permits a brief fallback-to-saved-theme bootstrap transition; eliminating every pre-bootstrap flash would require an agreed bootstrap/cache change. A second preference storage source is not proposed.\n\nSIDEBAR DEFAULT — VETO OR AMEND IN NOTES\nPlace a compact labeled HeroUI selector near Sidebar.tsx's bottom Address Bar toggle, accessible in desktop and mobile/drawer instances. Show current name, small palette swatches and text labels. Include an independent font selector if whole-interface IBM mode is enabled. Apply and persist immediately without Save, routing or chat remount. Expose selection/focus to keyboard and assistive technology; surface save failure rather than claiming it persisted. Reuse the sidebar instead of adding a settings page.\n\nSelect ONE persistence scope. The recommended option most literally matches your persistent-state request; alternatives change or extend that contract and need agreement.",
+      "choices": [
+        {
+          "id": "shared_persistent",
+          "label": "One persistent preference for this VD instance, shared across clients",
+          "description": "Use createPersistentState directly. Changes propagate to other connected devices and restore across refresh/restart. Different people sharing this state scope also share the preference.",
+          "is_recommended_reason": "Smallest implementation matching the explicit persistent-state request and concrete workspace examples; cross-client behavior is explicit."
+        },
+        {
+          "id": "browser_local",
+          "label": "Independent browser preferences using Springboard user-agent state",
+          "description": "Use createUserAgentState instead of shared persistent state. Browser refresh retains preference; other devices/browsers choose independently. This intentionally interprets persistent as browser durability and does not synchronize devices."
+        },
+        {
+          "id": "person_scoped",
+          "label": "Per-person persistent preferences synchronized across their devices",
+          "description": "Retain createPersistentState but scope it by an established authenticated identity that must be identified/verified first. Specify the identity source in notes. Broader than the instance-wide example; do not invent an identity or substitute a workspace/voyage ID."
+        }
+      ]
+    },
+    {
+      "type": "textarea",
+      "id": "additional_notes",
+      "title": "Master notes — corrections, visual references and changes to the proposal",
+      "description": "Include anything the next agent needs without consulting the conversation: exact palette references/colors, initial theme, whether IBM means Plex Mono, font overrides, sidebar placement, startup-transition expectations, identity source if needed, first-slice changes or later-page priorities. If discussion-only, explain what to revise. Defaults above are proposals you can veto, not settled decisions.",
+      "placeholder": "Example: Midnight as initial theme, system UI default font, both selectors above Address Bar, preferences shared between my devices."
+    }
+  ]
+}
