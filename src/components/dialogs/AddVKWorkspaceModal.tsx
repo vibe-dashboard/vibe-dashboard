@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useId } from 'react';
 import {
   Modal,
   ModalContent,
@@ -228,28 +228,31 @@ export function AddVKWorkspaceModalView({
   initialCustomName = '',
   initialSpacePickerTargetId = null,
 }: AddVKWorkspaceModalViewProps) {
-  const dialogRef = useRef<HTMLDivElement>(null);
+  const dialogId = useId();
   useEffect(() => {
     if (!isOpen || isActionPending) return;
     const dismissBeforeFocusTransfer = (event: KeyboardEvent) => {
       if (
-        event.key !== 'Escape' || event.defaultPrevented ||
+        event.key !== 'Escape' ||
+        event.defaultPrevented ||
         !(event.target instanceof Node) ||
-        dialogRef.current?.contains(event.target)
-      ) return;
+        document.getElementById(dialogId)?.contains(event.target)
+      ) {
+        return;
+      }
       if (
         event.target instanceof Element &&
         event.target.closest('[role="dialog"], [role="menu"], [role="listbox"]')
-      ) return;
+      ) {
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
       onClose();
     };
     window.addEventListener('keydown', dismissBeforeFocusTransfer, true);
-    return () => window.removeEventListener(
-      'keydown', dismissBeforeFocusTransfer, true
-    );
-  }, [isOpen, isActionPending, onClose]);
+    return () => window.removeEventListener('keydown', dismissBeforeFocusTransfer, true);
+  }, [isOpen, isActionPending, onClose, dialogId]);
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
   const [selectedRepo, setSelectedRepo] = useState(initialSelectedRepo);
   const [showPathInput, setShowPathInput] = useState(initialShowPathInput);
@@ -408,7 +411,7 @@ export function AddVKWorkspaceModalView({
       isDismissable={!isActionPending}
       isKeyboardDismissDisabled={isActionPending}
     >
-      <ModalContent ref={dialogRef} className="max-h-[85vh] bg-content1 border border-divider/30 text-foreground">
+      <ModalContent id={dialogId} className="max-h-[85vh] bg-content1 border border-divider/30 text-foreground">
         <ModalHeader className="flex flex-col gap-1 border-b border-divider/30">
           <h2 className="text-lg font-semibold text-foreground">
             {spacePickerTarget ? 'Choose Space' : 'Open VK Workspace'}

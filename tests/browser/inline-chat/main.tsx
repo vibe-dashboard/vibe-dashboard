@@ -17,12 +17,19 @@ import { AddVKWorkspaceModalView } from '../../../src/components/dialogs/AddVKWo
 
 function WorkspacePickerHarness() {
   const [open, setOpen] = useState(false);
-  return <>
-    <textarea aria-label="Picker origin draft" defaultValue="Keep this draft" />
-    <button onClick={() => setOpen(true)}>Open workspace picker</button>
-    <AddVKWorkspaceModalView isOpen={open} onClose={() => setOpen(false)} workspaceOptions={[]} onAddWorkspace={() => {}}
-      isActionPending={new URLSearchParams(location.search).has('pending')} />
-  </>;
+  return (
+    <>
+      <textarea aria-label="Picker origin draft" defaultValue="Keep this draft" />
+      <button onClick={() => setOpen(true)}>Open workspace picker</button>
+      <AddVKWorkspaceModalView
+        isOpen={open}
+        onClose={() => setOpen(false)}
+        workspaceOptions={[]}
+        onAddWorkspace={() => {}}
+        isActionPending={new URLSearchParams(location.search).has('pending')}
+      />
+    </>
+  );
 }
 
 function Harness() {
@@ -37,7 +44,9 @@ function Harness() {
   const mode = getTheme(themeId).mode;
   const rightWorkspace =
     new URLSearchParams(location.search).get('right') ?? 'workspace-1';
-  if (new URLSearchParams(location.search).has('workspace-picker')) return <WorkspacePickerHarness />;
+  if (new URLSearchParams(location.search).has('workspace-picker')) {
+    return <WorkspacePickerHarness />;
+  }
   if (new URLSearchParams(location.search).has('preview-config')) {
     return <PreviewRunConfigsPanel workspaceId="workspace-1" />;
   }

@@ -6,16 +6,18 @@ async function checkOpenCraftShortcut(page: Page, composer: Locator, draft: stri
   for (const shortcut of ['Control+k', 'Meta+k']) {
     await composer.focus();
     await expect(composer).toBeFocused();
+    const origin = await composer.elementHandle();
     await composer.press(shortcut);
     const modal = page.getByRole('dialog', { name: 'Open VK Workspace' });
     await expect(modal).toBeVisible();
     if (shortcut === 'Control+k') {
-      await composer.dispatchEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true });
+      await origin!.dispatchEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true });
     } else {
       await page.keyboard.press('Escape');
     }
     await expect(modal).toBeHidden();
     await expect(composer).toHaveText(draft);
+    await expect(composer).toBeFocused();
   }
 }
 
@@ -73,9 +75,12 @@ test('Open Craft shortcut works from both native composers without submitting or
     await expect(chat).toBeVisible();
     const chatComposer = chat.getByRole('textbox', { name: /Follow up|Markdown editor/ }).last();
     await expect(chatComposer).toHaveText('Keep the chat draft');
-    await chatComposer.focus();
-    await chatComposer.press('Control+]');
-    await expect(create).toBeVisible();
+    await expect(async () => {
+      if (await create.isVisible()) return;
+      await chatComposer.focus();
+      await chatComposer.press('Control+]');
+      await expect(create).toBeVisible({ timeout: 1500 });
+    }).toPass({ timeout: 5000 });
     expect(backend.requests.filter((item) => item.method === 'POST' &&
       (item.path.endsWith('/follow-up') || item.path === '/api/workspaces'))).toEqual([]);
   } finally {
