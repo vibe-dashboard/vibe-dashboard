@@ -327,12 +327,12 @@ test.describe.serial('auto-nudge compatibility with real VK QA-mode contracts', 
       const before = (await client.getSessionProcesses(value.overseer.id)).length;
       await expect.poll(async () => {
         await runAutoNudgeCycle(createAutoNudgeClient(client), value.options);
-        const status = readAutoNudgeState(value.options.statePath).triggers[checkpoint.id]?.status;
-        return status;
+        return readAutoNudgeState(value.options.statePath).triggers[checkpoint.id]?.status;
       }, { timeout: 10_000 }).toBe('done');
       expect((await client.getSessionProcesses(value.overseer.id)).length).toBe(before);
       const trigger = readAutoNudgeState(value.options.statePath).triggers[checkpoint.id];
-      expect(trigger).toMatchObject({ status: 'done', checkpointProcessId: checkpoint.id });
+      expect(trigger).toMatchObject({ status: 'done', checkpointProcessId: checkpoint.id, error: null });
+      expect(trigger?.correctionAttempts).toBeUndefined();
       expect(trigger?.correctionSendId).toBeUndefined();
     } finally { await rm(value.dir, { recursive: true, force: true }); }
   });
