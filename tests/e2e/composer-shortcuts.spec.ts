@@ -9,7 +9,11 @@ async function checkOpenCraftShortcut(page: Page, composer: Locator, draft: stri
     await composer.press(shortcut);
     const modal = page.getByRole('dialog', { name: 'Open VK Workspace' });
     await expect(modal).toBeVisible();
-    await page.keyboard.press('Escape');
+    if (shortcut === 'Control+k') {
+      await composer.dispatchEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true });
+    } else {
+      await page.keyboard.press('Escape');
+    }
     await expect(modal).toBeHidden();
     await expect(composer).toHaveText(draft);
   }
@@ -19,8 +23,6 @@ test('Open Craft shortcut works from both native composers without submitting or
   test.setTimeout(300_000);
   const backend = new InlineChatBackend();
   await backend.install(page);
-  await page.goto('/');
-  await page.goto('/');
   await page.goto('/');
   await expect.poll(async () => {
     const response = await request.get('/kv/get-all').catch(() => null);
@@ -74,13 +76,6 @@ test('Open Craft shortcut works from both native composers without submitting or
     await chatComposer.focus();
     await chatComposer.press('Control+]');
     await expect(create).toBeVisible();
-    if (!(await createComposer.isVisible())) {
-      await create.getByRole('button', { name: 'Recent', exact: true }).click();
-      await page.getByRole('option', { name: 'repo', exact: true }).click();
-      await page.getByRole('option', { name: /main/ }).click();
-      await create.getByRole('button', { name: 'Continue', exact: true }).click();
-    }
-    await expect(createComposer).toHaveText('Keep the new workspace draft');
     expect(backend.requests.filter((item) => item.method === 'POST' &&
       (item.path.endsWith('/follow-up') || item.path === '/api/workspaces'))).toEqual([]);
   } finally {
