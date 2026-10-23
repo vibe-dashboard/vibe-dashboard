@@ -24,7 +24,7 @@ interface VariantConfig {
 const variantConfig: Record<Variant, VariantConfig> = {
   user: {
     icon: UserIcon,
-    border: 'border-divider',
+    border: 'border-default-500/30',
     headerBg: '',
     bg: '',
   },
