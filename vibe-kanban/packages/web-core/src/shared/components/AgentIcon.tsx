@@ -29,6 +29,8 @@ export function getAgentName(
       return 'Copilot';
     case BaseCodingAgent.DROID:
       return 'Droid';
+    case BaseCodingAgent.GENERIC_ACP:
+      return 'Generic ACP';
   }
 }
 
