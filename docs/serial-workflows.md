@@ -201,6 +201,11 @@ execution deadlines and the script-oriented `vk send --sync` interface retain
 their separate semantics. If local route binding fails after acceptance, the CLI
 reports the accepted process and route identity for reconciliation; do not resend.
 
+The [sender correction/undo design](message-correction-and-undo.md) defines the
+proposed explicit immediate/queued choice and queued-only mutation commands. Those
+commands require the implementation's durable mutation fences; the current CLI
+does not yet expose them.
+
 ## Automatic CI notifications
 
 CI failures use identified queue delivery rather than direct follow-up. A busy
