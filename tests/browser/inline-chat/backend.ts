@@ -51,6 +51,9 @@ export const test = base.extend<{ backend: InlineChatBackend }>({
 export { expect };
 
 export class InlineChatBackend {
+  previewCommand = 'npm run preview';
+  previewSlotEnabled = true;
+  previewRestarts = 0;
   requests: Array<{ path: string; method: string; body: any }> = [];
   unexpected: string[] = [];
   scratches = new Map<
@@ -207,6 +210,11 @@ export class InlineChatBackend {
         );
         if (process?.status !== 'running')
           socket.send(JSON.stringify({ finished: true }));
+      } else if (url.pathname.includes('/raw-logs/')) {
+        socket.send(JSON.stringify({ JsonPatch: [
+          { op: 'add', path: '/entries/0', value: { type: 'STDOUT', content: 'Preview server listening\n' } },
+          { op: 'add', path: '/entries/1', value: { type: 'STDERR', content: 'Preview warning\n' } },
+        ] }));
       } else if (url.pathname.includes('/git/diff/')) {
         this.patch(socket, '/entries', {});
       } else if (url.pathname === '/api/approvals/stream/ws') {
@@ -389,19 +397,35 @@ export class InlineChatBackend {
       route.fulfill({
         json: { success: true, data, error_data: null, message: null },
       });
+    if (path.endsWith('/preview-slots/slot-1/script') && method === 'PUT') {
+      this.previewCommand = body.command;
+      return route.fulfill({ json: { command: this.previewCommand } });
+    }
+    if (path.endsWith('/preview-slots/slot-1') && method === 'DELETE') {
+      this.previewSlotEnabled = false;
+      return route.fulfill({ json: { deleted: true } });
+    }
+    if (path.endsWith('/preview-slots/slot-1/restart')) {
+      this.previewRestarts++;
+      return route.fulfill({ json: { execution_process: { id: `preview-process-${this.previewRestarts}` } } });
+    }
+    if (path.endsWith('/preview-slots/slot-1/process')) {
+      return route.fulfill({ json: { processId: `preview-process-${this.previewRestarts}`, message: null } });
+    }
     if (path.endsWith('/run-configs'))
       return route.fulfill({
         json: {
-          run_configs: [],
+          run_configs: [{ id: 'run-1', repo_id: 'repo-1', slug: 'app', name: 'Application', command: this.previewCommand, kind: 'long_running', enabled: true }],
           preview_urls: { 'slot-1': 'http://127.0.0.1:5189/preview.html?slot=slot-1' },
           preview_slots: [
             {
               id: 'slot-1',
               workspace_id: 'workspace-1',
               repo_id: 'repo-1',
+              run_config_id: 'run-1',
               title: 'Application preview',
               slot_slug: 'app',
-              enabled: true,
+              enabled: this.previewSlotEnabled,
             },
             { id: 'disabled-slot', title: 'Disabled preview', enabled: false },
           ],

@@ -88,7 +88,6 @@ export const IFRAME_VISUAL_READY_TIMEOUT_MS = 5000;
 
 // Preserve iframe store across HMR updates using Vite's HMR API.
 try {
-  // @ts-expect-error -- import.meta.hot is Vite-specific, not available under module: commonjs
   const hot = import.meta.hot;
   if (hot) {
     if (hot.data.iframeStore) {

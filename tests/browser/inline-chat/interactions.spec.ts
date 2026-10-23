@@ -261,7 +261,7 @@ test('preview menu opens the canonical URL and delegates configuration to its ho
   const menuBox = await left.getByRole('menu').boundingBox();
   expect(menuBox!.y + menuBox!.height).toBeLessThanOrEqual(triggerBox!.y);
   const popup = page.waitForEvent('popup');
-  await left.getByRole('menuitem', { name: /Application preview/ }).click();
+  await left.getByRole('menuitem', { name: /^Application preview/ }).click();
   const preview = await popup;
   await expect(preview).toHaveURL(
     'http://127.0.0.1:5189/preview.html?slot=slot-1',

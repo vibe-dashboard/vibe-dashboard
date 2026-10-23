@@ -123,6 +123,20 @@ describe("registerPreviewResolverRoutes", () => {
     });
   });
 
+  it('validates script input and scopes management routes to workspace slots', async () => {
+    const { app } = setup();
+    const path = '/internal/preview/workspaces/ws1/preview-slots/missing';
+    const emptyScript = await app.request(`${path}/script`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ command: '  ' }),
+    });
+    expect(emptyScript.status).toBe(400);
+    for (const [url, method] of [[`${path}/process`, 'GET'], [`${path}/restart`, 'POST'], [path, 'DELETE']]) {
+      const response = await app.request(url!, { method });
+      expect(response.status).toBe(404);
+      await expect(response.json()).resolves.toEqual({ message: 'Preview slot was not found' });
+    }
+  });
+
   it("forwards configuration writes and explicit start actions", async () => {
     const { app, client } = setup();
     const run = {

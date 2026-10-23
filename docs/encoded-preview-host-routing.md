@@ -52,6 +52,20 @@ not eagerly start a process; preview routing owns startup.
 vk preview-url url <workspace-id> <slot-id>
 ```
 
+## Preview slot menu
+
+Each slot has edit, restart, and server-log actions beside its URL:
+
+- **Edit** opens the stored run script in a modal. Saving updates the shared run
+  config; restart the slot to use the new command.
+- **Restart** stops the current workspace's slot process, then starts a new one.
+- **Logs** opens stdout/stderr replay and live output for the current process.
+  Viewing logs does not start a server. Stopped slots show an empty-state message.
+- **Delete preview slot**, inside the edit modal, stops the current process and
+  persists `enabled=false` on the slot. This retires it from the dropdown and URL
+  routing while retaining its shared run config. The current VK API has no
+  hard-delete endpoint.
+
 ## Runtime request flow
 
 1. The public Cloudflare Worker receives the encoded preview host.
