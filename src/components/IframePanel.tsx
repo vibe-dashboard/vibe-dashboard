@@ -4,7 +4,12 @@ import type { TabGroup, Tab } from '../types';
 import type { WorkspaceState, SavedWorkspaceSession } from '../types';
 import { AppLoadingScreen } from './AppLoadingScreen';
 import { SpacesOverview } from './SpacesOverview';
+import { DiffView } from './DiffView';
 import { hasSameBaseOrigin } from '../lib/originTrust';
+import {
+  getEffectivePairs,
+  getEffectiveTabs,
+} from '../modules/plugins/vibe-dashboard/craft-surfaces';
 import { getPluginIframePolicy, getPluginIframePostMessageTargetOrigin, parsePluginInternalUrl } from '../modules/plugins/vibe-dashboard/runtime';
 import { getRegisteredPluginIframePolicy, resolvePluginInternalRouteIframeSrc } from '../modules/plugins/vibe-dashboard/registry';
 import {
@@ -1021,10 +1026,12 @@ export function IframePanel({
   onBeadReferenceClick,
   onBeadFormSubmitted,
 }: IframePanelProps) {
-  const activeTab = tabGroup.tabs.find(
+  const tabs = getEffectiveTabs(tabGroup);
+  const pairs = getEffectivePairs(tabGroup);
+  const activeTab = tabs.find(
     (t) => t.id === activeItemId
   );
-  const activePair = tabGroup.pairs.find(
+  const activePair = pairs.find(
     (p) => p.id === activeItemId
   );
 
@@ -1035,10 +1042,22 @@ export function IframePanel({
     visibleTabIds.add(activeTab.id);
   }
 
+  const visibleIframeTabs = tabs.filter((tab) => {
+    if (!visibleTabIds.has(tab.id)) return false;
+    return getTabRenderTargetForTab(tab, tabGroup).kind === 'iframe';
+  });
+
+  const visibleRetainedIframeTabs = visibleIframeTabs.map((tab): RetainedIframeTab => ({
+    tab,
+    tabGroup,
+    iframeKey: getIframeRetentionKey(tabGroup.id, tab.id),
+  }));
+
   if (iframeRenderMode !== 'real') {
     return (
       <StaticIframePanelContent
         tabGroup={tabGroup}
+        tabs={tabs}
         activeTab={activeTab}
         activePair={activePair}
         iframeRenderMode={iframeRenderMode}
@@ -1057,18 +1076,8 @@ export function IframePanel({
     );
   }
 
-  const visibleIframeTabs = tabGroup.tabs.filter((tab) => {
-    if (!visibleTabIds.has(tab.id)) return false;
-    return getTabRenderTargetForTab(tab, tabGroup).kind === 'iframe';
-  });
-
-  const visibleRetainedIframeTabs = visibleIframeTabs.map((tab): RetainedIframeTab => ({
-    tab,
-    tabGroup,
-    iframeKey: getIframeRetentionKey(tabGroup.id, tab.id),
-  }));
   const allKnownIframeTabs = workspace?.tabGroups.flatMap((group) =>
-    group.tabs
+    getEffectiveTabs(group)
       .filter((tab) => getTabRenderTargetForTab(tab, group).kind === 'iframe')
       .map((tab): RetainedIframeTab => ({
         tab,
@@ -1102,7 +1111,7 @@ export function IframePanel({
 
       const sourceTabId = findTabIdForMessageSource(event.source);
       if (!sourceTabId) return;
-      if (!tabGroup.tabs.some((tab) => tab.id === sourceTabId)) return;
+      if (!tabs.some((tab) => tab.id === sourceTabId)) return;
 
       if (isBeadReferenceClickMessage(event.data)) {
         void onBeadReferenceClick?.(sourceTabId, event.data.beadId);
@@ -1114,7 +1123,7 @@ export function IframePanel({
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [onBeadFormSubmitted, onBeadReferenceClick, tabGroup.tabs]);
+  }, [onBeadFormSubmitted, onBeadReferenceClick, tabs]);
 
   return (
     <div className="w-full h-full relative">
@@ -1123,6 +1132,7 @@ export function IframePanel({
         activeTab={activeTab}
         activePair={activePair}
         tabGroup={tabGroup}
+        tabs={tabs}
         storeVersion={storeVersion}
         loadingState={loadingState}
         activationShieldState={activationShieldState}
@@ -1131,11 +1141,21 @@ export function IframePanel({
         <PairView
           activePair={activePair}
           tabGroup={tabGroup}
+          tabs={tabs}
           loadingState={loadingState}
           errorState={errorState}
           activationShieldState={activationShieldState}
           retryTab={retryTab}
           onUpdatePairRatios={onUpdatePairRatios}
+          {...(workspace ? { workspace } : {})}
+          {...(savedSessions ? { savedSessions } : {})}
+          {...(currentSessionId ? { currentSessionId } : {})}
+          {...(onResumeSession ? { onResumeSession } : {})}
+          {...(onRenameSession ? { onRenameSession } : {})}
+          {...(onDeleteSession ? { onDeleteSession } : {})}
+          {...(onStartNewSession ? { onStartNewSession } : {})}
+          {...(onNavigateToTabGroup ? { onNavigateToTabGroup } : {})}
+          {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
         />
       ) : activeTab ? (
           <SingleTabView
@@ -1165,6 +1185,7 @@ export function IframePanel({
 
 function StaticIframePanelContent({
   tabGroup,
+  tabs,
   activeTab,
   activePair,
   iframeRenderMode,
@@ -1181,6 +1202,7 @@ function StaticIframePanelContent({
   onOpenVKWorkspace,
 }: {
   tabGroup: TabGroup;
+  tabs: Tab[];
   activeTab?: Tab;
   activePair?: { id: string; tabIds: string[]; ratios: number[] };
   iframeRenderMode: Exclude<IframeRenderMode, 'real'>;
@@ -1203,7 +1225,7 @@ function StaticIframePanelContent({
 }) {
   if (activePair) {
     const pairTabs = activePair.tabIds
-      .map((id) => tabGroup.tabs.find((tab) => tab.id === id))
+      .map((id) => tabs.find((tab) => tab.id === id))
       .filter((tab): tab is Tab => tab != null);
 
     const handleLayoutChange = (layout: { [id: string]: number }) => {
@@ -1228,6 +1250,7 @@ function StaticIframePanelContent({
               >
                 <StaticTabContent
                   tab={tab}
+                  tabGroup={tabGroup}
                   iframeRenderMode={iframeRenderMode}
                   iframePreviewStatus={iframePreviewStatus}
                   {...(workspace ? { workspace } : {})}
@@ -1263,6 +1286,7 @@ function StaticIframePanelContent({
     <div className="w-full h-full relative">
       <StaticTabContent
         tab={activeTab}
+        tabGroup={tabGroup}
         iframeRenderMode={iframeRenderMode}
         iframePreviewStatus={iframePreviewStatus}
         {...(workspace ? { workspace } : {})}
@@ -1281,6 +1305,7 @@ function StaticIframePanelContent({
 
 function StaticTabContent({
   tab,
+  tabGroup,
   iframeRenderMode,
   iframePreviewStatus,
   workspace,
@@ -1294,6 +1319,7 @@ function StaticTabContent({
   onOpenVKWorkspace,
 }: {
   tab: Tab;
+  tabGroup: TabGroup;
   iframeRenderMode: Exclude<IframeRenderMode, 'real'>;
   iframePreviewStatus: IframePreviewStatus;
   workspace?: WorkspaceState;
@@ -1311,7 +1337,7 @@ function StaticTabContent({
     spaceId: string,
   ) => void | Promise<void>;
 }) {
-  const target = getTabRenderTarget(tab.url);
+  const target = getTabRenderTargetForTab(tab, tabGroup);
 
   if (target.kind === 'internal') {
     const { internalPath } = target;
@@ -1345,6 +1371,10 @@ function StaticTabContent({
 
   if (target.kind === 'blocked-self-app') {
     return <BlockedSelfAppPlaceholder url={tab.url} />;
+  }
+
+  if (target.kind === 'react-surface') {
+    return <ReactCraftSurfaceHost target={target.target} />;
   }
 
   return (
@@ -1403,6 +1433,7 @@ function PersistentIframeLayer({
   activeTab,
   activePair,
   tabGroup,
+  tabs,
   storeVersion,
   loadingState,
   activationShieldState,
@@ -1411,6 +1442,7 @@ function PersistentIframeLayer({
   activeTab?: Tab;
   activePair?: { id: string; tabIds: string[]; ratios: number[] };
   tabGroup: TabGroup;
+  tabs: Tab[];
   storeVersion: number;
   loadingState: Map<string, boolean>;
   activationShieldState: Map<string, boolean>;
@@ -1419,8 +1451,9 @@ function PersistentIframeLayer({
 
   if (activePair) {
     const pairTabs = activePair.tabIds
-      .map((id) => tabGroup.tabs.find((tab) => tab.id === id))
-      .filter((tab): tab is Tab => tab != null);
+      .map((id) => tabs.find((tab) => tab.id === id))
+      .filter((tab): tab is Tab => tab != null)
+      .filter((tab) => getTabRenderTargetForTab(tab, tabGroup).kind === 'iframe');
 
     const separatorWidth = 4;
     const totalSeparatorWidth = Math.max(pairTabs.length - 1, 0) * separatorWidth;
@@ -1541,7 +1574,7 @@ function SingleTabView({
       onStartNewSession
     ) {
       return (
-        <div className="flex-1 min-h-0 relative h-full">
+        <div className="flex-1 min-h-0 relative h-full pointer-events-auto">
           <SpacesOverview
             workspace={workspace}
             savedSessions={savedSessions || []}
@@ -1552,6 +1585,18 @@ function SingleTabView({
             onStartNewSession={onStartNewSession}
             onNavigateToTabGroup={onNavigateToTabGroup}
             {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
+          />
+        </div>
+      );
+    }
+
+    if (internalPath.startsWith('diff')) {
+      const params = parseInternalPathParams(internalPath);
+      return (
+        <div className="flex-1 min-h-0 relative h-full pointer-events-auto">
+          <DiffView
+            workspaceId={params.get('workspaceId') || ''}
+            workspaceDir={params.get('workspaceDir') || ''}
           />
         </div>
       );
@@ -1594,22 +1639,42 @@ function SingleTabView({
 function PairView({
   activePair,
   tabGroup,
+  tabs,
   loadingState,
   errorState,
   activationShieldState,
   retryTab,
   onUpdatePairRatios,
+  workspace,
+  savedSessions,
+  currentSessionId,
+  onResumeSession,
+  onRenameSession,
+  onDeleteSession,
+  onStartNewSession,
+  onNavigateToTabGroup,
+  onOpenVKWorkspace,
 }: {
   activePair: { id: string; tabIds: string[]; ratios: number[] };
   tabGroup: TabGroup;
+  tabs: Tab[];
   loadingState: Map<string, boolean>;
   errorState: Map<string, boolean>;
   activationShieldState: Map<string, boolean>;
   retryTab: (tabId: string) => void;
   onUpdatePairRatios: (pairId: string, ratios: number[]) => void;
+  workspace?: WorkspaceState;
+  savedSessions?: SavedWorkspaceSession[];
+  currentSessionId?: string;
+  onResumeSession?: (sessionId: string) => void;
+  onRenameSession?: (sessionId: string, name: string) => void;
+  onDeleteSession?: (sessionId: string) => void;
+  onStartNewSession?: () => void;
+  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void | Promise<void>;
+  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void | Promise<void>;
 }) {
   const pairTabs = activePair.tabIds
-    .map((id) => tabGroup.tabs.find((t) => t.id === id))
+    .map((id) => tabs.find((t) => t.id === id))
     .filter((t): t is Tab => t != null);
 
   const percentages = activePair.ratios;
@@ -1643,6 +1708,15 @@ function PairView({
                 hasError={hasError}
                 isActivationShielded={isActivationShielded}
                 retryTab={retryTab}
+                {...(workspace ? { workspace } : {})}
+                {...(savedSessions ? { savedSessions } : {})}
+                {...(currentSessionId ? { currentSessionId } : {})}
+                {...(onResumeSession ? { onResumeSession } : {})}
+                {...(onRenameSession ? { onRenameSession } : {})}
+                {...(onDeleteSession ? { onDeleteSession } : {})}
+                {...(onStartNewSession ? { onStartNewSession } : {})}
+                {...(onNavigateToTabGroup ? { onNavigateToTabGroup } : {})}
+                {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
               />
             </Panel>
             {i < pairTabs.length - 1 && (
@@ -1663,6 +1737,15 @@ function PairTabView({
   hasError,
   isActivationShielded,
   retryTab,
+  workspace,
+  savedSessions,
+  currentSessionId,
+  onResumeSession,
+  onRenameSession,
+  onDeleteSession,
+  onStartNewSession,
+  onNavigateToTabGroup,
+  onOpenVKWorkspace,
 }: {
   tab: Tab;
   tabGroup: TabGroup;
@@ -1671,9 +1754,32 @@ function PairTabView({
   hasError: boolean;
   isActivationShielded: boolean;
   retryTab: (tabId: string) => void;
+  workspace?: WorkspaceState;
+  savedSessions?: SavedWorkspaceSession[];
+  currentSessionId?: string;
+  onResumeSession?: (sessionId: string) => void;
+  onRenameSession?: (sessionId: string, name: string) => void;
+  onDeleteSession?: (sessionId: string) => void;
+  onStartNewSession?: () => void;
+  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void | Promise<void>;
+  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void | Promise<void>;
 }) {
   const target = getTabRenderTargetForTab(tab, tabGroup);
   const shouldShowLoadingOverlay = shouldShowIframeLoadingOverlay(isLoaded, isActivationShielded);
+
+  if (target.kind === 'internal') {
+    return renderInternalView(target.internalPath, {
+      workspace,
+      savedSessions,
+      currentSessionId,
+      onResumeSession,
+      onRenameSession,
+      onDeleteSession,
+      onStartNewSession,
+      onNavigateToTabGroup,
+      onOpenVKWorkspace,
+    });
+  }
 
   if (target.kind === 'blocked-self-app') {
     return <BlockedSelfAppPlaceholder url={tab.url} />;
@@ -1704,6 +1810,83 @@ function EmptyView() {
       <p>No tab selected. Click + to add a tab.</p>
     </div>
   );
+}
+
+type InternalViewContext = {
+  workspace?: WorkspaceState;
+  savedSessions?: SavedWorkspaceSession[];
+  currentSessionId?: string;
+  onResumeSession?: (sessionId: string) => void;
+  onRenameSession?: (sessionId: string, name: string) => void;
+  onDeleteSession?: (sessionId: string) => void;
+  onStartNewSession?: () => void;
+  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void | Promise<void>;
+  onOpenVKWorkspace?: (
+    taskAttemptId: string,
+    name: string,
+    containerRef: string,
+    spaceId: string,
+  ) => void | Promise<void>;
+};
+
+function renderInternalView(internalPath: string, context: InternalViewContext) {
+  if (
+    internalPath === 'spaces-overview' &&
+    context.workspace &&
+    context.onNavigateToTabGroup &&
+    context.onResumeSession &&
+    context.onRenameSession &&
+    context.onDeleteSession &&
+    context.onStartNewSession
+  ) {
+    return (
+      <div className="flex-1 min-h-0 relative h-full pointer-events-auto">
+        <SpacesOverview
+          workspace={context.workspace}
+          savedSessions={context.savedSessions || []}
+          currentSessionId={context.currentSessionId}
+          onResumeSession={context.onResumeSession}
+          onRenameSession={context.onRenameSession}
+          onDeleteSession={context.onDeleteSession}
+          onStartNewSession={context.onStartNewSession}
+          onNavigateToTabGroup={context.onNavigateToTabGroup}
+          {...(context.onOpenVKWorkspace
+            ? { onOpenVKWorkspace: context.onOpenVKWorkspace }
+            : {})}
+        />
+      </div>
+    );
+  }
+
+  if (internalPath.startsWith('diff')) {
+    const params = parseInternalPathParams(internalPath);
+    return (
+      <div className="flex-1 min-h-0 relative h-full pointer-events-auto">
+        <DiffView
+          workspaceId={params.get('workspaceId') || ''}
+          workspaceDir={params.get('workspaceDir') || ''}
+        />
+      </div>
+    );
+  }
+
+  const pluginRoute = parsePluginInternalUrl(`internal://${internalPath}`);
+  if (pluginRoute) {
+    return (
+      <PluginInternalRoutePlaceholder
+        pluginId={pluginRoute.pluginId}
+        routePath={pluginRoute.routePath}
+      />
+    );
+  }
+
+  return <UnknownInternalRoutePlaceholder url={`internal://${internalPath}`} />;
+}
+
+function parseInternalPathParams(internalPath: string): URLSearchParams {
+  const queryIndex = internalPath.indexOf('?');
+  if (queryIndex === -1) return new URLSearchParams();
+  return new URLSearchParams(internalPath.slice(queryIndex + 1));
 }
 
 function PluginInternalRoutePlaceholder({ pluginId, routePath }: { pluginId: string; routePath: string }) {

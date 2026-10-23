@@ -1,6 +1,10 @@
 import React from 'react';
 import { AddressBar } from './AddressBar';
 import { IframePanel } from './IframePanel';
+import {
+  getEffectivePairs,
+  getEffectiveTabs,
+} from '../modules/plugins/vibe-dashboard/craft-surfaces';
 import type {
   TabGroup,
   WorkspaceState,
@@ -126,8 +130,8 @@ function getSingleViewActiveItemId(
 ): string {
   if (!disableSplitViews) return activeItemId;
 
-  const activePair = tabGroup.pairs.find((pair) => pair.id === activeItemId);
+  const activePair = getEffectivePairs(tabGroup).find((pair) => pair.id === activeItemId);
   if (!activePair) return activeItemId;
 
-  return tabGroup.tabs[0]?.id || activePair.tabIds[0] || activeItemId;
+  return getEffectiveTabs(tabGroup)[0]?.id || activePair.tabIds[0] || activeItemId;
 }

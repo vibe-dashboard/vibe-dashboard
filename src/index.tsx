@@ -36,6 +36,7 @@ import "./modules/plugins/kanban/jira/serverModule";
 import "./modules/plugins/kanban/linear/serverModule";
 // @platform end
 
+import "./modules/GitDiffModule";
 import "./modules/BeadsFormModule";
 
 const WORKSPACE_CREATE_PATH = "/workspaces";

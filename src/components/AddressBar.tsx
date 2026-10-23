@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import {
+  getEffectivePairs,
+  getEffectiveTabs,
   isBuiltInWorkspaceTabId,
   isEphemeralCraftSurfaceTab,
 } from '../modules/plugins/vibe-dashboard/craft-surfaces';
@@ -51,11 +53,20 @@ export function getAddressBarEntries(
   tabGroup: TabGroup,
   activeItemId: string,
 ): AddressBarEntry[] {
-  const activeTab = tabGroup.tabs.find((tab) => tab.id === activeItemId);
-  const activePair = tabGroup.pairs.find((pair) => pair.id === activeItemId);
+  const effectiveTabs = getEffectiveTabs(tabGroup);
+  const effectivePairs = getEffectivePairs(tabGroup);
+  const pairs = [
+    ...effectivePairs,
+    ...tabGroup.pairs.filter(
+      (pair) =>
+        !effectivePairs.some((effectivePair) => effectivePair.id === pair.id),
+    ),
+  ];
+  const activeTab = effectiveTabs.find((tab) => tab.id === activeItemId);
+  const activePair = pairs.find((pair) => pair.id === activeItemId);
   const tabs = activePair
     ? activePair.tabIds
-        .map((id) => tabGroup.tabs.find((tab) => tab.id === id))
+        .map((id) => effectiveTabs.find((tab) => tab.id === id))
         .filter((tab): tab is Tab => tab !== undefined)
     : activeTab
       ? [activeTab]

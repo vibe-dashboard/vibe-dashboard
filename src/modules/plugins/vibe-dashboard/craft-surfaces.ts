@@ -6,25 +6,32 @@ import type {
   VoyageEntry,
   WorkspaceState,
 } from "../../../types";
-import { buildWorkspaceFolderUrl } from "../../../lib/vkWorkspaceUrl";
+import {
+  buildWorkspaceDiffUrl,
+  buildWorkspaceFolderUrl,
+} from "../../../lib/vkWorkspaceUrl";
 import type { RegisteredCraftSurfaceContribution } from "./types";
 
 export const CRAFT_SURFACE_TAB_ID_PREFIX = "craft-surface:";
 export const BUILT_IN_AGENT_TAB_ID = "agent";
 export const BUILT_IN_CODE_TAB_ID = "code";
+export const BUILT_IN_DIFF_TAB_ID = "diff";
 export const BUILT_IN_BEADS_TAB_ID = "beads";
 export const BUILT_IN_FORMS_TAB_ID = "forms";
 export const BUILT_IN_AGENT_CODE_PAIR_ID = "agent+code";
+export const BUILT_IN_AGENT_DIFF_PAIR_ID = "agent+diff";
 export const BUILT_IN_AGENT_BEADS_PAIR_ID = "agent+beads";
 
 const BUILT_IN_WORKSPACE_TAB_IDS = new Set([
   BUILT_IN_AGENT_TAB_ID,
   BUILT_IN_CODE_TAB_ID,
+  BUILT_IN_DIFF_TAB_ID,
   BUILT_IN_BEADS_TAB_ID,
   BUILT_IN_FORMS_TAB_ID,
 ]);
 const BUILT_IN_WORKSPACE_PAIR_IDS = new Set([
   BUILT_IN_AGENT_CODE_PAIR_ID,
+  BUILT_IN_AGENT_DIFF_PAIR_ID,
   BUILT_IN_AGENT_BEADS_PAIR_ID,
 ]);
 const URL_PARSE_BASE = "https://workspace.local";
@@ -67,7 +74,11 @@ function createEffectiveCraftWithSurfaces(input: {
     craftSurfaces: input.craftSurfaces,
     origin: input.origin,
   });
-  const pairs = getEffectivePairs({ ...input.tabGroup, tabs }, input.origin);
+  const pairs = getEffectivePairs(input.tabGroup, {
+    craftSurfaces: input.craftSurfaces,
+    effectiveTabs: tabs,
+    origin: input.origin,
+  });
 
   if (tabs === input.tabGroup.tabs && pairs === input.tabGroup.pairs) {
     return input.tabGroup;
@@ -82,6 +93,7 @@ export function getEffectiveTabs(
     origin?: string;
   } = {},
 ): Tab[] {
+  const hasExplicitCraftSurfaces = Object.hasOwn(options, "craftSurfaces");
   const builtInWorkspaceTabs = getBuiltInWorkspaceTabs(
     tabGroup,
     options.origin ?? "",
@@ -93,12 +105,18 @@ export function getEffectiveTabs(
   });
   const generatedTabs = [...builtInWorkspaceTabs, ...craftSurfaceTabs];
   const generatedIds = new Set(generatedTabs.map((tab) => tab.id));
-  const customTabs = tabGroup.tabs.filter(
-    (tab) =>
+  const customTabs = tabGroup.tabs.filter((tab) => {
+    const isExistingCraftSurface = isEphemeralPluginSurfaceTab(tab);
+    return (
       !generatedIds.has(tab.id) &&
-      !isEphemeralPluginSurfaceTab(tab) &&
-      !(builtInWorkspaceTabs.length > 0 && isGeneratedWorkspaceTab(tab)),
-  );
+      (!hasExplicitCraftSurfaces || !isExistingCraftSurface) &&
+      !(
+        builtInWorkspaceTabs.length > 0 &&
+        isGeneratedWorkspaceTab(tab) &&
+        !isExistingCraftSurface
+      )
+    );
+  });
   if (
     generatedTabs.length === 0 &&
     customTabs.length === tabGroup.tabs.length
@@ -117,10 +135,39 @@ function isEphemeralPluginSurfaceTab(
   );
 }
 
-export function getEffectivePairs(tabGroup: TabGroup, origin = ""): ViewPair[] {
+export function getEffectivePairs(
+  tabGroup: TabGroup,
+  options: string | {
+    craftSurfaces?: RegisteredCraftSurfaceContribution[];
+    effectiveTabs?: Tab[];
+    origin?: string;
+  } = "",
+): ViewPair[] {
+  const origin = typeof options === "string" ? options : options.origin ?? "";
   const builtInPairs = getBuiltInWorkspacePairs(tabGroup, origin);
   const builtInPairIds = new Set(builtInPairs.map((pair) => pair.id));
-  const validTabIds = new Set(tabGroup.tabs.map((tab) => tab.id));
+  const effectiveTabs =
+    typeof options === "string"
+      ? getEffectiveTabs(tabGroup, { origin })
+      : options.effectiveTabs ??
+        getEffectiveTabs(tabGroup, {
+          craftSurfaces: options.craftSurfaces,
+          origin,
+        });
+  const validTabIds = new Set(
+    effectiveTabs.map((tab) => tab.id),
+  );
+  const shouldPreserveExistingEphemeralTabs =
+    typeof options === "string" ||
+    (!Object.hasOwn(options, "craftSurfaces") &&
+      !Object.hasOwn(options, "effectiveTabs"));
+  if (shouldPreserveExistingEphemeralTabs) {
+    for (const tab of tabGroup.tabs) {
+      if (isEphemeralPluginSurfaceTab(tab)) {
+        validTabIds.add(tab.id);
+      }
+    }
+  }
   const customPairs = tabGroup.pairs.filter(
     (pair) =>
       !builtInPairIds.has(pair.id) &&
@@ -174,7 +221,11 @@ export function getBuiltInWorkspaceMetadata(
   tabGroup: Pick<TabGroup, "tabs" | "workspace">,
 ): BuiltInWorkspaceMetadata | null {
   if (tabGroup.workspace?.workspaceId && tabGroup.workspace.workspaceDir) {
-    return tabGroup.workspace;
+    return {
+      ...tabGroup.workspace,
+      baseOrigin:
+        tabGroup.workspace.baseOrigin ?? getAgentBaseOrigin(tabGroup.tabs),
+    };
   }
 
   const workspaceId = getWorkspaceIdFromTabs(tabGroup.tabs);
@@ -184,15 +235,18 @@ export function getBuiltInWorkspaceMetadata(
   return {
     workspaceId,
     workspaceDir,
+    baseOrigin: getAgentBaseOrigin(tabGroup.tabs),
   };
 }
 
 function getBuiltInWorkspaceTabs(tabGroup: TabGroup, origin: string): Tab[] {
   const metadata = getBuiltInWorkspaceMetadata(tabGroup);
   if (!metadata) return [];
-  const workspaceBaseOrigin = getBuiltInWorkspaceBaseOrigin(origin, {
+  const workspaceBaseOrigin =
+    metadata.baseOrigin ??
+    getBuiltInWorkspaceBaseOrigin(origin, {
     allowConfiguredVkBaseOrigin: true,
-  });
+    });
   const dashboardBaseOrigin = getBuiltInWorkspaceBaseOrigin(origin);
   return [
     {
@@ -205,6 +259,12 @@ function getBuiltInWorkspaceTabs(tabGroup: TabGroup, origin: string): Tab[] {
       id: BUILT_IN_CODE_TAB_ID,
       title: "Code",
       url: buildWorkspaceFolderUrl(workspaceBaseOrigin, metadata.workspaceDir),
+      pinned: true,
+    },
+    {
+      id: BUILT_IN_DIFF_TAB_ID,
+      title: "Diff",
+      url: buildWorkspaceDiffUrl(metadata.workspaceId, metadata.workspaceDir),
       pinned: true,
     },
     {
@@ -261,6 +321,13 @@ function getBuiltInWorkspacePairs(
     pairs.push({
       id: BUILT_IN_AGENT_CODE_PAIR_ID,
       tabIds: [BUILT_IN_AGENT_TAB_ID, BUILT_IN_CODE_TAB_ID],
+      ratios: [50, 50],
+    });
+  }
+  if (tabIds.has(BUILT_IN_AGENT_TAB_ID) && tabIds.has(BUILT_IN_DIFF_TAB_ID)) {
+    pairs.push({
+      id: BUILT_IN_AGENT_DIFF_PAIR_ID,
+      tabIds: [BUILT_IN_AGENT_TAB_ID, BUILT_IN_DIFF_TAB_ID],
       ratios: [50, 50],
     });
   }
@@ -418,6 +485,7 @@ function isGeneratedWorkspaceTab(
     isEphemeralCraftSurfaceTab(tab) ||
     isAgentTab(tab) ||
     isCodeTab(tab) ||
+    isDiffTab(tab) ||
     isBeadsTab(tab) ||
     isFormsTab(tab)
   );
@@ -522,6 +590,17 @@ function getWorkspaceDirFromTabs(tabs: Tab[]): string | null {
   return null;
 }
 
+function getAgentBaseOrigin(tabs: Tab[]): string | undefined {
+  const agentTab = tabs.find(isAgentTab);
+  if (!agentTab) return undefined;
+  try {
+    const parsed = new URL(agentTab.url, URL_PARSE_BASE);
+    return parsed.origin === URL_PARSE_BASE ? "" : parsed.origin;
+  } catch {
+    return undefined;
+  }
+}
+
 function isAgentTab(tab: Pick<Tab, "title" | "url">): boolean {
   return (
     tab.title.trim().toLowerCase() === "agent" ||
@@ -536,6 +615,14 @@ function isCodeTab(tab: Pick<Tab, "title" | "url">): boolean {
   } catch {
     return false;
   }
+}
+
+function isDiffTab(tab: Pick<Tab, "id" | "title" | "url">): boolean {
+  return (
+    tab.id === BUILT_IN_DIFF_TAB_ID ||
+    tab.title.trim().toLowerCase() === "diff" ||
+    tab.url.startsWith("internal://diff")
+  );
 }
 
 function isBeadsTab(tab: Pick<Tab, "id" | "title" | "url">): boolean {
