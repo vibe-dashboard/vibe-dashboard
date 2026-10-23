@@ -126,6 +126,7 @@ interface SharedProps {
   getActiveTurnPatchKey?: () => string | null;
   /** Disable the "view code" click handler (for VS Code extension) */
   disableViewCode: boolean;
+  onViewDiffs?: () => void;
   /** Replace diff stats with an "Open Workspace" button in header */
   showOpenWorkspaceButton: boolean;
 }
@@ -175,6 +176,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     onScrollToUserMessage,
     getActiveTurnPatchKey,
     disableViewCode = false,
+    onViewDiffs,
     showOpenWorkspaceButton,
     surfaceId,
     showOpenInIdeAction = false,
@@ -1089,7 +1091,9 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
           linesAdded: 0,
           linesRemoved: 0,
         }}
-        onViewCode={disableViewCode ? undefined : handleViewCode}
+        onViewCode={
+          onViewDiffs ?? (disableViewCode ? undefined : handleViewCode)
+        }
         chatViewMode={chatViewMode}
         chatViewModeSelector={chatViewModeSelector}
       />
@@ -1099,7 +1103,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   return (
     <SessionChatBox<BaseCodingAgent>
       status={status}
-      onViewCode={disableViewCode ? undefined : handleViewCode}
+      onViewCode={onViewDiffs ?? (disableViewCode ? undefined : handleViewCode)}
       chatViewMode={chatViewMode}
       chatViewModeSelector={chatViewModeSelector}
       onOpenWorkspace={

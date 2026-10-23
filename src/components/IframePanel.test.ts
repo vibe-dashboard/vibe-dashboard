@@ -252,8 +252,11 @@ describe('iframe reveal behavior', () => {
 
     expect(markup).toContain('PreviewServer');
     expect(markup).toContain('stored run configs');
-    expect(markup).toContain('left:calc(50.000000% + 2.000px)');
-    expect(markup).toContain('width:calc(50.000000% - 2.000px)');
+    expect(markup).toContain(
+      'data-testid="craft-surface:craft_workspace:dev.mickmister.preview-server/run-configs"',
+    );
+    expect(markup).toContain('data-testid="code"');
+    expect(markup).toContain('role="separator"');
   });
 
   it('renders built-in Agent React surfaces inside pair layouts without iframe chrome', () => {

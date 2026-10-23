@@ -2,6 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { getPreviewServerTabId, getReactCraftSurfaceTarget } from './react-craft-surfaces';
 
 describe('getReactCraftSurfaceTarget', () => {
+  it('routes workspace Diffs through the registered React surface with workspace identity', () => {
+    expect(getReactCraftSurfaceTarget(
+      { id: 'diff', title: 'Diffs', url: 'internal://diff' },
+      { tabs: [], workspace: { workspaceId: 'workspace-1', workspaceDir: '/repo' } },
+    )).toEqual({
+      kind: 'react',
+      pluginId: 'vd.built-in',
+      surfaceKey: 'diffs',
+      props: { workspaceId: 'workspace-1', workspaceDir: '/repo' },
+    });
+  });
   it('gives the two native Agent views distinct stable surface identities', () => {
     const craft = {
       id: 'craft-1',

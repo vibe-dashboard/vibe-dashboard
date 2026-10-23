@@ -74,6 +74,7 @@ export type InlineVkAgentChatProps = {
   workspacePreview?: ReactNode;
   onOpenCraft?: () => void;
   onRemoveCraft?: () => void;
+  onViewDiffs?: () => void;
 };
 
 export type InlineVkCreateWorkspaceProps = {
@@ -389,6 +390,7 @@ function InlineWorkspaceChat({
   workspacePreview,
   onOpenCraft,
   onRemoveCraft,
+  onViewDiffs,
 }: InlineVkAgentChatProps) {
   const [effectiveChatViewMode, setEffectiveChatViewMode] =
     useState<SurfaceChatViewMode>(
@@ -458,6 +460,7 @@ function InlineWorkspaceChat({
             chatViewMode={effectiveChatViewMode}
             chatViewModeSelector={chatViewModeSelector}
             workspacePreview={workspacePreview}
+            onViewDiffs={onViewDiffs}
             surfaceId={surfaceId}
           />
         </InlineWorkspaceProvider>
@@ -472,6 +475,7 @@ function InlineWorkspaceChatContent({
   chatViewModeSelector,
   workspacePreview,
   surfaceId,
+  onViewDiffs,
 }: {
   refHolder: React.RefObject<{
     scrollToBottom: (behavior?: "auto" | "smooth") => void;
@@ -480,6 +484,7 @@ function InlineWorkspaceChatContent({
   chatViewModeSelector: ReactNode;
   workspacePreview?: ReactNode;
   surfaceId: string;
+  onViewDiffs?: () => void;
 }) {
   const workspace = useWorkspaceContext();
 
@@ -501,6 +506,7 @@ function InlineWorkspaceChatContent({
       workspacePreview={workspacePreview}
       showContextBar={false}
       disableViewCode
+      onViewDiffs={onViewDiffs}
       surfaceId={surfaceId}
       showOpenInIdeAction
     />
@@ -515,6 +521,7 @@ export function InlineVkAgentChat({
   workspacePreview,
   onOpenCraft,
   onRemoveCraft,
+  onViewDiffs,
 }: InlineVkAgentChatProps) {
   if (!workspaceId) {
     return (
@@ -538,6 +545,7 @@ export function InlineVkAgentChat({
           workspacePreview={workspacePreview}
           onOpenCraft={onOpenCraft}
           onRemoveCraft={onRemoveCraft}
+          onViewDiffs={onViewDiffs}
         />
       </InlineVkRuntime>
     </div>

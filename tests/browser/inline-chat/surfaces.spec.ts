@@ -1,5 +1,21 @@
 import { expect, test } from "./backend";
 
+test("composer diff counts invoke their own host action and preserve the selected session and draft", async ({ page, backend }) => {
+  await page.goto('/?right=workspace-2');
+  const left = page.getByRole('region', { name: 'Left Agent' });
+  const right = page.getByRole('region', { name: 'Right Agent' });
+  await expect(left).toContainText('History for session-1');
+  await expect(right).toContainText('History for session-3');
+  const composer = left.getByRole('textbox', { name: /Follow up|Markdown editor/ }).last();
+  await composer.fill('Keep this draft when opening diffs');
+  await left.getByRole('button', { name: /0 files changed/ }).click();
+  await expect(page.getByText('Diff requested for left:workspace-1', { exact: true })).toBeVisible();
+  await expect(composer).toHaveText('Keep this draft when opening diffs');
+  await expect(left.getByRole('button', { name: 'session-1', exact: true })).toBeVisible();
+  await right.getByRole('button', { name: /0 files changed/ }).click();
+  await expect(page.getByText('Diff requested for right:workspace-2', { exact: true })).toBeVisible();
+});
+
 test("two inline panes keep independent drafts, modes and lifetime", async ({
   page,
   backend,

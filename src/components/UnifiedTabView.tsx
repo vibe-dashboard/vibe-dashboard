@@ -1,6 +1,11 @@
 import React from 'react';
 import { AddressBar } from './AddressBar';
 import { IframePanel } from './IframePanel';
+import {
+  getEffectivePairs,
+  getEffectiveTabs,
+  BUILT_IN_DIFF_TAB_ID,
+} from '../modules/plugins/vibe-dashboard/craft-surfaces';
 import type {
   TabGroup,
   WorkspaceState,
@@ -138,6 +143,14 @@ export function UnifiedTabView({
               });
             }}
             onOpenCraft={onOpenCraft}
+            onViewDiffs={(agentTabId) => {
+              const pair = getEffectivePairs(activeTabGroup).find(
+                (item) =>
+                  item.tabIds[0] === agentTabId &&
+                  item.tabIds[1] === BUILT_IN_DIFF_TAB_ID,
+              );
+              if (pair) sessionActions.selectPair(activeTabGroup.id, pair.id);
+            }}
             onRemoveCraft={() => {
               const spaceId = workspace.spaces.find((space) =>
                 space.tabGroupIds.includes(activeTabGroup.id),
@@ -168,8 +181,8 @@ function getSingleViewActiveItemId(
 ): string {
   if (!disableSplitViews) return activeItemId;
 
-  const activePair = tabGroup.pairs.find((pair) => pair.id === activeItemId);
+  const activePair = getEffectivePairs(tabGroup).find((pair) => pair.id === activeItemId);
   if (!activePair) return activeItemId;
 
-  return tabGroup.tabs[0]?.id || activePair.tabIds[0] || activeItemId;
+  return getEffectiveTabs(tabGroup)[0]?.id || activePair.tabIds[0] || activeItemId;
 }

@@ -46,6 +46,7 @@ function ChatBoxWithDiffStats({
   onScrollToUserMessage,
   getActiveTurnPatchKey,
   disableViewCode,
+  onViewDiffs,
   surfaceId,
   showOpenInIdeAction,
 }: {
@@ -63,6 +64,7 @@ function ChatBoxWithDiffStats({
   onScrollToUserMessage: (patchKey: string) => void;
   getActiveTurnPatchKey: () => string | null;
   disableViewCode: boolean;
+  onViewDiffs?: () => void;
   surfaceId?: string;
   showOpenInIdeAction: boolean;
 }) {
@@ -94,6 +96,7 @@ function ChatBoxWithDiffStats({
       chatViewModeSelector={chatViewModeSelector}
       workspacePreview={workspacePreview}
       disableViewCode={disableViewCode}
+      onViewDiffs={onViewDiffs}
       surfaceId={surfaceId}
       showOpenInIdeAction={showOpenInIdeAction}
       showOpenWorkspaceButton={false}
@@ -125,6 +128,7 @@ interface WorkspacesMainContainerProps {
   workspacePreview?: ReactNode;
   showContextBar?: boolean;
   disableViewCode?: boolean;
+  onViewDiffs?: () => void;
   surfaceId?: string;
   showOpenInIdeAction?: boolean;
 }
@@ -149,6 +153,7 @@ export const WorkspacesMainContainer = forwardRef<
     workspacePreview,
     showContextBar = true,
     disableViewCode = false,
+    onViewDiffs,
     surfaceId,
     showOpenInIdeAction = false,
   },
@@ -278,6 +283,7 @@ export const WorkspacesMainContainer = forwardRef<
       onScrollToUserMessage={handleScrollToUserMessage}
       getActiveTurnPatchKey={handleGetActiveTurnPatchKey}
       disableViewCode={disableViewCode}
+      onViewDiffs={onViewDiffs}
       surfaceId={surfaceId}
       showOpenInIdeAction={showOpenInIdeAction}
     />

@@ -15,6 +15,7 @@ declare module '@vibe/inline-chat' {
     workspacePreview?: ReactNode;
     onOpenCraft?: () => void;
     onRemoveCraft?: () => void;
+    onViewDiffs?: () => void;
   };
 
   export type InlineVkCreateWorkspaceProps = {

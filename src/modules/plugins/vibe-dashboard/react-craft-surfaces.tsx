@@ -6,6 +6,7 @@ import { RetryableInlineSurface } from '../../../components/RetryableInlineSurfa
 import {
   BUILT_IN_AGENT_TAB_ID,
   BUILT_IN_SECOND_AGENT_TAB_ID,
+  BUILT_IN_DIFF_TAB_ID,
   getBuiltInWorkspaceMetadata,
 } from './craft-surfaces';
 
@@ -16,6 +17,10 @@ const loadInlineVkAgentChat = () =>
 const loadInlineVkCreateWorkspace = () =>
   import('@vibe/inline-chat').then((module) => ({
     default: module.InlineVkCreateWorkspace,
+  }));
+const loadDiffView = () =>
+  import('../../../components/DiffView').then((module) => ({
+    default: module.DiffView,
   }));
 
 export interface ReactCraftSurfaceTarget {
@@ -30,6 +35,7 @@ export interface ReactCraftSurfaceHostContext {
   onWorkspaceCreated?: (workspaceId: string) => void;
   onOpenCraft?: () => void;
   onRemoveCraft?: () => void;
+  onViewDiffs?: () => void;
 }
 
 interface ReactCraftSurfaceComponentProps {
@@ -63,6 +69,18 @@ const FIRST_PARTY_REACT_SURFACES: Record<string, ReactCraftSurfaceComponent> = {
           ) : undefined,
         onOpenCraft: host.onOpenCraft,
         onRemoveCraft: host.onRemoveCraft,
+        onViewDiffs: host.onViewDiffs,
+      }}
+    />
+  ),
+  'vd.built-in/diffs': ({ surfaceProps }) => (
+    <RetryableInlineSurface
+      key={surfaceProps.workspaceId}
+      label="Diffs"
+      load={loadDiffView}
+      componentProps={{
+        workspaceId: surfaceProps.workspaceId ?? '',
+        workspaceDir: surfaceProps.workspaceDir ?? '',
       }}
     />
   ),
@@ -84,6 +102,18 @@ export function getReactCraftSurfaceTarget(
   tabGroup: Pick<TabGroup, 'tabs' | 'workspace'> & { id?: string },
 ): ReactCraftSurfaceTarget | null {
   const workspace = getBuiltInWorkspaceMetadata(tabGroup);
+
+  if (tab.id === BUILT_IN_DIFF_TAB_ID && workspace?.workspaceId) {
+    return {
+      kind: 'react',
+      pluginId: 'vd.built-in',
+      surfaceKey: 'diffs',
+      props: {
+        workspaceId: workspace.workspaceId,
+        workspaceDir: workspace.workspaceDir,
+      },
+    };
+  }
 
   if (
     (tab.id === BUILT_IN_AGENT_TAB_ID || tab.id === BUILT_IN_SECOND_AGENT_TAB_ID) &&

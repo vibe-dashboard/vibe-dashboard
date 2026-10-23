@@ -8,6 +8,7 @@ import '../../../src/styles.css';
 function Harness() {
   const [leftVisible, setLeftVisible] = useState(true);
   const [configured, setConfigured] = useState('');
+  const [diffRequested, setDiffRequested] = useState('');
   const rightWorkspace =
     new URLSearchParams(location.search).get('right') ?? 'workspace-1';
   if (new URLSearchParams(location.search).has('preview-config')) {
@@ -38,6 +39,7 @@ function Harness() {
             <InlineVkAgentChat
               workspaceId="workspace-1"
               surfaceId="left"
+              onViewDiffs={() => setDiffRequested('left:workspace-1')}
               workspacePreview={
                 <WorkspacePreviewMenu
                   workspaceId="workspace-1"
@@ -51,6 +53,7 @@ function Harness() {
           <InlineVkAgentChat
             workspaceId={rightWorkspace}
             surfaceId="right"
+            onViewDiffs={() => setDiffRequested(`right:${rightWorkspace}`)}
             workspacePreview={
               <WorkspacePreviewMenu
                 workspaceId={rightWorkspace}
@@ -61,6 +64,7 @@ function Harness() {
         </section>
       </div>
       {configured && <p>Configure requested for {configured}</p>}
+      {diffRequested && <p>Diff requested for {diffRequested}</p>}
     </>
   );
 }
