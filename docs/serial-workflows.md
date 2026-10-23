@@ -226,6 +226,20 @@ the current workflow configuration does not enable those proposed records.
 
 [Codex usage-exhaustion research](codex-usage-evidence.md) records verified
 structured error fixtures, a real transient-error negative control, and the
-classification/deduplication handoff. Detection and Discord alerts remain a
-separate implementation; neither usage percentages nor VK exit status alone can
-establish exhaustion.
+classification/deduplication contract. A matching VK backend exposes canonical
+`usage_limit_events` on the exact terminal process REST result. The daemon records
+durable `rate-limited` state for that process and pauses automatic checkpoint and
+serial dispatch for its workspace while it remains the latest exhausted turn.
+Automatic queued/response sends to the exhausted session are deferred. A later
+process is evaluated independently; no reset time is guessed from the message.
+
+With Discord enabled, each process/thread/turn event creates one durable outbox
+item linking to `${VK_ORIGIN}/workspaces/<workspace-id>`. Delivery failures retry
+through the existing outbox; delivered receipts suppress local replay. A missing
+`VK_ORIGIN` is reported without discarding evidence and can be repaired before the
+next cycle. Disabling Discord retains rate-limited evidence; enabling it later
+can enqueue the alert. Dry-run does not persist evidence or send alerts. Neither
+usage percentages nor VK exit status alone can establish exhaustion, and an older
+backend without the evidence field does not enable detection. Discord's webhook
+has no application idempotency receipt: a response lost after remote acceptance
+can still cause a duplicate remote message on retry.

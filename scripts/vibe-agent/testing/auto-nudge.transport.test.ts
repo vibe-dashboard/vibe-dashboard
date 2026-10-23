@@ -80,24 +80,22 @@ describe('auto-nudge across real VK transport', () => {
     expect(readAutoNudgeState(options.statePath).triggers.complete).toMatchObject({ status: 'done', checkpointProcessId: 'checkpoint' });
   });
 
-  it('treats an in-turn teammate handoff as delegated even before checkpoint terminal', async () => {
+  it('requires a checkpoint envelope even when a real teammate handoff starts during the turn', async () => {
     const scenario = base([process('complete', 'impl', 'completed', 'Finished')]);
     const checkpoint = process('checkpoint', 'overseer', 'running'); checkpoint.statusSequence = ['completed'];
     scenario.sessions.push({ id: 'review', workspace_id: 'workspace', name: 'review', executor: 'CODEX', created_at: old, updated_at: old, processes: [] });
-    scenario.followUps = [{ sessionId: 'overseer', process: checkpoint }];
+    scenario.followUps = [{ sessionId: 'overseer', process: checkpoint }, { sessionId: 'review', process: process('handoff', 'review', 'running') }];
     const { options, client } = await setup(scenario);
-    let reads = 0;
-    const original = client.getAutoNudgeStatus;
-    client.getAutoNudgeStatus = async (request, signal) => {
-      const status = await original(request, signal);
-      if (++reads > 1) {
-        const review = status.workspaces[0]?.sessions.find(item => item.id === 'review');
-        if (review) review.latest_codingagent_process = { ...process('handoff', 'review', 'running'), final_response: null, terminal_no_response: false };
-      }
-      return status;
+    const original = client.sendMessage;
+    client.sendMessage = async (sessionId, message) => {
+      const accepted = await original(sessionId, message);
+      if (sessionId === 'overseer') await original('review', body('Review the work', { executor: 'CODEX' }));
+      return accepted;
     };
     await runAutoNudgeCycle(client, options);
-    expect(readAutoNudgeState(options.statePath).triggers.complete).toMatchObject({ status: 'delegated' });
+    expect(readAutoNudgeState(options.statePath).triggers.complete).toMatchObject({ status: 'checkpoint-sent', correctionAttempts: 1 });
+    const observed = await client.getAutoNudgeStatus({ registered_workspace_ids: ['workspace'], include_global_recent: false, global_cursor: null, updated_after: old, limit_workspaces: 25, limit_sessions: 250 });
+    expect(observed.workspaces[0]?.sessions.find(item => item.id === 'review')?.latest_codingagent_process?.id).toBe('handoff');
   });
 
   it('restarts from persisted checkpoint identity without another follow-up', async () => {
@@ -127,6 +125,27 @@ describe('auto-nudge across real VK transport', () => {
     expect((await runAutoNudgeCycle(client, options)).discordDeliveries).toBe(0);
     expect(discord.deliveries).toEqual([{ content: 'quota event' }, { content: 'quota event' }]);
     expect(readAutoNudgeState(options.statePath).outbox.alert).toMatchObject({ attempts: 2, deliveredAt: now });
+  });
+
+  it('consumes structured usage evidence over REST and retries one Discord alert across client restart without WebSockets', async () => {
+    const exhausted = process('exhausted', 'impl', 'completed');
+    exhausted.usageLimitEvents = [
+      { code: 'usage_limit_exceeded', thread_id: 'thread', turn_id: 'turn' },
+      { code: 'usage_limit_exceeded', thread_id: 'thread', turn_id: 'turn' },
+    ];
+    const { server, options, client } = await setup(base([exhausted]));
+    const discord = await new FakeDiscordServer(1).start(); discordServers.push(discord);
+    options.config.discord = { enabled: true }; options.discordWebhookUrl = discord.url; options.vkOrigin = 'https://vk.example';
+    expect((await runAutoNudgeCycle(client, options)).errors).toHaveLength(1);
+    const restarted = createAutoNudgeClient(new VibeClient(server.baseUrl));
+    expect((await runAutoNudgeCycle(restarted, options)).discordDeliveries).toBe(1);
+    expect((await runAutoNudgeCycle(restarted, options)).discordDeliveries).toBe(0);
+    expect(server.journal.filter(item => item.type === 'websocket-opened' || item.type === 'follow-up-accepted')).toEqual([]);
+    expect(server.journal.filter(item => item.type === 'final-response-polled')).toHaveLength(1);
+    expect(discord.deliveries).toHaveLength(2);
+    expect(discord.deliveries[0]).toMatchObject({ content: expect.stringContaining('https://vk.example/workspaces/workspace') });
+    expect(readAutoNudgeState(options.statePath).triggers.exhausted?.status).toBe('rate-limited');
+    expect(Object.values(readAutoNudgeState(options.statePath).outbox)).toHaveLength(1);
   });
 
   it('recovers response routing when VK accepts a follow-up then drops the HTTP response', async () => {

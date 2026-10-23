@@ -12,8 +12,9 @@ use axum::{
     routing::{get, post},
 };
 use db::models::{
-    execution_process::{ExecutionProcess, ExecutionProcessStatus},
+    execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus},
     execution_process_repo_state::ExecutionProcessRepoState,
+    session::Session,
 };
 use deployment::Deployment;
 use executors::logs::{NormalizedEntryType, utils::patch::extract_normalized_entry_from_patch};
@@ -28,6 +29,7 @@ use tokio::sync::Mutex;
 use utils::{log_msg::LogMsg, msg_store::MsgStore, response::ApiResponse};
 use uuid::Uuid;
 
+use super::codex_usage::{CodexUsageLimitCollector, CodexUsageLimitEvent};
 use crate::{
     DeploymentImpl,
     error::ApiError,
@@ -79,6 +81,7 @@ struct ExecutionProcessFinalResponse {
     finished: bool,
     final_response: Option<String>,
     terminal_no_response: bool,
+    usage_limit_events: Vec<CodexUsageLimitEvent>,
 }
 
 async fn get_execution_process_final_response(
@@ -89,6 +92,28 @@ async fn get_execution_process_final_response(
     let final_response = get_final_assistant_response_for_process(&deployment, process_id).await;
     let finished = execution_process.status != ExecutionProcessStatus::Running;
     let terminal_no_response = finished && final_response.is_none();
+    let mut usage_limit_events = Vec::new();
+    if finished && execution_process.run_reason == ExecutionProcessRunReason::CodingAgent {
+        let session =
+            Session::find_by_id(&deployment.db().pool, execution_process.session_id).await?;
+        if session
+            .as_ref()
+            .and_then(|session| session.executor.as_deref())
+            == Some("CODEX")
+        {
+            if let Some(mut stream) = deployment.container().stream_raw_logs(&process_id).await {
+                let mut collector = CodexUsageLimitCollector::default();
+                while let Some(message) = stream.next().await {
+                    match message? {
+                        LogMsg::Stdout(chunk) => collector.push(&chunk),
+                        LogMsg::Finished => break,
+                        _ => {}
+                    }
+                }
+                usage_limit_events = collector.finish();
+            }
+        }
+    }
 
     Ok(ResponseJson(ApiResponse::success(
         ExecutionProcessFinalResponse {
@@ -97,6 +122,7 @@ async fn get_execution_process_final_response(
             finished,
             final_response,
             terminal_no_response,
+            usage_limit_events,
         },
     )))
 }

@@ -79,12 +79,15 @@ export interface ExecutionProcess {
   executor_action: unknown;
 }
 
+export interface CodexUsageLimitEvent { thread_id: string; turn_id: string; code: 'usage_limit_exceeded' }
+
 export interface ExecutionProcessFinalResponse {
   process_id: string;
   status: ExecutionProcess['status'];
   finished: boolean;
   final_response: string | null;
   terminal_no_response: boolean;
+  usage_limit_events?: CodexUsageLimitEvent[];
 }
 
 export interface AutoNudgeStatusProcess extends ExecutionProcess {

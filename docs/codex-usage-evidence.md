@@ -88,11 +88,15 @@ structured retry timestamp and must not be parsed into a guessed recovery timer.
 Current `vibe-kanban/crates/executors/src/executors/codex/normalize_logs.rs` emits
 `ErrorMessage { error_type: Other }` with `metadata: None` for both error paths.
 The modern path keeps only the message; the legacy path formats debug error info
-into content. The follow-up must preserve supported structured error provenance
-through a typed/metadata transport boundary before VD can reliably classify it;
-matching the normalized prose would discard the evidence guarantee.
+into content. The source implementation bypasses that lossy representation: the
+exact `/execution-processes/:id/final-response` REST result now adds canonical
+`usage_limit_events` read directly from terminal CODEX coding-agent stdout. It
+retains provider thread/turn identity and collapses the verified mirrored/terminal
+forms without exposing prompts or account data. The broad aggregate remains
+DB-only. Matching-backend build and CI validation are required; older responses
+without the field provide no evidence, not a prose-based compatibility fallback.
 
-`vkvw-t3u5` should use these fixtures to verify that one exhaustion turn produces
+`vkvw-t3u5` uses these fixtures to verify that one exhaustion turn produces
 one durable rate-limited event and one retryable Discord-outbox alert containing
 the `VK_ORIGIN` workspace URL. Cover restart/replay, dual notification formats,
 terminal repeats, successful VK exit, and the real negative control. Any additional

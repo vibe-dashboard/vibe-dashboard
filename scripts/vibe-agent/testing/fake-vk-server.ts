@@ -2,14 +2,14 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { Socket } from 'node:net';
 import type { Duplex } from 'node:stream';
-import type { AutoNudgeStatusRequest, AutoNudgeStatusResponse, ExecutionProcess, Session, Workspace } from '../types.js';
+import type { AutoNudgeStatusRequest, AutoNudgeStatusResponse, CodexUsageLimitEvent, ExecutionProcess, Session, Workspace } from '../types.js';
 
 export type FakeVkFault =
   | { id: string; operation: 'follow-up'; targetId?: string; kind: 'reject-before-accept' | 'disconnect-before-accept' | 'accept-then-drop' | 'accept-then-hang' | 'delay-before-accept' | 'delay-after-accept'; delayMs?: number; used?: boolean }
   | { id: string; operation: 'process-get'; targetId?: string; kind: 'missing' | 'reject' | 'disconnect' | 'hang' | 'delay'; delayMs?: number; used?: boolean }
   | { id: string; operation: 'session-processes-ws' | 'logs-ws'; targetId?: string; kind: 'close-before-ready' | 'malformed-json' | 'invalid-patch' | 'duplicate-message' | 'hang'; used?: boolean };
 export interface FakeVkBarrier { id: string; operation: 'follow-up' | 'process-get'; targetId?: string; used?: boolean }
-export type FakeVkProcess = Pick<ExecutionProcess, 'id' | 'session_id' | 'status' | 'created_at' | 'started_at' | 'updated_at' | 'completed_at' | 'exit_code' | 'run_reason' | 'dropped' | 'executor_action'> & { conversation?: unknown[]; statusSequence?: ExecutionProcess['status'][] };
+export type FakeVkProcess = Pick<ExecutionProcess, 'id' | 'session_id' | 'status' | 'created_at' | 'started_at' | 'updated_at' | 'completed_at' | 'exit_code' | 'run_reason' | 'dropped' | 'executor_action'> & { conversation?: unknown[]; statusSequence?: ExecutionProcess['status'][]; usageLimitEvents?: CodexUsageLimitEvent[] };
 export type FakeVkSession = Pick<Session, 'id' | 'workspace_id' | 'name' | 'executor' | 'created_at' | 'updated_at'> & { name: string; processes: FakeVkProcess[] };
 export interface FakeVkScenario { workspaces: Array<Pick<Workspace, 'id'>>; sessions: FakeVkSession[]; followUps?: Array<{ sessionId: string; process: FakeVkProcess }>; faults?: FakeVkFault[]; barriers?: FakeVkBarrier[] }
 export interface FakeVkObservation { sequence: number; operationId: string; correlationId: string | null; type: string; method?: string; path?: string; metadata?: Record<string, string | number | boolean | null> }
@@ -303,6 +303,7 @@ export class FakeVkServer {
         finished,
         final_response: final,
         terminal_no_response: finished && final == null,
+        ...(process.usageLimitEvents ? { usage_limit_events: process.usageLimitEvents } : {}),
       });
     }
     response(res, 'unhandled route', 404);

@@ -125,6 +125,7 @@ function fake(input: { processes: Record<string, ExecutionProcess[]>; entries?: 
       const response = id === 'checkpoint' ? input.response ?? 'Continuing' : typeof entryContent === 'string' ? entryContent : null;
       return finalResponse(process, response);
     },
+    async getExecutionProcessFinalResponseStrict(id) { return this.getExecutionProcessFinalResponse(id); },
     async sendMessage(id, body) { sent.push({ sessionId: id, body }); return proc(id === 'overseer' ? 'checkpoint' : `sent-${sent.length}`, id, 'running', 10); },
     async createSession(body) { return session(`fresh-${sent.length + 1}`, body.name ?? 'fresh', body.executor); },
     async getExecutionProcess(id) { return proc(id, 'overseer', 'completed', 10); },
@@ -425,6 +426,7 @@ describe('auto nudge', () => {
       async getAutoNudgeStatus(request) { return aggregateStatus(request, { processes: { impl: [callbackSource], other: [otherCompletion], overseer: [] }, entries: { 'callback-source': [msg('Finished')], 'other-complete': [msg('Finished')] }, sessions: [session('overseer', 'overseer'), session('impl', 'impl'), session('other', 'other')] }); },
       async fetchConversation() { return [msg('Finished')]; }, async getExecutionProcess() { throw new Error('unexpected'); },
       async getExecutionProcessFinalResponse(id) { return finalResponse(id === 'callback-source' ? callbackSource : otherCompletion, 'Finished'); },
+      async getExecutionProcessFinalResponseStrict(id) { return this.getExecutionProcessFinalResponse(id); },
       async sendMessage(id) { sent.push(id); return proc('sent', id, 'running', 10); },
     };
     await runAutoNudgeCycle(client, options);
@@ -439,6 +441,113 @@ describe('auto nudge', () => {
     const { client, sent } = fake({ processes: { impl: [complete], overseer: [] }, entries: { complete: [msg('Finished')] }, response: 'DONE' });
     await runAutoNudgeCycle(client, options);
     expect(sent).toHaveLength(1);
+  });
+
+  it('persists verified exhaustion despite successful exit and retries one deduplicated alert after restart', async () => {
+    const { options } = setup();
+    options.config.discord = { enabled: true }; options.discordWebhookUrl = 'https://discord.test/hook'; options.vkOrigin = 'https://vk.example/';
+    const complete = proc('exhausted', 'impl', 'completed', 1);
+    const { client, sent } = fake({ processes: { impl: [complete], overseer: [] } });
+    const evidence = { code: 'usage_limit_exceeded' as const, thread_id: 'thread', turn_id: 'turn' };
+    client.getExecutionProcessFinalResponseStrict = vi.fn(async () => ({ ...finalResponse(complete, null), usage_limit_events: [evidence, evidence] }));
+    const delivery = vi.fn().mockRejectedValueOnce(new Error('Discord down')).mockResolvedValue(undefined);
+    options.deliverDiscord = delivery;
+    enqueueSend(options.sendQueuePath!, { id: 'queued', targetRole: 'impl', targetSessionId: 'impl', executor: 'CODEX', prompt: 'Later work', replySessionId: null, now: options.now() });
+    const first = await runAutoNudgeCycle(client, options);
+    expect(first.errors).toEqual([expect.stringContaining('Discord down')]);
+    expect(readAutoNudgeState(options.statePath).triggers.exhausted?.status).toBe('rate-limited');
+    expect(Object.values(readAutoNudgeState(options.statePath).outbox)).toMatchObject([{ attempts: 1, deliveredAt: null, content: expect.stringContaining('https://vk.example/workspaces/w1') }]);
+    await runAutoNudgeCycle(client, options);
+    await runAutoNudgeCycle(client, options);
+    expect(client.getExecutionProcessFinalResponseStrict).toHaveBeenCalledTimes(1);
+    expect(delivery).toHaveBeenCalledTimes(2);
+    expect(Object.values(readAutoNudgeState(options.statePath).outbox)).toMatchObject([{ attempts: 2, deliveredAt: expect.any(String) }]);
+    expect(readSendQueue(options.sendQueuePath!).sends.queued?.status).toBe('queued');
+    expect(sent).toEqual([]);
+  });
+
+  it('retains evidence when VK_ORIGIN is missing and enqueues the same event after configuration repair', async () => {
+    const { options } = setup();
+    options.config.discord = { enabled: true }; options.discordWebhookUrl = 'https://discord.test/hook'; options.vkOrigin = '';
+    options.deliverDiscord = vi.fn(async () => {});
+    const complete = proc('exhausted', 'impl', 'completed', 1);
+    const { client } = fake({ processes: { impl: [complete], overseer: [] } });
+    client.getExecutionProcessFinalResponseStrict = vi.fn(async () => ({ ...finalResponse(complete, null), usage_limit_events: [{ code: 'usage_limit_exceeded' as const, thread_id: 'thread', turn_id: 'turn' }] }));
+    expect((await runAutoNudgeCycle(client, options)).errors).toEqual([expect.stringContaining('VK_ORIGIN is required')]);
+    expect(readAutoNudgeState(options.statePath).triggers.exhausted?.status).toBe('rate-limited');
+    expect(readAutoNudgeState(options.statePath).outbox).toEqual({});
+    options.vkOrigin = 'https://vk.example';
+    await runAutoNudgeCycle(client, options);
+    expect(client.getExecutionProcessFinalResponseStrict).toHaveBeenCalledTimes(1);
+    expect(options.deliverDiscord).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps usage inspection dry-run read-only and never treats prose as evidence', async () => {
+    const { options } = setup(); options.dryRun = true;
+    const complete = proc('exhausted', 'impl', 'completed', 1);
+    const { client, sent } = fake({ processes: { impl: [complete], overseer: [] } });
+    client.getExecutionProcessFinalResponseStrict = vi.fn(async () => ({ ...finalResponse(complete, null), usage_limit_events: [{ code: 'usage_limit_exceeded' as const, thread_id: 'thread', turn_id: 'turn' }] }));
+    await runAutoNudgeCycle(client, options);
+    expect(existsSync(options.statePath)).toBe(false);
+    expect(sent).toEqual([]);
+    options.dryRun = false;
+    client.getExecutionProcessFinalResponseStrict = async () => finalResponse(complete, 'usageLimitExceeded usedPercent=100');
+    await runAutoNudgeCycle(client, options);
+    expect(Object.values(readAutoNudgeState(options.statePath).triggers).some(trigger => trigger.status === 'rate-limited')).toBe(false);
+    expect(readAutoNudgeState(options.statePath).outbox).toEqual({});
+  });
+
+  it('can enable alerts after detection and evaluates a later process without permanently blocking the workspace', async () => {
+    const { options } = setup();
+    const exhausted = proc('exhausted', 'impl', 'completed', 1);
+    const recovered = proc('recovered', 'impl', 'completed', 2);
+    const input = { processes: { impl: [exhausted], overseer: [] as ExecutionProcess[] }, entries: { recovered: [msg('Work complete')] }, response: resultEnvelope('complete') };
+    const { client, sent } = fake(input);
+    client.getExecutionProcessFinalResponseStrict = vi.fn(async id => id === exhausted.id
+      ? { ...finalResponse(exhausted, null), usage_limit_events: [{ code: 'usage_limit_exceeded' as const, thread_id: 'thread', turn_id: 'turn' }] }
+      : client.getExecutionProcessFinalResponse(id));
+    await runAutoNudgeCycle(client, options);
+    expect(readAutoNudgeState(options.statePath).outbox).toEqual({});
+    options.config.discord = { enabled: true }; options.discordWebhookUrl = 'https://discord.test/hook'; options.vkOrigin = 'https://vk.example';
+    options.deliverDiscord = vi.fn(async () => {});
+    await runAutoNudgeCycle(client, options);
+    expect(options.deliverDiscord).toHaveBeenCalledTimes(1);
+    input.processes.impl = [recovered, exhausted];
+    await runAutoNudgeCycle(client, options);
+    expect(sent).toHaveLength(1);
+    expect(readAutoNudgeState(options.statePath).triggers.recovered?.status).toBe('done');
+    expect(readAutoNudgeState(options.statePath).triggers.exhausted?.status).toBe('rate-limited');
+    expect(options.deliverDiscord).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed on a strict evidence response for another process without sending a checkpoint', async () => {
+    const { options } = setup();
+    const complete = proc('complete', 'impl', 'completed', 1);
+    const { client, sent } = fake({ processes: { impl: [complete], overseer: [] }, entries: { complete: [msg('Finished')] } });
+    client.getExecutionProcessFinalResponseStrict = async () => finalResponse(proc('unrelated', 'impl', 'completed', 1), 'Finished');
+    expect((await runAutoNudgeCycle(client, options)).errors).toEqual([expect.stringContaining('process identity mismatch')]);
+    expect(sent).toEqual([]);
+    expect(readAutoNudgeState(options.statePath).outbox).toEqual({});
+  });
+
+  it('marks an exhausted checkpoint trigger rate-limited instead of scheduling schema correction after later progress', async () => {
+    const { options } = setup();
+    const complete = proc('complete', 'impl', 'completed', 1);
+    const checkpoint = proc('checkpoint', 'overseer', 'completed', 2);
+    const input = { processes: { impl: [complete], overseer: [checkpoint] }, entries: { complete: [msg('Finished')] } };
+    const { client, sent } = fake(input);
+    client.getExecutionProcessFinalResponseStrict = async id => id === checkpoint.id
+      ? { ...finalResponse(checkpoint, null), usage_limit_events: [{ code: 'usage_limit_exceeded', thread_id: 'thread', turn_id: 'turn' }] }
+      : client.getExecutionProcessFinalResponse(id);
+    const state = readAutoNudgeState(options.statePath);
+    state.triggers.complete = { processId: 'complete', sessionId: 'impl', workspaceId: 'w1', observedAt: iso(1), updatedAt: iso(2), status: 'checkpoint-sent', checkpointProcessId: checkpoint.id, error: null };
+    writeAutoNudgeState(options.statePath, state);
+    await runAutoNudgeCycle(client, options);
+    expect(readAutoNudgeState(options.statePath).triggers.complete?.status).toBe('rate-limited');
+    input.processes.overseer = [proc('later-overseer', 'overseer', 'completed', 3)];
+    await runAutoNudgeCycle(client, options);
+    expect(sent).toEqual([]);
+    expect(existsSync(options.sendQueuePath!)).toBe(false);
   });
 
   it('retries durable Discord outbox items until delivery succeeds', async () => {

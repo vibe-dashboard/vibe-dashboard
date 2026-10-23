@@ -8,7 +8,7 @@ import * as Ajv2020Module from 'ajv/dist/2020.js';
 import type { ValidateFunction } from 'ajv';
 import { buildBeadsFormsSummary, compileBeadsForm, type StandardBeadsForm } from '../../../packages/beads-form/src/index.js';
 import { client as defaultClient } from '../core/client.js';
-import type { AutoNudgeProcessWindowQuery, AutoNudgeStatusRequest, AutoNudgeStatusResponse, AutoNudgeStatusSession, AutoNudgeStatusWorkspace, ConversationEntry, CreateIdentifiedSessionBody, CreateSessionBody, ExecutionProcess, ExecutionProcessFinalResponse, QueueDispatchOutcome, QueueEffectReconciliation, QueueMessageBody, QueueStatus, SendMessageBody, Session, Workspace } from '../types.js';
+import type { AutoNudgeProcessWindowQuery, AutoNudgeStatusRequest, AutoNudgeStatusResponse, AutoNudgeStatusSession, AutoNudgeStatusWorkspace, CodexUsageLimitEvent, ConversationEntry, CreateIdentifiedSessionBody, CreateSessionBody, ExecutionProcess, ExecutionProcessFinalResponse, QueueDispatchOutcome, QueueEffectReconciliation, QueueMessageBody, QueueStatus, SendMessageBody, Session, Workspace } from '../types.js';
 import { conversationEntryText, conversationEntryType, isActiveProcess } from './criteria.js';
 import { callbacksForTrigger, DEFAULT_CALLBACK_REGISTRY_PATH, type CallbackRecord } from './callback-registry.js';
 import {
@@ -36,6 +36,7 @@ import { parseWorkflowResultXml, schemaHash, validateWorkflowActions, type Workf
 import { dispatchSerialWorkflow, projectSerialWorkflowToBeads, submitObservedSerialResult } from './serial-workflow-adapter.js';
 import { beadsWorkflowFormsStore, syncSerialWorkflowForm } from './serial-workflow-forms.js';
 import { readSerialRun } from './serial-workflow.js';
+import { codexUsageAlertContent, codexUsageEventId, codexUsageLimitEvents, isCodexUsageLimitEvent } from './codex-usage.js';
 
 const DEFAULT_STATE_PATH = '/var/lib/vd/auto-nudge/state.json';
 const DEFAULT_LOCK_PATH = '/var/lib/vd/auto-nudge/owner.lock';
@@ -66,7 +67,7 @@ export interface AutoNudgeWorkspaceCriteria { goal?: string; beads?: string[]; b
 export interface AutoNudgeWorkspaceRegistration { workspaceId: string; overseerSessionId: string; registeredAt: string; registeredBySessionId: string; criteria?: AutoNudgeWorkspaceCriteria }
 export interface AutoNudgeWorkspaceRegistry { version: 1; workspaces: Record<string, AutoNudgeWorkspaceRegistration> }
 export type TriggerStatus = 'observed' | 'checkpoint-sent' | 'checkpoint-indeterminate' | 'done' | 'delegated' | 'waiting-callback' | 'rate-limited' | 'retryable-failure' | 'invalid-response';
-export interface TriggerState { processId: string; workspaceId: string; sessionId: string; observedAt: string; status: TriggerStatus; checkpointProcessId: string | null; baselineProcessIds?: string[]; correctionAttempts?: number; correctionSendId?: string; updatedAt: string; error: string | null }
+export interface TriggerState { processId: string; workspaceId: string; sessionId: string; observedAt: string; status: TriggerStatus; checkpointProcessId: string | null; baselineProcessIds?: string[]; correctionAttempts?: number; correctionSendId?: string; usageLimitEvents?: CodexUsageLimitEvent[]; updatedAt: string; error: string | null }
 export interface OutboxItem { id: string; workspaceId: string; content: string; createdAt: string; deliveredAt: string | null; attempts: number }
 export interface AutoNudgeState { version: 1; nudgedProcessIds: string[]; triggers: Record<string, TriggerState>; outbox: Record<string, OutboxItem>; globalCursor?: string | null }
 export interface AutoNudgeClient {
@@ -95,6 +96,7 @@ export interface AutoNudgeOptions {
   now: () => Date; unacknowledgedAfterMs: number; operationTimeoutMs: number; responseTimeoutMs: number;
   concurrency: number; dryRun: boolean; discordWebhookUrl?: string;
   deliverDiscord?: (url: string, content: string) => Promise<void>;
+  vkOrigin?: string;
   createForm?: (input: { beadsDir: string; beadId: string; form: ReturnType<typeof compileBeadsForm>; workspaceId: string; sessionId: string }) => Promise<void>;
   signal?: AbortSignal;
   checkpointPollMs?: number;
@@ -275,6 +277,7 @@ export function readAutoNudgeState(filePath: string): AutoNudgeState {
     && ((item as TriggerState).baselineProcessIds == null || (Array.isArray((item as TriggerState).baselineProcessIds) && (item as TriggerState).baselineProcessIds!.every(id => typeof id === 'string')))
     && ((item as TriggerState).correctionAttempts == null || (Number.isSafeInteger((item as TriggerState).correctionAttempts) && (item as TriggerState).correctionAttempts! >= 0))
     && ((item as TriggerState).correctionSendId == null || typeof (item as TriggerState).correctionSendId === 'string')
+    && ((item as TriggerState).usageLimitEvents === undefined || (Array.isArray((item as TriggerState).usageLimitEvents) && (item as TriggerState).usageLimitEvents!.every(isCodexUsageLimitEvent)))
     && ((item as TriggerState).error == null || typeof (item as TriggerState).error === 'string'));
   const validOutbox = (item: unknown): item is OutboxItem => Boolean(item && typeof item === 'object'
     && typeof (item as OutboxItem).id === 'string' && typeof (item as OutboxItem).workspaceId === 'string'
@@ -841,6 +844,54 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
   const sentSessionIds = new Set<string>();
   const activeSessionIds = activeSessionIdsFromStatus(status);
   const sendGuard = new CycleSendGuard(activeSessionIds, sentSessionIds);
+  const finalResponses = new Map<string, ExecutionProcessFinalResponse>();
+  const usageInspectionFailures = new Set<string>();
+  const usageLimitedWorkspaces = new Set<string>();
+  await mapLimit(status.workspaces.flatMap(workspace => workspace.sessions.map(session => ({ workspace, session }))), options.concurrency, async ({ workspace, session }) => {
+    const process = session.latest_codingagent_process;
+    if (session.executor !== 'CODEX' || !process || process.status === 'running' || process.dropped || process.run_reason !== 'codingagent') return;
+    try {
+      let events = state.triggers[process.id]?.usageLimitEvents;
+      if (!events) {
+        if (!client.getExecutionProcessFinalResponseStrict) throw new Error('Codex usage inspection requires strict REST final-response support');
+        const final = await deadline(client.getExecutionProcessFinalResponseStrict(process.id), options.operationTimeoutMs, 'inspect Codex usage evidence', options.signal);
+        if (final.process_id !== process.id) throw new Error('Codex usage evidence process identity mismatch');
+        finalResponses.set(process.id, final);
+        if (!final.finished) return;
+        events = codexUsageLimitEvents(final.usage_limit_events);
+      }
+      if (!events.length) return;
+      usageLimitedWorkspaces.add(workspace.workspace_id);
+      activeSessionIds.add(session.id); // Suppress automatic sends to this exhausted session this cycle.
+      if (options.dryRun) return;
+      const now = options.now().toISOString();
+      const trigger = state.triggers[process.id] ?? { processId: process.id, workspaceId: workspace.workspace_id, sessionId: session.id, observedAt: now, checkpointProcessId: null, updatedAt: now, error: null, status: 'observed' as const };
+      if (!trigger.usageLimitEvents) {
+        trigger.usageLimitEvents = events; trigger.status = 'rate-limited'; trigger.updatedAt = now; trigger.error = 'Codex usage limit exceeded';
+        state.triggers[process.id] = trigger;
+        writeAutoNudgeState(options.statePath, state);
+      }
+      for (const source of Object.values(state.triggers)) {
+        if (source.checkpointProcessId === process.id && ['checkpoint-sent', 'checkpoint-indeterminate'].includes(source.status)) {
+          source.status = 'rate-limited'; source.updatedAt = now; source.error = 'Checkpoint hit Codex usage limit';
+          writeAutoNudgeState(options.statePath, state);
+        }
+      }
+      if (options.config.discord?.enabled) {
+        for (const event of events) {
+          const id = codexUsageEventId(workspace.workspace_id, session.id, process.id, event);
+          if (state.outbox[id]) continue;
+          const content = codexUsageAlertContent(options.vkOrigin ?? globalThis.process.env.VK_ORIGIN, workspace.workspace_id, session.id, process.id);
+          state.outbox[id] = { id, workspaceId: workspace.workspace_id, content, createdAt: now, deliveredAt: null, attempts: 0 };
+          writeAutoNudgeState(options.statePath, state);
+        }
+      }
+    } catch (error) {
+      activeSessionIds.add(session.id);
+      usageInspectionFailures.add(workspace.workspace_id);
+      result.errors.push(`Codex usage inspection ${process.id}: ${(error as Error).message}`);
+    }
+  }, options.signal);
   await processResponseRoutes(client, options, result, sendGuard);
   result.registeredWorkspaces = status.counts.registered_workspaces;
   result.globalWorkspacesScanned = status.counts.global_workspaces;
@@ -859,6 +910,7 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
   await mapLimit(workspaces, options.concurrency, async snapshot => {
     const configured = registeredByWorkspace.get(snapshot.workspace_id) ?? { workspaceId: snapshot.workspace_id, overseerSessionId: null as string | null, criteria: undefined };
     result.workspaces++;
+    if (usageInspectionFailures.has(snapshot.workspace_id) || usageLimitedWorkspaces.has(snapshot.workspace_id)) return;
     try {
       const sessions = snapshot.sessions.map(sessionFromStatus);
       const overseer = configured.overseerSessionId ? sessions.find(item => item.id === configured.overseerSessionId) : null;
@@ -995,7 +1047,7 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
         if (processes.some(isActiveProcess)) continue;
         const latest = processes[0]; if (!latest) continue;
         const final = latest.status === 'completed'
-          ? await deadline(client.getExecutionProcessFinalResponse(latest.id), options.operationTimeoutMs, 'fetch final response', options.signal)
+          ? finalResponses.get(latest.id) ?? await deadline(client.getExecutionProcessFinalResponse(latest.id), options.operationTimeoutMs, 'fetch final response', options.signal)
           : finalFromAggregate(latest);
         if (latest.status !== 'completed' || !final.final_response) continue;
         const age = options.now().getTime() - terminalTime(latest); if (age < options.unacknowledgedAfterMs) continue;
@@ -1043,7 +1095,7 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
       }
     } catch (error) { result.errors.push(`workspace ${configured.workspaceId}: ${(error as Error).message}`); }
   }, options.signal);
-  await processSerialWorkflowRuns(client, options, new Map(registered.map(item => [item.workspaceId, item])), result);
+  await processSerialWorkflowRuns(client, options, new Map(registered.filter(item => !usageInspectionFailures.has(item.workspaceId) && !usageLimitedWorkspaces.has(item.workspaceId)).map(item => [item.workspaceId, item])), result);
   await processSendQueue(client, options, result, sendGuard);
   await processOutbox(options, state, result);
   return result;
