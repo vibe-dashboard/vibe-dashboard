@@ -1165,7 +1165,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
       todos={todos}
       inProgressTodo={inProgressTodo}
       workspaceTasks={
-        chatViewMode === 'full' ? (
+        chatViewMode !== 'zen' ? (
           <WorkspaceBeadsTaskList
             workspaceId={workspaceId}
             sessions={sessions}

@@ -824,7 +824,9 @@ export function WorkspaceShell({
       if (
         (e.metaKey || e.ctrlKey) &&
         key === "k" &&
-        !isEditableTarget(e.target)
+        !e.altKey &&
+        !e.shiftKey &&
+        !e.isComposing
       ) {
         e.preventDefault();
         e.stopPropagation();
@@ -2779,18 +2781,6 @@ export function WorkspaceShell({
         />
       )}
     </div>
-  );
-}
-
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-
-  const tagName = target.tagName.toLowerCase();
-  return (
-    tagName === "input" ||
-    tagName === "textarea" ||
-    tagName === "select" ||
-    target.isContentEditable
   );
 }
 

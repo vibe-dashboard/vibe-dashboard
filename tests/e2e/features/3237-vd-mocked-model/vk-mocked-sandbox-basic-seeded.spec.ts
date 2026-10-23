@@ -61,6 +61,15 @@ test.describe('VK mocked-provider basic-seeded fixture', () => {
 
     const composer = getChatComposer(agentChat);
     await composer.fill('Draft survives view mode changes');
+    for (const shortcut of ['Control+k', 'Meta+k']) {
+      await composer.focus();
+      await expect(composer).toBeFocused();
+      await composer.press(shortcut);
+      await expect(page.getByRole('dialog', { name: 'Open VK Workspace' })).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('dialog', { name: 'Open VK Workspace' })).toBeHidden();
+      await expect(composer).toHaveText('Draft survives view mode changes');
+    }
     await agentChat.getByRole('combobox', { name: 'Chat view' }).click();
     await page.getByRole('option', { name: 'Zen', exact: true }).click();
     await expect(

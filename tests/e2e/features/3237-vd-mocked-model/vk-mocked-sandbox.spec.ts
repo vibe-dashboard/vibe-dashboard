@@ -154,6 +154,18 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
     await createWorkspaceFrame
       .getByRole('textbox', { name: 'Markdown editor' })
       .fill(`${promptTitle}\n\n${promptBody}`);
+    const createComposer = createWorkspaceFrame.getByRole('textbox', {
+      name: 'Markdown editor',
+    });
+    for (const shortcut of ['Control+k', 'Meta+k']) {
+      await createComposer.focus();
+      await expect(createComposer).toBeFocused();
+      await createComposer.press(shortcut);
+      await expect(page.getByRole('dialog', { name: 'Open VK Workspace' })).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('dialog', { name: 'Open VK Workspace' })).toBeHidden();
+      await expect(createComposer).toHaveText(`${promptTitle}\n\n${promptBody}`);
+    }
     const creationCraft = page.getByRole('button', {
       name: /^Open Create Workspace in /,
     });

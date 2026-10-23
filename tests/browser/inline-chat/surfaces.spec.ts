@@ -120,6 +120,10 @@ test("workspace tasks share cached results across panes and remounts", async ({
       (request) =>
         request.path === "/dashboard/api/workspaces/workspace-1/beads/tasks",
     );
+  await expect(left.getByLabel('Total workspace tasks')).toHaveText('3');
+  await left.getByRole('combobox', { name: 'Chat view' }).click();
+  await page.getByRole('option', { name: 'Chat', exact: true }).click();
+  await expect(left.getByLabel('Total workspace tasks')).toHaveText('3');
   await left.getByRole("button", { name: "Workspace tasks" }).click();
   await expect(
     page.getByText("task-active · Active task", { exact: true }),
@@ -146,6 +150,48 @@ test("workspace tasks share cached results across panes and remounts", async ({
     page.getByText("task-active · Updated shared task", { exact: true }),
   ).toBeVisible();
   expect(taskRequests()).toHaveLength(2);
+});
+
+test('Chat task tracker shows updated counts and an explicit zero using the shared cache', async ({ page, backend }) => {
+  await page.goto('/');
+  const left = page.getByRole('region', { name: 'Left Agent' });
+  const right = page.getByRole('region', { name: 'Right Agent' });
+  await expect(left.getByLabel('Total workspace tasks')).toHaveText('3');
+  await left.getByRole('combobox', { name: 'Chat view' }).click();
+  await page.getByRole('option', { name: 'Chat', exact: true }).click();
+  await left.getByRole('button', { name: 'Workspace tasks' }).click();
+  backend.tasks.counts = { open: 0, inProgress: 0, done: 0 };
+  backend.tasks.groups = { open: [], inProgress: [], done: [] };
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(left.getByLabel('Total workspace tasks')).toHaveText('0');
+  await expect(right.getByLabel('Total workspace tasks')).toHaveText('0');
+  await expect(page.getByText('0 in progress', { exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await left.getByRole('combobox', { name: 'Chat view' }).click();
+  await page.getByRole('option', { name: 'Full', exact: true }).click();
+  await expect(left.getByLabel('Total workspace tasks')).toHaveText('0');
+});
+
+test('Chat task tracker distinguishes loading and failure from a zero count', async ({ page, backend }) => {
+  let respond: () => void = () => {};
+  const pending = new Promise<void>((resolve) => { respond = resolve; });
+  await page.route('**/dashboard/api/workspaces/*/beads/tasks', async (route) => {
+    await pending;
+    await route.fulfill({ status: 503, body: 'Tasks unavailable' });
+  });
+  try {
+    await page.goto('/');
+    const left = page.getByRole('region', { name: 'Left Agent' });
+    await left.getByRole('combobox', { name: 'Chat view' }).click();
+    await page.getByRole('option', { name: 'Chat', exact: true }).click();
+    await expect(left.getByLabel('Loading workspace tasks', { exact: true })).toHaveText('…');
+    respond();
+    await expect(left.getByLabel('Workspace tasks unavailable', { exact: true })).toHaveText('!');
+    await left.getByRole('button', { name: 'Workspace tasks' }).click();
+    await expect(page.getByRole('alert')).toContainText(/503|unavailable/i);
+  } finally {
+    respond();
+  }
 });
 
 test("two sessions stream independently and restore their selections after reload", async ({

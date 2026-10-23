@@ -101,7 +101,9 @@ export function WorkspaceBeadsTaskList({
     );
   const tooltip = data
     ? `${data.counts.inProgress} in progress, ${data.counts.open} open, ${data.counts.done} done`
-    : 'Workspace tasks';
+    : error
+      ? 'Workspace tasks unavailable'
+      : 'Loading workspace tasks';
 
   const handleHousekeeping = async () => {
     if (!selectedHousekeepingSessionId) return;
@@ -139,6 +141,19 @@ export function WorkspaceBeadsTaskList({
                   />
                 ) : null}
               </div>
+              <span
+                className="text-xs tabular-nums"
+                aria-label={
+                  data
+                    ? 'Total workspace tasks'
+                    : error
+                      ? 'Workspace tasks unavailable'
+                      : 'Loading workspace tasks'
+                }
+                aria-live="polite"
+              >
+                {data ? total : error ? '!' : '…'}
+              </span>
             </button>
           </PopoverTrigger>
         </span>
@@ -163,6 +178,8 @@ export function WorkspaceBeadsTaskList({
                     <span aria-hidden> · </span>
                     <span>{data.counts.done} done</span>
                   </>
+                ) : error ? (
+                  'Could not load workspace tasks'
                 ) : (
                   'Loading bd tasks…'
                 )}
