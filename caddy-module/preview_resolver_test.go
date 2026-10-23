@@ -4,11 +4,39 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 )
+
+func TestGeneratedPreviewUrlsResolveToTheirStoredRoutingParts(t *testing.T) {
+	data, err := os.ReadFile("../vibe-kanban/shared/preview-url-cases.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []struct {
+		Origin string `json:"origin"`
+		URL    string `json:"url"`
+	}
+	if err := json.Unmarshal(data, &cases); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range cases {
+		t.Run(tc.Origin, func(t *testing.T) {
+			generated, err := url.Parse(tc.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			match, ok := parseEncodedPreviewHost(generated.Host, "")
+			if !ok || match.WorkspaceToken != "0123456789abcdef" || match.RepoSlug != "repo" || match.SlotSlug != "web" {
+				t.Fatalf("generated URL %s did not round-trip: %+v, matched=%v", tc.URL, match, ok)
+			}
+		})
+	}
+}
 
 func TestParseEncodedPreviewHost(t *testing.T) {
 	match, ok := parseEncodedPreviewHost("0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev", "vibedashboard.dev")
