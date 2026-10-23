@@ -284,6 +284,7 @@ mod start_outcome_tests {
             queue_id,
             owner: "workflow".to_string(),
             session_id: Uuid::new_v4(),
+            requested_payload_fingerprint: "test-fingerprint".to_string(),
             lifecycle,
             process,
         };
