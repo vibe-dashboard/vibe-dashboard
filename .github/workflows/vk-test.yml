@@ -212,8 +212,8 @@ jobs:
     env:
       CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_PROFILE_TEST_DEBUG: "0"
-      # Bound concurrent rustc/linker memory use on the hosted runner.
-      CARGO_BUILD_JOBS: "2"
+      # Test binaries link the full backend; do not overlap memory-heavy links.
+      CARGO_BUILD_JOBS: "1"
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
     steps:
@@ -242,6 +242,9 @@ jobs:
           tool: cargo-nextest
           git: https://github.com/nextest-rs/nextest
           rev: 6e4a9d6f2c4964f30ff54a8cd5466f8869267daa # cargo-nextest-0.9.132
+
+      - name: Build Cargo tests
+        run: cargo test --workspace --exclude vibe-kanban-tauri --no-run
 
       - name: Run Cargo tests
         run: cargo nextest run --workspace --exclude vibe-kanban-tauri --test-threads 2
