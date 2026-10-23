@@ -35,7 +35,7 @@ export interface SerialResult {
   outcome: string;
   details: Record<string, unknown>;
 }
-export interface WorkflowEvent { sequence: number; type: string; itemId: string | null; revision: number; at: string; details: Record<string, unknown> }
+export interface WorkflowEvent { sequence: number; idempotencyKey: string; type: string; itemId: string | null; revision: number; at: string; details: Record<string, unknown> }
 export interface MutationReceipt { runId: string; version: number; status: RunStatus; revision: number; currentItemId: string | null; dispatchId: string | null }
 export type FormAuthority = { mode: 'human' } | { mode: 'decision_maker'; sessionId: string };
 const Ajv2020 = (Ajv2020Module.default ?? Ajv2020Module) as unknown as new () => { compile(schema: object): ValidateFunction };
@@ -193,9 +193,9 @@ function receipt(run: SerialRun): MutationReceipt {
   const item = run.items[run.currentIndex];
   return { runId: run.id, version: run.version, status: run.status, revision: run.revision, currentItemId: item?.id ?? null, dispatchId: item?.dispatchId ?? null };
 }
-function appendEvent(run: SerialRun, type: string, details: Record<string, unknown>, now: Date): void {
+function appendEvent(run: SerialRun, idempotencyKey: string, type: string, details: Record<string, unknown>, now: Date): void {
   run.version++;
-  run.history.push({ sequence: run.version, type, itemId: run.items[run.currentIndex]?.id ?? null, revision: run.revision, at: now.toISOString(), details: structuredClone(details) });
+  run.history.push({ sequence: run.version, idempotencyKey, type, itemId: run.items[run.currentIndex]?.id ?? null, revision: run.revision, at: now.toISOString(), details: structuredClone(details) });
 }
 function dispatchFor(run: SerialRun, id: string): WorkflowDispatch {
   const item = run.items[run.currentIndex];
@@ -304,17 +304,19 @@ export function validateSerialRun(value: unknown): asserts value is SerialRun {
   if (!Array.isArray(run.dispatches) || new Set(run.dispatches.map(dispatch => dispatch.id)).size !== run.dispatches.length) throw new Error('Invalid workflow dispatches');
   const input: CreateSerialRunInput = { id: run.id, workspaceId: run.workspaceId, beadIds: run.beadIds, template: run.template, authority: run.authority };
   const replay = initialRun(input);
-  const expectedReceipts = new Map<number, { commandHash: string; result: MutationReceipt }>();
+  const expectedReceipts = new Map<string, { commandHash: string; result: MutationReceipt }>();
   let dispatchIndex = 0;
   // Replay the pure reducer to validate *all* persisted cross-references, rather
   // than trusting a checksum or duplicating a weaker set of enum checks.
   for (const [index, event] of run.history.entries()) {
-    exact(record(event, 'event'), ['sequence', 'type', 'itemId', 'revision', 'at', 'details'], 'event');
+    exact(record(event, 'event'), ['sequence', 'idempotencyKey', 'type', 'itemId', 'revision', 'at', 'details'], 'event');
+    text(event.idempotencyKey, 'event idempotency key');
+    if (expectedReceipts.has(event.idempotencyKey)) throw new Error('Duplicate history idempotency key');
     text(event.at, 'event.at');
     if (!Number.isFinite(Date.parse(event.at))) throw new Error('Invalid event timestamp');
     let commandHash: string;
     if (index === 0) {
-      appendEvent(replay, 'created', { templateHash: replay.templateHash, beadIds: replay.beadIds }, new Date(event.at));
+      appendEvent(replay, event.idempotencyKey, 'created', { templateHash: replay.templateHash, beadIds: replay.beadIds }, new Date(event.at));
       commandHash = schemaHash({ type: 'create', input });
     } else {
       const command = record(event.details, 'event command') as unknown as WorkflowCommand;
@@ -322,26 +324,25 @@ export function validateSerialRun(value: unknown): asserts value is SerialRun {
       apply(replay, command, () => {
         const id = run.dispatches[dispatchIndex++]?.id; text(id, 'dispatch.id'); return id;
       });
-      appendEvent(replay, command.type, event.details, new Date(event.at));
+      appendEvent(replay, event.idempotencyKey, command.type, event.details, new Date(event.at));
       commandHash = schemaHash(command);
     }
     if (schemaHash(event) !== schemaHash(replay.history[index])) throw new Error('Invalid workflow history transition');
-    expectedReceipts.set(replay.version, { commandHash, result: receipt(replay) });
+    expectedReceipts.set(event.idempotencyKey, { commandHash, result: receipt(replay) });
   }
   const { receipts: _actualReceipts, ...actualState } = run;
   const { receipts: _replayReceipts, ...expectedState } = replay;
   if (schemaHash(actualState) !== schemaHash(expectedState)) throw new Error('Workflow state disagrees with transition history');
-  const seenVersions = new Set<number>();
+  let receiptCount = 0;
   for (const [key, entry] of Object.entries(record(run.receipts, 'receipts'))) {
     text(key, 'receipt idempotency key');
     const stored = record(entry, 'receipt'); exact(stored, ['commandHash', 'result'], 'receipt');
-    const result = record(stored.result, 'receipt result');
-    const version = Number(result.version);
-    const expected = expectedReceipts.get(version);
-    if (!expected || seenVersions.has(version) || schemaHash(stored) !== schemaHash(expected)) throw new Error('Invalid persisted mutation receipt');
-    seenVersions.add(version);
+    record(stored.result, 'receipt result');
+    const expected = expectedReceipts.get(key);
+    if (!expected || schemaHash(stored) !== schemaHash(expected)) throw new Error('Invalid persisted mutation receipt key or payload');
+    receiptCount++;
   }
-  if (seenVersions.size !== run.version) throw new Error('Missing persisted mutation receipts');
+  if (receiptCount !== expectedReceipts.size) throw new Error('Missing persisted mutation receipts');
 }
 export function readSerialRun(file: string): SerialRun {
   const envelope = record(JSON.parse(fs.readFileSync(file, 'utf8')), 'snapshot');
@@ -381,7 +382,7 @@ export function createSerialRun(file: string, input: CreateSerialRunInput, key: 
       return structuredClone(previous.result);
     }
     const run = initialRun(input);
-    appendEvent(run, 'created', { templateHash: run.templateHash, beadIds: run.beadIds }, now);
+    appendEvent(run, key, 'created', { templateHash: run.templateHash, beadIds: run.beadIds }, now);
     const result = receipt(run);
     Object.defineProperty(run.receipts, key, { value: { commandHash, result }, enumerable: true, configurable: true, writable: true });
     save(file, run); reconcileJournal(file, run);
@@ -401,7 +402,7 @@ export function mutateSerialRun(file: string, expectedVersion: number, key: stri
     }
     if (run.version !== expectedVersion) throw new Error(`Workflow version conflict: expected ${expectedVersion}, actual ${run.version}`);
     apply(run, command);
-    appendEvent(run, command.type, command as unknown as Record<string, unknown>, now);
+    appendEvent(run, key, command.type, command as unknown as Record<string, unknown>, now);
     const result = receipt(run);
     Object.defineProperty(run.receipts, key, { value: { commandHash, result }, enumerable: true, configurable: true, writable: true });
     save(file, run); reconcileJournal(file, run);
