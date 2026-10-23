@@ -1812,10 +1812,10 @@ impl ContainerService for LocalContainerService {
 
         let session = Session::find_by_id(&self.db.pool, session_id)
             .await?
-            .ok_or(sqlx::Error::RowNotFound)?;
+            .ok_or_else(|| ContainerError::Other(anyhow!("Session not found")))?;
         let workspace = Workspace::find_by_id(&self.db.pool, session.workspace_id)
             .await?
-            .ok_or(sqlx::Error::RowNotFound)?;
+            .ok_or_else(|| ContainerError::Other(anyhow!("Workspace not found")))?;
         let outcome = self
             .start_queued_follow_up(&workspace, &session, &queued)
             .await;
