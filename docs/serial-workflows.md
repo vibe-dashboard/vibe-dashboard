@@ -221,3 +221,11 @@ The [bidirectional external-hook design](external-workflow-hooks.md) defines
 proposed outgoing form/status events, incoming correlated decisions, durable
 receipts, retries, and loop prevention. Provider integration is successor scope;
 the current workflow configuration does not enable those proposed records.
+
+## Codex usage evidence
+
+[Codex usage-exhaustion research](codex-usage-evidence.md) records verified
+structured error fixtures, a real transient-error negative control, and the
+classification/deduplication handoff. Detection and Discord alerts remain a
+separate implementation; neither usage percentages nor VK exit status alone can
+establish exhaustion.

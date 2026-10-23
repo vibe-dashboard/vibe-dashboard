@@ -1,0 +1,68 @@
+{
+  "fixture_version": 1,
+  "case": "usage-exhaustion-with-successful-vk-process-exit",
+  "provenance": {
+    "source_file": "sessions/00/00207997-f60d-4b6e-8496-f752d795d861/processes/a8633e83-d94f-4866-a7f1-bd55e25bcc79.jsonl",
+    "source_file_sha256": "9a1d62b560919675c4ad210012b89ed9f92d53b7957578cb1b53ac9665adbb28",
+    "source_lines": [18, 19, 20, 21],
+    "codex_cli_version": "0.110.0",
+    "observed_at": "2026-04-13T07:49:32.409808380+00:00",
+    "redactions": ["Thread/conversation ID replaced consistently with UUID ending 0001", "Turn/event ID replaced consistently with UUID ending 0002", "Unrelated initialization, account and prompt records omitted"]
+  },
+  "vk_process": {"executor": "CODEX", "run_reason": "codingagent", "status": "completed", "exit_code": 0},
+  "notifications": [
+    {
+      "method": "codex/event/error",
+      "params": {
+        "id": "00000000-0000-4000-a000-000000000002",
+        "msg": {
+          "type": "error",
+          "message": "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 9:18 AM.",
+          "codex_error_info": "usage_limit_exceeded"
+        },
+        "conversationId": "00000000-0000-4000-a000-000000000001"
+      }
+    },
+    {
+      "method": "thread/status/changed",
+      "params": {"threadId": "00000000-0000-4000-a000-000000000001", "status": {"type": "systemError"}}
+    },
+    {
+      "method": "error",
+      "params": {
+        "error": {
+          "message": "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 9:18 AM.",
+          "codexErrorInfo": "usageLimitExceeded",
+          "additionalDetails": null
+        },
+        "willRetry": false,
+        "threadId": "00000000-0000-4000-a000-000000000001",
+        "turnId": "00000000-0000-4000-a000-000000000002"
+      }
+    },
+    {
+      "method": "codex/event/task_complete",
+      "params": {
+        "id": "00000000-0000-4000-a000-000000000002",
+        "msg": {"type": "task_complete", "turn_id": "00000000-0000-4000-a000-000000000002", "last_agent_message": null},
+        "conversationId": "00000000-0000-4000-a000-000000000001"
+      }
+    },
+    {
+      "method": "turn/completed",
+      "params": {
+        "threadId": "00000000-0000-4000-a000-000000000001",
+        "turn": {
+          "id": "00000000-0000-4000-a000-000000000002",
+          "items": [],
+          "status": "failed",
+          "error": {
+            "message": "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 9:18 AM.",
+            "codexErrorInfo": "usageLimitExceeded",
+            "additionalDetails": null
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "fixture_version": 1,
+  "case": "retryable-stream-disconnection-not-usage-exhaustion",
+  "provenance": {
+    "source_file": "sessions/18/18d09462-0100-4048-b36f-48a113c81949/processes/e6d3c411-89ad-4bad-b922-a33a9ba0967e.jsonl",
+    "source_file_sha256": "1e5fbb16092011d20c868398721790175b640709e85d51f45531de75112a10b2",
+    "source_lines": [83],
+    "codex_cli_version": "0.86.0",
+    "observed_at": "2026-01-29T07:40:16.797325557+00:00",
+    "redactions": ["Thread/conversation ID replaced consistently with UUID ending 0003", "Unrelated initialization, account and prompt records omitted"]
+  },
+  "vk_process": {"executor": "CODEX", "run_reason": "codingagent", "status": "failed", "exit_code": null},
+  "notifications": [
+    {
+      "method": "codex/event/stream_error",
+      "params": {
+        "id": "0",
+        "msg": {
+          "type": "stream_error",
+          "message": "Reconnecting... 1/5",
+          "codex_error_info": {"response_stream_disconnected": {"http_status_code": null}},
+          "additional_details": "stream disconnected before completion: error sending request for url (https://chatgpt.com/backend-api/codex/responses)"
+        },
+        "conversationId": "00000000-0000-4000-a000-000000000003"
+      }
+    },
+    {
+      "method": "error",
+      "params": {
+        "error": {
+          "message": "Reconnecting... 1/5",
+          "codexErrorInfo": {"responseStreamDisconnected": {"httpStatusCode": null}},
+          "additionalDetails": "stream disconnected before completion: error sending request for url (https://chatgpt.com/backend-api/codex/responses)"
+        },
+        "willRetry": true,
+        "threadId": "00000000-0000-4000-a000-000000000003",
+        "turnId": "0"
+      }
+    }
+  ]
+}
