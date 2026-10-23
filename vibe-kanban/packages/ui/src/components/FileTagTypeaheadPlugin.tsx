@@ -82,7 +82,7 @@ type FileTagTypeaheadPluginProps = {
   onCreateTag?: () => Promise<boolean>;
   searchTagsAndFiles?: (
     query: string,
-    args: SearchArgs
+    args: SearchArgs,
   ) => Promise<SearchResultItemLike[]>;
 };
 
@@ -99,7 +99,7 @@ class FileTagOption extends MenuOption {
 
 function getMatchingDiffFiles(
   query: string,
-  diffPaths: Set<string>
+  diffPaths: Set<string>,
 ): DiffFileResult[] {
   if (!query) return [];
   const lowerQuery = query.toLowerCase();
@@ -143,10 +143,10 @@ export function FileTagTypeaheadPlugin({
   const [editor] = useLexicalComposerContext();
   const [options, setOptions] = useState<FileTagOption[]>([]);
   const [recentRepoCatalog, setRecentRepoCatalog] = useState<RepoLike[] | null>(
-    null
+    null,
   );
   const [preferredRepoName, setPreferredRepoName] = useState<string | null>(
-    null
+    null,
   );
   const [showMissingRepoState, setShowMissingRepoState] = useState(false);
   const [isChoosingRepo, setIsChoosingRepo] = useState(false);
@@ -157,7 +157,7 @@ export function FileTagTypeaheadPlugin({
 
   const effectiveDiffPaths = useMemo(
     () => diffPaths ?? new Set<string>(),
-    [diffPaths]
+    [diffPaths],
   );
   const usePreferenceRepoSelection = repoIds === undefined;
   const canManageRepoPreference =
@@ -188,7 +188,7 @@ export function FileTagTypeaheadPlugin({
       setRecentRepoCatalog(repos);
       return repos;
     },
-    [listRecentRepos, recentRepoCatalog]
+    [listRecentRepos, recentRepoCatalog],
   );
 
   const runSearch = useCallback(
@@ -196,7 +196,7 @@ export function FileTagTypeaheadPlugin({
       const requestId = ++searchRequestRef.current;
       const scopedRepoIds = overrideRepoIds ?? effectiveRepoIds;
       const fileSearchEnabled = Boolean(
-        scopedRepoIds && scopedRepoIds.length > 0
+        scopedRepoIds && scopedRepoIds.length > 0,
       );
 
       const localFiles = fileSearchEnabled
@@ -243,7 +243,7 @@ export function FileTagTypeaheadPlugin({
         });
       }
     },
-    [effectiveDiffPaths, effectiveRepoIds, searchTagsAndFiles]
+    [effectiveDiffPaths, effectiveRepoIds, searchTagsAndFiles],
   );
 
   useEffect(() => {
@@ -260,7 +260,7 @@ export function FileTagTypeaheadPlugin({
         if (canceled) return;
 
         const matchingRecentRepo = recentRepos.find(
-          (repo) => repo.id === preferredRepoId
+          (repo) => repo.id === preferredRepoId,
         );
         if (matchingRecentRepo) {
           setPreferredRepoName(getRepoDisplayName(matchingRecentRepo));
@@ -372,7 +372,7 @@ export function FileTagTypeaheadPlugin({
       lastQueryRef.current = query;
       void runSearch(query);
     },
-    [runSearch]
+    [runSearch],
   );
 
   return (
@@ -453,7 +453,7 @@ export function FileTagTypeaheadPlugin({
       }}
       menuRenderFn={(
         anchorRef,
-        { selectedIndex, selectOptionAndCleanUp, setHighlightedIndex }
+        { selectedIndex, selectOptionAndCleanUp, setHighlightedIndex },
       ) => {
         if (!anchorRef.current) return null;
 
@@ -520,7 +520,7 @@ export function FileTagTypeaheadPlugin({
                         <span>@{tag.tag_name}</span>
                       </div>
                       {tag.content && (
-                        <div className="text-xs text-low truncate">
+                        <div className="text-xs text-default-500 truncate">
                           {tag.content.slice(0, 60)}
                           {tag.content.length > 60 ? '...' : ''}
                         </div>
@@ -572,7 +572,7 @@ export function FileTagTypeaheadPlugin({
                             />
                             <span>{file.name}</span>
                           </div>
-                          <div className="text-xs text-low truncate">
+                          <div className="text-xs text-default-500 truncate">
                             {file.path}
                           </div>
                         </TypeaheadMenu.Item>
@@ -583,7 +583,7 @@ export function FileTagTypeaheadPlugin({
               </TypeaheadMenu.ScrollArea>
             )}
           </TypeaheadMenu>,
-          document.body
+          document.body,
         );
       }}
     />

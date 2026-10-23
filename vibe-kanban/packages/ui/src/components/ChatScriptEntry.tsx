@@ -54,8 +54,8 @@ export function ChatScriptEntry({
   return (
     <div
       className={cn(
-        'flex items-start gap-base text-sm cursor-pointer hover:bg-secondary/50 rounded-md -mx-half px-half py-half transition-colors',
-        className
+        'flex items-start gap-base text-sm cursor-pointer hover:bg-content1/50 rounded-md -mx-half px-half py-half transition-colors',
+        className,
       )}
       onClick={handleClick}
       role="button"
@@ -68,26 +68,26 @@ export function ChatScriptEntry({
       }}
     >
       <span className="relative shrink-0 pt-0.5">
-        <TerminalIcon className="size-icon-base text-low" />
+        <TerminalIcon className="size-icon-base text-default-500" />
         <ToolStatusDot
           status={status}
           className="absolute -bottom-0.5 -left-0.5"
         />
       </span>
       <div className="flex flex-col min-w-0 flex-1">
-        <span className="text-normal font-medium">{title}</span>
+        <span className="text-foreground font-medium">{title}</span>
         {command && (
-          <code className="text-low text-xs font-mono truncate block">
+          <code className="text-default-500 text-xs font-mono truncate block">
             {command}
           </code>
         )}
-        <span className="text-low text-xs">{getSubtitle()}</span>
+        <span className="text-default-500 text-xs">{getSubtitle()}</span>
       </div>
       {isFailed && onFix && (
         <button
           type="button"
           onClick={handleFixClick}
-          className="shrink-0 flex items-center gap-1 px-2 py-1 text-xs text-brand hover:text-brand-hover hover:bg-secondary rounded transition-colors"
+          className="shrink-0 flex items-center gap-1 px-2 py-1 text-xs text-primary hover:text-primary/80 hover:bg-content1 rounded transition-colors"
           title={t('scriptFixer.fixScript')}
         >
           <WrenchIcon className="size-icon-xs" />

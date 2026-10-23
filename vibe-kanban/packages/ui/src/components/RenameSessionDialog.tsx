@@ -59,7 +59,7 @@ const RenameSessionDialogImpl = NiceModal.create<RenameSessionDialogProps>(
         modal.hide();
       } catch (err) {
         setError(
-          err instanceof Error ? err.message : 'Failed to rename session'
+          err instanceof Error ? err.message : 'Failed to rename session',
         );
       } finally {
         setIsSubmitting(false);
@@ -106,7 +106,7 @@ const RenameSessionDialogImpl = NiceModal.create<RenameSessionDialogProps>(
                 disabled={isSubmitting}
                 autoFocus
               />
-              {error && <p className="text-sm text-destructive">{error}</p>}
+              {error && <p className="text-sm text-danger">{error}</p>}
             </div>
           </div>
 
@@ -130,7 +130,7 @@ const RenameSessionDialogImpl = NiceModal.create<RenameSessionDialogProps>(
         </DialogContent>
       </Dialog>
     );
-  }
+  },
 );
 
 export const RenameSessionDialog = defineModal<

@@ -35,6 +35,8 @@ import { UserContext } from "@/shared/hooks/useUserContext";
 import { UserSystemContext } from "@/shared/hooks/useUserSystem";
 import { useUserSystemController } from "@/shared/hooks/useUserSystemController";
 import { useWorkspaceContext } from "@/shared/hooks/useWorkspaceContext";
+import { ThemeProviderContext } from "@/shared/hooks/useTheme";
+import { ThemeMode } from "shared/types";
 import { useDiffStream } from "@/shared/hooks/useDiffStream";
 import { useWorkspaceRecord } from "@/shared/hooks/useWorkspaceRecord";
 import { useWorkspaceRepo } from "@/shared/hooks/useWorkspaceRepo";
@@ -63,6 +65,7 @@ import {
 export type InlineVkAgentChatTheme = {
   className?: string;
   style?: CSSProperties;
+  mode?: "light" | "dark";
 };
 
 export type InlineVkAgentChatProps = {
@@ -206,25 +209,40 @@ function InlineActionsProvider({ children }: { children: ReactNode }) {
   );
 }
 
-function InlineVkRuntime({ children }: { children: ReactNode }) {
+function InlineVkRuntime({
+  children,
+  mode = "dark",
+}: {
+  children: ReactNode;
+  mode?: "light" | "dark";
+}) {
+  const theme = useMemo(
+    () => ({
+      theme: mode === "dark" ? ThemeMode.DARK : ThemeMode.LIGHT,
+      setTheme: noop,
+    }),
+    [mode],
+  );
   return (
-    <QueryClientProvider client={inlineQueryClient}>
-      <AppRuntimeProvider runtime="local">
-        <AppNavigationProvider value={inlineNavigation}>
-          <AuthContext.Provider
-            value={{ isSignedIn: false, isLoaded: true, userId: null }}
-          >
-            <InlineUserSystemProvider>
-              <InlineUserProvider>
-                <InlineActionsProvider>
-                  <NiceModalProvider>{children}</NiceModalProvider>
-                </InlineActionsProvider>
-              </InlineUserProvider>
-            </InlineUserSystemProvider>
-          </AuthContext.Provider>
-        </AppNavigationProvider>
-      </AppRuntimeProvider>
-    </QueryClientProvider>
+    <ThemeProviderContext.Provider value={theme}>
+      <QueryClientProvider client={inlineQueryClient}>
+        <AppRuntimeProvider runtime="local">
+          <AppNavigationProvider value={inlineNavigation}>
+            <AuthContext.Provider
+              value={{ isSignedIn: false, isLoaded: true, userId: null }}
+            >
+              <InlineUserSystemProvider>
+                <InlineUserProvider>
+                  <InlineActionsProvider>
+                    <NiceModalProvider>{children}</NiceModalProvider>
+                  </InlineActionsProvider>
+                </InlineUserProvider>
+              </InlineUserSystemProvider>
+            </AuthContext.Provider>
+          </AppNavigationProvider>
+        </AppRuntimeProvider>
+      </QueryClientProvider>
+    </ThemeProviderContext.Provider>
   );
 }
 
@@ -426,7 +444,7 @@ function InlineWorkspaceChat({
         <SelectTrigger
           aria-label="Chat view"
           title={`Chat view: ${effectiveChatViewMode === "mostly-zen" ? "Chat" : effectiveChatViewMode === "zen" ? "Zen" : "Full"}`}
-          className="flex size-8 items-center justify-center rounded-sm text-low transition-colors hover:bg-secondary hover:text-normal focus:outline-none focus-visible:ring-1 focus-visible:ring-brand"
+          className="flex size-8 items-center justify-center rounded-sm text-default-500 transition-colors hover:bg-content1 hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-focus"
         >
           <LayoutIcon className="size-icon-base" aria-hidden="true" />
           <span className="sr-only">
@@ -525,7 +543,7 @@ export function InlineVkAgentChat({
 }: InlineVkAgentChatProps) {
   if (!workspaceId) {
     return (
-      <div className="flex h-full items-center justify-center bg-primary p-base text-low">
+      <div className="flex h-full items-center justify-center bg-background p-base text-default-500">
         No workspace selected
       </div>
     );
@@ -533,11 +551,13 @@ export function InlineVkAgentChat({
 
   return (
     <div
-      className={theme?.className ?? "h-full min-h-0 bg-primary text-normal"}
+      className={
+        theme?.className ?? "h-full min-h-0 bg-background text-foreground"
+      }
       data-testid="inline-vk-agent-chat"
       style={theme?.style}
     >
-      <InlineVkRuntime>
+      <InlineVkRuntime mode={theme?.mode}>
         <InlineWorkspaceChat
           workspaceId={workspaceId}
           surfaceId={surfaceId}
@@ -560,12 +580,12 @@ function WorkspaceUnavailable({
   onRemoveCraft?: () => void;
 }) {
   return (
-    <div className="flex h-full items-center justify-center bg-primary p-base text-center">
+    <div className="flex h-full items-center justify-center bg-background p-base text-center">
       <div className="max-w-sm">
-        <h2 className="text-base font-medium text-normal">
+        <h2 className="text-base font-medium text-foreground">
           Workspace unavailable
         </h2>
-        <p className="mt-half text-sm text-low">
+        <p className="mt-half text-sm text-default-500">
           This craft's workspace could not be loaded. Open another workspace, or
           remove this craft if its workspace was deleted.
         </p>
@@ -573,7 +593,7 @@ function WorkspaceUnavailable({
           {onOpenCraft && (
             <button
               type="button"
-              className="rounded-sm bg-secondary px-base py-half text-sm text-normal hover:bg-tertiary"
+              className="rounded-sm bg-content1 px-base py-half text-sm text-foreground hover:bg-content2"
               onClick={onOpenCraft}
             >
               Open Craft
@@ -582,7 +602,7 @@ function WorkspaceUnavailable({
           {onRemoveCraft && (
             <button
               type="button"
-              className="rounded-sm border border-border px-base py-half text-sm text-low hover:bg-secondary hover:text-normal"
+              className="rounded-sm border border-divider px-base py-half text-sm text-default-500 hover:bg-content1 hover:text-foreground"
               onClick={onRemoveCraft}
             >
               Remove stale craft
@@ -613,11 +633,13 @@ export function InlineVkCreateWorkspace({
 
   return (
     <div
-      className={theme?.className ?? "h-full min-h-0 bg-primary text-normal"}
+      className={
+        theme?.className ?? "h-full min-h-0 bg-background text-foreground"
+      }
       data-testid="inline-vk-create-workspace"
       style={theme?.style}
     >
-      <InlineVkRuntime>
+      <InlineVkRuntime mode={theme?.mode}>
         {createdWorkspaceId ? (
           <InlineWorkspaceChat
             workspaceId={createdWorkspaceId}

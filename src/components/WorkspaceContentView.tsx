@@ -56,7 +56,7 @@ export function WorkspaceContentView({
 }: WorkspaceContentViewProps) {
   if (activeTabGroups.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center text-neutral-500">
+      <div className="flex-1 flex items-center justify-center text-default-500">
         <p>
           No craft in this space. Hover left to switch spaces.
         </p>

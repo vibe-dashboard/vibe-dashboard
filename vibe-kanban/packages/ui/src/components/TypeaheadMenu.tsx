@@ -35,7 +35,7 @@ function parseLength(value: string): number {
 
 function resolveLineHeight(
   style: CSSStyleDeclaration,
-  fallbackHeight: number
+  fallbackHeight: number,
 ): number {
   const explicit = parseLength(style.lineHeight);
   if (explicit > 0) return explicit;
@@ -56,7 +56,7 @@ function clamp(value: number, min: number, max: number) {
 
 function placementsEqual(
   a: TypeaheadPlacement,
-  b: TypeaheadPlacement
+  b: TypeaheadPlacement,
 ): boolean {
   return (
     a.side === b.side &&
@@ -69,7 +69,7 @@ function placementsEqual(
 function computePlacement(
   anchorEl: HTMLElement,
   menuEl: HTMLElement,
-  editorEl?: HTMLElement | null
+  editorEl?: HTMLElement | null,
 ): TypeaheadPlacement {
   const anchorRect = anchorEl.getBoundingClientRect();
   const menuRect = menuEl.getBoundingClientRect();
@@ -87,7 +87,7 @@ function computePlacement(
   const measuredHeight = round(
     menuRect.height ||
       parseLength(menuStyles.height) ||
-      parseLength(menuStyles.minHeight)
+      parseLength(menuStyles.minHeight),
   );
 
   const lineHeight = resolveLineHeight(anchorStyles, anchorRect.height);
@@ -101,7 +101,7 @@ function computePlacement(
     belowSpace >= measuredHeight || belowSpace >= aboveSpace ? 'bottom' : 'top';
   const availableSpace = Math.max(
     side === 'bottom' ? belowSpace : aboveSpace,
-    0
+    0,
   );
 
   let maxHeight = configuredMaxHeight
@@ -110,7 +110,7 @@ function computePlacement(
   if (configuredMinHeight) {
     maxHeight = Math.max(
       maxHeight,
-      Math.min(configuredMinHeight, availableSpace)
+      Math.min(configuredMinHeight, availableSpace),
     );
   }
 
@@ -121,7 +121,7 @@ function computePlacement(
   const minLeft = marginLeft;
   const maxLeft = Math.max(
     minLeft,
-    viewportWidth - measuredWidth - marginRight
+    viewportWidth - measuredWidth - marginRight,
   );
   const left = clamp(round(anchorRect.left), round(minLeft), round(maxLeft));
   const top =
@@ -253,7 +253,7 @@ function TypeaheadMenuRoot({
     <div
       ref={menuRef}
       style={style}
-      className="z-[10000] w-auto min-w-80 max-w-full p-0 overflow-hidden bg-panel border border-border rounded-sm shadow-md flex flex-col"
+      className="z-[10000] w-auto min-w-80 max-w-full p-0 overflow-hidden bg-content1 text-foreground border border-divider rounded-sm shadow-md flex flex-col"
     >
       {children}
     </div>
@@ -269,9 +269,9 @@ function TypeaheadMenuHeader({
 }) {
   return (
     <div
-      className={`px-base py-half border-b border-border ${className ?? ''}`}
+      className={`px-base py-half border-b border-divider ${className ?? ''}`}
     >
-      <div className="flex items-center gap-half text-xs font-medium text-low">
+      <div className="flex items-center gap-half text-xs font-medium text-default-500">
         {children}
       </div>
     </div>
@@ -291,7 +291,7 @@ function TypeaheadMenuScrollArea({ children }: { children: ReactNode }) {
 
 function TypeaheadMenuSectionHeader({ children }: { children: ReactNode }) {
   return (
-    <div className="px-base py-half text-xs font-medium text-low">
+    <div className="px-base py-half text-xs font-medium text-default-500">
       {children}
     </div>
   );
@@ -302,7 +302,9 @@ function TypeaheadMenuDivider() {
 }
 
 function TypeaheadMenuEmpty({ children }: { children: ReactNode }) {
-  return <div className="px-base py-half text-sm text-low">{children}</div>;
+  return (
+    <div className="px-base py-half text-sm text-default-500">{children}</div>
+  );
 }
 
 interface TypeaheadMenuActionProps {
@@ -319,7 +321,7 @@ function TypeaheadMenuAction({
   return (
     <button
       type="button"
-      className="w-full px-base py-half text-left text-sm text-low hover:bg-secondary hover:text-high transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+      className="w-full px-base py-half text-left text-sm text-default-500 hover:bg-content2 hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       onClick={onClick}
       disabled={disabled}
     >
@@ -365,7 +367,9 @@ function TypeaheadMenuItemComponent({
     <div
       ref={ref}
       className={`px-base py-half rounded-sm cursor-pointer text-sm transition-colors ${
-        isSelected ? 'bg-secondary text-high' : 'hover:bg-secondary text-normal'
+        isSelected
+          ? 'bg-content2 text-foreground'
+          : 'hover:bg-content2 text-foreground'
       }`}
       onMouseMove={handleMouseMove}
       onClick={onClick}

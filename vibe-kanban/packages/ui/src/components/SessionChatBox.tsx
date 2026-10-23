@@ -161,7 +161,7 @@ interface SessionChatBoxProps<TExecutor extends string = string> {
   chatViewModeSelector?: ReactNode;
   editor: EditorProps;
   renderEditor: (
-    props: SessionChatBoxEditorRenderProps<TExecutor>
+    props: SessionChatBoxEditorRenderProps<TExecutor>,
   ) => ReactNode;
   actions: ActionsProps;
   session: SessionProps<TExecutor>;
@@ -181,7 +181,7 @@ interface SessionChatBoxProps<TExecutor extends string = string> {
   emptyExecutorLabel?: string;
   renderAgentIcon?: (
     executor: TExecutor | string | null | undefined,
-    className?: string
+    className?: string,
   ) => ReactNode;
   formatSessionDate?: (createdAt: string | Date) => string;
   todos?: TodoProgressItem[];
@@ -290,11 +290,11 @@ export function SessionChatBox<TExecutor extends string = string>({
   // Derived state from status
   const isDisabled = Boolean(
     status === 'sending' ||
-      status === 'stopping' ||
-      feedbackMode?.isSubmitting ||
-      editMode?.isSubmitting ||
-      approvalMode?.isSubmitting ||
-      askQuestionMode?.isSubmitting
+    status === 'stopping' ||
+    feedbackMode?.isSubmitting ||
+    editMode?.isSubmitting ||
+    approvalMode?.isSubmitting ||
+    askQuestionMode?.isSubmitting,
   );
   const hasContent =
     editor.value.trim().length > 0 || (reviewComments?.count ?? 0) > 0;
@@ -597,22 +597,22 @@ export function SessionChatBox<TExecutor extends string = string>({
       banners.push(
         <div
           key="review-comments"
-          className="bg-accent/5 border-b px-double py-base flex items-center gap-base"
+          className="bg-content2/50 border-b border-divider px-double py-base flex items-center gap-base"
         >
-          <ChatCircleIcon className="h-4 w-4 text-brand flex-shrink-0" />
-          <span className="text-sm text-normal flex-1">
+          <ChatCircleIcon className="h-4 w-4 text-primary flex-shrink-0" />
+          <span className="text-sm text-foreground flex-1">
             {t('conversation.reviewComments.count', {
               count: reviewComments.count,
             })}
           </span>
           <button
             onClick={reviewComments.onClear}
-            className="text-low hover:text-normal transition-colors p-1 -m-1"
+            className="text-default-500 hover:text-foreground transition-colors p-1 -m-1"
             title={t('conversation.actions.clearReviewComments')}
           >
             <TrashIcon className="h-4 w-4" />
           </button>
-        </div>
+        </div>,
       );
     }
 
@@ -627,7 +627,7 @@ export function SessionChatBox<TExecutor extends string = string>({
           isSubmitting={askQuestionMode.isSubmitting}
           isTimedOut={askQuestionMode.isTimedOut}
           error={askQuestionMode.error ?? null}
-        />
+        />,
       );
     }
 
@@ -636,13 +636,13 @@ export function SessionChatBox<TExecutor extends string = string>({
       banners.push(
         <div
           key="queued"
-          className="bg-secondary border-b px-double py-base flex items-center gap-base"
+          className="bg-content2 border-b border-divider px-double py-base flex items-center gap-base"
         >
-          <ClockIcon className="h-4 w-4 text-low" />
-          <span className="text-sm text-low">
+          <ClockIcon className="h-4 w-4 text-default-500" />
+          <span className="text-sm text-default-500">
             {t('followUp.queuedMessage')}
           </span>
-        </div>
+        </div>,
       );
     }
 
@@ -766,7 +766,7 @@ export function SessionChatBox<TExecutor extends string = string>({
                                 </span>
                               )}
                               {linesRemoved !== undefined && (
-                                <span className="text-error">
+                                <span className="text-danger">
                                   -{linesRemoved}
                                 </span>
                               )}
@@ -775,7 +775,7 @@ export function SessionChatBox<TExecutor extends string = string>({
                         </span>
                       </PrimaryButton>
                     ) : (
-                      <span className="text-sm text-low space-x-half whitespace-nowrap truncate min-w-0">
+                      <span className="text-sm text-default-500 space-x-half whitespace-nowrap truncate min-w-0">
                         <span>
                           {t('diff.filesChanged', { count: filesChanged })}
                         </span>
@@ -788,7 +788,7 @@ export function SessionChatBox<TExecutor extends string = string>({
                               </span>
                             )}
                             {linesRemoved !== undefined && (
-                              <span className="text-error">
+                              <span className="text-danger">
                                 -{linesRemoved}
                               </span>
                             )}
@@ -821,7 +821,7 @@ export function SessionChatBox<TExecutor extends string = string>({
                       icon={ArrowUpIcon}
                       title={t('conversation.actions.scrollToPreviousMessage')}
                       aria-label={t(
-                        'conversation.actions.scrollToPreviousMessage'
+                        'conversation.actions.scrollToPreviousMessage',
                       )}
                       onClick={onScrollToPreviousMessage}
                     />
@@ -867,7 +867,7 @@ export function SessionChatBox<TExecutor extends string = string>({
                       <span className="flex items-center gap-1.5 max-w-[200px]">
                         {renderAgentIcon?.(
                           s.executor ?? null,
-                          'size-icon shrink-0'
+                          'size-icon shrink-0',
                         )}
                         <span className="truncate">
                           {s.name
@@ -893,7 +893,7 @@ export function SessionChatBox<TExecutor extends string = string>({
                     onClick={() =>
                       onRenameSession(
                         selectedSessionId,
-                        selectedSessionObj?.name ?? ''
+                        selectedSessionObj?.name ?? '',
                       )
                     }
                   >

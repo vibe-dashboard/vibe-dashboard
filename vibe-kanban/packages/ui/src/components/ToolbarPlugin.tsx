@@ -35,7 +35,7 @@ function ToolbarButton({
       title={title}
       aria-label={title}
       className={cn(
-        'p-1.5 rounded hover:bg-accent transition-colors bg-secondary/40'
+        'p-1.5 rounded hover:bg-content2 transition-colors bg-content1/40',
       )}
     >
       {children}
@@ -106,7 +106,7 @@ export function ToolbarPlugin() {
     // Keep within viewport horizontally
     left = Math.max(
       VIEWPORT_PADDING,
-      Math.min(left, window.innerWidth - toolbarWidth - VIEWPORT_PADDING)
+      Math.min(left, window.innerWidth - toolbarWidth - VIEWPORT_PADDING),
     );
 
     setPosition({ top, left });
@@ -120,7 +120,7 @@ export function ToolbarPlugin() {
         updateToolbar();
         return false;
       },
-      COMMAND_PRIORITY_CRITICAL
+      COMMAND_PRIORITY_CRITICAL,
     );
   }, [editor, updateToolbar]);
 
@@ -184,7 +184,7 @@ export function ToolbarPlugin() {
   return createPortal(
     <div
       data-floating-toolbar
-      className="fixed z-[10000] flex items-center gap-0.5 px-1.5 py-1 bg-popover bg-panel/20 backdrop-blur-sm  text-popover-foreground border border-border rounded-lg shadow-lg animate-in fade-in-0 duration-100"
+      className="fixed z-[10000] flex items-center gap-0.5 px-1.5 py-1 bg-content1/95 backdrop-blur-sm text-foreground border border-divider rounded-lg shadow-lg animate-in fade-in-0 duration-100"
       style={{
         top: position.top,
         left: position.left,
@@ -217,6 +217,6 @@ export function ToolbarPlugin() {
         <Code size={iconSize} />
       </ToolbarButton>
     </div>,
-    document.body
+    document.body,
   );
 }

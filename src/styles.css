@@ -7,6 +7,30 @@
 @source '../vibe-kanban/packages/web-core/src/**/*.{ts,tsx}';
 @custom-variant dark (&:is(.dark *));
 
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url('/fonts/IBMPlexMono-Regular.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url('/fonts/IBMPlexMono-Medium.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 500 600;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url('/fonts/IBMPlexMono-Bold.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 700 900;
+  font-display: swap;
+}
+
 /* VK's compact workspace controls use named spacing from its Tailwind theme.
  * Define the same names here so transplanted components retain their native
  * density instead of silently dropping utilities or using VD-sized fallbacks. */
@@ -27,6 +51,8 @@
   --spacing-dot: 0.3rem;
   --font-ibm-plex-sans: "IBM Plex Sans", "Noto Emoji", sans-serif;
   --font-ibm-plex-mono: "IBM Plex Mono", monospace;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --font-sans: var(--vd-ui-font);
 }
 
 html, body, #root {
@@ -35,12 +61,17 @@ html, body, #root {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: #0a0a0a;
-  color: #e5e5e5;
+  background: hsl(var(--heroui-background));
+  color: hsl(var(--heroui-foreground));
+  font-family: var(--vd-ui-font);
 }
 
-html {
-  color-scheme: dark;
+:root {
+  --vd-ui-font: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+:root[data-ui-font="system"] {
+  --vd-ui-font: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 input,
@@ -71,36 +102,54 @@ textarea {
 :root {
   --mobile-footer-offset: 0px;
   --mobile-footer-height: 0px;
-  --bg-primary: #151515;
-  --bg-secondary: #1f1f1f;
-  --bg-tertiary: #262626;
-  --bg-panel: #0f0f0f;
-  --bg-hover: #2a2a2a;
-  --bg-active: #333333;
-  --bg-accent: #262626;
-  --text-high: #f5f5f5;
-  --text-normal: #d4d4d4;
-  --text-low: #a3a3a3;
-  --text-muted: #737373;
-  --border: #3a3a3a;
-  --border-muted: #2a2a2a;
-  --brand: #3b82f6;
-  --brand-foreground: #ffffff;
+  /* Compatibility for pages outside the chat-first conversion. Values are
+   * HSL channels, matching legacy widget consumers; HeroUI owns the colors. */
+  --bg-primary: var(--heroui-background);
+  --bg-secondary: var(--heroui-content1);
+  --bg-tertiary: var(--heroui-content2);
+  --bg-panel: var(--heroui-content1);
+  --bg-hover: var(--heroui-content2);
+  --bg-active: var(--heroui-content3);
+  --bg-accent: var(--heroui-content2);
+  --text-high: var(--heroui-foreground);
+  --text-normal: var(--heroui-foreground);
+  --text-low: var(--heroui-default-500);
+  --text-muted: var(--heroui-default-500);
+  --border: var(--heroui-divider);
+  --border-muted: var(--heroui-divider);
+  --brand: var(--heroui-primary);
+  --brand-foreground: var(--heroui-primary-foreground);
+  --syntax-keyword: hsl(var(--heroui-secondary));
+  --syntax-constant: hsl(var(--heroui-primary));
+  --syntax-variable: hsl(var(--heroui-secondary));
+  --syntax-comment: hsl(var(--heroui-default-500));
+  --syntax-string: hsl(var(--heroui-success));
+  --syntax-function: hsl(var(--heroui-primary));
+  --syntax-deleted: hsl(var(--heroui-danger));
+  --syntax-punctuation: hsl(var(--heroui-foreground));
+  --syntax-tag: hsl(var(--heroui-success));
 }
 
-.bg-primary { background-color: var(--bg-primary); }
-.bg-secondary { background-color: var(--bg-secondary); }
-.bg-tertiary { background-color: var(--bg-tertiary); }
-.bg-panel { background-color: var(--bg-panel); }
-.bg-hover { background-color: var(--bg-hover); }
-.bg-active { background-color: var(--bg-active); }
-.bg-accent { background-color: var(--bg-accent); }
-.text-high { color: var(--text-high); }
-.text-normal { color: var(--text-normal); }
-.text-low { color: var(--text-low); }
-.text-muted { color: var(--text-muted); }
-.border-border { border-color: var(--border); }
-.border-muted { border-color: var(--border-muted); }
+/* Never redefine bg-primary/bg-secondary: these are HeroUI action colors. */
+@theme inline {
+  --color-tertiary: hsl(var(--heroui-content2));
+  --color-panel: hsl(var(--heroui-content1));
+  --color-hover: hsl(var(--heroui-content2));
+  --color-active: hsl(var(--heroui-content3));
+  --color-accent: hsl(var(--heroui-content2));
+  --color-high: hsl(var(--heroui-foreground));
+  --color-normal: hsl(var(--heroui-foreground));
+  --color-low: hsl(var(--heroui-default-500));
+  --color-muted: hsl(var(--heroui-default-500));
+  --color-border: hsl(var(--heroui-divider));
+  --color-brand: hsl(var(--heroui-primary));
+  --color-brand-hover: hsl(var(--heroui-primary) / 0.8);
+  --color-error: hsl(var(--heroui-danger));
+}
+
+@layer base {
+  *, ::before, ::after { border-color: hsl(var(--heroui-divider) / 0.3); }
+}
 @media (max-width: 767px) {
   :root {
     --mobile-footer-offset: var(--mobile-footer-height);

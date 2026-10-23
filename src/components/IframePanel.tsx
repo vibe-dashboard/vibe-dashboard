@@ -1283,7 +1283,7 @@ function StaticIframePanelContent({
                 />
               </Panel>
               {index < pairTabs.length - 1 && (
-                <Separator className="w-1 bg-neutral-700 hover:bg-neutral-500 data-[resize-handle-state=drag]:bg-primary-500 transition-colors cursor-col-resize flex-shrink-0 z-20" />
+                <Separator className="w-1 bg-content2 hover:bg-primary data-[resize-handle-state=drag]:bg-primary transition-colors cursor-col-resize flex-shrink-0 z-20" />
               )}
             </React.Fragment>
           ))}
@@ -1424,22 +1424,22 @@ function IframePlaceholder({
   const isDisabled = mode === 'disabled';
 
   return (
-    <div className="w-full h-full bg-neutral-950 text-neutral-300 flex items-center justify-center">
-      <div className="max-w-lg rounded-2xl border border-neutral-800 bg-neutral-900/80 p-6 text-center shadow-2xl">
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full border border-neutral-700 bg-neutral-950 text-xl">
+    <div className="w-full h-full bg-background text-foreground flex items-center justify-center">
+      <div className="max-w-lg rounded-2xl border border-divider bg-content1/80 p-6 text-center shadow-2xl">
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full border border-divider bg-background text-xl">
           {isDisabled ? '⏸' : '🖼️'}
         </div>
-        <p className="text-sm font-semibold text-neutral-100">
+        <p className="text-sm font-semibold text-foreground">
           {isDisabled ? 'Iframe disabled for Storybook' : 'Iframe placeholder'}
         </p>
-        <p className="mt-2 text-xs leading-5 text-neutral-500">
+        <p className="mt-2 text-xs leading-5 text-default-500">
           {isDisabled
             ? 'This story intentionally avoids creating iframe DOM.'
             : 'The real iframe is replaced with a stable preview placeholder.'}
         </p>
-        <div className="mt-4 rounded-lg border border-neutral-800 bg-neutral-950 p-3 text-left">
-          <p className="text-xs font-medium text-neutral-300">{title}</p>
-          <p className="mt-1 break-all text-xs text-neutral-500">{url}</p>
+        <div className="mt-4 rounded-lg border border-divider bg-background p-3 text-left">
+          <p className="text-xs font-medium text-foreground">{title}</p>
+          <p className="mt-1 break-all text-xs text-default-500">{url}</p>
         </div>
       </div>
     </div>
@@ -1508,7 +1508,7 @@ function PersistentIframeLayer({
 
   return (
     <div
-      className="absolute inset-x-0 top-0 overflow-hidden box-border bg-neutral-950 md:bottom-0"
+      className="absolute inset-x-0 top-0 overflow-hidden box-border bg-background md:bottom-0"
       style={MOBILE_VIEWPORT_INSET_STYLE}
     >
       {retainedTabs.map(({ tab, iframeKey }) => {
@@ -1760,7 +1760,7 @@ function PairView({
               />
             </Panel>
             {i < pairTabs.length - 1 && (
-              <Separator className="w-1 bg-neutral-700 hover:bg-neutral-500 data-[resize-handle-state=drag]:bg-primary-500 transition-colors cursor-col-resize flex-shrink-0 z-20 pointer-events-auto" />
+              <Separator className="w-1 bg-content2 hover:bg-primary data-[resize-handle-state=drag]:bg-primary transition-colors cursor-col-resize flex-shrink-0 z-20 pointer-events-auto" />
             )}
           </React.Fragment>
         );
@@ -1837,7 +1837,7 @@ function PairTabView({
 
   if (target.kind === 'react-surface') {
     return (
-      <div className="relative w-full h-full pointer-events-auto bg-neutral-950">
+      <div className="relative w-full h-full pointer-events-auto bg-background">
         <ReactCraftSurfaceHost
           target={target.target}
           context={{
@@ -1865,7 +1865,7 @@ function PairTabView({
 
 function EmptyView() {
   return (
-    <div className="absolute inset-x-0 top-0 md:bottom-0 flex items-center justify-center text-neutral-500" style={MOBILE_VIEWPORT_INSET_STYLE}>
+    <div className="absolute inset-x-0 top-0 md:bottom-0 flex items-center justify-center text-default-500" style={MOBILE_VIEWPORT_INSET_STYLE}>
       <p>No tab selected. Click + to add a tab.</p>
     </div>
   );
@@ -1932,9 +1932,9 @@ function renderInternalView(internalPath: string, context: InternalViewContext) 
 
 function PluginInternalRoutePlaceholder({ pluginId, routePath }: { pluginId: string; routePath: string }) {
   return (
-    <div className="flex-1 h-full bg-neutral-950 text-neutral-400 flex items-center justify-center">
+    <div className="flex-1 h-full bg-background text-default-500 flex items-center justify-center">
       <div className="max-w-md px-6 text-center">
-        <p className="text-sm font-medium text-neutral-200">Plugin route unavailable</p>
+        <p className="text-sm font-medium text-foreground">Plugin route unavailable</p>
         <p className="mt-2 text-xs">This plugin-owned route is not active in the host registry yet.</p>
         <p className="mt-2 text-xs break-all">{pluginId}{routePath}</p>
       </div>
@@ -1944,9 +1944,9 @@ function PluginInternalRoutePlaceholder({ pluginId, routePath }: { pluginId: str
 
 function UnknownInternalRoutePlaceholder({ url }: { url: string }) {
   return (
-    <div className="flex-1 h-full bg-neutral-950 text-neutral-400 flex items-center justify-center">
+    <div className="flex-1 h-full bg-background text-default-500 flex items-center justify-center">
       <div className="max-w-md px-6 text-center">
-        <p className="text-sm font-medium text-neutral-200">Unknown internal route</p>
+        <p className="text-sm font-medium text-foreground">Unknown internal route</p>
         <p className="mt-2 text-xs break-all">{url}</p>
       </div>
     </div>
@@ -1955,9 +1955,9 @@ function UnknownInternalRoutePlaceholder({ url }: { url: string }) {
 
 function BlockedSelfAppPlaceholder({ url }: { url: string }) {
   return (
-    <div className="flex-1 h-full bg-neutral-950 text-neutral-400 flex items-center justify-center">
+    <div className="flex-1 h-full bg-background text-default-500 flex items-center justify-center">
       <div className="max-w-md px-6 text-center">
-        <p className="text-sm font-medium text-neutral-200">
+        <p className="text-sm font-medium text-foreground">
           stopped loading app recursively
         </p>
         <p className="mt-2 text-xs break-all">{url}</p>
@@ -1968,20 +1968,20 @@ function BlockedSelfAppPlaceholder({ url }: { url: string }) {
 
 function ErrorOverlay({ url, onRetry }: { url: string; onRetry: () => void }) {
   return (
-    <div className="absolute inset-0 bg-neutral-950 flex items-center justify-center z-10 pointer-events-auto">
+    <div className="absolute inset-0 bg-background flex items-center justify-center z-10 pointer-events-auto">
       <div className="flex flex-col items-center gap-4 max-w-md px-6 text-center">
-        <div className="w-10 h-10 rounded-full bg-red-500/15 flex items-center justify-center">
-          <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="w-10 h-10 rounded-full bg-danger/15 flex items-center justify-center">
+          <svg className="w-5 h-5 text-danger" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
           </svg>
         </div>
         <div>
-          <p className="text-neutral-300 text-sm font-medium mb-1">Failed to load</p>
-          <p className="text-neutral-500 text-xs break-all">{url}</p>
+          <p className="text-foreground text-sm font-medium mb-1">Failed to load</p>
+          <p className="text-default-500 text-xs break-all">{url}</p>
         </div>
         <button
           onClick={onRetry}
-          className="px-4 py-2 rounded-lg text-sm font-medium bg-neutral-800 text-neutral-300 border border-neutral-700 hover:bg-neutral-700 hover:text-white transition-colors"
+          className="px-4 py-2 rounded-lg text-sm font-medium bg-content1 text-foreground border border-divider hover:bg-content2 transition-colors"
         >
           Try again
         </button>

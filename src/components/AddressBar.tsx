@@ -24,7 +24,7 @@ export function AddressBar({ tabGroup, activeItemId, onNavigate }: AddressBarPro
   }
 
   return (
-    <div className="bg-neutral-900 border-b border-neutral-800 px-3 py-1.5 flex items-center gap-2">
+    <div className="bg-content1 border-b border-divider/30 px-3 py-1.5 flex items-center gap-2">
       {tabsToShow.map((tab, index) => (
         <AddressBarInput
           key={tab.id}
@@ -144,10 +144,10 @@ function AddressBarInput({
   return (
     <>
       {showSeparator && (
-        <span className="text-neutral-600">|</span>
+        <span className="text-default-500">|</span>
       )}
       <div className="flex items-center gap-2 flex-1 min-w-0">
-        <span className="text-neutral-500 text-xs flex-shrink-0" title={title}>
+        <span className="text-default-500 text-xs flex-shrink-0" title={title}>
           🌐
         </span>
         <input
@@ -170,14 +170,14 @@ function AddressBarInput({
             setEditedUrl(displayUrl); // Revert if not submitted via Enter
           }}
           onKeyDown={handleKeyDown}
-          className="bg-neutral-800 text-neutral-300 text-xs px-2 py-1 rounded flex-1 min-w-0 border border-neutral-700 focus:outline-none focus:border-primary-500"
+          className="bg-content2 text-foreground text-xs px-2 py-1 rounded flex-1 min-w-0 border border-divider focus:outline-none focus:border-focus"
           placeholder="Enter URL..."
         />
         <a
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-neutral-500 hover:text-neutral-300 flex-shrink-0 transition-colors"
+          className="text-default-500 hover:text-foreground flex-shrink-0 transition-colors"
           title="Open in new browser tab"
           tabIndex={-1}
         >

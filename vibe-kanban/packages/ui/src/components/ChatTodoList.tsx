@@ -19,10 +19,10 @@ function getStatusIcon(status?: string | null) {
   if (s === 'completed')
     return <Check aria-hidden className="h-4 w-4 text-success" />;
   if (s === 'in_progress' || s === 'in-progress')
-    return <CircleDot aria-hidden className="h-4 w-4 text-blue-500" />;
+    return <CircleDot aria-hidden className="h-4 w-4 text-primary" />;
   if (s === 'cancelled')
-    return <Circle aria-hidden className="h-4 w-4 text-gray-400" />;
-  return <Circle aria-hidden className="h-4 w-4 text-muted-foreground" />;
+    return <Circle aria-hidden className="h-4 w-4 text-default-500" />;
+  return <Circle aria-hidden className="h-4 w-4 text-default-500" />;
 }
 
 export function ChatTodoList({ todos, expanded, onToggle }: ChatTodoListProps) {
@@ -31,7 +31,7 @@ export function ChatTodoList({ todos, expanded, onToggle }: ChatTodoListProps) {
   return (
     <div className="text-sm">
       <div
-        className="flex items-center gap-base text-low cursor-pointer"
+        className="flex items-center gap-base text-default-500 cursor-pointer"
         onClick={onToggle}
         role="button"
       >
@@ -40,7 +40,7 @@ export function ChatTodoList({ todos, expanded, onToggle }: ChatTodoListProps) {
         <CaretDownIcon
           className={cn(
             'shrink-0 size-icon-base transition-transform',
-            expanded && 'rotate-180'
+            expanded && 'rotate-180',
           )}
         />
       </div>
@@ -56,7 +56,7 @@ export function ChatTodoList({ todos, expanded, onToggle }: ChatTodoListProps) {
               </span>
               <span className="leading-5 break-words">
                 {todo.status?.toLowerCase() === 'cancelled' ? (
-                  <s className="text-gray-400">{todo.content}</s>
+                  <s className="text-default-500">{todo.content}</s>
                 ) : (
                   todo.content
                 )}

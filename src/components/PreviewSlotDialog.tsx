@@ -104,7 +104,7 @@ export function PreviewSlotDialog({
       }}
     >
       <DialogContent
-        className="max-h-[85vh] overflow-y-auto p-double text-normal"
+        className="max-h-[85vh] overflow-y-auto p-double text-foreground"
         style={{ width: 'min(48rem, calc(100vw - 2rem))', maxWidth: '48rem' }}
       >
         <DialogTitle>
@@ -117,7 +117,7 @@ export function PreviewSlotDialog({
             : 'Live stdout and stderr from the current preview server.'}
         </DialogDescription>
         {error ? (
-          <p role="alert" className="mt-base text-sm text-error">
+          <p role="alert" className="mt-base text-sm text-danger">
             {error}
           </p>
         ) : null}
@@ -137,11 +137,11 @@ export function PreviewSlotDialog({
                 disabled={pending || !config}
                 rows={12}
                 spellCheck={false}
-                className="mt-base block w-full rounded-sm border border-border bg-secondary p-base font-mono text-sm"
+                className="mt-base block w-full rounded-sm border border-divider bg-content2 p-base font-mono text-sm"
               />
             </label>
             {!config ? (
-              <p className="text-error">
+              <p className="text-danger">
                 The run config for this slot is unavailable.
               </p>
             ) : null}
@@ -150,7 +150,7 @@ export function PreviewSlotDialog({
                 type="button"
                 disabled={pending}
                 onClick={() => void mutate('delete')}
-                className="rounded-sm border border-error px-base py-half text-sm text-error disabled:opacity-50"
+                className="rounded-sm border border-danger px-base py-half text-sm text-danger disabled:opacity-50"
               >
                 Delete preview slot
               </button>
@@ -166,7 +166,7 @@ export function PreviewSlotDialog({
                 <button
                   type="submit"
                   disabled={pending || !config || !command.trim()}
-                  className="rounded-sm bg-brand px-base py-half text-sm text-white disabled:opacity-50"
+                  className="rounded-sm bg-primary px-base py-half text-sm text-primary-foreground disabled:opacity-50"
                 >
                   {pending ? 'Working…' : 'Save script'}
                 </button>
@@ -176,7 +176,7 @@ export function PreviewSlotDialog({
         ) : process?.processId ? (
           <PreviewProcessLogs processId={process.processId} />
         ) : (
-          <p role="status" className="mt-double text-sm text-low">
+          <p role="status" className="mt-double text-sm text-default-500">
             {process?.message ??
               (error ? 'Logs unavailable.' : 'Loading preview process…')}
           </p>
@@ -191,19 +191,19 @@ function PreviewProcessLogs({ processId }: { processId: string }) {
   return (
     <>
       {error ? (
-        <p role="alert" className="mt-base text-sm text-error">
+        <p role="alert" className="mt-base text-sm text-danger">
           Log connection failed. Close and reopen this dialog to reconnect.
         </p>
       ) : null}
       <pre
         aria-label="Preview server output"
-        className="mt-double max-h-[55vh] overflow-auto whitespace-pre-wrap break-words rounded-sm border border-border bg-secondary p-base font-mono text-xs"
+        className="mt-double max-h-[55vh] overflow-auto whitespace-pre-wrap break-words rounded-sm border border-divider bg-content2 p-base font-mono text-xs"
       >
         {logs.length
           ? logs.map((entry, index) => (
               <span
                 key={index}
-                className={entry.type === 'STDERR' ? 'text-error' : undefined}
+                className={entry.type === 'STDERR' ? 'text-danger' : undefined}
               >
                 {entry.content}
               </span>

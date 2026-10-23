@@ -31,21 +31,21 @@ export function ChatScriptPlaceholder({
     <div
       className={cn(
         'flex items-start gap-base text-sm rounded-md -mx-half px-half py-half',
-        className
+        className,
       )}
     >
       <span className="relative shrink-0 pt-0.5">
         <TerminalIcon className="size-icon-base text-lowest" />
       </span>
       <div className="flex flex-col min-w-0 flex-1 gap-0.5">
-        <span className="text-low font-medium">{title}</span>
+        <span className="text-default-500 font-medium">{title}</span>
         <span className="text-lowest text-xs">{description}</span>
       </div>
       {onConfigure && (
         <button
           type="button"
           onClick={onConfigure}
-          className="shrink-0 flex items-center gap-1 px-2 py-1 text-xs text-brand hover:text-brand-hover hover:bg-secondary rounded transition-colors"
+          className="shrink-0 flex items-center gap-1 px-2 py-1 text-xs text-primary hover:text-primary/80 hover:bg-content1 rounded transition-colors"
         >
           <GearSixIcon className="size-icon-xs" />
           <span>{t('conversation.scriptPlaceholder.configure')}</span>

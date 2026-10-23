@@ -4,6 +4,7 @@ declare module '@vibe/inline-chat' {
   export type InlineVkAgentChatTheme = {
     className?: string;
     style?: CSSProperties;
+    mode?: 'light' | 'dark';
   };
 
   export type InlineVkAgentChatProps = {

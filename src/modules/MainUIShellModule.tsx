@@ -38,10 +38,13 @@ import { usePluginRegistry } from "./plugins/vibe-dashboard/registry";
 import type { ResolvedWorkspaceComposition } from "./plugins/vibe-dashboard/workspace-composition";
 import { createEffectiveWorkspaceWithCraftSurfaces } from "./plugins/vibe-dashboard/craft-surfaces";
 import { VibeIntlProvider } from "../i18n";
+import { ThemeProvider } from "../components/ThemeProvider";
+import { applyTheme } from "../lib/themeDocument";
+import { defaultThemePreferences } from "../lib/themes";
 
 // Ensure dark class is on the document root so portaled elements (modals, popovers)
 // inherit dark mode styles
-document.documentElement.classList.add("dark");
+applyTheme(document.documentElement, defaultThemePreferences);
 springboard.registerSplashScreen(AppLoadingScreen);
 
 import springboard from "springboard";
@@ -934,15 +937,15 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
       };
 
       return (
-        <div className="dark w-screen h-screen fixed inset-0 bg-neutral-950 text-neutral-100 flex items-center justify-center p-6">
-          <div className="w-full max-w-md rounded-2xl border border-neutral-800 bg-neutral-900 p-6 shadow-2xl">
-            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-neutral-500">
+        <div className="w-screen h-screen fixed inset-0 bg-background text-foreground flex items-center justify-center p-6">
+          <div className="w-full max-w-md rounded-2xl border border-divider bg-content1 p-6 shadow-2xl">
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-default-500">
               Voyage not found
             </div>
             <h1 className="mt-3 text-2xl font-semibold">
               This voyage link no longer resolves.
             </h1>
-            <p className="mt-3 text-sm leading-6 text-neutral-400">
+            <p className="mt-3 text-sm leading-6 text-default-500">
               The URL requested “{dashboardVoyage.requestedVoyageKey}”, but that
               voyage is not available in this workspace. Choose a working voyage
               to continue.
@@ -950,13 +953,13 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
             <div className="mt-6 flex flex-col gap-3">
               {fallbackSession ? (
                 <button
-                  className="rounded-lg bg-primary-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-400"
+                  className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:bg-primary/80"
                   onClick={openFallbackVoyage}
                 >
                   Open {fallbackSession.name?.trim() || "available voyage"}
                 </button>
               ) : (
-                <div className="rounded-lg border border-neutral-800 bg-neutral-950 px-4 py-3 text-sm text-neutral-400">
+                <div className="rounded-lg border border-divider bg-background px-4 py-3 text-sm text-default-500">
                   No saved voyages are available to recover this link.
                 </div>
               )}
@@ -976,23 +979,23 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
         )?.label || "your first craft";
 
       return (
-        <div className="dark w-screen h-screen fixed inset-0 bg-neutral-950 text-neutral-100 flex items-center justify-center p-6">
-          <div className="w-full max-w-lg rounded-2xl border border-neutral-800 bg-neutral-900 p-6 shadow-2xl">
-            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-neutral-500">
+        <div className="w-screen h-screen fixed inset-0 bg-background text-foreground flex items-center justify-center p-6">
+          <div className="w-full max-w-lg rounded-2xl border border-divider bg-content1 p-6 shadow-2xl">
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-default-500">
               Create your first Voyage
             </div>
             <h1 className="mt-3 text-2xl font-semibold">
               Name the Voyage for this workspace.
             </h1>
-            <p className="mt-3 text-sm leading-6 text-neutral-400">
+            <p className="mt-3 text-sm leading-6 text-default-500">
               A Voyage is the named set of craft and views you are working with.
               Naming it gives the URL a stable Voyage identity, so the app can
               restore and share this workspace without relying on hidden browser
               state.
             </p>
-            <p className="mt-3 text-sm leading-6 text-neutral-400">
+            <p className="mt-3 text-sm leading-6 text-default-500">
               We will start this Voyage with{" "}
-              <span className="font-medium text-neutral-200">
+              <span className="font-medium text-foreground">
                 {defaultCraftName}
               </span>
               . You can add or switch craft after it is created.
@@ -1006,7 +1009,7 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
               }}
             >
               <label className="block">
-                <span className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                <span className="text-xs font-semibold uppercase tracking-wide text-default-500">
                   Voyage name
                 </span>
                 <input
@@ -1018,18 +1021,18 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
                   aria-label="Voyage name"
                   placeholder="e.g. Client launch, Bug triage, Morning build"
                   autoFocus
-                  className="mt-2 w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none placeholder:text-neutral-600 focus:border-primary-400"
+                  className="mt-2 w-full rounded-lg border border-divider bg-background px-3 py-2 text-sm text-foreground outline-none placeholder:text-default-500 focus:border-focus"
                 />
               </label>
               {createFirstVoyageError && (
-                <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+                <div className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
                   {createFirstVoyageError}
                 </div>
               )}
               <button
                 type="submit"
                 disabled={firstVoyageNameIsInvalid || isCreatingFirstVoyage}
-                className="w-full rounded-lg bg-primary-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-400 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+                className="w-full rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:bg-primary/80 disabled:cursor-not-allowed disabled:bg-content2 disabled:text-default-500"
               >
                 {isCreatingFirstVoyage ? "Creating Voyage…" : "Create Voyage"}
               </button>
@@ -1247,7 +1250,7 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
       return (
         <QueryClientProvider client={queryClient}>
           <VibeIntlProvider>
-            <HeroUIProvider>{props.children}</HeroUIProvider>
+            <HeroUIProvider><ThemeProvider>{props.children}</ThemeProvider></HeroUIProvider>
           </VibeIntlProvider>
         </QueryClientProvider>
       );

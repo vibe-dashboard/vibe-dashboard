@@ -48,7 +48,7 @@ export function ChatCollapsedThinking({
     <div className={cn('flex flex-col', className)}>
       {/* Header row - clickable to expand/collapse */}
       <div
-        className="flex items-center gap-base text-sm text-low cursor-pointer group"
+        className="flex items-center gap-base text-sm text-default-500 cursor-pointer group"
         onClick={onToggle}
         onMouseEnter={() => onHoverChange(true)}
         onMouseLeave={() => onHoverChange(false)}
@@ -61,7 +61,7 @@ export function ChatCollapsedThinking({
             <CaretRightIcon
               className={cn(
                 'size-icon-base transition-transform duration-150',
-                expanded && 'rotate-90'
+                expanded && 'rotate-90',
               )}
             />
           ) : (
@@ -75,7 +75,10 @@ export function ChatCollapsedThinking({
       {expanded && (
         <div className="ml-6 pt-1 flex flex-col gap-base">
           {entries.map((entry) => (
-            <div key={entry.expansionKey} className="text-sm text-low pl-base">
+            <div
+              key={entry.expansionKey}
+              className="text-sm text-default-500 pl-base"
+            >
               {renderMarkdown({
                 content: entry.content,
                 workspaceId: workspaceId,

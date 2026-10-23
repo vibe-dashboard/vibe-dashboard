@@ -26,7 +26,7 @@ const PopoverContent = forwardRef<
         sideOffset={sideOffset}
         className={cn(
           'z-[10000] w-72 overflow-hidden',
-          'bg-panel border border-border rounded-sm p-base shadow-md',
+          'bg-content1 text-foreground border border-divider rounded-sm p-base shadow-md',
           'data-[state=open]:animate-in',
           'data-[state=open]:fade-in-0',
           'data-[state=open]:zoom-in-95',
@@ -38,7 +38,7 @@ const PopoverContent = forwardRef<
           'data-[side=right]:slide-in-from-left-2',
           'data-[side=top]:slide-in-from-bottom-2',
           'origin-[--radix-popover-content-transform-origin]',
-          className
+          className,
         )}
         {...props}
       />

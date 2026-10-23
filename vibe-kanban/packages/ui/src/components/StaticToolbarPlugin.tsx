@@ -44,8 +44,8 @@ function ToolbarButton({
       className={cn(
         'p-half rounded-sm transition-colors',
         active
-          ? 'text-normal bg-panel'
-          : 'text-low hover:text-normal hover:bg-panel/50'
+          ? 'text-foreground bg-content2'
+          : 'text-default-500 hover:text-foreground hover:bg-content2/50',
       )}
     >
       <Icon className="size-icon-sm" weight="bold" />
@@ -86,7 +86,7 @@ export function StaticToolbarPlugin({
   };
 
   return (
-    <div className="flex items-center gap-half mt-half px-base py-half border-t border-border/50">
+    <div className="flex items-center gap-half mt-half px-base py-half border-t border-divider/50">
       {/* Undo button */}
       <ToolbarButton
         onClick={() =>
@@ -117,7 +117,7 @@ export function StaticToolbarPlugin({
       <ToolbarButton
         onClick={() =>
           dispatch(() =>
-            editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'strikethrough')
+            editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'strikethrough'),
           )
         }
         icon={TextStrikethrough}
@@ -138,7 +138,7 @@ export function StaticToolbarPlugin({
       <ToolbarButton
         onClick={() =>
           dispatch(() =>
-            editor.dispatchCommand(INSERT_UNORDERED_LIST_COMMAND, undefined)
+            editor.dispatchCommand(INSERT_UNORDERED_LIST_COMMAND, undefined),
           )
         }
         icon={ListBullets}
@@ -147,7 +147,7 @@ export function StaticToolbarPlugin({
       <ToolbarButton
         onClick={() =>
           dispatch(() =>
-            editor.dispatchCommand(INSERT_ORDERED_LIST_COMMAND, undefined)
+            editor.dispatchCommand(INSERT_ORDERED_LIST_COMMAND, undefined),
           )
         }
         icon={ListNumbers}
@@ -166,7 +166,7 @@ export function StaticToolbarPlugin({
         <div
           className={cn(
             'ml-auto mr-base flex items-center transition-opacity duration-300',
-            saveStatus === 'idle' ? 'opacity-0' : 'opacity-100'
+            saveStatus === 'idle' ? 'opacity-0' : 'opacity-100',
           )}
         >
           <CheckIcon className="size-icon-sm text-success" weight="bold" />

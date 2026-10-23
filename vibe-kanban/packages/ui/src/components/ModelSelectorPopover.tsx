@@ -73,7 +73,7 @@ function sortModelsAlphabetically(models: ModelListModel[]): ModelListModel[] {
       {
         numeric: true,
         sensitivity: 'base',
-      }
+      },
     );
     if (labelComparison !== 0) return labelComparison;
 
@@ -90,7 +90,7 @@ function getModelOrderKey(model: ModelListModel): string {
 
 function getModelOrderIndex(
   model: ModelListModel,
-  orderedKeys: Map<string, number>
+  orderedKeys: Map<string, number>,
 ): number | null {
   const providerScopedIndex = orderedKeys.get(getModelOrderKey(model));
   if (providerScopedIndex !== undefined) return providerScopedIndex;
@@ -101,7 +101,7 @@ function getModelOrderIndex(
 
 export function orderModelsForDisplay(
   models: ModelListModel[],
-  modelOrder?: string[]
+  modelOrder?: string[],
 ): ModelListModel[] {
   if (!modelOrder?.length) {
     return sortModelsAlphabetically(models);
@@ -109,7 +109,7 @@ export function orderModelsForDisplay(
 
   const alphabeticalModels = sortModelsAlphabetically(models);
   const orderedKeys = new Map(
-    modelOrder.map((key, index) => [key.toLowerCase(), index])
+    modelOrder.map((key, index) => [key.toLowerCase(), index]),
   );
 
   return alphabeticalModels.sort((a, b) => {
@@ -128,7 +128,7 @@ export function orderModelsForDisplay(
 function getSelectedModel(
   models: ModelListModel[],
   selectedProviderId: string | null,
-  selectedModelId: string | null
+  selectedModelId: string | null,
 ): ModelListModel | null {
   if (!selectedModelId) return null;
   const selectedId = selectedModelId.toLowerCase();
@@ -138,7 +138,7 @@ function getSelectedModel(
       models.find(
         (model) =>
           model.id.toLowerCase() === selectedId &&
-          model.provider_id?.toLowerCase() === providerId
+          model.provider_id?.toLowerCase() === providerId,
       ) ?? null
     );
   }
@@ -153,7 +153,7 @@ function getPopoverWidth(hasProviders: boolean, hasReasoning: boolean): string {
 
 export function providerMatchesSearch(
   provider: ModelSelectorProvider,
-  normalizedQuery: string
+  normalizedQuery: string,
 ): boolean {
   if (!normalizedQuery) return true;
   return (
@@ -165,7 +165,7 @@ export function providerMatchesSearch(
 export function getProviderFilterState(
   config: ModelSelectorConfigLike,
   searchQuery: string,
-  expandedProviderId: string
+  expandedProviderId: string,
 ): {
   activeProviderId: string;
   providerMatchesById: Map<string, boolean>;
@@ -188,7 +188,7 @@ export function getProviderFilterState(
     providerMatchesById.set(provider.id, providerMatches);
     const providerModels = modelsByProvider.get(provider.id) ?? [];
     const hasMatchingModel = providerModels.some((model) =>
-      modelMatchesSearch(model, normalizedSearch)
+      modelMatchesSearch(model, normalizedSearch),
     );
 
     if (!normalizedSearch || providerMatches || hasMatchingModel) {
@@ -241,7 +241,7 @@ function ProviderAccordion({
   const selectedModel = getSelectedModel(
     config.models,
     selectedProviderId,
-    selectedModelId
+    selectedModelId,
   );
 
   const modelsByProvider = new Map<string, ModelListModel[]>();
@@ -273,7 +273,7 @@ function ProviderAccordion({
           {providers.map((provider) => {
             const providerModels = orderModelsForDisplay(
               modelsByProvider.get(provider.id) ?? [],
-              config.model_order
+              config.model_order,
             );
             const isSelectedProvider =
               Boolean(selectedModelId) &&
@@ -294,9 +294,9 @@ function ProviderAccordion({
                   sticky={provider.id === activeProviderId}
                   className={cn(
                     'group gap-2 px-base py-half rounded-sm',
-                    'text-sm font-medium text-low',
-                    'hover:bg-secondary/60 transition-colors',
-                    'focus:outline-none focus-visible:ring-1 focus-visible:ring-brand'
+                    'text-sm font-medium text-default-500',
+                    'hover:bg-content2/60 transition-colors',
+                    'focus:outline-none focus-visible:ring-1 focus-visible:ring-focus',
                   )}
                 >
                   <ModelProviderIcon
@@ -308,8 +308,8 @@ function ProviderAccordion({
                   </span>
                   <CaretDownIcon
                     className={cn(
-                      'size-icon-2xs text-low transition-transform',
-                      'group-data-[state=open]:rotate-180'
+                      'size-icon-2xs text-default-500 transition-transform',
+                      'group-data-[state=open]:rotate-180',
                     )}
                     weight="bold"
                   />
@@ -345,10 +345,10 @@ function ProviderAccordion({
             className={cn(
               'group flex items-center rounded-sm mx-half',
               'transition-colors duration-100',
-              'focus-within:bg-secondary',
+              'focus-within:bg-content2',
               isDefaultSelected
-                ? 'bg-secondary text-high'
-                : cn('text-normal', 'hover:bg-secondary/60')
+                ? 'bg-content2 text-foreground'
+                : cn('text-foreground', 'hover:bg-content2/60'),
             )}
           >
             <button
@@ -356,13 +356,13 @@ function ProviderAccordion({
               onClick={() => onSelectDefault?.()}
               className={cn(
                 'flex-1 min-w-0 py-half pl-base pr-half text-left',
-                'focus:outline-none focus-visible:ring-1 focus-visible:ring-brand'
+                'focus:outline-none focus-visible:ring-1 focus-visible:ring-focus',
               )}
             >
               <span
                 className={cn(
                   'block text-sm truncate',
-                  isDefaultSelected && 'font-semibold'
+                  isDefaultSelected && 'font-semibold',
                 )}
               >
                 {t('modelSelector.default')}
@@ -399,7 +399,7 @@ export function ModelSelectorPopover({
   const models = config.models;
   const hasProviders = config.providers.length > 1;
   const hasReasoning = models.some(
-    (model) => model.reasoning_options.length > 0
+    (model) => model.reasoning_options.length > 0,
   );
   const popoverWidth = getPopoverWidth(hasProviders, hasReasoning);
   const popoverHeightClass = hasProviders ? 'h-[280px]' : '';
@@ -430,7 +430,7 @@ export function ModelSelectorPopover({
     const selectedModel = getSelectedModel(
       models,
       selectedProviderId,
-      selectedModelId
+      selectedModelId,
     );
     showSearch = models.length > MODEL_LIST_PAGE_SIZE;
 
@@ -462,7 +462,7 @@ export function ModelSelectorPopover({
         className={cn(
           'p-0 overflow-hidden flex flex-col',
           popoverWidth,
-          popoverHeightClass
+          popoverHeightClass,
         )}
         onInteractOutside={(event) => {
           const target = event.target as HTMLElement | null;
@@ -473,15 +473,15 @@ export function ModelSelectorPopover({
       >
         <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
           {error && (
-            <div className="px-base py-half bg-red-500/10 border-b border-red-500/20">
-              <span className="text-sm text-red-600">{error}</span>
+            <div className="px-base py-half bg-danger/10 border-b border-danger/20">
+              <span className="text-sm text-danger">{error}</span>
             </div>
           )}
           <DropdownMenuLabel>{t('modelSelector.model')}</DropdownMenuLabel>
           <div className="flex flex-col flex-1 min-h-0 min-w-0">
             {content}
             {showSearch && (
-              <div className="border-t border-border">
+              <div className="border-t border-divider">
                 <DropdownMenuSearchInput
                   placeholder="Filter by provider, name or ID..."
                   value={searchQuery}

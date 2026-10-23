@@ -40,6 +40,7 @@ import "./modules/plugins/kanban/linear/serverModule";
 
 import "./modules/GitDiffModule";
 import "./modules/BeadsFormModule";
+import "./modules/ThemesModule";
 
 const WORKSPACE_CREATE_PATH = "/workspaces";
 const WORKSPACE_CREATE_TAB_TITLE = "Create Workspace";

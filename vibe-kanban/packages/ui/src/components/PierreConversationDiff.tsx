@@ -51,58 +51,31 @@ const PIERRE_DIFFS_THEME_CSS = `
     border-radius: 4px !important;
   }
   [data-code]:hover::-webkit-scrollbar-thumb {
-    background-color: hsl(var(--text-low) / 0.3) !important;
+    background-color: hsl(var(--heroui-default-500) / 0.3) !important;
   }
 
-  /* Light theme overrides */
-  [data-diff][data-theme-type='light'] {
+  /* GitHub syntax highlighting is retained, but all chrome and diff surfaces
+     inherit the active HeroUI palette, including inside the shadow root. */
+  [data-diff] {
     --diffs-gap-style: none !important;
-    
-    /* Background colors - use standard CSS variables */
-    --diffs-light-bg: hsl(var(--bg-primary)) !important;
-    --diffs-bg-context-override: hsl(var(--bg-primary)) !important;
-    --diffs-bg-separator-override: hsl(var(--bg-primary)) !important;
-    
-    /* Addition colors - soft green matching old design */
-    --diffs-light-addition-color: hsl(160, 77%, 35%) !important;
-    --diffs-bg-addition-override: hsl(160, 77%, 88%) !important;
-    --diffs-bg-addition-number-override: hsl(160, 77%, 85%) !important;
-    --diffs-bg-addition-hover-override: hsl(160, 77%, 82%) !important;
-    
-    /* Deletion colors - soft red matching old design */
-    --diffs-light-deletion-color: hsl(10, 100%, 40%) !important;
-    --diffs-bg-deletion-override: hsl(10, 100%, 90%) !important;
-    --diffs-bg-deletion-number-override: hsl(10, 100%, 87%) !important;
-    --diffs-bg-deletion-hover-override: hsl(10, 100%, 84%) !important;
-    
-    /* Line numbers */
-    --diffs-fg-number-override: hsl(var(--text-low)) !important;
-  }
-
-  /* Dark theme overrides */
-  [data-diff][data-theme-type='dark'] {
-    --diffs-gap-style: none !important;
-    
-    /* Background colors - use standard CSS variables */
-    --diffs-dark-bg: hsl(var(--bg-panel)) !important;
-    --diffs-bg-context-override: hsl(var(--bg-panel)) !important;
-    --diffs-bg-separator-override: hsl(var(--bg-panel)) !important;
-    --diffs-bg-hover-override: hsl(0, 0%, 22%) !important;
-    
-    /* Addition colors - dark green */
-    --diffs-dark-addition-color: hsl(130, 50%, 50%) !important;
-    --diffs-bg-addition-override: hsl(130, 30%, 20%) !important;
-    --diffs-bg-addition-number-override: hsl(130, 30%, 18%) !important;
-    --diffs-bg-addition-hover-override: hsl(130, 30%, 25%) !important;
-    
-    /* Deletion colors - dark red */
-    --diffs-dark-deletion-color: hsl(12, 50%, 55%) !important;
-    --diffs-bg-deletion-override: hsl(12, 30%, 18%) !important;
-    --diffs-bg-deletion-number-override: hsl(12, 30%, 16%) !important;
-    --diffs-bg-deletion-hover-override: hsl(12, 30%, 23%) !important;
-    
-    /* Line numbers */
-    --diffs-fg-number-override: hsl(var(--text-low)) !important;
+    --diffs-light-bg: hsl(var(--heroui-content1)) !important;
+    --diffs-dark-bg: hsl(var(--heroui-content1)) !important;
+    --diffs-bg: hsl(var(--heroui-content1)) !important;
+    --diffs-bg-context-override: hsl(var(--heroui-content1)) !important;
+    --diffs-bg-separator-override: hsl(var(--heroui-content1)) !important;
+    --diffs-bg-hover-override: hsl(var(--heroui-content2)) !important;
+    --diffs-fg-number-override: hsl(var(--heroui-default-500)) !important;
+    --diffs-light-addition-color: hsl(var(--heroui-success)) !important;
+    --diffs-dark-addition-color: hsl(var(--heroui-success)) !important;
+    --diffs-bg-addition-override: color-mix(in srgb, hsl(var(--heroui-success)) 12%, hsl(var(--heroui-content1))) !important;
+    --diffs-bg-addition-number-override: color-mix(in srgb, hsl(var(--heroui-success)) 18%, hsl(var(--heroui-content1))) !important;
+    --diffs-bg-addition-hover-override: color-mix(in srgb, hsl(var(--heroui-success)) 24%, hsl(var(--heroui-content1))) !important;
+    --diffs-light-deletion-color: hsl(var(--heroui-danger)) !important;
+    --diffs-dark-deletion-color: hsl(var(--heroui-danger)) !important;
+    --diffs-bg-deletion-override: color-mix(in srgb, hsl(var(--heroui-danger)) 12%, hsl(var(--heroui-content1))) !important;
+    --diffs-bg-deletion-number-override: color-mix(in srgb, hsl(var(--heroui-danger)) 18%, hsl(var(--heroui-content1))) !important;
+    --diffs-bg-deletion-hover-override: color-mix(in srgb, hsl(var(--heroui-danger)) 24%, hsl(var(--heroui-content1))) !important;
+    --diffs-font-family: "IBM Plex Mono", ui-monospace, monospace;
   }
 `;
 
@@ -167,7 +140,7 @@ function parseDiffStats(unifiedDiff: string): {
  */
 export function useDiffData(
   input: DiffInput,
-  options?: { ignoreWhitespace?: boolean }
+  options?: { ignoreWhitespace?: boolean },
 ): DiffData {
   return useMemo(() => {
     if (input.type === 'content') {
@@ -199,7 +172,7 @@ export function useDiffData(
         const metadata = parseDiffFromFile(
           oldFile,
           newFile,
-          options?.ignoreWhitespace ? { ignoreWhitespace: true } : undefined
+          options?.ignoreWhitespace ? { ignoreWhitespace: true } : undefined,
         );
 
         // Calculate additions/deletions from hunks
@@ -285,8 +258,8 @@ export function DiffViewCard({
       {/* Header */}
       <div
         className={cn(
-          'flex items-center bg-panel p-base w-full',
-          onToggle && 'cursor-pointer'
+          'flex items-center bg-content1 p-base w-full',
+          onToggle && 'cursor-pointer',
         )}
         onClick={onToggle}
       >
@@ -300,7 +273,7 @@ export function DiffViewCard({
               />
             )}
           </span>
-          <span className="text-sm text-normal truncate font-ibm-plex-mono">
+          <span className="text-sm text-foreground truncate font-ibm-plex-mono">
             {filePath}
           </span>
           {hasStats && (
@@ -310,7 +283,7 @@ export function DiffViewCard({
               )}
               {additions > 0 && deletions > 0 && ' '}
               {deletions > 0 && (
-                <span className="text-error">-{deletions}</span>
+                <span className="text-danger">-{deletions}</span>
               )}
             </span>
           )}
@@ -318,8 +291,8 @@ export function DiffViewCard({
         {onToggle && (
           <CaretDownIcon
             className={cn(
-              'size-icon-xs shrink-0 text-low transition-transform',
-              !expanded && '-rotate-90'
+              'size-icon-xs shrink-0 text-default-500 transition-transform',
+              !expanded && '-rotate-90',
             )}
           />
         )}
@@ -378,12 +351,12 @@ export function DiffViewBody({
       theme: { dark: 'github-dark', light: 'github-light' } as const,
       unsafeCSS: PIERRE_DIFFS_THEME_CSS,
     }),
-    [diffMode, theme, wrapText, hideLineNumbers]
+    [diffMode, theme, wrapText, hideLineNumbers],
   );
 
   if (!isValid) {
     return (
-      <div className="px-base pb-base text-xs font-ibm-plex-mono text-low">
+      <div className="px-base pb-base text-xs font-ibm-plex-mono text-default-500">
         {invalidMessage ?? t('conversation.unableToRenderDiff')}
       </div>
     );

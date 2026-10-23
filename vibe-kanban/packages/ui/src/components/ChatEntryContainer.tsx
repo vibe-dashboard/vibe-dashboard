@@ -24,26 +24,26 @@ interface VariantConfig {
 const variantConfig: Record<Variant, VariantConfig> = {
   user: {
     icon: UserIcon,
-    border: 'border-border',
+    border: 'border-divider',
     headerBg: '',
     bg: '',
   },
   plan: {
     icon: ListChecksIcon,
-    border: 'border-brand',
-    headerBg: 'bg-brand/20',
-    bg: 'bg-brand/10',
+    border: 'border-primary',
+    headerBg: 'bg-primary/20',
+    bg: 'bg-primary/10',
   },
   plan_denied: {
     icon: ListChecksIcon,
-    border: 'border-error',
-    headerBg: 'bg-error/20',
-    bg: 'bg-error/10',
+    border: 'border-danger',
+    headerBg: 'bg-danger/20',
+    bg: 'bg-danger/10',
   },
   system: {
     icon: GearIcon,
-    border: 'border-border',
-    headerBg: 'bg-gray-50 dark:bg-gray-900/30',
+    border: 'border-divider',
+    headerBg: 'bg-content2/30',
     bg: '',
   },
 };
@@ -94,7 +94,7 @@ export function ChatEntryContainer({
         config.border,
         config.bg,
         isGreyed && 'opacity-50 pointer-events-none',
-        className
+        className,
       )}
     >
       {/* Header */}
@@ -102,7 +102,7 @@ export function ChatEntryContainer({
         className={cn(
           'flex items-center px-double py-base gap-base rounded-sm overflow-hidden',
           config.headerBg,
-          onToggle && 'cursor-pointer'
+          onToggle && 'cursor-pointer',
         )}
         onClick={onToggle}
         onKeyDown={handleKeyDown}
@@ -110,16 +110,18 @@ export function ChatEntryContainer({
         aria-expanded={onToggle ? expanded : undefined}
         tabIndex={onToggle ? 0 : undefined}
       >
-        <Icon className="size-icon-xs shrink-0 text-low" />
+        <Icon className="size-icon-xs shrink-0 text-default-500" />
         {title && (
-          <span className="flex-1 text-sm text-normal truncate">{title}</span>
+          <span className="flex-1 text-sm text-foreground truncate">
+            {title}
+          </span>
         )}
         {headerRight}
         {onToggle && (
           <CaretDownIcon
             className={cn(
-              'size-icon-xs shrink-0 text-low transition-transform',
-              !expanded && '-rotate-90'
+              'size-icon-xs shrink-0 text-default-500 transition-transform',
+              !expanded && '-rotate-90',
             )}
           />
         )}
@@ -130,7 +132,7 @@ export function ChatEntryContainer({
 
       {/* Actions footer - optional */}
       {actions && (
-        <div className="bg-brand/20 backdrop-blur-sm flex items-center gap-base px-double py-base border-t sticky bottom-0 rounded-md">
+        <div className="bg-primary/20 backdrop-blur-sm flex items-center gap-base px-double py-base border-t border-divider sticky bottom-0 rounded-md">
           {actions}
         </div>
       )}

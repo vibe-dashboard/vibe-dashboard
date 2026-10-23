@@ -9,6 +9,7 @@ const vk = path.join(root, 'vibe-kanban');
 
 export default defineConfig({
   root: path.join(root, 'tests/browser/inline-chat'),
+  publicDir: path.join(root, 'public'),
   cacheDir: path.join(root, 'node_modules/.vite-inline-chat'),
   plugins: [
     react(),

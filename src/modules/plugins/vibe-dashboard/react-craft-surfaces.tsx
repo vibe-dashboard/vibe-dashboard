@@ -1,4 +1,5 @@
 import React from 'react';
+import { useThemeMode } from '../../../hooks/useThemeMode';
 import type { Tab, TabGroup } from '../../../types';
 import { PreviewRunConfigsPanel } from '../../../components/PreviewRunConfigsPanel';
 import { WorkspacePreviewMenu } from '../../../components/WorkspacePreviewMenu';
@@ -51,28 +52,6 @@ const FIRST_PARTY_REACT_SURFACES: Record<string, ReactCraftSurfaceComponent> = {
   'dev.mickmister.preview-server/run-configs': ({ surfaceProps }) => (
     <PreviewRunConfigsPanel workspaceId={surfaceProps.workspaceId ?? ''} />
   ),
-  'vd.built-in/agent-chat': ({ surfaceProps, host }) => (
-    <RetryableInlineSurface
-      key={surfaceProps.surfaceId ?? surfaceProps.workspaceId}
-      label="Agent chat"
-      load={loadInlineVkAgentChat}
-      componentProps={{
-        workspaceId: surfaceProps.workspaceId ?? '',
-        surfaceId:
-          surfaceProps.surfaceId ?? surfaceProps.workspaceId ?? 'agent',
-        workspacePreview:
-          surfaceProps.workspaceId && host.onConfigurePreviewSlots ? (
-            <WorkspacePreviewMenu
-              workspaceId={surfaceProps.workspaceId}
-              onConfigure={host.onConfigurePreviewSlots}
-            />
-          ) : undefined,
-        onOpenCraft: host.onOpenCraft,
-        onRemoveCraft: host.onRemoveCraft,
-        onViewDiffs: host.onViewDiffs,
-      }}
-    />
-  ),
   'vd.built-in/diffs': ({ surfaceProps }) => (
     <RetryableInlineSurface
       key={surfaceProps.workspaceId}
@@ -84,17 +63,50 @@ const FIRST_PARTY_REACT_SURFACES: Record<string, ReactCraftSurfaceComponent> = {
       }}
     />
   ),
-  'vd.built-in/create-workspace': ({ surfaceProps, host }) => (
-    <RetryableInlineSurface
-      key={surfaceProps.surfaceId}
-      label="Create Workspace"
-      load={loadInlineVkCreateWorkspace}
-      componentProps={{
-        surfaceId: surfaceProps.surfaceId ?? 'create-workspace',
-        onWorkspaceCreated: host.onWorkspaceCreated,
-      }}
-    />
-  ),
+  'vd.built-in/agent-chat': function AgentChatSurface({ surfaceProps, host }) {
+    const mode = useThemeMode();
+    return (
+      <RetryableInlineSurface
+        key={surfaceProps.surfaceId ?? surfaceProps.workspaceId}
+        label="Agent chat"
+        load={loadInlineVkAgentChat}
+        componentProps={{
+          theme: { mode },
+          workspaceId: surfaceProps.workspaceId ?? '',
+          surfaceId:
+            surfaceProps.surfaceId ?? surfaceProps.workspaceId ?? 'agent',
+          workspacePreview:
+            surfaceProps.workspaceId && host.onConfigurePreviewSlots ? (
+              <WorkspacePreviewMenu
+                workspaceId={surfaceProps.workspaceId}
+                onConfigure={host.onConfigurePreviewSlots}
+              />
+            ) : undefined,
+          onOpenCraft: host.onOpenCraft,
+          onRemoveCraft: host.onRemoveCraft,
+          onViewDiffs: host.onViewDiffs,
+        }}
+      />
+    );
+  },
+  'vd.built-in/create-workspace': function CreateWorkspaceSurface({
+    surfaceProps,
+    host,
+  }) {
+    const mode = useThemeMode();
+    return (
+      <RetryableInlineSurface
+        key={surfaceProps.surfaceId}
+        label="Create Workspace"
+        load={loadInlineVkCreateWorkspace}
+        componentProps={{
+          theme: { mode },
+          surfaceId: surfaceProps.surfaceId ?? 'create-workspace',
+          onWorkspaceCreated: host.onWorkspaceCreated,
+        }}
+      />
+    );
+  },
 };
 
 export function getReactCraftSurfaceTarget(
@@ -116,7 +128,8 @@ export function getReactCraftSurfaceTarget(
   }
 
   if (
-    (tab.id === BUILT_IN_AGENT_TAB_ID || tab.id === BUILT_IN_SECOND_AGENT_TAB_ID) &&
+    (tab.id === BUILT_IN_AGENT_TAB_ID ||
+      tab.id === BUILT_IN_SECOND_AGENT_TAB_ID) &&
     workspace?.workspaceId
   ) {
     return {
@@ -195,7 +208,7 @@ export function ReactCraftSurfaceHost({
   if (!Component) return <UnknownReactCraftSurface target={target} />;
   return (
     <div
-      className="h-full min-h-0 bg-neutral-950"
+      className="h-full min-h-0 bg-background"
       data-testid={`react-craft-surface:${target.pluginId}/${target.surfaceKey}`}
     >
       <Component surfaceProps={target.props} host={context} />
@@ -239,11 +252,9 @@ function UnknownReactCraftSurface({
   target: ReactCraftSurfaceTarget;
 }) {
   return (
-    <div className="flex h-full items-center justify-center bg-neutral-950 p-6 text-center text-sm text-neutral-400">
+    <div className="flex h-full items-center justify-center bg-background p-6 text-center text-sm text-default-500">
       <div>
-        <p className="font-medium text-neutral-200">
-          React surface unavailable
-        </p>
+        <p className="font-medium text-foreground">React surface unavailable</p>
         <p className="mt-2">
           {target.pluginId}/{target.surfaceKey}
         </p>

@@ -39,10 +39,10 @@ export function SplitButton<T extends string>({
           type="button"
           onClick={() => onAction(selectedValue)}
           className={cn(
-            'flex-1 bg-panel px-base py-half',
-            'text-sm text-normal',
-            'focus:outline-none focus-visible:ring-1 focus-visible:ring-brand focus-visible:ring-inset',
-            'rounded-l-sm'
+            'flex-1 bg-content1 px-base py-half',
+            'text-sm text-foreground',
+            'focus:outline-none focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset',
+            'rounded-l-sm',
           )}
         >
           {label}
@@ -52,12 +52,15 @@ export function SplitButton<T extends string>({
         <DropdownMenu>
           <DropdownMenuPrimitive.Trigger
             className={cn(
-              'flex items-center justify-center bg-panel px-base py-half',
-              'focus:outline-none focus-visible:ring-1 focus-visible:ring-brand focus-visible:ring-inset',
-              'rounded-r-sm'
+              'flex items-center justify-center bg-content1 px-base py-half',
+              'focus:outline-none focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset',
+              'rounded-r-sm',
             )}
           >
-            <CaretDownIcon className="size-icon-xs text-low" weight="bold" />
+            <CaretDownIcon
+              className="size-icon-xs text-default-500"
+              weight="bold"
+            />
           </DropdownMenuPrimitive.Trigger>
           <DropdownMenuContent align="end">
             {options.map((option) => (

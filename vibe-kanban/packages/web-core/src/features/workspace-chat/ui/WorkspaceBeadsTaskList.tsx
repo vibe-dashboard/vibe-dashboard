@@ -124,7 +124,7 @@ export function WorkspaceBeadsTaskList({
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="flex items-center gap-1 text-low hover:text-normal transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-brand"
+              className="flex items-center gap-1 text-default-500 hover:text-foreground transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-focus"
               aria-label="Workspace tasks"
             >
               <div className="relative">
@@ -135,7 +135,7 @@ export function WorkspaceBeadsTaskList({
                     aria-label={
                       allCompleted ? 'All beads completed' : 'Beads activity'
                     }
-                    className={`absolute -top-0.5 -right-0.5 size-2 rounded-full ${allCompleted ? 'bg-green-500' : 'bg-blue-500'}`}
+                    className={`absolute -top-0.5 -right-0.5 size-2 rounded-full ${allCompleted ? 'bg-success' : 'bg-primary'}`}
                   />
                 ) : null}
               </div>
@@ -151,10 +151,10 @@ export function WorkspaceBeadsTaskList({
         <div className="flex min-h-0 flex-1 flex-col gap-base overflow-hidden">
           <div className="flex shrink-0 items-start justify-between gap-base">
             <div>
-              <h4 className="text-sm font-medium text-normal">
+              <h4 className="text-sm font-medium text-foreground">
                 Workspace tasks
               </h4>
-              <p className="text-xs text-low">
+              <p className="text-xs text-default-500">
                 {data ? (
                   <>
                     <span>{data.counts.inProgress} in progress</span>
@@ -172,7 +172,7 @@ export function WorkspaceBeadsTaskList({
               type="button"
               onClick={() => void refetch()}
               disabled={!workspaceId}
-              className="text-xs text-low hover:text-normal underline-offset-2 hover:underline"
+              className="text-xs text-default-500 hover:text-foreground underline-offset-2 hover:underline"
             >
               Refresh
             </button>
@@ -181,14 +181,14 @@ export function WorkspaceBeadsTaskList({
           {error ? (
             <p
               role="alert"
-              className="rounded border border-error/30 bg-error/10 px-base py-2 text-xs text-error"
+              className="rounded border border-danger/30 bg-danger/10 px-base py-2 text-xs text-danger"
             >
               {error.message}
             </p>
           ) : null}
 
           {data && !data.initialized ? (
-            <p className="rounded border border-secondary bg-secondary/40 px-base py-2 text-xs text-low">
+            <p className="rounded border border-divider/30 bg-content2/40 px-base py-2 text-xs text-default-500">
               Workspace beads are not initialized yet at <code>{data.dir}</code>
               .
             </p>
@@ -219,9 +219,9 @@ export function WorkspaceBeadsTaskList({
             </div>
           ) : null}
 
-          <div className="shrink-0 border-t border-secondary pt-base">
+          <div className="shrink-0 border-t border-divider/30 pt-base">
             <label
-              className="mb-1 block text-xs font-medium text-low"
+              className="mb-1 block text-xs font-medium text-default-500"
               htmlFor="workspace-beads-housekeeping-session"
             >
               Housekeeping session
@@ -229,7 +229,7 @@ export function WorkspaceBeadsTaskList({
             <div className="flex gap-base">
               <select
                 id="workspace-beads-housekeeping-session"
-                className="min-w-0 flex-1 rounded border border-secondary bg-primary px-2 py-1 text-sm text-normal"
+                className="min-w-0 flex-1 rounded border border-divider/30 bg-background px-2 py-1 text-sm text-foreground"
                 value={selectedHousekeepingSessionId}
                 onChange={(event) =>
                   setSelectedHousekeepingSessionId(event.target.value)
@@ -256,12 +256,12 @@ export function WorkspaceBeadsTaskList({
                 disabled={
                   !selectedHousekeepingSessionId || isSendingHousekeeping
                 }
-                className="rounded bg-brand px-3 py-1 text-sm text-white transition-colors hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded bg-primary px-3 py-1 text-sm text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isSendingHousekeeping ? 'Requesting…' : 'Request housekeeping'}
               </button>
             </div>
-            <p className="mt-1 text-[11px] text-low">
+            <p className="mt-1 text-[11px] text-default-500">
               Sends: “{HOUSEKEEPING_MESSAGE}”
             </p>
           </div>
@@ -286,37 +286,39 @@ function TaskSection({
 }) {
   return (
     <details
-      className="group border-t border-secondary py-2 first:border-t-0 first:pt-0"
+      className="group border-t border-divider/30 py-2 first:border-t-0 first:pt-0"
       open={defaultOpen}
     >
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-base text-sm font-medium text-normal">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-base text-sm font-medium text-foreground">
         <span className="flex items-center gap-2">
           {bucketIcon(bucket)}
           {title}
         </span>
-        <span className="rounded-full bg-secondary px-2 py-0.5 text-xs text-low">
+        <span className="rounded-full bg-content2 px-2 py-0.5 text-xs text-default-500">
           {tasks.length}
         </span>
       </summary>
       {tasks.length === 0 ? (
-        <p className="py-2 pl-6 text-xs text-low">No tasks in this group.</p>
+        <p className="py-2 pl-6 text-xs text-default-500">
+          No tasks in this group.
+        </p>
       ) : (
         <ul className="space-y-1 py-2">
           {tasks.map((task) => (
             <li
               key={task.id}
-              className="rounded border border-secondary/70 bg-secondary/20 px-2 py-1.5"
+              className="rounded border border-divider/70 bg-content2/20 px-2 py-1.5"
             >
               <div className="flex items-start justify-between gap-base">
                 <div className="min-w-0">
-                  <p className="truncate text-sm text-normal">
-                    <span className="font-mono text-xs text-low">
+                  <p className="truncate text-sm text-foreground">
+                    <span className="font-mono text-xs text-default-500">
                       {task.id}
                     </span>
                     <span aria-hidden> · </span>
                     {task.title}
                   </p>
-                  <p className="mt-0.5 flex flex-wrap gap-1 text-[11px] text-low">
+                  <p className="mt-0.5 flex flex-wrap gap-1 text-[11px] text-default-500">
                     <span>{task.status}</span>
                     {task.priority !== undefined ? (
                       <span>priority {task.priority}</span>
@@ -333,7 +335,7 @@ function TaskSection({
                 </div>
                 {task.forms.hasForms ? (
                   <a
-                    className="shrink-0 text-xs text-brand hover:underline"
+                    className="shrink-0 text-xs text-primary hover:underline"
                     href={`/dashboard/forms?workspace=${encodeURIComponent(workspaceId)}&bead=${encodeURIComponent(task.id)}`}
                   >
                     Forms
@@ -352,6 +354,6 @@ function bucketIcon(bucket: TaskBucket) {
   if (bucket === 'done')
     return <CheckIcon className="size-icon-sm text-success" />;
   if (bucket === 'inProgress')
-    return <CircleDashedIcon className="size-icon-sm text-blue-500" />;
-  return <CircleIcon className="size-icon-sm text-low" />;
+    return <CircleDashedIcon className="size-icon-sm text-primary" />;
+  return <CircleIcon className="size-icon-sm text-default-500" />;
 }

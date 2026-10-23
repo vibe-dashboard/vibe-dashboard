@@ -34,7 +34,7 @@ export function ContextUsageGauge({
 
     const pct = Math.min(
       100,
-      (tokenUsageInfo.total_tokens / tokenUsageInfo.model_context_window) * 100
+      (tokenUsageInfo.total_tokens / tokenUsageInfo.model_context_window) * 100,
     );
 
     const formatTokens = (n: number) => {
@@ -73,14 +73,14 @@ export function ContextUsageGauge({
 
   const progressColor =
     status === 'empty'
-      ? 'text-low opacity-40'
+      ? 'text-default-500 opacity-40'
       : status === 'critical'
-        ? 'text-error'
+        ? 'text-danger'
         : status === 'high'
           ? 'text-brand-secondary'
           : status === 'medium'
-            ? 'text-normal'
-            : 'text-low';
+            ? 'text-foreground'
+            : 'text-default-500';
 
   const radius = 8;
   const strokeWidth = 2;
@@ -92,8 +92,8 @@ export function ContextUsageGauge({
       <div
         className={cn(
           'flex items-center justify-center rounded-sm p-half',
-          'hover:bg-panel transition-colors cursor-help',
-          className
+          'hover:bg-content2 transition-colors cursor-help',
+          className,
         )}
         aria-label={
           status === 'empty'
@@ -116,7 +116,7 @@ export function ContextUsageGauge({
             fill="none"
             stroke="currentColor"
             strokeWidth={strokeWidth}
-            className="text-low opacity-25"
+            className="text-default-500 opacity-25"
           />
           <circle
             cx="10"
@@ -130,7 +130,7 @@ export function ContextUsageGauge({
             strokeDashoffset={dashOffset}
             className={cn(
               progressColor,
-              'transition-all duration-500 ease-out'
+              'transition-all duration-500 ease-out',
             )}
           />
         </svg>

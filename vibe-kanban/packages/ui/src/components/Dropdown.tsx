@@ -24,8 +24,9 @@ const DropdownMenuRadioGroup = DropdownMenuPrimitive.RadioGroup;
 const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
 
 // Styled trigger button with icon/label/caret - use for default styled triggers
-interface DropdownMenuTriggerButtonProps
-  extends React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Trigger> {
+interface DropdownMenuTriggerButtonProps extends React.ComponentPropsWithoutRef<
+  typeof DropdownMenuPrimitive.Trigger
+> {
   icon?: Icon;
   label?: string;
   showCaret?: boolean;
@@ -33,8 +34,8 @@ interface DropdownMenuTriggerButtonProps
 }
 
 export const dropdownMenuTriggerButtonClassName =
-  'flex items-center gap-half bg-secondary border border-border rounded-sm px-base py-half ' +
-  'focus:outline-none focus-visible:ring-1 focus-visible:ring-brand ' +
+  'flex items-center gap-half bg-content1 border border-divider rounded-sm px-base py-half ' +
+  'focus:outline-none focus-visible:ring-1 focus-visible:ring-focus ' +
   'disabled:opacity-50 disabled:cursor-not-allowed min-w-0';
 
 const sizeClasses = {
@@ -56,25 +57,25 @@ const DropdownMenuTriggerButton = React.forwardRef<
       children,
       ...props
     },
-    ref
+    ref,
   ) => (
     <DropdownMenuPrimitive.Trigger
       ref={ref}
       className={cn(
         dropdownMenuTriggerButtonClassName,
         sizeClasses[size],
-        className
+        className,
       )}
       {...props}
     >
       {IconComponent && (
-        <IconComponent className="size-icon-xs text-normal" weight="bold" />
+        <IconComponent className="size-icon-xs text-foreground" weight="bold" />
       )}
       {label && (
         <span
           className={cn(
-            'text-normal truncate flex-1 text-left',
-            size === 'default' && 'text-sm'
+            'text-foreground truncate flex-1 text-left',
+            size === 'default' && 'text-sm',
           )}
         >
           {label}
@@ -83,12 +84,12 @@ const DropdownMenuTriggerButton = React.forwardRef<
       {children}
       {showCaret && (
         <CaretDownIcon
-          className="size-icon-2xs text-normal flex-shrink-0"
+          className="size-icon-2xs text-foreground flex-shrink-0"
           weight="bold"
         />
       )}
     </DropdownMenuPrimitive.Trigger>
-  )
+  ),
 );
 DropdownMenuTriggerButton.displayName = 'DropdownMenuTriggerButton';
 
@@ -100,10 +101,10 @@ const DropdownMenuSubTrigger = React.forwardRef<
     ref={ref}
     className={cn(
       'flex cursor-pointer select-none items-center gap-base px-base py-half mx-half rounded-sm',
-      'text-sm text-high outline-none',
-      'focus:bg-secondary data-[state=open]:bg-secondary',
+      'text-sm text-foreground outline-none',
+      'focus:bg-content2 data-[state=open]:bg-content2',
       '[&_svg]:pointer-events-none [&_svg]:size-icon-xs [&_svg]:shrink-0',
-      className
+      className,
     )}
     {...props}
   >
@@ -124,14 +125,14 @@ const DropdownMenuSubContent = React.forwardRef<
         ref={ref}
         className={cn(
           'z-[10000] min-w-[8rem] overflow-hidden',
-          'bg-panel border border-border rounded-sm py-half shadow-md',
+          'bg-content1 border border-divider rounded-sm py-half shadow-md',
           'data-[state=open]:animate-in',
           'data-[state=open]:fade-in-0',
           'data-[state=open]:zoom-in-95',
           'data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2',
           'data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2',
           'origin-[--radix-dropdown-menu-content-transform-origin]',
-          className
+          className,
         )}
         {...props}
       />
@@ -153,14 +154,14 @@ const DropdownMenuContent = React.forwardRef<
         className={cn(
           'z-[10000] min-w-[8rem] overflow-y-auto overflow-x-hidden',
           'max-h-[var(--radix-dropdown-menu-content-available-height)]',
-          'bg-panel border border-border rounded-sm py-half shadow-md',
+          'bg-content1 border border-divider rounded-sm py-half shadow-md',
           'data-[state=open]:animate-in',
           'data-[state=open]:fade-in-0',
           'data-[state=open]:zoom-in-95',
           'data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2',
           'data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2',
           'origin-[--radix-dropdown-menu-content-transform-origin]',
-          className
+          className,
         )}
         {...props}
       />
@@ -169,8 +170,9 @@ const DropdownMenuContent = React.forwardRef<
 });
 DropdownMenuContent.displayName = DropdownMenuPrimitive.Content.displayName;
 
-interface DropdownMenuItemProps
-  extends React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Item> {
+interface DropdownMenuItemProps extends React.ComponentPropsWithoutRef<
+  typeof DropdownMenuPrimitive.Item
+> {
   icon?: Icon;
   badge?: React.ReactNode;
   variant?: 'default' | 'destructive';
@@ -194,19 +196,19 @@ const DropdownMenuItem = React.forwardRef<
       children,
       ...props
     },
-    ref
+    ref,
   ) => (
     <DropdownMenuPrimitive.Item
       ref={ref}
       className={cn(
         'relative flex cursor-pointer select-none items-center gap-base',
         'px-base py-half mx-half rounded-sm outline-none transition-colors',
-        'focus:bg-secondary',
+        'focus:bg-content2',
         'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
         '[&_svg]:pointer-events-none [&_svg]:size-icon-xs [&_svg]:shrink-0',
-        variant === 'default' && 'text-high',
-        variant === 'destructive' && 'text-error',
-        className
+        variant === 'default' && 'text-foreground',
+        variant === 'destructive' && 'text-danger',
+        className,
       )}
       onPointerMove={
         preventFocusOnHover
@@ -228,9 +230,11 @@ const DropdownMenuItem = React.forwardRef<
     >
       {IconComponent && <IconComponent weight="bold" />}
       <span className="flex-1 text-sm truncate">{children}</span>
-      {badge && <span className="text-sm text-high text-right">{badge}</span>}
+      {badge && (
+        <span className="text-sm text-foreground text-right">{badge}</span>
+      )}
     </DropdownMenuPrimitive.Item>
-  )
+  ),
 );
 DropdownMenuItem.displayName = DropdownMenuPrimitive.Item.displayName;
 
@@ -242,17 +246,17 @@ const DropdownMenuCheckboxItem = React.forwardRef<
     ref={ref}
     className={cn(
       'relative flex cursor-pointer select-none items-center gap-base',
-      'py-half px-base mx-half rounded-sm text-sm text-high',
-      'outline-none transition-colors focus:bg-secondary',
+      'py-half px-base mx-half rounded-sm text-sm text-foreground',
+      'outline-none transition-colors focus:bg-content2',
       'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
-      className
+      className,
     )}
     checked={checked}
     {...props}
   >
     <span className="flex-1">{children}</span>
     <DropdownMenuPrimitive.ItemIndicator>
-      <CheckIcon className="size-icon-xs text-brand shrink-0" weight="bold" />
+      <CheckIcon className="size-icon-xs text-primary shrink-0" weight="bold" />
     </DropdownMenuPrimitive.ItemIndicator>
   </DropdownMenuPrimitive.CheckboxItem>
 ));
@@ -267,10 +271,10 @@ const DropdownMenuRadioItem = React.forwardRef<
     ref={ref}
     className={cn(
       'relative flex cursor-pointer select-none items-center',
-      'py-half pl-double pr-base mx-half rounded-sm text-sm text-high',
-      'outline-none transition-colors focus:bg-secondary',
+      'py-half pl-double pr-base mx-half rounded-sm text-sm text-foreground',
+      'outline-none transition-colors focus:bg-content2',
       'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
-      className
+      className,
     )}
     {...props}
   >
@@ -292,7 +296,10 @@ const DropdownMenuLabel = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DropdownMenuPrimitive.Label
     ref={ref}
-    className={cn('px-base py-half text-sm font-semibold text-low', className)}
+    className={cn(
+      'px-base py-half text-sm font-semibold text-default-500',
+      className,
+    )}
     {...props}
   />
 ));
@@ -316,15 +323,20 @@ const DropdownMenuShortcut = ({
 }: React.HTMLAttributes<HTMLSpanElement>) => {
   return (
     <span
-      className={cn('ml-auto text-xs tracking-widest text-low', className)}
+      className={cn(
+        'ml-auto text-xs tracking-widest text-default-500',
+        className,
+      )}
       {...props}
     />
   );
 };
 DropdownMenuShortcut.displayName = 'DropdownMenuShortcut';
 
-interface DropdownMenuSearchInputProps
-  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type'> {
+interface DropdownMenuSearchInputProps extends Omit<
+  React.InputHTMLAttributes<HTMLInputElement>,
+  'type'
+> {
   onValueChange?: (value: string) => void;
 }
 
@@ -339,14 +351,17 @@ const DropdownMenuSearchInput = React.forwardRef<
 
   return (
     <div className="flex items-center gap-base px-plusfifty py-base">
-      <MagnifyingGlassIcon className="size-icon-xs text-low" weight="bold" />
+      <MagnifyingGlassIcon
+        className="size-icon-xs text-default-500"
+        weight="bold"
+      />
       <input
         ref={ref}
         type="text"
         className={cn(
-          'flex-1 bg-transparent text-sm text-low placeholder:text-low',
+          'flex-1 bg-transparent text-sm text-foreground placeholder:text-default-500',
           'outline-none border-none',
-          className
+          className,
         )}
         onChange={handleChange}
         autoFocus

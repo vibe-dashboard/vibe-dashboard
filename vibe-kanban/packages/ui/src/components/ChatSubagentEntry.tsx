@@ -70,10 +70,12 @@ export function ChatSubagentEntry({
       );
     }
     if (isError) {
-      return <XCircleIcon className="size-icon-xs text-error" weight="fill" />;
+      return <XCircleIcon className="size-icon-xs text-danger" weight="fill" />;
     }
     if (isPending) {
-      return <CircleNotchIcon className="size-icon-xs text-low animate-spin" />;
+      return (
+        <CircleNotchIcon className="size-icon-xs text-default-500 animate-spin" />
+      );
     }
     return null;
   }, [status]);
@@ -122,19 +124,19 @@ export function ChatSubagentEntry({
     <div
       className={cn(
         'rounded-sm border overflow-hidden',
-        isErrorStatus && 'border-error bg-error/5',
+        isErrorStatus && 'border-danger bg-danger/5',
         status?.status === 'success' && 'border-success/50',
-        !isErrorStatus && status?.status !== 'success' && 'border-border',
-        className
+        !isErrorStatus && status?.status !== 'success' && 'border-divider',
+        className,
       )}
     >
       {/* Header */}
       <div
         className={cn(
           'flex items-center px-double py-base gap-base',
-          isErrorStatus && 'bg-error/10',
+          isErrorStatus && 'bg-danger/10',
           status?.status === 'success' && 'bg-success/5',
-          isInteractive && 'cursor-pointer'
+          isInteractive && 'cursor-pointer',
         )}
         onClick={isInteractive ? onToggle : undefined}
         onKeyDown={handleKeyDown}
@@ -144,24 +146,24 @@ export function ChatSubagentEntry({
         data-scroll-anchor-target={isInteractive ? '' : undefined}
       >
         <span className="relative shrink-0">
-          <CpuIcon className="size-icon-base text-low" />
+          <CpuIcon className="size-icon-base text-default-500" />
         </span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-base">
-            <span className="text-xs font-medium text-low uppercase tracking-wide">
+            <span className="text-xs font-medium text-default-500 uppercase tracking-wide">
               {formattedType}
             </span>
             {StatusIcon}
           </div>
-          <span className="text-sm text-normal truncate block">
+          <span className="text-sm text-foreground truncate block">
             {description}
           </span>
         </div>
         {isInteractive && (
           <CaretDownIcon
             className={cn(
-              'size-icon-xs shrink-0 text-low transition-transform',
-              !expanded && '-rotate-90'
+              'size-icon-xs shrink-0 text-default-500 transition-transform',
+              !expanded && '-rotate-90',
             )}
           />
         )}
@@ -169,8 +171,8 @@ export function ChatSubagentEntry({
 
       {/* Expanded content - shows subagent output */}
       {expanded && hasContent && (
-        <div className="border-t p-double bg-panel/50">
-          <div className="text-xs font-medium text-low pb-base uppercase tracking-wide">
+        <div className="border-t border-divider p-double bg-content1/50">
+          <div className="text-xs font-medium text-default-500 pb-base uppercase tracking-wide">
             {t('conversation.output')}
           </div>
           <div className="prose prose-sm dark:prose-invert max-w-none">

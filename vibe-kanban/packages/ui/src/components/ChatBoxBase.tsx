@@ -82,26 +82,26 @@ export function ChatBoxBase({
     <div
       {...(dropzone?.getRootProps() ?? {})}
       className={cn(
-        'relative flex w-chat max-w-full flex-col rounded-sm border border-border bg-secondary',
+        'relative flex w-chat max-w-full flex-col rounded-sm border border-divider bg-content1',
         (visualVariant === VisualVariant.FEEDBACK ||
           visualVariant === VisualVariant.EDIT ||
           visualVariant === VisualVariant.PLAN) &&
-          'border-brand bg-brand/10',
-        isRunning && 'chat-box-running'
+          'border-primary bg-primary/10',
+        isRunning && 'chat-box-running',
       )}
     >
       {dropzone && <input {...dropzone.getInputProps()} />}
 
       {isDragActive && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center rounded-sm border-2 border-dashed border-brand bg-primary/80 backdrop-blur-sm pointer-events-none animate-in fade-in-0 duration-150">
+        <div className="absolute inset-0 z-50 flex items-center justify-center rounded-sm border-2 border-dashed border-primary bg-background/80 backdrop-blur-sm pointer-events-none animate-in fade-in-0 duration-150">
           <div className="text-center">
-            <div className="mx-auto mb-2 w-10 h-10 rounded-full bg-brand/10 flex items-center justify-center">
-              <ImageIcon className="h-5 w-5 text-brand" />
+            <div className="mx-auto mb-2 w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+              <ImageIcon className="h-5 w-5 text-primary" />
             </div>
-            <p className="text-sm font-medium text-high">
+            <p className="text-sm font-medium text-foreground">
               {t('tasks:dropzone.dropImagesHere')}
             </p>
-            <p className="text-xs text-low mt-0.5">
+            <p className="text-xs text-default-500 mt-0.5">
               {t('tasks:dropzone.supportedFormats')}
             </p>
           </div>
@@ -109,8 +109,8 @@ export function ChatBoxBase({
       )}
       {/* Error alert */}
       {error && (
-        <div className="bg-error/10 border-b px-double py-base">
-          <p className="text-error text-sm">{error}</p>
+        <div className="bg-danger/10 border-b border-divider px-double py-base">
+          <p className="text-danger text-sm">{error}</p>
         </div>
       )}
 

@@ -44,13 +44,13 @@ export function AgentSplitViewPage() {
         aria-label={`${side === "left" ? "Left" : "Right"} Agent pane`}
         className="flex h-full min-h-0 flex-col"
       >
-        <header className="flex items-center gap-2 border-b border-neutral-700 bg-neutral-900 p-3">
+        <header className="flex items-center gap-2 border-b border-divider bg-content1 p-3">
           <label className="min-w-0 flex-1 text-sm">
-            <span className="mb-1 block text-neutral-400">{label}</span>
+            <span className="mb-1 block text-default-500">{label}</span>
             <select
               aria-label={label}
               value={selected?.id ?? ""}
-              className="w-full rounded border border-neutral-600 bg-neutral-950 p-2 text-neutral-100"
+              className="w-full rounded border border-divider bg-background p-2 text-foreground"
               onChange={(event) => {
                 const id = event.target.value;
                 setParams(
@@ -93,7 +93,7 @@ export function AgentSplitViewPage() {
             />
           ) : (
             <div
-              className="flex h-full items-center justify-center p-6 text-center text-neutral-400"
+              className="flex h-full items-center justify-center p-6 text-center text-default-500"
               role="status"
             >
               {unavailable
@@ -109,18 +109,18 @@ export function AgentSplitViewPage() {
   };
 
   return (
-    <main className="flex h-dvh min-h-0 flex-col bg-neutral-950 text-neutral-100">
-      <header className="flex items-center justify-between gap-4 border-b border-neutral-700 px-4 py-3">
+    <main className="flex h-dvh min-h-0 flex-col bg-background text-foreground">
+      <header className="flex items-center justify-between gap-4 border-b border-divider px-4 py-3">
         <h1 className="text-lg font-semibold">Workspace split view</h1>
         <Link
           to={backPath}
-          className="rounded border border-neutral-600 px-3 py-2 text-sm hover:bg-neutral-800"
+          className="rounded border border-divider px-3 py-2 text-sm hover:bg-content2"
         >
           Back to dashboard
         </Link>
       </header>
       {crafts.length === 0 && (
-        <p role="status" className="p-4 text-neutral-400">
+        <p role="status" className="p-4 text-default-500">
           Open workspace crafts from the dashboard to use split view.
         </p>
       )}
@@ -145,7 +145,7 @@ export function AgentSplitViewPage() {
         </Panel>
         <Separator
           aria-label="Resize workspace panes"
-          className="w-1 shrink-0 cursor-col-resize bg-neutral-700 hover:bg-neutral-500"
+          className="w-1 shrink-0 cursor-col-resize bg-content2 hover:bg-primary"
         />
         <Panel id="right" defaultSize={`${100 - leftSize}%`} minSize="20%">
           {renderPane("right")}

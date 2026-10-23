@@ -969,7 +969,7 @@ function ToolSummaryEntry({
         <pre
           role="region"
           aria-label={`${toolName} output`}
-          className="mt-base max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-sm border border-border bg-secondary p-base font-mono text-xs text-normal"
+          className="mt-base max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-sm border border-divider bg-content1 p-base font-mono text-xs text-foreground"
         >
           {content}
         </pre>

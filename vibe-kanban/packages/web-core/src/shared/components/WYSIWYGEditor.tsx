@@ -419,8 +419,7 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
             h5: 'mt-2 mb-1 text-sm font-medium',
             h6: 'mt-2 mb-1 text-xs font-medium uppercase tracking-wide',
           },
-          quote:
-            'my-3 border-l-4 border-primary-foreground pl-4 text-muted-foreground',
+          quote: 'my-3 border-l-4 border-divider pl-4 text-default-500',
           list: {
             ul: 'my-1 list-disc pl-6',
             ol: 'my-1 list-decimal pl-6',
@@ -430,21 +429,21 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
               listitem: 'list-none pl-4',
             },
           },
-          link: 'text-blue-600 dark:text-blue-400 underline underline-offset-2 cursor-pointer hover:text-blue-800 dark:hover:text-blue-300',
+          link: 'text-primary underline underline-offset-2 cursor-pointer hover:opacity-80',
           text: {
             bold: 'font-semibold',
             italic: 'italic',
             underline: 'underline underline-offset-2',
             strikethrough: 'line-through',
-            code: 'font-mono bg-muted bg-panel px-1 py-0.5 rounded',
+            code: 'font-mono bg-content2 px-1 py-0.5 rounded',
           },
-          code: 'block font-mono bg-secondary rounded-md px-3 py-2 my-2 whitespace-pre overflow-x-auto',
+          code: 'block font-mono bg-content1 rounded-md px-3 py-2 my-2 whitespace-pre overflow-x-auto',
           codeHighlight: CODE_HIGHLIGHT_CLASSES,
           table: 'border-collapse my-2 w-full text-sm',
           tableRow: '',
-          tableCell: 'border border-low px-3 py-2 text-left align-top',
+          tableCell: 'border border-divider px-3 py-2 text-left align-top',
           tableCellHeader:
-            'bg-muted font-semibold border border-low px-3 py-2 text-left align-top',
+            'bg-content2 font-semibold border border-divider px-3 py-2 text-left align-top',
         },
         nodes: [
           HeadingNode,
@@ -514,7 +513,7 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
     // Memoized placeholder element
     const placeholderElement = useMemo(
       () => (
-        <div className="absolute top-0 left-0 text-base text-secondary-foreground text-low pointer-events-none truncate">
+        <div className="absolute top-0 left-0 text-base text-default-500 pointer-events-none truncate">
           {placeholder}
         </div>
       ),
@@ -673,12 +672,12 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
                 variant="icon"
                 size="icon"
                 onClick={handleCopy}
-                className="pointer-events-auto p-2 bg-muted h-8 w-8"
+                className="pointer-events-auto p-2 bg-content2 h-8 w-8"
               >
                 {copied ? (
                   <Check className="w-4 h-4 text-success" />
                 ) : (
-                  <Clipboard className="w-4 h-4 text-muted-foreground" />
+                  <Clipboard className="w-4 h-4 text-default-500" />
                 )}
               </Button>
               {/* Edit button - only if onEdit provided */}
@@ -690,9 +689,9 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
                   variant="icon"
                   size="icon"
                   onClick={onEdit}
-                  className="pointer-events-auto p-2 bg-muted h-8 w-8"
+                  className="pointer-events-auto p-2 bg-content2 h-8 w-8"
                 >
-                  <Pencil className="w-4 h-4 text-muted-foreground" />
+                  <Pencil className="w-4 h-4 text-default-500" />
                 </Button>
               )}
               {/* Delete button - only if onDelete provided */}
@@ -704,9 +703,9 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
                   variant="icon"
                   size="icon"
                   onClick={onDelete}
-                  className="pointer-events-auto p-2 bg-muted h-8 w-8"
+                  className="pointer-events-auto p-2 bg-content2 h-8 w-8"
                 >
-                  <Trash2 className="w-4 h-4 text-muted-foreground" />
+                  <Trash2 className="w-4 h-4 text-default-500" />
                 </Button>
               )}
             </div>

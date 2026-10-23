@@ -1,12 +1,12 @@
-import { forwardRef } from "react";
+import { forwardRef } from 'react';
 import {
   ListMagnifyingGlassIcon,
   TerminalWindowIcon,
   FileTextIcon,
   GlobeIcon,
-} from "@phosphor-icons/react";
-import { cn } from "../lib/cn";
-import { ToolStatusDot, type ToolStatusLike } from "./ToolStatusDot";
+} from '@phosphor-icons/react';
+import { cn } from '../lib/cn';
+import { ToolStatusDot, type ToolStatusLike } from './ToolStatusDot';
 
 interface ChatToolSummaryProps {
   summary: string;
@@ -52,13 +52,13 @@ export const ChatToolSummary = forwardRef<
 
   // Determine icon based on action type or tool name
   const getIcon = () => {
-    if (toolName === "Bash") return TerminalWindowIcon;
+    if (toolName === 'Bash') return TerminalWindowIcon;
     switch (actionType) {
-      case "file_read":
+      case 'file_read':
         return FileTextIcon;
-      case "search":
+      case 'search':
         return ListMagnifyingGlassIcon;
-      case "web_fetch":
+      case 'web_fetch':
         return GlobeIcon;
       default:
         return ListMagnifyingGlassIcon;
@@ -69,18 +69,18 @@ export const ChatToolSummary = forwardRef<
   return (
     <div
       className={cn(
-        "flex items-center gap-base text-sm text-low",
-        isClickable && "cursor-pointer",
+        'flex items-center gap-base text-sm text-default-500',
+        isClickable && 'cursor-pointer',
         className,
       )}
       onClick={isClickable ? handleClick : undefined}
-      role={isClickable ? "button" : undefined}
+      role={isClickable ? 'button' : undefined}
       tabIndex={isClickable ? 0 : undefined}
       aria-expanded={isClickable ? expanded : undefined}
       onKeyDown={
         isClickable
           ? (event) => {
-              if (event.key === "Enter" || event.key === " ") {
+              if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
                 handleClick();
               }
@@ -100,8 +100,8 @@ export const ChatToolSummary = forwardRef<
       <span
         ref={ref}
         className={cn(
-          !expanded && "truncate",
-          expanded && "whitespace-pre-wrap break-all",
+          !expanded && 'truncate',
+          expanded && 'whitespace-pre-wrap break-all',
         )}
       >
         {summary}

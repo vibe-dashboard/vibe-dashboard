@@ -110,16 +110,16 @@ export function WorkspacePreviewMenu({
         aria-haspopup="menu"
         aria-expanded={isOpen}
         onClick={() => setIsOpen((open) => !open)}
-        className="flex cursor-pointer items-center text-low transition-colors hover:text-normal focus:outline-none focus-visible:ring-1 focus-visible:ring-brand"
+        className="flex cursor-pointer items-center text-default-500 transition-colors hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-focus"
       >
         <IconWorld className="size-icon-base" aria-hidden="true" />
       </button>
       {isOpen ? (
         <div
           role="menu"
-          className="absolute bottom-full right-0 z-[10000] mb-half max-h-[60vh] min-w-64 overflow-y-auto rounded-sm border border-border bg-panel py-half shadow-md"
+          className="absolute bottom-full right-0 z-[10000] mb-half max-h-[60vh] min-w-64 overflow-y-auto rounded-sm border border-divider bg-content1 py-half shadow-md"
         >
-          <div className="px-base py-half text-xs font-medium text-low">
+          <div className="px-base py-half text-xs font-medium text-default-500">
             Preview slots
           </div>
           {isLoading ? <MenuStatus>Loading…</MenuStatus> : null}
@@ -132,7 +132,7 @@ export function WorkspacePreviewMenu({
             <MenuStatus>No preview slots configured</MenuStatus>
           ) : null}
           {notice ? (
-            <div role="status" className="px-base py-half text-sm text-normal">
+            <div role="status" className="px-base py-half text-sm text-foreground">
               {notice}
             </div>
           ) : null}
@@ -148,12 +148,12 @@ export function WorkspacePreviewMenu({
                     target="_blank"
                     rel="noopener noreferrer"
                     aria-disabled={!data?.preview_urls?.[slot.id]}
-                    className="flex min-w-0 flex-1 items-center gap-base rounded-sm px-base py-half text-left text-sm text-high hover:bg-secondary focus:bg-secondary focus:outline-none"
+                    className="flex min-w-0 flex-1 items-center gap-base rounded-sm px-base py-half text-left text-sm text-foreground hover:bg-content2 focus:bg-content2 focus:outline-none"
                   >
                     <ArrowSquareOutIcon className="size-icon-xs shrink-0" />
                     <span className="min-w-0">
                       <span className="block truncate">{slot.title}</span>
-                      <span className="block truncate text-xs text-low">
+                      <span className="block truncate text-xs text-default-500">
                         {slot.repo_id} · {slot.slot_slug}
                       </span>
                     </span>
@@ -165,7 +165,7 @@ export function WorkspacePreviewMenu({
                     title="Edit script"
                     disabled={pendingSlotId !== null}
                     onClick={() => openDialog('edit', slot)}
-                    className="shrink-0 rounded-sm p-half text-low hover:bg-secondary hover:text-normal disabled:opacity-50"
+                    className="shrink-0 rounded-sm p-half text-default-500 hover:bg-content2 hover:text-foreground disabled:opacity-50"
                   >
                     <IconPencil className="size-icon-xs" />
                   </button>
@@ -176,7 +176,7 @@ export function WorkspacePreviewMenu({
                     title="Restart server"
                     disabled={pendingSlotId !== null}
                     onClick={() => void restartSlot(slot)}
-                    className="shrink-0 rounded-sm p-half text-low hover:bg-secondary hover:text-normal disabled:opacity-50"
+                    className="shrink-0 rounded-sm p-half text-default-500 hover:bg-content2 hover:text-foreground disabled:opacity-50"
                   >
                     <IconRefresh
                       className={`size-icon-xs ${pendingSlotId === slot.id ? 'animate-spin' : ''}`}
@@ -189,14 +189,14 @@ export function WorkspacePreviewMenu({
                     title="Server logs"
                     disabled={pendingSlotId !== null}
                     onClick={() => openDialog('logs', slot)}
-                    className="shrink-0 rounded-sm p-half text-low hover:bg-secondary hover:text-normal disabled:opacity-50"
+                    className="shrink-0 rounded-sm p-half text-default-500 hover:bg-content2 hover:text-foreground disabled:opacity-50"
                   >
                     <IconTerminal2 className="size-icon-xs" />
                   </button>
                 </div>
               ))
             : null}
-          <div className="my-half border-t border-border" />
+          <div className="my-half border-t border-divider" />
           <MenuButton onClick={onConfigure}>
             <GearIcon className="size-icon-xs shrink-0" />
             Configure preview slots
@@ -238,7 +238,7 @@ function MenuButton({
     <button
       type="button"
       role="menuitem"
-      className="mx-half flex w-[calc(100%-0.5rem)] items-center gap-base rounded-sm px-base py-half text-left text-sm text-high hover:bg-secondary focus:bg-secondary focus:outline-none"
+      className="mx-half flex w-[calc(100%-0.5rem)] items-center gap-base rounded-sm px-base py-half text-left text-sm text-foreground hover:bg-content2 focus:bg-content2 focus:outline-none"
       onClick={onClick}
     >
       {children}
@@ -247,7 +247,7 @@ function MenuButton({
 }
 
 function MenuStatus({ children }: { children: React.ReactNode }) {
-  return <div className="px-base py-half text-sm text-low">{children}</div>;
+  return <div className="px-base py-half text-sm text-default-500">{children}</div>;
 }
 
 function errorMessage(error: unknown): string {

@@ -34,7 +34,7 @@ interface AttachmentMetadataLike {
 export interface CreateAttachmentNodeOptions {
   fetchAttachmentUrl: (
     attachmentId: string,
-    type: AttachmentType
+    type: AttachmentType,
   ) => Promise<string>;
 }
 
@@ -67,7 +67,7 @@ function formatFileSize(bytes: bigint | number | null | undefined): string {
 
 function inferFormat(
   label: string,
-  explicitFormat?: string | null
+  explicitFormat?: string | null,
 ): string | null {
   if (explicitFormat) {
     return explicitFormat.toUpperCase();
@@ -82,7 +82,7 @@ function inferFormat(
 }
 
 function toMetadataFromLocalAttachment(
-  localAttachment: LocalAttachmentMetadata | undefined
+  localAttachment: LocalAttachmentMetadata | undefined,
 ): AttachmentMetadataLike | null {
   if (!localAttachment) return null;
 
@@ -99,18 +99,18 @@ function useAttachmentMetadata(
   workspaceId: string | undefined,
   sessionId: string | undefined,
   src: string,
-  localAttachments: LocalAttachmentMetadata[]
+  localAttachments: LocalAttachmentMetadata[],
 ) {
   const isWorkspaceAttachment = src.startsWith('.vibe-attachments/');
 
   const localAttachment = useMemo(
     () => localAttachments.find((attachment) => attachment.path === src),
-    [localAttachments, src]
+    [localAttachments, src],
   );
 
   const localAttachmentMetadata = useMemo(
     () => toMetadataFromLocalAttachment(localAttachment),
-    [localAttachment]
+    [localAttachment],
   );
 
   const shouldFetch =
@@ -122,7 +122,7 @@ function useAttachmentMetadata(
       if (!workspaceId || !sessionId) return null;
 
       const response = await fetch(
-        `/api/workspaces/${workspaceId}/attachments/metadata?path=${encodeURIComponent(src)}&session_id=${sessionId}`
+        `/api/workspaces/${workspaceId}/attachments/metadata?path=${encodeURIComponent(src)}&session_id=${sessionId}`,
       );
       const payload = await response.json();
       return payload.data as AttachmentMetadataLike | null;
@@ -138,7 +138,7 @@ function useAttachmentMetadata(
 
 function useAttachmentFileUrl(
   attachmentId: string | null,
-  fetchAttachmentUrl: CreateAttachmentNodeOptions['fetchAttachmentUrl']
+  fetchAttachmentUrl: CreateAttachmentNodeOptions['fetchAttachmentUrl'],
 ): AttachmentUrlResult {
   const query = useQuery({
     queryKey: ['attachment-url', attachmentId, 'file'],
@@ -179,28 +179,28 @@ export function createAttachmentNode(options: CreateAttachmentNodeOptions) {
 
     const { url: attachmentUrl } = useAttachmentFileUrl(
       isAttachment && !isPendingAttachment ? attachmentId : null,
-      options.fetchAttachmentUrl
+      options.fetchAttachmentUrl,
     );
 
     const { data: metadata } = useAttachmentMetadata(
       workspaceId,
       sessionId,
       src,
-      localAttachments
+      localAttachments,
     );
 
     const resolvedUrl =
       metadata?.proxy_url ?? (isAttachment ? attachmentUrl : null);
     const displayName = truncatePath(
-      metadata?.file_name || label || src || t('kanban.previewFile')
+      metadata?.file_name || label || src || t('kanban.previewFile'),
     );
     const format = inferFormat(
       label || metadata?.file_name || src,
-      metadata?.format
+      metadata?.format,
     );
     const sizeText = formatFileSize(metadata?.size_bytes);
     const localAttachment = localAttachments.find(
-      (attachment) => attachment.path === src
+      (attachment) => attachment.path === src,
     );
     const metadataLine = localAttachment?.is_pending
       ? ['Uploading', sizeText].filter(Boolean).join(' · ')
@@ -223,7 +223,7 @@ export function createAttachmentNode(options: CreateAttachmentNodeOptions) {
         if (!nextUrl) return;
         window.open(nextUrl, '_blank', 'noopener,noreferrer');
       },
-      [attachmentId, resolvedUrl]
+      [attachmentId, resolvedUrl],
     );
 
     const handleDelete = useCallback(
@@ -240,7 +240,7 @@ export function createAttachmentNode(options: CreateAttachmentNodeOptions) {
           }
         });
       },
-      [editor, nodeKey]
+      [editor, nodeKey],
     );
 
     const handleDownload = useCallback(
@@ -249,19 +249,19 @@ export function createAttachmentNode(options: CreateAttachmentNodeOptions) {
           console.error('Failed to open attachment:', error);
         });
       },
-      [openUrl]
+      [openUrl],
     );
 
     const icon =
       isWorkspaceAttachment || isAttachment ? (
-        <File className="w-5 h-5 text-muted-foreground" />
+        <File className="w-5 h-5 text-default-500" />
       ) : (
-        <HelpCircle className="w-5 h-5 text-muted-foreground" />
+        <HelpCircle className="w-5 h-5 text-default-500" />
       );
 
     return (
       <span
-        className="group relative inline-flex items-center gap-1.5 pl-1.5 pr-5 py-1 ml-0.5 mr-0.5 bg-muted rounded border cursor-pointer border-border hover:border-muted-foreground transition-colors align-bottom"
+        className="group relative inline-flex items-center gap-1.5 pl-1.5 pr-5 py-1 ml-0.5 mr-0.5 bg-content2 rounded border cursor-pointer border-divider hover:border-primary transition-colors align-bottom"
         onClick={(event) => {
           openUrl(event).catch((error) => {
             console.error('Failed to open attachment:', error);
@@ -271,15 +271,15 @@ export function createAttachmentNode(options: CreateAttachmentNodeOptions) {
         role="button"
         tabIndex={0}
       >
-        <span className="w-10 h-10 flex items-center justify-center bg-muted rounded flex-shrink-0">
+        <span className="w-10 h-10 flex items-center justify-center bg-content2 rounded flex-shrink-0">
           {icon}
         </span>
         <span className="flex flex-col min-w-0">
-          <span className="text-xs text-muted-foreground truncate max-w-[120px]">
+          <span className="text-xs text-default-500 truncate max-w-[120px]">
             {displayName}
           </span>
           {metadataLine && (
-            <span className="text-[10px] text-muted-foreground/70 truncate max-w-[120px]">
+            <span className="text-[10px] text-default-500/70 truncate max-w-[120px]">
               {metadataLine}
             </span>
           )}
@@ -287,7 +287,7 @@ export function createAttachmentNode(options: CreateAttachmentNodeOptions) {
         {editor.isEditable() && (
           <button
             onClick={handleDelete}
-            className="absolute top-1 right-1 w-4 h-4 rounded-full bg-foreground/70 hover:bg-destructive flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+            className="absolute top-1 right-1 w-4 h-4 rounded-full bg-content1 hover:bg-danger flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
             aria-label={t('kanban.removeImage')}
             type="button"
           >

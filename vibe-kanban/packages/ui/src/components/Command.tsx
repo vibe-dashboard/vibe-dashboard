@@ -11,8 +11,8 @@ const Command = React.forwardRef<
   <CommandPrimitive
     ref={ref}
     className={cn(
-      'flex h-full w-full flex-col overflow-hidden bg-panel text-high',
-      className
+      'flex h-full w-full flex-col overflow-hidden bg-content1 text-foreground',
+      className,
     )}
     {...props}
   />
@@ -51,19 +51,19 @@ const CommandInput = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.Input>
 >(({ className, ...props }, ref) => (
   <div
-    className="flex flex-1 items-center border-b border-border px-base"
+    className="flex flex-1 items-center border-b border-divider px-base"
     cmdk-input-wrapper=""
   >
     <MagnifyingGlassIcon
-      className="mr-base h-4 w-4 shrink-0 text-low"
+      className="mr-base h-4 w-4 shrink-0 text-default-500"
       weight="bold"
     />
     <CommandPrimitive.Input
       ref={ref}
       className={cn(
-        'flex h-10 w-full rounded-sm bg-transparent py-half text-base text-high outline-none',
-        'placeholder:text-low disabled:cursor-not-allowed disabled:opacity-50',
-        className
+        'flex h-10 w-full rounded-sm bg-transparent py-half text-base text-foreground outline-none',
+        'placeholder:text-default-500 disabled:cursor-not-allowed disabled:opacity-50',
+        className,
       )}
       {...props}
     />
@@ -89,7 +89,7 @@ const CommandEmpty = React.forwardRef<
 >((props, ref) => (
   <CommandPrimitive.Empty
     ref={ref}
-    className="py-base text-center text-sm text-low"
+    className="py-base text-center text-sm text-default-500"
     {...props}
   />
 ));
@@ -102,10 +102,10 @@ const CommandGroup = React.forwardRef<
   <CommandPrimitive.Group
     ref={ref}
     className={cn(
-      'overflow-hidden p-half text-high',
+      'overflow-hidden p-half text-foreground',
       '[&_[cmdk-group-heading]]:px-base [&_[cmdk-group-heading]]:py-half',
-      '[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-low',
-      className
+      '[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-default-500',
+      className,
     )}
     {...props}
   />
@@ -132,9 +132,9 @@ const CommandItem = React.forwardRef<
     ref={ref}
     className={cn(
       'relative flex cursor-pointer select-none items-center gap-base rounded-sm px-base py-half text-sm outline-none',
-      'data-[selected=true]:bg-secondary data-[selected=true]:text-high',
+      'data-[selected=true]:bg-content2 data-[selected=true]:text-foreground',
       'data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50',
-      className
+      className,
     )}
     {...props}
   />
@@ -147,7 +147,10 @@ function CommandShortcut({
 }: React.HTMLAttributes<HTMLSpanElement>) {
   return (
     <span
-      className={cn('ml-auto text-xs tracking-widest text-low', className)}
+      className={cn(
+        'ml-auto text-xs tracking-widest text-default-500',
+        className,
+      )}
       {...props}
     />
   );

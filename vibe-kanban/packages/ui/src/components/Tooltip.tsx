@@ -29,9 +29,9 @@ export function Tooltip({
             side={side}
             sideOffset={4}
             className={cn(
-              'z-[10000] flex items-center rounded-sm bg-panel px-base py-half text-xs text-normal shadow-md',
+              'z-[10000] flex items-center rounded-sm border border-divider bg-content1 px-base py-half text-xs text-foreground shadow-md',
               'animate-in fade-in-0 zoom-in-95',
-              className
+              className,
             )}
           >
             <span>{content}</span>
@@ -39,8 +39,8 @@ export function Tooltip({
               <kbd
                 className={cn(
                   'ml-2 inline-flex items-center gap-0.5 px-2 py-0.5',
-                  'rounded-sm border border-border bg-secondary',
-                  'font-ibm-plex-mono text-xs text-high'
+                  'rounded-sm border border-divider bg-content2',
+                  'font-ibm-plex-mono text-xs text-foreground',
                 )}
               >
                 {formattedShortcut}

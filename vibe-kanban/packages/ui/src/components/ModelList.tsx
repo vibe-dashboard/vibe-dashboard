@@ -31,7 +31,7 @@ function toPrettyCase(value: string): string {
 
 function getReasoningLabel(
   options: ModelReasoningOption[],
-  selectedId: string | null
+  selectedId: string | null,
 ): string | null {
   if (!selectedId) return null;
   return (
@@ -46,7 +46,7 @@ function getModelKey(model: ModelListModel): string {
 
 export function modelMatchesSearch(
   model: ModelListModel,
-  normalizedQuery: string
+  normalizedQuery: string,
 ): boolean {
   if (!normalizedQuery) return true;
   const name = model.name?.toLowerCase() ?? '';
@@ -83,10 +83,10 @@ function ReasoningDropdown({
         <button
           type="button"
           className={cn(
-            'inline-flex items-center gap-1 rounded-sm border border-border',
-            'bg-secondary/60 px-1.5 py-0.5 text-[10px] font-semibold text-low',
-            'hover:border-brand/40 hover:text-normal transition-colors',
-            'focus:outline-none focus-visible:ring-1 focus-visible:ring-brand'
+            'inline-flex items-center gap-1 rounded-sm border border-divider',
+            'bg-content2/60 px-1.5 py-0.5 text-[10px] font-semibold text-default-500',
+            'hover:border-primary/40 hover:text-foreground transition-colors',
+            'focus:outline-none focus-visible:ring-1 focus-visible:ring-focus',
           )}
         >
           <BrainIcon className="size-icon-xs" weight="fill" />
@@ -165,10 +165,10 @@ export function ModelList({
       className={cn(
         'group flex items-center rounded-sm mx-half',
         'transition-colors duration-100',
-        'focus-within:bg-secondary',
+        'focus-within:bg-content2',
         isDefaultSelected
-          ? 'bg-secondary text-high'
-          : cn('text-normal', 'hover:bg-secondary/60')
+          ? 'bg-content2 text-foreground'
+          : cn('text-foreground', 'hover:bg-content2/60'),
       )}
     >
       <button
@@ -176,13 +176,13 @@ export function ModelList({
         onClick={() => onSelectDefault?.()}
         className={cn(
           'flex-1 min-w-0 py-half pl-base pr-half text-left',
-          'focus:outline-none focus-visible:ring-1 focus-visible:ring-brand'
+          'focus:outline-none focus-visible:ring-1 focus-visible:ring-focus',
         )}
       >
         <span
           className={cn(
             'block text-sm truncate',
-            isDefaultSelected && 'font-semibold'
+            isDefaultSelected && 'font-semibold',
           )}
         >
           {t('modelSelector.default')}
@@ -196,18 +196,18 @@ export function ModelList({
       ref={scrollRef}
       className={cn(
         'flex-1 min-h-0 overflow-y-auto overflow-x-hidden',
-        className
+        className,
       )}
     >
       {showEmptyState ? (
-        <div className="flex h-full items-center justify-center px-base text-sm text-low">
+        <div className="flex h-full items-center justify-center px-base text-sm text-default-500">
           {normalizedSearch ? 'No matches.' : 'No models available.'}
         </div>
       ) : (
         <div
           className={cn(
             'flex min-h-full flex-col',
-            justifyEnd && 'justify-end'
+            justifyEnd && 'justify-end',
           )}
         >
           {filteredModels.map((model) => {
@@ -230,10 +230,10 @@ export function ModelList({
                 className={cn(
                   'group flex items-center rounded-sm mx-half',
                   'transition-colors duration-100',
-                  'focus-within:bg-secondary',
+                  'focus-within:bg-content2',
                   isSelected
-                    ? 'bg-secondary text-high'
-                    : cn('text-normal', 'hover:bg-secondary/60')
+                    ? 'bg-content2 text-foreground'
+                    : cn('text-foreground', 'hover:bg-content2/60'),
                 )}
               >
                 <button
@@ -243,13 +243,13 @@ export function ModelList({
                   }
                   className={cn(
                     'flex-1 min-w-0 py-half pl-base pr-half text-left',
-                    'focus:outline-none focus-visible:ring-1 focus-visible:ring-brand'
+                    'focus:outline-none focus-visible:ring-1 focus-visible:ring-focus',
                   )}
                 >
                   <span
                     className={cn(
                       'block text-sm truncate',
-                      isSelected && 'font-semibold'
+                      isSelected && 'font-semibold',
                     )}
                     title={model.name}
                   >
@@ -268,8 +268,7 @@ export function ModelList({
                     <span
                       className={cn(
                         'inline-flex items-center justify-center',
-                        'size-5 rounded-sm bg-border/80 text-normal',
-                        'dark:bg-secondary/70'
+                        'size-5 rounded-sm bg-content2/80 text-foreground',
                       )}
                       title="Reasoning supported"
                     >

@@ -35,7 +35,7 @@ const Dialog = React.forwardRef<
       dialogRef.current = node;
       assignRef(ref, node);
     },
-    [ref]
+    [ref],
   );
 
   // Manage dialog scope when open/closed
@@ -81,7 +81,7 @@ const Dialog = React.forwardRef<
       scopes: [DIALOG_SCOPE],
       preventDefault: true,
     },
-    [open, uncloseable, onOpenChange]
+    [open, uncloseable, onOpenChange],
   );
 
   useHotkeys(
@@ -100,7 +100,7 @@ const Dialog = React.forwardRef<
       }
 
       const submitButton = container.querySelector(
-        'button[type="submit"]'
+        'button[type="submit"]',
       ) as HTMLButtonElement | null;
       if (submitButton && !submitButton.disabled) {
         e?.preventDefault();
@@ -109,14 +109,14 @@ const Dialog = React.forwardRef<
       }
 
       const buttons = Array.from(
-        container.querySelectorAll('button')
+        container.querySelectorAll('button'),
       ) as HTMLButtonElement[];
       const primaryButton = buttons.find(
         (btn) =>
           !btn.disabled &&
           !btn.textContent?.toLowerCase().includes('cancel') &&
           !btn.textContent?.toLowerCase().includes('close') &&
-          btn.type !== 'button'
+          btn.type !== 'button',
       );
 
       if (primaryButton) {
@@ -128,7 +128,7 @@ const Dialog = React.forwardRef<
       enabled: !!open,
       scopes: [DIALOG_SCOPE],
     },
-    [open]
+    [open],
   );
 
   if (!open) return null;
@@ -143,14 +143,14 @@ const Dialog = React.forwardRef<
       <div
         ref={setDialogRef}
         className={cn(
-          'relative z-[10000] flex flex-col w-full max-w-xl gap-4 bg-primary p-6 shadow-lg duration-200 sm:rounded-lg my-8',
-          className
+          'relative z-[10000] flex flex-col w-full max-w-xl gap-4 bg-content1 text-foreground border border-divider p-6 shadow-lg duration-200 sm:rounded-lg my-8',
+          className,
         )}
         {...props}
       >
         {!uncloseable && (
           <button
-            className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 z-10"
+            className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-focus focus:ring-offset-2 z-10"
             onClick={() => onOpenChange?.(false)}
           >
             <X className="h-4 w-4" />
@@ -160,7 +160,7 @@ const Dialog = React.forwardRef<
         {children}
       </div>
     </div>,
-    document.body
+    document.body,
   );
 });
 Dialog.displayName = 'Dialog';
@@ -172,7 +172,7 @@ const DialogHeader = ({
   <div
     className={cn(
       'flex flex-col space-y-1.5 text-center sm:text-left',
-      className
+      className,
     )}
     {...props}
   />
@@ -187,7 +187,7 @@ const DialogTitle = React.forwardRef<
     ref={ref}
     className={cn(
       'text-lg font-semibold leading-none tracking-tight',
-      className
+      className,
     )}
     {...props}
   />
@@ -200,7 +200,7 @@ const DialogDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <p
     ref={ref}
-    className={cn('text-sm text-muted-foreground', className)}
+    className={cn('text-sm text-default-500', className)}
     {...props}
   />
 ));
@@ -221,7 +221,7 @@ const DialogFooter = ({
   <div
     className={cn(
       'flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:space-x-2',
-      className
+      className,
     )}
     {...props}
   />
