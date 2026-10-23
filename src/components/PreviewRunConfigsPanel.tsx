@@ -529,7 +529,9 @@ export function PreviewRunConfigsPanel({
                 slot={slot}
                 highlighted={deepLinkedSlotId === slot.id}
                 repoLabel={repoLabelsById.get(slot.repo_id) ?? 'unavailable'}
-                runConfigLabel={runConfigLabelsById.get(slot.run_config_id) ?? 'unavailable'}
+                runConfigLabel={slot.run_config_id
+                  ? runConfigLabelsById.get(slot.run_config_id) ?? 'unavailable'
+                  : 'external redirect'}
                 processLink={previewSlotProcessLinks[slot.id]}
                 processId={previewSlotProcessLinks[slot.id]?.execution_process_id ?? previewSlotProcessIds[slot.id]}
                 action={previewSlotActions[slot.id]}

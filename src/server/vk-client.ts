@@ -186,7 +186,8 @@ export interface UpsertRunConfig {
 export interface PreviewSlot {
   id: string;
   repo_id: string;
-  run_config_id: string;
+  run_config_id?: string | null;
+  target: PreviewSlotTarget;
   slot_slug: string;
   title: string;
   description?: string | null;
@@ -198,12 +199,22 @@ export interface PreviewSlot {
 export interface UpsertPreviewSlot {
   id?: string | null;
   repo_id: string;
-  run_config_id: string;
+  run_config_id?: string | null;
+  target?: PreviewSlotTarget | null;
   slot_slug: string;
   title: string;
   description?: string | null;
   enabled?: boolean;
 }
+
+export type PreviewSlotTarget =
+  | { type: 'local_run_config'; run_config_id: string }
+  | {
+    type: 'external_redirect';
+    url_template: string;
+    project_slug?: string | null;
+    allowed_host_template: string;
+  };
 
 export interface PreviewProcessLink {
   id: string;

@@ -297,13 +297,15 @@ pub async fn upsert_preview_slot(
 ) -> Result<ResponseJson<ApiResponse<PreviewSlot>>, ApiError> {
     validate_slug("preview slot slug", &payload.slot_slug, 10)?;
     validate_workspace_repo(&deployment, workspace.id, payload.repo_id).await?;
-    let run_config = RunConfig::find_by_id(&deployment.db().pool, payload.run_config_id)
-        .await?
-        .ok_or_else(|| ApiError::BadRequest("Run config not found".to_string()))?;
-    if run_config.repo_id != payload.repo_id {
-        return Err(ApiError::BadRequest(
-            "Preview slot repo must match run config repo".to_string(),
-        ));
+    if let Some(run_config_id) = payload.local_run_config_id() {
+        let run_config = RunConfig::find_by_id(&deployment.db().pool, run_config_id)
+            .await?
+            .ok_or_else(|| ApiError::BadRequest("Run config not found".to_string()))?;
+        if run_config.repo_id != payload.repo_id {
+            return Err(ApiError::BadRequest(
+                "Preview slot repo must match run config repo".to_string(),
+            ));
+        }
     }
 
     let slot = PreviewSlot::upsert(&deployment.db().pool, &payload).await?;
@@ -318,7 +320,7 @@ pub async fn upsert_preview_slot(
         &deployment,
         Some(workspace.id),
         Some(slot.repo_id),
-        Some(slot.run_config_id),
+        slot.run_config_id,
         Some(slot.id),
         None,
         "preview_slot.upsert",
@@ -490,7 +492,7 @@ pub async fn delete_preview_slot_by_id(
         &deployment,
         Some(workspace.id),
         Some(slot.repo_id),
-        Some(slot.run_config_id),
+        slot.run_config_id,
         Some(slot.id),
         None,
         "preview_slot.delete",
@@ -510,7 +512,10 @@ pub async fn start_preview_slot_by_id(
     let slot = PreviewSlot::find_by_id(&deployment.db().pool, preview_slot_id)
         .await?
         .ok_or_else(|| ApiError::BadRequest("Preview slot not found".to_string()))?;
-    let run_config = RunConfig::find_by_id(&deployment.db().pool, slot.run_config_id)
+    let run_config_id = slot.local_run_config_id().ok_or_else(|| {
+        ApiError::BadRequest("External preview slots do not start local processes".to_string())
+    })?;
+    let run_config = RunConfig::find_by_id(&deployment.db().pool, run_config_id)
         .await?
         .ok_or_else(|| ApiError::BadRequest("Run config not found".to_string()))?;
     let response = start_run_config(&deployment, &workspace, &run_config, Some(&slot)).await?;
@@ -691,7 +696,7 @@ pub(crate) async fn start_run_config(
     }
     if let Some(slot) = preview_slot
         && (!slot.enabled
-            || slot.run_config_id != run_config.id
+            || slot.local_run_config_id() != Some(run_config.id)
             || slot.repo_id != run_config.repo_id)
     {
         return Err(ApiError::BadRequest(

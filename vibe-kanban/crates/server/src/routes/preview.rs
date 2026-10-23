@@ -91,7 +91,12 @@ async fn resolve_named_preview(
             NamedPreviewResolveResponse::not_found("Preview slot was not found"),
         )));
     };
-    let Some(run_config) = RunConfig::find_by_id(pool, slot.run_config_id).await? else {
+    let Some(run_config_id) = slot.local_run_config_id() else {
+        return Ok(ResponseJson(ApiResponse::success(
+            NamedPreviewResolveResponse::not_found("External preview target is not available yet"),
+        )));
+    };
+    let Some(run_config) = RunConfig::find_by_id(pool, run_config_id).await? else {
         return Ok(ResponseJson(ApiResponse::success(
             NamedPreviewResolveResponse::not_found("Run config was not found"),
         )));

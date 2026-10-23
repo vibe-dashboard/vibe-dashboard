@@ -152,3 +152,27 @@ impl DBService {
         Ok(pool)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn migrations_apply_to_an_empty_database() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+
+        run_migrations(&pool).await.unwrap();
+
+        let columns: Vec<(String,)> = sqlx::query_as(
+            "SELECT name FROM pragma_table_info('preview_slots') WHERE name = 'target_type'",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(columns, vec![("target_type".to_string(),)]);
+    }
+}

@@ -20,9 +20,15 @@ export enum RunConfigKind { long_running = "long_running", one_shot = "one_shot"
 
 export type UpsertRunConfig = { id?: string, repo_id: string, slug: string, name: string, description: string | null, command: string, working_dir: string | null, kind: RunConfigKind, enabled: boolean, };
 
-export type PreviewSlot = { id: string, repo_id: string, run_config_id: string, slot_slug: string, title: string, description: string | null, enabled: boolean, created_at: Date, updated_at: Date, };
+export type PreviewSlot = { id: string, repo_id: string,
+/**
+ * Compatibility field for clients that predate tagged slot targets.
+ */
+run_config_id: string | null, target: PreviewSlotTarget, slot_slug: string, title: string, description: string | null, enabled: boolean, created_at: Date, updated_at: Date, };
 
-export type UpsertPreviewSlot = { id?: string, repo_id: string, run_config_id: string, slot_slug: string, title: string, description: string | null, enabled: boolean, };
+export type PreviewSlotTarget = { "type": "local_run_config", run_config_id: string, } | { "type": "external_redirect", url_template: string, project_slug: string | null, allowed_host_template: string, };
+
+export type UpsertPreviewSlot = { id?: string, repo_id: string, run_config_id: string | null, target: PreviewSlotTarget | null, slot_slug: string, title: string, description: string | null, enabled: boolean, };
 
 export type PreviewProcessLink = { id: string, workspace_id: string, repo_id: string, run_config_id: string, preview_slot_id: string | null, execution_process_id: string, assigned_port: bigint, status_snapshot: PreviewProcessStatusSnapshot, started_at: Date, updated_at: Date, ended_at: Date | null, };
 

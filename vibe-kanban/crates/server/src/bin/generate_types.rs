@@ -20,6 +20,7 @@ fn generate_types_content() -> String {
         db::models::run_config::RunConfigKind::decl(),
         db::models::run_config::UpsertRunConfig::decl(),
         db::models::preview_slot::PreviewSlot::decl(),
+        db::models::preview_slot::PreviewSlotTarget::decl(),
         db::models::preview_slot::UpsertPreviewSlot::decl(),
         db::models::preview_process_link::PreviewProcessLink::decl(),
         db::models::preview_process_link::PreviewProcessStatusSnapshot::decl(),
