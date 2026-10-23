@@ -80,6 +80,35 @@ Generic `port-*` routes are intentionally different: opening a port URL does not
 start a process. If nothing is listening on that port, Caddy returns plain
 no-listener copy and does not auto-refresh by default.
 
+## Run-config audit actor limitations
+
+Preview run-config, slot, start, stop, reuse, and capacity-eviction operations
+write rows to `run_config_audit_events`. In V1 every route-generated row records
+the literal actor `backend`; the server does not derive a user, service account,
+API token, role, source address, or trusted proxy identity.
+
+Consequences:
+
+- `actor = backend` means only that the backend wrote the row. It does not
+  identify the person or client that caused the operation.
+- A caller that can successfully invoke a PreviewServer route can cause a
+  `backend` event. The actor column therefore cannot support attribution,
+  non-repudiation, per-user review, or role enforcement.
+- The backend ignores caller-supplied actor headers or fields, so clients cannot
+  choose the stored actor string. This prevents direct actor-name spoofing but
+  does not solve caller attribution.
+- Event type and linked workspace/repo/config/slot/process IDs are useful for
+  best-effort operational chronology. They are not an authentication or
+  security-audit boundary. Foreign-key cleanup may also set linked IDs to null
+  after the referenced record is deleted.
+
+Operators should correlate these rows with access-proxy and application logs
+when investigating V1 activity. When PreviewServer API authentication and roles
+are implemented, replace the fixed actor with a server-verified principal and
+record the authentication mechanism/role needed to interpret that identity.
+Existing `backend` rows must remain distinguishable as legacy unattributed
+events rather than being retroactively assigned to a user.
+
 ## Hard-break compatibility contract
 
 The named-host shape is the only supported Preview URL contract for this branch.
