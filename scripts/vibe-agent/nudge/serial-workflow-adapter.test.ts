@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createSerialRun, mutateSerialRun, readSerialRun, SERIAL_RESULT_SCHEMA, type SerialTemplate } from './serial-workflow.js';
-import { dispatchSerialWorkflow, projectSerialWorkflowToBeads, submitObservedSerialResult, type SerialWorkflowTransportClient } from './serial-workflow-adapter.js';
+import { dispatchSerialWorkflow, projectSerialWorkflowToBeads, roleDispatchPrompt, submitObservedSerialResult, type SerialWorkflowTransportClient } from './serial-workflow-adapter.js';
 import { schemaHash } from './workflow-xml.js';
 import type { ExecutionProcess, QueueStatus, Session } from '../types.js';
 import { VibeClient } from '../core/client.js';
@@ -44,6 +44,15 @@ function setup(fresh = false) {
 }
 
 describe('serial workflow VK dispatch adapter', () => {
+  it('keeps ordinary role onboarding identical across human and decision-maker authority', () => {
+    const file = setup();
+    const human = roleDispatchPrompt(file, 'same-dispatch');
+    mutateSerialRun(file, readSerialRun(file).version, 'delegate', { type: 'update_authority', previousAuthority: { mode: 'human' }, authority: { mode: 'decision_maker', sessionId: 'decider' }, reason: 'Delegate decisions', actor: 'orchestrator' });
+    expect(roleDispatchPrompt(file, 'same-dispatch')).toBe(human);
+    expect(human).toContain(`Authoritative JSON Schema: ${JSON.stringify(SERIAL_RESULT_SCHEMA)}`);
+    expect(human).toContain(`Schema: ${identity.schemaId} v${identity.schemaVersion} ${identity.schemaHash}`);
+  });
+
   it('persists immutable identity before transport and binds the exact started process', async () => {
     const file = setup(); const client = new Client();
     const dispatch = await dispatchSerialWorkflow(file, client, 1, 'dispatch');

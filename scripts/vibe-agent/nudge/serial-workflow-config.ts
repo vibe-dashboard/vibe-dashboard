@@ -18,8 +18,8 @@ function nonempty(value: unknown, name: string): string {
   return value;
 }
 
-// Explicit entry point: the running daemon continues using strict v2 until its
-// orchestration adapter is migrated. Reuse the same YAML safety and references.
+// Serial templates use an explicit v3 entry point; coordinator messaging remains
+// strict v2. Reuse its YAML safety and reference validation, not protocol fallback.
 export function parseSerialWorkflowConfig(
   raw: string,
   source: string,

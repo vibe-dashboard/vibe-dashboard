@@ -35,6 +35,23 @@ function setup(authority: FormAuthority = { mode: 'human' }) {
 }
 
 describe('workflow form boundary', () => {
+  it('teaches an eight-field decision response separately from the immutable six-field item schema', async () => {
+    const value = setup({ mode: 'decision_maker', sessionId: 'decider' });
+    await syncSerialWorkflowForm(value.file, value.client, value.store);
+    const run = readSerialRun(value.file); const wait = run.wait!;
+    const prompt = wait.decision!.transport.prompt;
+    const section = (label: string) => JSON.parse(prompt.split('\n').find(line => line.startsWith(label))!.slice(label.length));
+    expect(prompt).toContain('Remove only wait_id and form_id');
+    expect(prompt).toContain('Keep all eight fields in your response');
+    expect(section('Item result schema identity: ')).toEqual(run.template.items[0]!.schema);
+    expect(section('Item result schema (six-field projection): ')).toEqual(SERIAL_RESULT_SCHEMA);
+    const answer = section('Decision response example: ');
+    expect(answer).toEqual({ run_id: run.id, wait_id: wait.id, form_id: value.forms[0]!.id, item_id: wait.itemId, revision: wait.revision, dispatch_id: wait.dispatchId, outcome: 'complete', details: {} });
+    value.observed({ process_id: 'decision-process', finished: true, final_response: JSON.stringify(answer) });
+    await syncSerialWorkflowForm(value.file, value.client, value.store);
+    expect(readSerialRun(value.file).status).toBe('completed');
+  });
+
   it('retries attachment after restart without changing the durable wait and consumes only saved human responses', async () => {
     const value = setup(); value.failAttach();
     await expect(syncSerialWorkflowForm(value.file, value.client, value.store)).rejects.toThrow('beads offline');

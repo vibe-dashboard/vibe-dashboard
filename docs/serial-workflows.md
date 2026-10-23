@@ -4,6 +4,91 @@ A serial run snapshots a version-3 YAML template, its role message settings,
 JSON Schemas, grouped Beads issues, and decision authority. Editing configuration
 does not change an existing run. Only the orchestrator invokes workflow mutations.
 
+## Configuration contracts
+
+Coordinator checkpoints use strict version-2 YAML with `roles`, `prompts`,
+`response_schemas`, `message_types`, `handlers`, and `outcome_handlers`. The
+serial workflow CLI uses an explicit version-3 parser: the same messaging sections
+plus `templates`. These entry points select different message contracts; neither
+tries older configuration or completion-marker formats on validation failure.
+
+For example, a serial configuration can define implementation and review turns:
+
+```yaml
+version: 3
+roles:
+  orchestrator: {can_emit_actions: [send_message]}
+  impl: {can_emit_actions: []}
+  reviewer: {can_emit_actions: []}
+prompts:
+  implement: {text: "Implement the grouped issues."}
+  review: {text: "Review the implementation against the grouped issues."}
+response_schemas:
+  role_result:
+    schema_id: vd.workflow.role-result
+    schema_version: 1
+    schema_file: schemas/role-result.schema.json
+message_types:
+  implement:
+    from_role: orchestrator
+    to_role: impl
+    prompt_id: implement
+    response_schema_id: role_result
+    fresh: false
+    allowed_actions: []
+  review:
+    from_role: orchestrator
+    to_role: reviewer
+    prompt_id: review
+    response_schema_id: role_result
+    fresh: false
+    allowed_actions: []
+handlers: {}
+outcome_handlers: {}
+templates:
+  change:
+    version: 1
+    items:
+      - id: implement
+        label: Implement
+        message_type: implement
+        outcomes:
+          complete: {action: advance}
+          waiting: {action: wait}
+      - id: review
+        label: Review
+        message_type: review
+        outcomes:
+          approved: {action: advance}
+          changes_requested: {action: reset, resets_to: implement}
+          waiting: {action: wait}
+```
+
+Schema files resolve relative to the configuration file. For this example,
+`schemas/role-result.schema.json` contains:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run_id", "item_id", "revision", "dispatch_id", "outcome", "details"],
+  "properties": {
+    "run_id": {"type": "string", "minLength": 1},
+    "item_id": {"type": "string", "minLength": 1},
+    "revision": {"type": "integer", "minimum": 1},
+    "dispatch_id": {"type": "string", "minLength": 1},
+    "outcome": {"type": "string", "minLength": 1},
+    "details": {"type": "object"}
+  }
+}
+```
+
+The YAML spelling is `resets_to`; `resetsTo` is the normalized persisted runtime
+field. Reset targets must name an earlier item. Outcomes select their configured
+effects; they do not emit coordinator XML actions. Template version, role prompts,
+and actual schema content/hash are captured when a run is created.
+
 ## Role results
 
 Each dispatched message contains its full authoritative JSON Schema, schema
@@ -26,6 +111,25 @@ the checkpoint envelope. Callback records still suppress duplicate sends while
 work is active. `DONE`, `CREATED FORM`, prose and legacy action tags never complete
 either contract.
 
+For a coordinator checkpoint, use the exact schema metadata from its message in
+the following shape (`SCHEMA_HASH_FROM_PROMPT` is a placeholder, not a literal
+hash):
+
+```xml
+<auto-nudge-result schema_id="vd.auto-nudge.overseer-result" schema_version="1" schema_hash="SCHEMA_HASH_FROM_PROMPT" format="json">
+{"outcome":"complete","actions":[]}
+</auto-nudge-result>
+```
+
+The configured schema ID and version can differ from this default example. Copy
+all three metadata values from the initiating checkpoint. Human-readable Markdown
+may precede the single final envelope; nothing may follow it. Its JSON must pass
+the authoritative schema and role/action permissions. Duplicate keys, unknown
+fields/actions, and mismatched schema metadata are rejected. An invalid completed
+checkpoint receives at most one schema-correction request, then remains visibly
+invalid if the correction also fails. A valid `complete` applies to that trigger;
+it does not permanently mark the workspace complete.
+
 ## Decisions and forms
 
 An outcome mapped to `action: wait` pauses the current item. Put the question and
@@ -43,6 +147,23 @@ decision-maker mode, the orchestrator sends the same decision to the snapshotted
 session through durable identified dispatch. Only that accepted process's final
 JSON response can answer it. Missing authority or invalid terminal decisions need
 attention; there is no automatic human/agent fallback.
+
+The decision-maker's response has **eight** fields, copied from its decision
+message:
+
+```json
+{"run_id":"run-id","wait_id":"wait-id","form_id":"workflow_wait-id","item_id":"review","revision":2,"dispatch_id":"dispatch-id","outcome":"approved","details":{}}
+```
+
+Keep `wait_id` and `form_id` in this response. The orchestrator checks all wait
+correlations, then removes only those two fields and validates the resulting
+six-field ordinary role result against the original item schema. That schema's
+`additionalProperties: false` applies to the projection, not to the eight-field
+decision envelope. Choose a configured non-wait outcome and supply any required
+`details`; do not copy an illustrative outcome blindly. No `actor` or process ID
+field is accepted: authority comes from the saved human submission or exact
+accepted decision process at the orchestration boundary. Late, stale, or duplicate
+answers cannot advance a reissued wait or a later item/revision.
 
 The daemon reconciles attachment, delivery and answers across restarts. To request
 the same reconciliation explicitly:

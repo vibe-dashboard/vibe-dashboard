@@ -108,7 +108,18 @@ export async function syncSerialWorkflowForm(
       const authoritySession = wait.authority.sessionId;
       const session = (await client.getSessions(run.workspaceId)).find(entry => entry.id === authoritySession);
       if (!session?.executor) { needsAttention = true; throw new Error('Configured decision-maker session is unavailable'); }
-      const prompt = `Decide this workflow form. Return exactly one JSON object; no prose or markdown fences.\n${JSON.stringify({ run_id: run.id, wait_id: wait.id, form_id: form.id, item_id: wait.itemId, revision: wait.revision, dispatch_id: wait.dispatchId, outcome: '<choose an allowed outcome>', details: {} })}\nAllowed outcomes: ${JSON.stringify(Object.entries(run.template.items[run.currentIndex]!.outcomes).filter(([, value]) => value.action !== 'wait').map(([key]) => key))}\nForm: ${JSON.stringify(form)}\nResult schema: ${JSON.stringify(run.template.items[run.currentIndex]!.resultSchema)}`;
+      const item = run.template.items[run.currentIndex]!;
+      const outcomes = Object.entries(item.outcomes).filter(([, value]) => value.action !== 'wait').map(([key]) => key);
+      const prompt = [
+        'Decide this workflow form. Return exactly one JSON object with the eight fields shown below; no prose, XML, or markdown fences.',
+        'Keep all eight fields in your response. Copy correlation values exactly; choose an allowed outcome and populate details according to the item result schema. The example outcome and details are illustrative.',
+        `Decision response example: ${JSON.stringify({ run_id: run.id, wait_id: wait.id, form_id: form.id, item_id: wait.itemId, revision: wait.revision, dispatch_id: wait.dispatchId, outcome: outcomes[0], details: {} })}`,
+        'The orchestrator validates your decision by projecting it into the ordinary role result. Remove only wait_id and form_id to obtain the six-field projection validated by the item result schema below; do not remove them from your response. Authority and source process are verified separately by the orchestrator, not declared in your JSON.',
+        `Item result schema identity: ${JSON.stringify(item.schema)}`,
+        `Item result schema (six-field projection): ${JSON.stringify(item.resultSchema)}`,
+        `Allowed outcomes and effects: ${JSON.stringify(Object.fromEntries(Object.entries(item.outcomes).filter(([, value]) => value.action !== 'wait')))}`,
+        `Form: ${JSON.stringify(form)}`,
+      ].join('\n');
       mutateSerialRun(file, run.version, `form:intent:${wait.id}`, { type: 'decision_intent', waitId: wait.id, transport: { owner: `workflow:${run.id}:form`, sessionId: session.id, messageType: 'workflow_form_decision', fresh: false, freshSession: null, executorConfig: { executor: session.executor }, prompt } });
       run = readSerialRun(file);
     }
