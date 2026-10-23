@@ -146,7 +146,24 @@ jobs:
           setup-sqlx-cli: "true"
 
       - name: Check generated types
+        id: generated-types-check
         run: npm run generate-types:check
+
+      - name: Generate API artifacts for drift repair
+        id: generated-types
+        if: failure() && steps.generated-types-check.outcome == 'failure'
+        run: npm run generate-types
+
+      - name: Upload generated API artifacts
+        if: always() && steps.generated-types.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: vk-generated-api-${{ github.sha }}
+          path: |
+            vibe-kanban/shared/types.ts
+            vibe-kanban/shared/schemas/
+          if-no-files-found: error
+          retention-days: 3
 
       - name: Sqlx checks
         run: npm run prepare-db:check
