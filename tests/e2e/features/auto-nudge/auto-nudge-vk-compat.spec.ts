@@ -122,6 +122,56 @@ test.describe.serial('auto-nudge compatibility with real VK QA-mode contracts', 
     } finally { await rm(value.dir, { recursive: true, force: true }); }
   });
 
+  test('started replay preserves an unrelated occupied queue slot', async () => {
+    test.setTimeout(90_000); const value = await context();
+    try {
+      const target = await client.createSession({ workspace_id: value.workspace.id, executor: 'CODEX', name: `occupied-replay-${Date.now()}` });
+      const queuePath = `/api/sessions/${target.id}/queue`;
+      const queueId = randomUUID(); const owner = 'qa-started-replay';
+      const queueBody = { queue_id: queueId, owner, message: 'original identified turn', executor_config: { executor: target.executor } };
+      const start = (payload = queueBody) => api(`${queuePath}/${queueId}/start`, {
+        method: 'POST', body: JSON.stringify({ owner: payload.owner, message: payload.message, executor_config: payload.executor_config }),
+      });
+      expect((await api(queuePath, { method: 'POST', body: JSON.stringify(queueBody) })).status).toBe(200);
+      const accepted = await start();
+      expect(accepted.status).toBe(200);
+      const acceptedPayload = await accepted.json() as { data: { status: string; process: ExecutionProcess } };
+      expect(acceptedPayload.data).toMatchObject({ status: 'started', process: { session_id: target.id, status: 'running' } });
+      const processId = acceptedPayload.data.process.id;
+
+      // Keep the accepted child running so the unrelated slot stays queued.
+      // Replay must precede both busy admission and any claim of that slot.
+      const unrelated = { queue_id: randomUUID(), owner: 'qa-unrelated-owner', message: 'must retain this unrelated queued payload', executor_config: { executor: target.executor } };
+      const queued = await api(queuePath, { method: 'POST', body: JSON.stringify(unrelated) });
+      expect(queued.status).toBe(200);
+      const occupied = await queued.json();
+      expect(occupied).toMatchObject({ data: { status: 'queued', message: { id: unrelated.queue_id, owner: unrelated.owner, data: { message: unrelated.message, executor_config: unrelated.executor_config } } } });
+
+      const replays = await Promise.all(Array.from({ length: 4 }, () => start()));
+      for (const replay of replays) {
+        expect(replay.status).toBe(200);
+        await expect(replay.json()).resolves.toMatchObject({ data: { status: 'started', process: { id: processId, session_id: target.id } } });
+      }
+      expect((await start({ ...queueBody, owner: 'wrong-owner' })).status).toBe(409);
+      expect((await start({ ...queueBody, message: 'changed original payload' })).status).toBe(409);
+      const retained = await api(queuePath);
+      expect(retained.status).toBe(200);
+      await expect(retained.json()).resolves.toEqual(occupied);
+      const processes = await client.getSessionProcesses(target.id);
+      expect(processes).toHaveLength(1);
+      expect(processes[0]).toMatchObject({ id: processId, status: 'running' });
+      await expect(api(`${queuePath}/${unrelated.queue_id}/process`).then(response => response.json())).resolves.toMatchObject({ data: null });
+
+      // Remove only the unrelated queued item before the original finalizer can
+      // legitimately consume it; no additional child should have been created.
+      const cancelled = await api(`${queuePath}?queue_id=${unrelated.queue_id}&owner=${unrelated.owner}`, { method: 'DELETE' });
+      expect(cancelled.status).toBe(200);
+      await expect(cancelled.json()).resolves.toMatchObject({ data: { status: 'empty' } });
+      await terminal(processId);
+      expect((await client.getSessionProcesses(target.id)).map(process => process.id)).toEqual([processId]);
+    } finally { await rm(value.dir, { recursive: true, force: true }); }
+  });
+
   test('identified start overlaps finalizer consumption without a duplicate child', async () => {
     test.setTimeout(90_000); const value = await context();
     try {
