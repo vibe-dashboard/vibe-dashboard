@@ -381,6 +381,7 @@ pub async fn preview_slot_url(
     })))
 }
 
+#[allow(clippy::result_large_err)]
 fn preview_url_customer_slug(query_customer_slug: Option<String>) -> Result<String, ApiError> {
     query_customer_slug
         .or_else(|| std::env::var("PREVIEW_URL_DEFAULT_CUSTOMER").ok())
@@ -394,6 +395,7 @@ fn preview_url_customer_slug(query_customer_slug: Option<String>) -> Result<Stri
         })
 }
 
+#[allow(clippy::result_large_err)]
 fn preview_url_base_domain(query_base_domain: Option<String>) -> Result<String, ApiError> {
     query_base_domain
         .or_else(|| std::env::var("PREVIEW_URL_PUBLIC_BASE_DOMAIN").ok())
@@ -407,6 +409,7 @@ fn preview_url_base_domain(query_base_domain: Option<String>) -> Result<String, 
         })
 }
 
+#[allow(clippy::result_large_err)]
 fn build_preview_hostname(
     slot_slug: &str,
     repo_slug: &str,
