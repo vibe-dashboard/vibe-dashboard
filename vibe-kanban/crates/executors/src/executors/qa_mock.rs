@@ -99,9 +99,9 @@ impl StandardCodingAgentExecutor for QaMockExecutor {
             .map_err(|e| ExecutorError::Io(std::io::Error::other(e)))?;
 
         // 3. Create shell script that reads file and outputs with delays
-        // Using IFS= read -r to preserve exact content (no word splitting, no backslash interpretation)
+        // Preserve JSON escapes on both read and output; shell echo may interpret them.
         let script = format!(
-            r#"while IFS= read -r line; do echo "$line"; sleep 1; done < "{}"; rm -f "{}""#,
+            r#"while IFS= read -r line; do printf '%s\n' "$line"; sleep 1; done < "{}"; rm -f "{}""#,
             log_file.display(),
             log_file.display()
         );
