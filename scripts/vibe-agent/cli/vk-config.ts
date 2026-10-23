@@ -33,6 +33,7 @@ export const config = {
     previewSlots: (workspaceId: string) => `${BASE_URL}/api/workspaces/${workspaceId}/execution/preview-slots`,
     previewSlot: (workspaceId: string, previewSlotId: string) => `${BASE_URL}/api/workspaces/${workspaceId}/execution/preview-slots/${previewSlotId}`,
     startPreviewSlot: (workspaceId: string, previewSlotId: string) => `${BASE_URL}/api/workspaces/${workspaceId}/execution/preview-slots/${previewSlotId}/start`,
+    stopPreviewProcess: (workspaceId: string, processId: string) => `${BASE_URL}/api/workspaces/${workspaceId}/execution/preview-processes/${processId}/stop`,
     previewSlotUrl: (workspaceId: string, previewSlotId: string, query: string) => `${BASE_URL}/api/workspaces/${workspaceId}/execution/preview-slots/${previewSlotId}/url${query ? `?${query}` : ''}`,
     executionProcess: (processId: string) => `${BASE_URL}/api/execution-processes/${processId}`,
     stopExecutionProcess: (processId: string) => `${BASE_URL}/api/execution-processes/${processId}/stop`,

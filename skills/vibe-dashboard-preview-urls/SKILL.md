@@ -62,7 +62,8 @@ Present the returned `url` exactly; do not assemble production URLs yourself.
 Logs are fetched only when needed:
 
 ```sh
-vk preview-url logs <process-id> --json --timeout 2000
+vk preview-url logs <process-id> --max-entries 200 --json --timeout 2000
+vk preview-url logs <process-id> --max-entries 200 --follow
 ```
 
 Stop the linked process when requested or when a temporary review service should no longer run:
@@ -71,7 +72,11 @@ Stop the linked process when requested or when a temporary review service should
 vk preview-url stop <process-id>
 ```
 
-Restart by stopping the current process, then running `start-slot` again and using the newly returned process ID.
+Restart a stored slot without supplying a new command, and use the newly returned process ID:
+
+```sh
+vk preview-url restart-slot <workspace-id> <preview-slot-id> --json
+```
 
 ## Local Caddy review
 

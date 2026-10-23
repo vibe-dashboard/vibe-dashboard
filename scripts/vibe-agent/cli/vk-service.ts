@@ -630,6 +630,23 @@ export class VKService {
     return this.parseApiResponse<RunConfigStartResponse>(response, 'start preview slot');
   }
 
+  async restartPreviewSlot(workspaceId: string, previewSlotId: string): Promise<RunConfigStartResponse> {
+    const state = await this.getRunConfigs(workspaceId);
+    const active = (state.preview_process_links ?? []).find(link =>
+      link.preview_slot_id === previewSlotId &&
+      (link.status_snapshot === 'starting' || link.status_snapshot === 'ready')
+    );
+    if (active) {
+      const response = await fetch(config.endpoints.stopPreviewProcess(workspaceId, active.execution_process_id), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ previewSlotId }),
+      });
+      await this.parseApiResponse<void>(response, 'stop preview slot process');
+    }
+    return this.startPreviewSlot(workspaceId, previewSlotId);
+  }
+
   async getPreviewSlotUrl(
     workspaceId: string,
     previewSlotId: string,
@@ -642,10 +659,25 @@ export class VKService {
     return this.parseApiResponse<PreviewSlotUrlResponse>(response, 'fetch preview slot URL');
   }
 
-  async fetchRawLogs(processId: string, timeoutMs = 2000): Promise<RawLogEntry[]> {
+  async fetchRawLogs(
+    processId: string,
+    options: { timeoutMs?: number; maxEntries?: number; follow?: boolean; onEntry?: (entry: RawLogEntry) => void } = {},
+  ): Promise<RawLogEntry[]> {
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(config.wsEndpoints.rawExecutionLogs(processId));
       const logs: RawLogEntry[] = [];
+      const timeoutMs = options.timeoutMs ?? 2000;
+      const maxEntries = Math.min(1000, Math.max(1, Math.trunc(options.maxEntries ?? 200)));
+      let retainedBytes = 0;
+      let settled = false;
+      let timer: NodeJS.Timeout | undefined;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        ws.terminate();
+        resolve(logs);
+      };
 
       ws.on('message', (data) => {
         const msg = JSON.parse(data.toString());
@@ -654,26 +686,33 @@ export class VKService {
           for (const op of msg.JsonPatch) {
             const value = op.value;
             if (value?.type === 'STDOUT' || value?.type === 'STDERR') {
-              logs.push({ type: value.type, content: value.content ?? '' });
+              const entry = { type: value.type, content: String(value.content ?? '').slice(-(16 * 1024)) } as RawLogEntry;
+              logs.push(entry);
+              retainedBytes += Buffer.byteLength(entry.content);
+              while (logs.length > maxEntries || retainedBytes > 64 * 1024) {
+                const removed = logs.shift();
+                if (!removed) break;
+                retainedBytes -= Buffer.byteLength(removed.content);
+              }
+              options.onEntry?.(entry);
             }
           }
         }
 
-        if (msg.finished === true || msg.Ready !== undefined) {
-          ws.terminate();
-          resolve(logs);
+        if (msg.finished === true || (!options.follow && msg.Ready !== undefined)) {
+          finish();
         }
       });
 
       ws.on('error', (err) => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
         ws.terminate();
         reject(err);
       });
 
-      setTimeout(() => {
-        ws.terminate();
-        resolve(logs);
-      }, timeoutMs);
+      timer = timeoutMs > 0 ? setTimeout(finish, timeoutMs) : undefined;
     });
   }
 

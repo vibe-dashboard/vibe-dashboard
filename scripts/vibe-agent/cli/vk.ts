@@ -659,7 +659,7 @@ async function commandDevServer(positional: string[], flags: FlagMap) {
         process.exit(1);
       }
       const timeout = typeof flags.timeout === 'string' ? Number(flags.timeout) : 2000;
-      const logs = await service.fetchRawLogs(processId, Number.isFinite(timeout) ? timeout : 2000);
+      const logs = await service.fetchRawLogs(processId, { timeoutMs: Number.isFinite(timeout) ? timeout : 2000 });
       if (flags.json === true) {
         console.log(JSON.stringify(logs, null, 2));
         return;
@@ -919,23 +919,45 @@ async function commandPreviewUrl(positional: string[], flags: FlagMap) {
       break;
     }
 
+    case 'restart-slot': {
+      const workspaceId = requireWorkspaceId(positional[1], 'Usage: vk preview-url restart-slot <workspace-id> <preview-slot-id> [--json]');
+      const previewSlotId = positional[2] ?? getFlagString(flags, 'slot-id') ?? getFlagString(flags, 'preview-slot-id');
+      if (!previewSlotId) {
+        console.error('Usage: vk preview-url restart-slot <workspace-id> <preview-slot-id> [--json]');
+        process.exit(1);
+      }
+      const response = await service.restartPreviewSlot(workspaceId, previewSlotId);
+      if (flags.json === true) {
+        console.log(JSON.stringify(response, null, 2));
+        return;
+      }
+      console.log('Restarted preview slot:');
+      printRunConfigStart(response);
+      break;
+    }
+
     case 'logs': {
       const processId = positional[1];
       if (!processId) {
-        console.error('Usage: vk preview-url logs <process-id> [--json] [--timeout <ms>]');
+        console.error('Usage: vk preview-url logs <process-id> [--json] [--max-entries <n>] [--follow] [--timeout <ms>]');
         process.exit(1);
       }
-      const timeout = typeof flags.timeout === 'string' ? Number(flags.timeout) : 2000;
-      const logs = await service.fetchRawLogs(processId, Number.isFinite(timeout) ? timeout : 2000);
+      const follow = flags.follow === true;
+      const timeoutValue = typeof flags.timeout === 'string' ? Number(flags.timeout) : (follow ? 0 : 2000);
+      const maxEntriesValue = typeof flags['max-entries'] === 'string' ? Number(flags['max-entries']) : 200;
+      const timeoutMs = Number.isFinite(timeoutValue) ? Math.max(0, timeoutValue) : (follow ? 0 : 2000);
+      const maxEntries = Number.isFinite(maxEntriesValue) ? maxEntriesValue : 200;
+      const logs = await service.fetchRawLogs(processId, {
+        timeoutMs,
+        maxEntries,
+        follow,
+        onEntry: follow && flags.json !== true ? entry => process.stdout.write(formatRawLogEntry(entry)) : undefined,
+      });
       if (flags.json === true) {
-        console.log(JSON.stringify(logs, null, 2));
+        console.log(formatRawLogs(logs, true));
         return;
       }
-      for (const entry of logs) {
-        const prefix = entry.type === 'STDERR' ? '[stderr] ' : '';
-        process.stdout.write(prefix + entry.content);
-        if (!entry.content.endsWith('\n')) process.stdout.write('\n');
-      }
+      if (!follow) process.stdout.write(formatRawLogs(logs, false));
       break;
     }
 
@@ -951,7 +973,7 @@ async function commandPreviewUrl(positional: string[], flags: FlagMap) {
     }
 
     default:
-      console.error('Usage: vk preview-url <list|upsert-run-config|upsert-slot|url|delete-run-config|delete-slot|start-run-config|start-slot|logs|stop|local-caddy> ...');
+      console.error('Usage: vk preview-url <list|upsert-run-config|upsert-slot|url|delete-run-config|delete-slot|start-run-config|start-slot|restart-slot|logs|stop|local-caddy> ...');
       console.error('Examples:');
       console.error('  vk preview-url list <workspace-id> [--json]');
       console.error('  vk preview-url upsert-run-config <workspace-id> --repo <repo-id> --slug web --name Web --command "npm run dev"');
@@ -960,8 +982,18 @@ async function commandPreviewUrl(positional: string[], flags: FlagMap) {
       console.error('  vk preview-url delete-slot <workspace-id> <preview-slot-id>');
       console.error('  vk preview-url local-caddy start --dashboard-port 3005 --caddy-port 3001');
       console.error('  vk preview-url start-slot <workspace-id> <preview-slot-id> [--json]');
+      console.error('  vk preview-url restart-slot <workspace-id> <preview-slot-id> [--json]');
       process.exit(1);
   }
+}
+
+export function formatRawLogEntry(entry: { type: 'STDOUT' | 'STDERR'; content: string }): string {
+  const prefix = entry.type === 'STDERR' ? '[stderr] ' : '';
+  return prefix + entry.content + (entry.content.endsWith('\n') ? '' : '\n');
+}
+
+export function formatRawLogs(entries: Array<{ type: 'STDOUT' | 'STDERR'; content: string }>, json: boolean): string {
+  return json ? JSON.stringify(entries, null, 2) : entries.map(formatRawLogEntry).join('');
 }
 
 async function commandPreviewUrlLocalCaddy(positional: string[], flags: FlagMap) {
@@ -1277,8 +1309,9 @@ function printHelp() {
   console.log('  preview-url delete-slot <workspace-id> <slot-id>');
   console.log('  preview-url start-run-config <workspace-id> <run-config-id> [--json]');
   console.log('  preview-url start-slot <workspace-id> <preview-slot-id> [--json]');
+  console.log('  preview-url restart-slot <workspace-id> <preview-slot-id> [--json]');
   console.log('  preview-url local-caddy start [--caddy-port <port>] [--dashboard-port <port>]  Start localhost Preview URL Caddy front door');
-  console.log('  preview-url logs <process-id> [--json]     Fetch raw preview process logs');
+  console.log('  preview-url logs <process-id> [--max-entries <n>] [--follow] [--json]  Fetch bounded preview logs');
   console.log('  preview-url stop <process-id>              Stop a preview process');
   console.log('  create-session <workspace-id> <executor>   Create new session');
   console.log('  create-workspace --message "prompt" --repo <repo[:branch]>   Create and start workspace');
