@@ -332,6 +332,14 @@ function WorkspaceDiffView({ workspaceId, workspaceDir }: DiffViewProps) {
           >
             Refresh
           </Button>
+          <a
+            href={`/workspaces/${encodeURIComponent(workspaceId)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-sm px-2 py-1 text-xs text-primary underline underline-offset-4 hover:bg-content2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+          >
+            Open VK workspace
+          </a>
           {selectedRepo && (
             <CompareSummary
               mode={selectedCompareMode}
