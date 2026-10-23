@@ -95,13 +95,17 @@ export function ensureWorkflowConfig(filePath = DEFAULT_WORKFLOW_CONFIG_PATH): v
 }
 export function loadWorkflowConfig(filePath = DEFAULT_WORKFLOW_CONFIG_PATH): WorkflowConfig { ensureWorkflowConfig(filePath); return parseWorkflowConfig(fs.readFileSync(filePath, 'utf8'), filePath); }
 
-export function parseWorkflowConfig(raw: string, source = '<memory>'): WorkflowConfig {
+export function parseWorkflowConfigDocument(raw: string, source = '<memory>'): Record<string, unknown> {
   if (Buffer.byteLength(raw) > MAX_CONFIG_BYTES) throw new Error(`Invalid workflow config at ${source}: exceeds ${MAX_CONFIG_BYTES} bytes`);
   const document = parseDocument(raw, { schema: 'core', uniqueKeys: true, prettyErrors: false, strict: true });
   if (document.errors.length) throw new Error(`Invalid workflow config at ${source}: ${document.errors[0]!.message}`);
   if (!document.contents) throw new Error(`Invalid workflow config at ${source}: one non-empty document is required`);
   inspectYaml(document.contents);
-  const root = object(document.toJS({ maxAliasCount: 0 }), 'workflow config');
+  return object(document.toJS({ maxAliasCount: 0 }), 'workflow config');
+}
+
+export function parseWorkflowConfig(raw: string, source = '<memory>'): WorkflowConfig {
+  const root = parseWorkflowConfigDocument(raw, source);
   exact(root, ['version', 'roles', 'prompts', 'message_types', 'handlers', 'response_schemas', 'outcome_handlers'], 'workflow config');
   if (root.version !== 2) throw new Error('workflow config version must be 2');
   const config: WorkflowConfig = { version: 2, roles: {}, prompts: {}, messageTypes: {}, handlers: {}, responseSchemas: {}, outcomeHandlers: {} };

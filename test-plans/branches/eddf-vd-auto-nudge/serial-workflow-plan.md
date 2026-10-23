@@ -14,9 +14,12 @@ The user authorized plan/review followed by implementation on 2026-10-22.
 
 Runtime state is local to the VD instance, using the existing persisted runtime
 directory. One orchestrator is the transition writer; separate CLI invocations
-still require a filesystem lock and expected-version checks. Changing workspace
-form authority applies to new runs; existing runs retain a snapshot of authority.
-This default prevents an active human wait silently becoming agent-authorized.
+still require a filesystem lock and expected-version checks. Runs snapshot form
+authority. The user selected an explicit audited active-run authority update:
+configuration edits alone never change active waits. An update records old/new
+authority, reason, expected version and idempotency key; reissue any affected
+decision request under a new wait identity and reject old submissions. An
+unavailable configured decision-maker causes needs-attention, never fallback.
 
 ## Requirements
 
@@ -91,8 +94,11 @@ requires a result from the exact accepted process, not role name or timestamp.
 ### Template and result example
 
 The template section is a new config contract, not valid existing v2 YAML.
-Introduce it with an explicit version and strict validation; preserve current
-checkpoint configuration until its audited replacement is tested.
+Introduce strict version 3 (v2 messaging configuration plus templates), without
+switching the daemon's v2 default until the adapter migration is tested. Outcomes
+declare their transition explicitly; names never imply behavior.
+Each `message_type` below is declared in the same config's existing messaging
+section and supplies its target role, prompt, and authoritative response schema.
 
 ```yaml
 templates:
@@ -100,25 +106,48 @@ templates:
     version: 1
     items:
       - id: implement
-        role: implementer
-        prompt_id: implement_change
-        outcomes: [complete, blocked, waiting]
+        label: Implement
+        message_type: implement_change
+        outcomes:
+          complete: {action: advance}
+          blocked: {action: needs_attention}
+          waiting: {action: wait}
       - id: review
-        role: reviewer
-        prompt_id: review_change
-        outcomes: [approved, changes_requested, blocked, waiting]
-        resets_to: {changes_requested: implement}
+        label: Review
+        message_type: review_change
+        outcomes:
+          approved: {action: advance}
+          changes_requested: {action: reset, resets_to: implement}
+          blocked: {action: needs_attention}
+          waiting: {action: wait}
       - id: test
-        role: tester
-        prompt_id: test_change
-        outcomes: [passed, failed, blocked, waiting]
-        resets_to: {failed: implement}
+        label: Test
+        message_type: test_change
+        outcomes:
+          passed: {action: advance}
+          failed: {action: reset, resets_to: implement}
+          blocked: {action: needs_attention}
+          waiting: {action: wait}
 ```
 
 Every dispatch teaches its role-specific authoritative schema ID/version/hash,
 exact required correlation values, and an example. Ordinary prose and missing
 final results cannot advance. A successful process exit without a valid result
-becomes needs-attention. It does not authorize automatic continuation.
+becomes needs-attention. It does not authorize automatic continuation. The final
+item's advance completes the run. The payload is exactly:
+
+```json
+{"run_id":"run-id","item_id":"review","revision":2,"dispatch_id":"dispatch-id","outcome":"changes_requested","details":{}}
+```
+
+The trusted source process ID is a separate adapter input, never agent-declared
+authority. Validate schema ID/version/hash, source process and exact dispatch
+before examining the outcome. States are queued, active, waiting,
+needs_attention, cancelled and completed. Start persists an unaccepted dispatch;
+acceptance binds its process. Only proven pre-admission failure permits a new
+attempt. Accepted/uncertain dispatches refuse retry. Pure cancellation records
+intent only when transport disposition remains unresolved; it cannot assert
+that an external queue or child was cancelled.
 
 ### Forms and configuration changes
 
@@ -127,6 +156,10 @@ identity. Resume only with a trusted persisted submission from the configured
 actor and matching correlation. Snapshot workspace authority at run creation;
 changing it for an active run requires an explicit future audited operation.
 Keep the same role prompt/result shape for human and decision-maker waits.
+Per-run locks do not serialize different runs: daemon selection/dispatch also
+requires a workspace lock and deterministic queued-run ordering. Journal replay
+regenerates missing history suffixes; conflicting or ahead-of-snapshot entries
+fail closed and never advance state.
 
 ## Build plan
 
