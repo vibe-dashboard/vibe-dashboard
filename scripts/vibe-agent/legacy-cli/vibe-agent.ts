@@ -44,6 +44,7 @@ import {
 import { parseSerialWorkflowConfig } from '../nudge/serial-workflow-config.js';
 import { createSerialRun, mutateSerialRun, readSerialRun } from '../nudge/serial-workflow.js';
 import { dispatchSerialWorkflow, projectSerialWorkflowToBeads, submitObservedSerialResult } from '../nudge/serial-workflow-adapter.js';
+import { syncSerialWorkflowForm } from '../nudge/serial-workflow-forms.js';
 
 const DEFAULT_SERIAL_WORKFLOW_DIR = '/var/lib/vd/auto-nudge/workflows';
 
@@ -75,16 +76,7 @@ export function parseRequestReviewArgs(args: string[] = []): ParsedRequestReview
       sendFlags.push(arg);
       continue;
     }
-    if (arg === '--timeout' || arg === '--timeout-ms') {
-      const value = requireFlagValue(args, i, arg);
-      sendFlags.push(arg, value);
-      i++;
-      continue;
-    }
-    if (arg.startsWith('--timeout=') || arg.startsWith('--timeout-ms=')) {
-      sendFlags.push(arg);
-      continue;
-    }
+    rejectResponseWaitFlag(arg);
     if (arg === '--reviewer') {
       reviewerRole = requireFlagValue(args, i, arg);
       i++;
@@ -129,14 +121,18 @@ export interface ParsedSendArgs {
   jsonOutput: boolean;
   respond: boolean;
   fireAndForget: boolean;
-  timeoutMs?: number;
+}
+
+function rejectResponseWaitFlag(arg: string): void {
+  if (/^--timeout(?:-ms)?(?:=|$)/.test(arg)) {
+    throw new Error('Response-wait timeout flags were removed. Sends return after acceptance and durable response routing; use vibe-agent callback --timeout only to bound a callback command.');
+  }
 }
 
 export function parseSendArgs(args: string[]): ParsedSendArgs {
   let jsonOutput = false;
   let respond = false;
   let fireAndForget = false;
-  let timeoutMs: number | undefined;
   let stdinMessage = false;
   let messageFile: string | undefined;
   const positionalArgs: string[] = [];
@@ -168,20 +164,7 @@ export function parseSendArgs(args: string[]): ParsedSendArgs {
       messageFile = arg.slice('--message-file='.length);
       continue;
     }
-    if (arg === '--timeout' || arg === '--timeout-ms') {
-      const value = requireFlagValue(args, i, arg);
-      timeoutMs = arg === '--timeout-ms' ? parseTimeoutMs(value, 'ms') : parseTimeoutMs(value);
-      i++;
-      continue;
-    }
-    if (arg.startsWith('--timeout=')) {
-      timeoutMs = parseTimeoutMs(arg.slice('--timeout='.length));
-      continue;
-    }
-    if (arg.startsWith('--timeout-ms=')) {
-      timeoutMs = parseTimeoutMs(arg.slice('--timeout-ms='.length), 'ms');
-      continue;
-    }
+    rejectResponseWaitFlag(arg);
 
     positionalArgs.push(arg);
   }
@@ -205,7 +188,6 @@ export function parseSendArgs(args: string[]): ParsedSendArgs {
     fireAndForget,
   };
   if (messageFile !== undefined) parsed.messageFile = messageFile;
-  if (timeoutMs !== undefined) parsed.timeoutMs = timeoutMs;
   return parsed;
 }
 
@@ -475,14 +457,6 @@ export function startRegisteredCallbackRunner(
   });
   runner.unref();
   return runner;
-}
-
-interface RespondRunnerPayload {
-  processId: string;
-  replySessionId: string;
-  targetRole: string;
-  timeoutMs?: number;
-  outputFile: string;
 }
 
 interface RequestReviewRunnerPayload {
@@ -1386,48 +1360,6 @@ async function callbackRunner(args: string[]): Promise<void> {
 }
 
 
-async function sendRespondMessage(replySessionId: string, prompt: string): Promise<void> {
-  const replySession = await client.getSession(replySessionId);
-  await client.sendMessage(replySessionId, {
-    prompt,
-    executor_config: {
-      executor: replySession.executor,
-    },
-    retry_process_id: null,
-    force_when_dirty: null,
-    perform_git_reset: null,
-  });
-}
-
-async function respondRunner(args: string[]): Promise<void> {
-  const payloadRaw = args[0];
-  if (!payloadRaw) {
-    console.error('Usage: vibe-agent __respond-runner <payload-json>');
-    process.exit(1);
-  }
-
-  const payload = JSON.parse(payloadRaw) as RespondRunnerPayload;
-
-  try {
-    const entries = await client.fetchConversation(payload.processId, payload.timeoutMs);
-    const response = extractFinalAssistantMessage(entries);
-    if (!response) {
-      fs.appendFileSync(
-        payload.outputFile,
-        `${new Date().toISOString()} ${buildNoAssistantResponseLogMessage(payload.processId)}\n`
-      );
-      return;
-    }
-
-    await sendRespondMessage(payload.replySessionId, formatRespondMessage(payload.targetRole, response));
-  } catch (err) {
-    fs.appendFileSync(
-      payload.outputFile,
-      `${new Date().toISOString()} response routing failed while waiting for ${payload.targetRole}: ${(err as Error).message}\n`
-    );
-  }
-}
-
 async function requestReviewRunner(args: string[]): Promise<void> {
   const payloadRaw = args[0];
   if (!payloadRaw) {
@@ -1632,7 +1564,16 @@ async function send(args: string[]): Promise<void> {
     }
 
     if (routeResponse && responseRouteId) {
-      bindResponseRouteProcess(process.env.VD_RESPONSE_ROUTES_PATH ?? DEFAULT_RESPONSE_ROUTES_PATH, responseRouteId, result.id, new Date().toISOString());
+      try {
+        bindResponseRouteProcess(process.env.VD_RESPONSE_ROUTES_PATH ?? DEFAULT_RESPONSE_ROUTES_PATH, responseRouteId, result.id, new Date().toISOString());
+      } catch (error) {
+        // Acceptance is authoritative even when the local receipt cannot be
+        // written. The persisted unbound route remains available to reconcile.
+        const routingError = (error as Error).message;
+        if (jsonOutput) console.log(JSON.stringify({ session_id: session.id, process_id: result.id, status: result.status, reply_session_id: replySessionId, response_routing: 'needs_attention', response_route_id: responseRouteId, routing_error: routingError }, null, 2));
+        else console.log(`Message accepted by ${targetRole}. Process: ${result.id}\nResponse route ${responseRouteId} needs reconciliation: ${routingError}\nDo not resend accepted work.`);
+        return;
+      }
     }
 
     if (jsonOutput) {
@@ -1674,7 +1615,7 @@ async function requestReview(args: string[]): Promise<void> {
   const jsonOutput = args.includes('--json');
 
   try {
-    // Validate arguments before scheduling so invalid reviewer/timeout options fail immediately.
+    // Validate arguments before scheduling so removed flags fail immediately.
     buildRequestReviewArgs(args);
     const parsed = parseRequestReviewArgs(args);
     if (!isValidRole(parsed.reviewerRole)) {
@@ -1723,7 +1664,7 @@ async function requestReview(args: string[]): Promise<void> {
     }
   } catch (err) {
     console.error(`Error: ${(err as Error).message}`);
-    console.error('Usage: vibe-agent request-review [instructions] [--reviewer <role>] [--timeout <duration>] [--timeout-ms <ms>] [--json]');
+    console.error('Usage: vibe-agent request-review [instructions] [--reviewer <role>] [--json]');
     process.exit(1);
   }
 }
@@ -2056,6 +1997,21 @@ async function workflowCommand(args: string[]): Promise<void> {
   const expectedVersion = Number(workflowFlag(args, '--expected-version'));
   if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1) throw new Error('--expected-version must be a positive integer');
   const key = workflowFlag(args, '--idempotency-key')!;
+  if (operation === 'update-authority') {
+    const run = readSerialRun(file);
+    const mode = workflowFlag(args, '--authority')!;
+    if (mode !== 'human' && mode !== 'decision_maker') throw new Error('--authority must be human or decision_maker');
+    const authority = mode === 'human' ? { mode: 'human' as const } : { mode: 'decision_maker' as const, sessionId: workflowFlag(args, '--decision-session')! };
+    const previous = run.history.find(event => event.idempotencyKey === key && event.type === 'update_authority');
+    const previousAuthority = previous ? (previous.details as unknown as { previousAuthority: typeof run.authority }).previousAuthority : run.authority;
+    const receipt = mutateSerialRun(file, expectedVersion, key, { type: 'update_authority', previousAuthority, authority, reason: workflowFlag(args, '--reason')!, actor: process.env.VK_SESSION_ID ?? 'local-orchestrator' });
+    projectSerialWorkflowToBeads(file); console.log(JSON.stringify(receipt)); return;
+  }
+  if (operation === 'resume') {
+    if (readSerialRun(file).version !== expectedVersion) throw new Error('Workflow version conflict');
+    await syncSerialWorkflowForm(file, client);
+    projectSerialWorkflowToBeads(file); console.log(JSON.stringify(readSerialRun(file))); return;
+  }
   if (operation === 'start') {
     const run = readSerialRun(file);
     const registry = readAutoNudgeWorkspaceRegistry(process.env.VD_AUTO_NUDGE_WORKSPACE_REGISTRY_PATH ?? DEFAULT_WORKSPACE_REGISTRY_PATH);
@@ -2071,7 +2027,7 @@ async function workflowCommand(args: string[]): Promise<void> {
   }
   if (operation === 'retry') { const result = mutateSerialRun(file, expectedVersion, key, { type: 'retry' }); projectSerialWorkflowToBeads(file); console.log(JSON.stringify(result)); return; }
   if (operation === 'cancel') { const result = mutateSerialRun(file, expectedVersion, key, { type: 'cancel', reason: workflowFlag(args, '--reason')! }); projectSerialWorkflowToBeads(file); console.log(JSON.stringify(result)); return; }
-  throw new Error('Usage: vibe-agent workflow <create|status|start|submit-result|retry|cancel> --run-id <id> ...');
+  throw new Error('Usage: vibe-agent workflow <create|status|start|submit-result|resume|update-authority|retry|cancel> --run-id <id> ...');
 }
 
 async function sessionsCommand(args: string[]): Promise<void> {
@@ -2620,21 +2576,19 @@ Commands:
     --json                     Output as JSON
 
   workflow <operation>         Durable serial workflow create/status/start/
-                               submit-result/retry/cancel (run with --help)
+                               submit-result/resume/update-authority/retry/cancel
+    update-authority            --authority human|decision_maker [--decision-session <id>]
+                               --reason <text> --expected-version <n> --idempotency-key <key>
 
   send <role> "<message>"      Send message to another agent
     --respond                  Accepted alias; response routing is the default
     --fire-and-forget          Do not route the receiving agent final response back
-    --timeout <duration>       Deprecated compatibility flag; response routing is daemon-scanned
-    --timeout-ms <ms>          Deprecated compatibility flag in milliseconds
     --json                     Output as JSON
     (Auto-creates and registers session if none exists for the role)
 
   request-review [instructions] Schedule a thorough branch code review from reviewer
                               after this session's current/auto-commit turns finish
     --reviewer <role>          Target a specific reviewer role (default: reviewer)
-    --timeout <duration>       Timeout for the response wait (for example: 30s, 10m, 1h)
-    --timeout-ms <ms>          Timeout for the response wait in milliseconds
     --json                     Output as JSON
 
   submit "<message>"           Submit work for review (sends to reviewer)
@@ -3050,9 +3004,6 @@ async function main(): Promise<void> {
       break;
     case '__callback-runner':
       await callbackRunner(commandArgs);
-      break;
-    case '__respond-runner':
-      await respondRunner(commandArgs);
       break;
     case '__request-review-runner':
       await requestReviewRunner(commandArgs);

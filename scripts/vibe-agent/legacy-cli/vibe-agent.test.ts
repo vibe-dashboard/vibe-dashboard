@@ -13,6 +13,7 @@ import {
   mapWithConcurrency,
   parseAutoNudgeEnableArgs,
   parseFullSummaryArgs,
+  parseRequestReviewArgs,
   parseSendArgs,
   readSendMessage,
   resolveCallbackSourceProcessId,
@@ -165,6 +166,10 @@ describe('parseFullSummaryArgs', () => {
 });
 
 describe('parseSendArgs', () => {
+  it.each(['--timeout', '--timeout-ms', '--timeout=30s', '--timeout-ms=30000'])('rejects removed response-wait flag %s before sending or scheduling review', flag => {
+    expect(() => parseSendArgs([flag, 'reviewer', 'check'])).toThrow(/Response-wait timeout flags were removed/);
+    expect(() => parseRequestReviewArgs([flag])).toThrow(/Response-wait timeout flags were removed/);
+  });
   it('routes responses by default and keeps --respond as an alias', () => {
     expect(parseSendArgs(['review', 'please check'])).toMatchObject({ respond: false, fireAndForget: false });
     expect(parseSendArgs(['--respond', 'review', 'please check'])).toMatchObject({ respond: true, fireAndForget: false });

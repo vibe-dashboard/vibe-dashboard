@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { DEFAULT_WORKFLOW_CONFIG_YAML, parseWorkflowConfig } from './workflow-config.js';
 import { parseSerialWorkflowConfig } from './serial-workflow-config.js';
 import { schemaHash } from './workflow-xml.js';
-import { createSerialRun, mutateSerialRun, readSerialRun, recoverSerialRun, SERIAL_RESULT_SCHEMA, validateSerialTemplate, type SerialTemplate, type WorkflowCommand } from './serial-workflow.js';
+import { createSerialRun, mutateSerialRun, readSerialRun, recoverSerialRun, SERIAL_RESULT_SCHEMA, validateSerialTemplate, workflowFormId, type SerialTemplate, type WorkflowCommand } from './serial-workflow.js';
 
 const directories: string[] = [];
 afterEach(() => { for (const dir of directories.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -51,6 +51,34 @@ function setup() {
 }
 
 describe('serial workflow transitions', { timeout: 20_000 }, () => {
+  it('persists a correlated human wait and resumes once across restart', () => {
+    const value = setup(); value.accepted(); value.command(value.result('waiting')); value.command({ type: 'open_form' });
+    const run = recoverSerialRun(value.file); const wait = run.wait!;
+    const answer: WorkflowCommand = { type: 'form_answer', waitId: wait.id, formId: workflowFormId(wait), revision: wait.revision, dispatchId: wait.dispatchId, submissionId: 'saved-human-response', actor: { mode: 'human' }, sourceProcessId: null, outcome: 'complete', details: {} };
+    const receipt = value.command(answer, 'answer');
+    expect(readSerialRun(value.file)).toMatchObject({ status: 'queued', currentIndex: 1 });
+    expect(mutateSerialRun(value.file, run.version, 'answer', answer)).toEqual(receipt);
+    expect(() => value.command(answer, 'replayed-answer')).toThrow(/Stale/);
+  });
+
+  it('audits authority updates and rejects old wait answers after reissue', () => {
+    const value = setup(); value.accepted(); value.command(value.result('waiting')); value.command({ type: 'open_form' });
+    const old = readSerialRun(value.file).wait!;
+    value.command({ type: 'update_authority', previousAuthority: { mode: 'human' }, authority: { mode: 'decision_maker', sessionId: 'decider' }, reason: 'Delegate this decision', actor: 'orchestrator' });
+    const updated = recoverSerialRun(value.file);
+    expect(updated.wait!.id).not.toBe(old.id);
+    expect(updated.wait!.authority).toEqual({ mode: 'decision_maker', sessionId: 'decider' });
+    expect(() => value.command({ type: 'form_answer', waitId: old.id, formId: workflowFormId(old), revision: 1, dispatchId: old.dispatchId, submissionId: 'late', actor: { mode: 'human' }, sourceProcessId: null, outcome: 'complete', details: {} })).toThrow(/Stale/);
+    const wait = updated.wait!;
+    value.command({ type: 'decision_intent', waitId: wait.id, transport: { ...start('decider').transport, owner: 'workflow:run-one:form' } });
+    value.command({ type: 'decision_accept', waitId: wait.id, processId: 'decision-process' });
+    const answer: WorkflowCommand = { type: 'form_answer', waitId: wait.id, formId: workflowFormId(wait), revision: 1, dispatchId: wait.dispatchId, submissionId: 'decision-process', actor: { mode: 'decision_maker', sessionId: 'decider' }, sourceProcessId: 'unrelated-process', outcome: 'complete', details: {} };
+    expect(() => value.command(answer)).toThrow(/source/);
+    value.command({ ...answer, sourceProcessId: 'decision-process' });
+    expect(recoverSerialRun(value.file).currentIndex).toBe(1);
+    // Replay must still verify the original creation receipt's human authority.
+    expect(createSerialRun(value.file, value.input, 'create').version).toBe(1);
+  });
   it('snapshots a grouped template and completes three accepted role turns in order', () => {
     const value = setup(); value.input.template.items[0]!.prompt = 'changed live config';
     for (const id of ['implement', 'review', 'test']) {

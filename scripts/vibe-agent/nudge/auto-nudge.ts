@@ -34,6 +34,7 @@ import { DEFAULT_HANDLER_LOG_PATH, runWorkflowHandler } from './workflow-handler
 import { DEFAULT_WORKFLOW_CONFIG_PATH, loadWorkflowConfig, type WorkflowConfig, type WorkflowMessageTypeConfig } from './workflow-config.js';
 import { parseWorkflowResultXml, schemaHash, validateWorkflowActions, type WorkflowAction, type WorkflowSchemaIdentity } from './workflow-xml.js';
 import { dispatchSerialWorkflow, projectSerialWorkflowToBeads, submitObservedSerialResult } from './serial-workflow-adapter.js';
+import { beadsWorkflowFormsStore, syncSerialWorkflowForm } from './serial-workflow-forms.js';
 import { readSerialRun } from './serial-workflow.js';
 
 const DEFAULT_STATE_PATH = '/var/lib/vd/auto-nudge/state.json';
@@ -778,7 +779,7 @@ function latestProcessForSession(session: AutoNudgeStatusSession): ExecutionProc
 async function processSerialWorkflowRuns(
   client: AutoNudgeClient,
   options: AutoNudgeOptions,
-  registeredWorkspaceIds: Set<string>,
+  registeredWorkspaceIds: Map<string, { criteria?: AutoNudgeWorkspaceCriteria }>,
   result: AutoNudgeCycleResult,
 ): Promise<void> {
   if (!options.serialWorkflowDir || options.dryRun || !fs.existsSync(options.serialWorkflowDir)) return;
@@ -795,7 +796,7 @@ async function processSerialWorkflowRuns(
   for (const { file, run } of candidates) {
     try { projectSerialWorkflowToBeads(file); }
     catch (error) { result.errors.push(`workflow ${run.id} projection: ${(error as Error).message}`); }
-    if (!registeredWorkspaceIds.has(run.workspaceId) || ['completed', 'cancelled', 'waiting', 'needs_attention'].includes(run.status)) continue;
+    if (!registeredWorkspaceIds.has(run.workspaceId) || ['completed', 'cancelled', 'needs_attention'].includes(run.status)) continue;
     if (!selected.has(run.workspaceId)) selected.set(run.workspaceId, file);
   }
   for (const file of selected.values()) {
@@ -811,7 +812,9 @@ async function processSerialWorkflowRuns(
       getExecutionProcessFinalResponseStrict: (processId: string) => client.getExecutionProcessFinalResponseStrict!(processId),
     };
     try {
-      if (dispatch?.status === 'accepted') {
+      if (run.status === 'waiting') {
+        await syncSerialWorkflowForm(file, transportClient, beadsWorkflowFormsStore(registeredWorkspaceIds.get(run.workspaceId)?.criteria?.beadsDir));
+      } else if (dispatch?.status === 'accepted') {
         await submitObservedSerialResult(file, { getExecutionProcessFinalResponseStrict: id => client.getExecutionProcessFinalResponseStrict!(id) }, run.version, `daemon:result:${dispatch.id}`);
       } else {
         await dispatchSerialWorkflow(file, transportClient, run.version, `daemon:dispatch:${run.revision}:${item?.id ?? 'none'}`);
@@ -910,7 +913,6 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
       }
       const reconcileCheckpoint = async (trigger: TriggerState): Promise<void> => {
         if (!trigger.checkpointProcessId) return;
-        const baselineIds = new Set(trigger.baselineProcessIds ?? []);
         let checkpointCompleted = false;
         let responseValidated = false;
         try {
@@ -935,16 +937,7 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
             });
             trigger.status = workflowResult.outcome === 'complete' ? 'done' : 'delegated';
           } else {
-            const refreshedStatus = await fetchAutoNudgeStatus(client, options, [configured.workspaceId], { includeGlobalRecent: false });
-            const refreshed = refreshedStatus.workspaces.flatMap(item => item.sessions.flatMap(latestProcessForSession));
-            result.sessionsScanned += refreshedStatus.counts.sessions;
-            result.processesConsidered += refreshedStatus.counts.processes;
-            result.pagesFetched += refreshedStatus.counts.pages;
-            const delegated = refreshed.some(item => item.session_id !== overseer.id && item.run_reason === 'codingagent' && !item.dropped && !baselineIds.has(item.id));
-            const callbackRegistered = callbacksForTrigger(options.callbackRegistryPath, checkpoint.id, options.now())
-              .some(item => item.status === 'running' || item.status === 'completed');
-            if (delegated || callbackRegistered) trigger.status = 'delegated';
-            else if (checkpoint.status === 'completed') throw new Error('checkpoint response is missing the required auto-nudge-result envelope');
+            if (checkpoint.status === 'completed') throw new Error('checkpoint response is missing the required auto-nudge-result envelope');
             else {
               trigger.status = 'retryable-failure';
               trigger.error = `checkpoint ${checkpoint.id} ended ${checkpoint.status} without a final response`;
@@ -1050,7 +1043,7 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
       }
     } catch (error) { result.errors.push(`workspace ${configured.workspaceId}: ${(error as Error).message}`); }
   }, options.signal);
-  await processSerialWorkflowRuns(client, options, new Set(registered.map(item => item.workspaceId)), result);
+  await processSerialWorkflowRuns(client, options, new Map(registered.map(item => [item.workspaceId, item])), result);
   await processSendQueue(client, options, result, sendGuard);
   await processOutbox(options, state, result);
   return result;

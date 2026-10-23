@@ -362,7 +362,7 @@ describe('auto nudge', () => {
     expect(readAutoNudgeState(options.statePath).triggers.complete?.status).toBe('checkpoint-sent');
   });
 
-  it('accepts delegation only from a new post-checkpoint process ID', async () => {
+  it('does not infer valid delegation from post-checkpoint process discovery', async () => {
     const { options } = setup();
     const complete = proc('complete', 'impl', 'completed', 5);
     const delegated = proc('delegated', 'impl', 'completed', 11);
@@ -370,10 +370,10 @@ describe('auto nudge', () => {
     let reads = 0;
     client.getAutoNudgeStatus = async request => aggregateStatus(request, { processes: { impl: (++reads > 1 ? [delegated, complete] : [complete]), overseer: [] }, entries: { complete: [msg('Finished')] } });
     await runAutoNudgeCycle(client, options);
-    expect(readAutoNudgeState(options.statePath).triggers.complete?.status).toBe('delegated');
+    expect(readAutoNudgeState(options.statePath).triggers.complete).toMatchObject({ status: 'checkpoint-sent', correctionAttempts: 1 });
   });
 
-  it('treats a baton pass before checkpoint terminal as delegated with no final message', async () => {
+  it('requires an explicit envelope when a baton pass has no final message', async () => {
     const { options } = setup();
     const complete = proc('complete', 'impl', 'completed', 5);
     const delegated = proc('delegated', 'review', 'running', 9);
@@ -386,10 +386,10 @@ describe('auto nudge', () => {
       ? finalResponse(complete, 'Finished')
       : finalResponse(proc(id, 'overseer', 'completed', 10), null);
     await runAutoNudgeCycle(client, options);
-    expect(readAutoNudgeState(options.statePath).triggers.complete?.status).toBe('delegated');
+    expect(readAutoNudgeState(options.statePath).triggers.complete).toMatchObject({ status: 'checkpoint-sent', correctionAttempts: 1 });
   });
 
-  it('treats a baton pass before checkpoint terminal as delegated with a small final explanation', async () => {
+  it('requires an explicit envelope when a baton pass has only prose', async () => {
     const { options } = setup();
     const complete = proc('complete', 'impl', 'completed', 5);
     const delegated = proc('delegated', 'review', 'running', 9);
@@ -399,7 +399,7 @@ describe('auto nudge', () => {
     client.getAutoNudgeStatus = async request => aggregateStatus(request, { processes: { impl: [complete], review: (++reads > 1 ? [delegated] : []), overseer: [] }, entries: { complete: [msg('Finished')] }, sessions: [session('overseer', 'overseer'), session('impl', 'impl'), session('review', 'review')] });
     client.getExecutionProcess = async id => proc(id, 'overseer', 'completed', 10);
     await runAutoNudgeCycle(client, options);
-    expect(readAutoNudgeState(options.statePath).triggers.complete?.status).toBe('delegated');
+    expect(readAutoNudgeState(options.statePath).triggers.complete).toMatchObject({ status: 'checkpoint-sent', correctionAttempts: 1 });
   });
 
   it('does not nudge while an authoritative callback is running', async () => {

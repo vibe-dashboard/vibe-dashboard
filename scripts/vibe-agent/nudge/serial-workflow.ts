@@ -56,6 +56,22 @@ export interface SerialResult {
 export interface WorkflowEvent { sequence: number; idempotencyKey: string; type: string; itemId: string | null; revision: number; at: string; details: Record<string, unknown> }
 export interface MutationReceipt { runId: string; version: number; status: RunStatus; revision: number; currentItemId: string | null; dispatchId: string | null }
 export type FormAuthority = { mode: 'human' } | { mode: 'decision_maker'; sessionId: string };
+export interface WorkflowFormWait {
+  id: string;
+  beadId: string;
+  itemId: string;
+  revision: number;
+  dispatchId: string;
+  authority: FormAuthority;
+  decision: null | { transport: WorkflowDispatchTransport; processId: string | null };
+  error: string | null;
+}
+
+export function workflowFormId(wait: WorkflowFormWait): string { return `workflow_${wait.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`; }
+function waitIdentity(dispatchId: string, version: number): string {
+  const hex = schemaHash({ dispatchId, version }).slice(7);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
 const Ajv2020 = Ajv2020Module as unknown as new () => { compile(schema: object): ValidateFunction };
 // Read/replay validates the same immutable schema repeatedly. Bound this compiler
 // registry so long-lived daemons do not retain every historical template.
@@ -86,6 +102,7 @@ export interface SerialRun {
   template: SerialTemplate;
   templateHash: string;
   authority: FormAuthority;
+  wait?: WorkflowFormWait;
   version: number;
   revision: number;
   currentIndex: number;
@@ -103,6 +120,12 @@ export type WorkflowCommand =
   | { type: 'delivery_failed'; dispatchId: string; disposition: 'proven_unaccepted' | 'uncertain'; reason: string }
   | { type: 'result'; schema: WorkflowSchemaIdentity; sourceProcessId: string; result: SerialResult }
   | { type: 'invalid_result'; dispatchId: string; sourceProcessId: string; reason: string }
+  | { type: 'update_authority'; previousAuthority: FormAuthority; authority: FormAuthority; reason: string; actor: string }
+  | { type: 'open_form' }
+  | { type: 'decision_intent'; waitId: string; transport: WorkflowDispatchTransport }
+  | { type: 'decision_accept'; waitId: string; processId: string }
+  | { type: 'form_error'; waitId: string; reason: string }
+  | { type: 'form_answer'; waitId: string; formId: string; revision: number; dispatchId: string; submissionId: string; actor: FormAuthority; sourceProcessId: string | null; outcome: string; details: Record<string, unknown> }
   | { type: 'retry' }
   | { type: 'cancel'; reason: string };
 
@@ -227,12 +250,61 @@ function apply(run: SerialRun, command: WorkflowCommand): void {
     start: ['type', 'dispatchId', 'transport'], submitting: ['type', 'dispatchId'], accept: ['type', 'dispatchId', 'processId'],
     delivery_failed: ['type', 'dispatchId', 'disposition', 'reason'], result: ['type', 'schema', 'sourceProcessId', 'result'],
     invalid_result: ['type', 'dispatchId', 'sourceProcessId', 'reason'], retry: ['type'], cancel: ['type', 'reason'],
+    update_authority: ['type', 'previousAuthority', 'authority', 'reason', 'actor'],
+    open_form: ['type'],
+    decision_intent: ['type', 'waitId', 'transport'], decision_accept: ['type', 'waitId', 'processId'],
+    form_error: ['type', 'waitId', 'reason'],
+    form_answer: ['type', 'waitId', 'formId', 'revision', 'dispatchId', 'submissionId', 'actor', 'sourceProcessId', 'outcome', 'details'],
   };
   if (!Object.hasOwn(fields, command.type)) throw new Error('Unknown workflow command');
   exact(record(command, 'command'), fields[command.type], 'command');
   if (run.status === 'completed' || run.status === 'cancelled' || run.cancelRequested) throw new Error('Run is terminal or cancellation is pending');
   const item = run.items[run.currentIndex]!;
-  if (command.type === 'start') {
+  if (command.type === 'open_form') {
+    if (run.status !== 'waiting' || run.wait || !item.dispatchId || !run.beadIds.length) throw new Error('Form wait requires a waiting item and grouped bead');
+    const dispatch = dispatchFor(run, item.dispatchId);
+    run.wait = { id: waitIdentity(dispatch.id, run.version + 1), beadId: run.beadIds[0]!, itemId: item.id, revision: run.revision, dispatchId: dispatch.id, authority: structuredClone(run.authority), decision: null, error: null };
+  } else if (command.type === 'update_authority') {
+    validateAuthority(command.previousAuthority); validateAuthority(command.authority);
+    text(command.reason, 'authority update reason'); text(command.actor, 'authority update actor');
+    if (schemaHash(command.previousAuthority) !== schemaHash(run.authority)) throw new Error('Previous authority conflicts');
+    if (schemaHash(command.authority) === schemaHash(run.authority) && !run.wait) throw new Error('Authority is unchanged');
+    run.authority = structuredClone(command.authority);
+    if (run.wait) {
+      run.wait.id = waitIdentity(run.wait.dispatchId, run.version + 1);
+      run.wait.authority = structuredClone(command.authority);
+      run.wait.decision = null; run.wait.error = null;
+      run.status = 'waiting'; item.status = 'waiting';
+    }
+  } else if (command.type === 'decision_intent' || command.type === 'decision_accept' || command.type === 'form_error' || command.type === 'form_answer') {
+    const wait = run.wait;
+    if (!wait || wait.id !== command.waitId || wait.itemId !== item.id || wait.revision !== run.revision || wait.dispatchId !== item.dispatchId) throw new Error('Stale form wait');
+    if (command.type === 'form_error') {
+      text(command.reason, 'form error'); wait.error = command.reason;
+      run.status = 'needs_attention'; item.status = 'needs_attention';
+    } else if (command.type === 'decision_intent') {
+      if (run.status !== 'waiting' || wait.authority.mode !== 'decision_maker' || wait.decision) throw new Error('Decision request cannot start');
+      if (command.transport.sessionId !== wait.authority.sessionId || command.transport.fresh || command.transport.freshSession !== null) throw new Error('Decision request must use snapshotted authority session');
+      // Reuse the dispatch validator without changing the live item's identity.
+      const scratch = initialRun({ id: run.id, workspaceId: run.workspaceId, beadIds: run.beadIds, template: run.template, authority: run.authority });
+      apply(scratch, { type: 'start', dispatchId: wait.id, transport: command.transport });
+      wait.decision = { transport: structuredClone(command.transport), processId: null };
+    } else if (command.type === 'decision_accept') {
+      text(command.processId, 'decision process');
+      if (run.status !== 'waiting' || !wait.decision || wait.decision.processId) throw new Error('Decision request cannot be accepted');
+      wait.decision.processId = command.processId;
+    } else {
+      validateAuthority(command.actor); text(command.submissionId, 'submissionId');
+      if (run.status !== 'waiting' || command.formId !== workflowFormId(wait) || command.revision !== wait.revision || command.dispatchId !== wait.dispatchId) throw new Error('Stale form answer correlation');
+      if (schemaHash(command.actor) !== schemaHash(wait.authority)) throw new Error('Form answer authority mismatch');
+      if (wait.authority.mode === 'decision_maker' ? !wait.decision?.processId || command.sourceProcessId !== wait.decision.processId : command.sourceProcessId !== null) throw new Error('Form answer source mismatch');
+      const transition = run.template.items[run.currentIndex]!.outcomes[command.outcome];
+      if (!transition || transition.action === 'wait') throw new Error('Form answer requires a non-wait outcome');
+      const dispatch = dispatchFor(run, wait.dispatchId);
+      run.status = 'active'; item.status = 'active'; delete run.wait;
+      apply(run, { type: 'result', schema: run.template.items[run.currentIndex]!.schema, sourceProcessId: dispatch.processId!, result: { run_id: run.id, item_id: item.id, revision: run.revision, dispatch_id: dispatch.id, outcome: command.outcome, details: command.details } });
+    }
+  } else if (command.type === 'start') {
     text(command.dispatchId, 'dispatchId');
     if (run.dispatches.some(dispatch => dispatch.id === command.dispatchId)) throw new Error('Dispatch identity already exists');
     const transport = record(command.transport, 'transport');
@@ -296,7 +368,9 @@ function apply(run: SerialRun, command: WorkflowCommand): void {
       run.currentIndex = run.items.findIndex(entry => entry.id === transition.resetsTo);
       for (const reset of run.items.slice(run.currentIndex)) { reset.status = 'pending'; reset.revision = run.revision; reset.dispatchId = null; reset.result = null; }
       run.status = 'queued';
-    } else { item.status = transition.action === 'wait' ? 'waiting' : 'needs_attention'; run.status = item.status; }
+    } else {
+      item.status = transition.action === 'wait' ? 'waiting' : 'needs_attention'; run.status = item.status;
+    }
   } else if (command.type === 'invalid_result') {
     text(command.reason, 'reason');
     const dispatch = dispatchFor(run, command.dispatchId);
@@ -330,7 +404,7 @@ function initialRun(input: CreateSerialRunInput): SerialRun {
 export function validateSerialRun(value: unknown): asserts value is SerialRun {
   jsonValue(value);
   const run = record(value, 'run') as unknown as SerialRun;
-  exact(run as unknown as Record<string, unknown>, ['formatVersion', 'id', 'workspaceId', 'beadIds', 'template', 'templateHash', 'authority', 'version', 'revision', 'currentIndex', 'status', 'cancelRequested', 'items', 'dispatches', 'history', 'receipts'], 'run');
+  exact(run as unknown as Record<string, unknown>, ['formatVersion', 'id', 'workspaceId', 'beadIds', 'template', 'templateHash', 'authority', 'version', 'revision', 'currentIndex', 'status', 'cancelRequested', 'items', 'dispatches', 'history', 'receipts', ...(run.wait === undefined ? [] : ['wait'])], 'run');
   if (run.formatVersion !== 1) throw new Error('Unsupported workflow snapshot version');
   validateSerialTemplate(run.template); validateAuthority(run.authority);
   text(run.id, 'run.id'); text(run.workspaceId, 'workspaceId');
@@ -338,7 +412,10 @@ export function validateSerialRun(value: unknown): asserts value is SerialRun {
   if (!Array.isArray(run.beadIds) || run.beadIds.some(id => typeof id !== 'string' || !id.trim()) || new Set(run.beadIds).size !== run.beadIds.length) throw new Error('Invalid bead grouping');
   if (!Array.isArray(run.history) || run.history.length !== run.version) throw new Error('Invalid workflow history');
   if (!Array.isArray(run.dispatches) || new Set(run.dispatches.map(dispatch => dispatch.id)).size !== run.dispatches.length) throw new Error('Invalid workflow dispatches');
-  const input: CreateSerialRunInput = { id: run.id, workspaceId: run.workspaceId, beadIds: run.beadIds, template: run.template, authority: run.authority };
+  const firstAuthorityUpdate = run.history.find(event => event.type === 'update_authority');
+  const initialAuthority = firstAuthorityUpdate ? firstAuthorityUpdate.details.previousAuthority as FormAuthority : run.authority;
+  validateAuthority(initialAuthority);
+  const input: CreateSerialRunInput = { id: run.id, workspaceId: run.workspaceId, beadIds: run.beadIds, template: run.template, authority: initialAuthority };
   const replay = initialRun(input);
   const expectedReceipts = new Map<string, { commandHash: string; result: MutationReceipt }>();
   // Replay the pure reducer to validate *all* persisted cross-references, rather
