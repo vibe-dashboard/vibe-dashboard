@@ -1,15 +1,11 @@
 import type { Hono } from 'hono';
+import { buildPreviewSlotUrl } from '../lib/previewSlotUrl';
 import {
   VibeKanbanServerClient,
-  type PreviewSlot,
-  type PreviewSlotUrlResponse,
   type PreviewResolveRequest,
   type PreviewResolveResponse,
-  type RunConfig,
-  type RunConfigStartResponse,
   type UpsertPreviewSlot,
   type UpsertRunConfig,
-  type WorkspaceRunConfigsResponse,
 } from './vk-client';
 
 export interface RegisterPreviewResolverRoutesOptions {
@@ -20,7 +16,6 @@ export interface RegisterPreviewResolverRoutesOptions {
     | 'upsertPreviewSlot'
     | 'startRunConfig'
     | 'startPreviewSlot'
-    | 'getPreviewSlotUrl'
   >>;
 }
 
@@ -66,7 +61,11 @@ export function registerPreviewResolverRoutes(
     const workspaceId = c.req.param('workspaceId');
     try {
       const response = await vkClient.getRunConfigs!(workspaceId);
-      return c.json(response, 200);
+      const previewUrls = Object.fromEntries(response.preview_url_parts.map((parts) => [
+        parts.previewSlotId,
+        buildPreviewSlotUrl(parts, optionalEnvString('SITE_ORIGIN')).url,
+      ]));
+      return c.json({ ...response, preview_urls: previewUrls }, 200);
     } catch (error) {
       console.warn('Preview run config list failed', error);
       return c.json({ message: 'Preview run config backend is unavailable' }, 502);
@@ -126,18 +125,15 @@ export function registerPreviewResolverRoutes(
   app.get('/internal/preview/workspaces/:workspaceId/preview-slots/:previewSlotId/url', async (c) => {
     const workspaceId = c.req.param('workspaceId');
     const previewSlotId = c.req.param('previewSlotId');
-    const customerSlug = c.req.query('customerSlug') || '';
-    const previewUrlDefaults = previewUrlDefaultsFromSiteOrigin();
     try {
-      const response = await vkClient.getPreviewSlotUrl!(workspaceId, previewSlotId, {
-        customerSlug,
-        baseDomain: previewUrlDefaults?.baseDomain,
-        urlScheme: previewUrlDefaults?.urlScheme,
-      });
+      const configs = await vkClient.getRunConfigs!(workspaceId);
+      const parts = configs.preview_url_parts.find((entry) => entry.previewSlotId === previewSlotId);
+      if (!parts) return c.json({ message: 'Preview slot was not found' }, 404);
+      const response = buildPreviewSlotUrl(parts, optionalEnvString('SITE_ORIGIN'));
       return c.json(response, 200);
     } catch (error) {
       console.warn('Preview slot URL generation failed', error);
-      return c.json({ message: error instanceof Error ? error.message : 'Preview slot URL generation failed' }, 502);
+      return c.json({ message: 'Preview URL could not be generated. Check SITE_ORIGIN and the VK backend.' }, 502);
     }
   });
 }
@@ -145,23 +141,6 @@ export function registerPreviewResolverRoutes(
 function optionalEnvString(name: string): string | undefined {
   const value = process.env[name]?.trim();
   return value || undefined;
-}
-
-function previewUrlDefaultsFromSiteOrigin(): { baseDomain: string; urlScheme: 'http' | 'https' } | undefined {
-  const siteOrigin = optionalEnvString('SITE_ORIGIN');
-  if (!siteOrigin) return undefined;
-  try {
-    const url = new URL(siteOrigin);
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') return undefined;
-    const baseDomain = url.host || undefined;
-    if (!baseDomain) return undefined;
-    return {
-      baseDomain,
-      urlScheme: url.protocol === 'http:' ? 'http' : 'https',
-    };
-  } catch {
-    return undefined;
-  }
 }
 
 async function parseJson<T>(request: Request): Promise<{ ok: true; value: T } | { ok: false; message: string }> {
@@ -173,6 +152,9 @@ async function parseJson<T>(request: Request): Promise<{ ok: true; value: T } | 
 }
 
 function validatePreviewResolveRequest(payload: PreviewResolveRequest): string | null {
+  if (!payload || typeof payload !== 'object' || typeof payload.host !== 'string') {
+    return 'Invalid preview resolve request';
+  }
   if (!/^[a-f0-9]{16}$/.test(payload.workspaceToken)) {
     return 'Invalid preview workspace token';
   }
@@ -182,8 +164,14 @@ function validatePreviewResolveRequest(payload: PreviewResolveRequest): string |
   if (!/^[a-z0-9]{1,10}$/.test(payload.slotSlug)) {
     return 'Invalid preview slot slug';
   }
-  if (!/^[a-z0-9]{1,16}$/.test(payload.customerSlug)) {
-    return 'Invalid preview customer slug';
+  try {
+    const expected = buildPreviewSlotUrl({ ...payload, previewSlotId: '' }, optionalEnvString('SITE_ORIGIN'));
+    const hostname = payload.host.toLowerCase().replace(/:\d+$/, '').replace(/\.$/, '');
+    if (hostname !== new URL(expected.url).hostname) {
+      return 'Preview hostname does not match SITE_ORIGIN';
+    }
+  } catch {
+    return 'Invalid preview hostname or SITE_ORIGIN';
   }
   return null;
 }

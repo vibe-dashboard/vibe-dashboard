@@ -11,7 +11,7 @@ declare module '@vibe/inline-chat' {
     surfaceId: string;
     title?: string;
     theme?: InlineVkAgentChatTheme;
-    chatViewMode?: 'full' | 'zen';
+    chatViewMode?: 'full' | 'mostly-zen' | 'zen';
     workspacePreview?: ReactNode;
     onOpenCraft?: () => void;
     onRemoveCraft?: () => void;
@@ -21,7 +21,7 @@ declare module '@vibe/inline-chat' {
     surfaceId: string;
     theme?: InlineVkAgentChatTheme;
     onWorkspaceCreated?: (workspaceId: string) => void;
-    chatViewMode?: 'full' | 'zen';
+    chatViewMode?: 'full' | 'mostly-zen' | 'zen';
   };
 
   export function InlineVkAgentChat(

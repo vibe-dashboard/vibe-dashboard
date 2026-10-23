@@ -682,28 +682,6 @@ function requireWorkspaceId(value: string | undefined, usage: string): string {
   return value;
 }
 
-function optionalEnvString(name: string): string | undefined {
-  const value = process.env[name]?.trim();
-  return value || undefined;
-}
-
-function previewUrlDefaultsFromSiteOrigin(): { baseDomain: string; urlScheme: 'http' | 'https' } | undefined {
-  const siteOrigin = optionalEnvString('SITE_ORIGIN');
-  if (!siteOrigin) return undefined;
-  try {
-    const url = new URL(siteOrigin);
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') return undefined;
-    const baseDomain = url.host || undefined;
-    if (!baseDomain) return undefined;
-    return {
-      baseDomain,
-      urlScheme: url.protocol === 'http:' ? 'http' : 'https',
-    };
-  } catch {
-    return undefined;
-  }
-}
-
 function parseRunConfigKind(value: string | undefined): RunConfigKind {
   const kind = value ?? 'long_running';
   if (kind === 'long_running' || kind === 'one_shot' || kind === 'test') {
@@ -819,27 +797,21 @@ async function commandPreviewUrl(positional: string[], flags: FlagMap) {
       printPreviewSlot(slot);
       console.log('');
       console.log('To get its URL:');
-      console.log(`  vk preview-url url ${workspaceId} ${slot.id} --customer <customer-slug>`);
+      console.log(`  vk preview-url url ${workspaceId} ${slot.id}`);
       break;
     }
 
     case 'url': {
       const workspaceId = requireWorkspaceId(
         positional[1],
-        'Usage: vk preview-url url <workspace-id> <preview-slot-id> --customer <customer-slug> [--json]',
+        'Usage: vk preview-url url <workspace-id> <preview-slot-id> [--json]',
       );
       const previewSlotId = positional[2] ?? getFlagString(flags, 'slot-id') ?? getFlagString(flags, 'preview-slot-id');
-      const customerSlug = getFlagString(flags, 'customer') ?? getFlagString(flags, 'customer-slug');
-      const previewUrlDefaults = previewUrlDefaultsFromSiteOrigin();
-      if (!previewSlotId || !customerSlug) {
-        console.error('Usage: vk preview-url url <workspace-id> <preview-slot-id> --customer <customer-slug> [--json]');
+      if (!previewSlotId) {
+        console.error('Usage: vk preview-url url <workspace-id> <preview-slot-id> [--json]');
         process.exit(1);
       }
-      const response = await service.getPreviewSlotUrl(workspaceId, previewSlotId, {
-        customerSlug,
-        baseDomain: previewUrlDefaults?.baseDomain,
-        urlScheme: previewUrlDefaults?.urlScheme,
-      });
+      const response = await service.getPreviewSlotUrl(workspaceId, previewSlotId);
       if (flags.json === true) {
         console.log(JSON.stringify(response, null, 2));
         return;
@@ -919,7 +891,7 @@ async function commandPreviewUrl(positional: string[], flags: FlagMap) {
       console.error('  vk preview-url list <workspace-id> [--json]');
       console.error('  vk preview-url upsert-run-config <workspace-id> --repo <repo-id> --slug web --name Web --command "npm run dev"');
       console.error('  vk preview-url upsert-slot <workspace-id> --repo <repo-id> --run-config <run-config-id> --slot web --title Web');
-      console.error('  vk preview-url url <workspace-id> <preview-slot-id> --customer <customer-slug>');
+      console.error('  vk preview-url url <workspace-id> <preview-slot-id>');
       console.error('  vk preview-url start-slot <workspace-id> <preview-slot-id> [--json]');
       process.exit(1);
   }
@@ -1155,7 +1127,7 @@ function printHelp() {
   console.log('  workspace-repos <workspace-id> [--json]    List repos attached to workspace');
   console.log('  dev-script get <repo-id> [--json]          Show repo dev server script');
   console.log('  preview-url list <workspace-id> [--json]   List Preview URL run configs and slots');
-  console.log('  preview-url url <workspace-id> <slot-id> --customer <slug>  Print canonical preview URL');
+  console.log('  preview-url url <workspace-id> <slot-id>                    Print canonical preview URL');
   console.log('  sessions <workspace-id>                    List sessions for workspace');
   console.log('  status <workspace-id>...                   Get workspace status summary');
   console.log('  processes <session-id>                     List execution processes');

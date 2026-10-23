@@ -257,6 +257,9 @@ test('preview menu opens the canonical URL and delegates configuration to its ho
   await expect(
     left.getByRole('menuitem', { name: /Disabled preview/ }),
   ).toHaveCount(0);
+  const triggerBox = await left.getByRole('button', { name: 'Preview slots' }).boundingBox();
+  const menuBox = await left.getByRole('menu').boundingBox();
+  expect(menuBox!.y + menuBox!.height).toBeLessThanOrEqual(triggerBox!.y);
   const popup = page.waitForEvent('popup');
   await left.getByRole('menuitem', { name: /Application preview/ }).click();
   const preview = await popup;

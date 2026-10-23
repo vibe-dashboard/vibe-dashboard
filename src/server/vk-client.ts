@@ -1,3 +1,5 @@
+import { buildPreviewSlotUrl } from '../lib/previewSlotUrl';
+
 export type Executor =
   | 'CLAUDE_CODE'
   | 'CODEX'
@@ -135,7 +137,6 @@ export interface PreviewResolveRequest {
   workspaceToken: string;
   repoSlug: string;
   slotSlug: string;
-  customerSlug: string;
   ensure: boolean;
   method: string;
   path: string;
@@ -225,10 +226,10 @@ export interface WorkspaceRunConfigsResponse {
   run_configs: RunConfig[];
   preview_slots: PreviewSlot[];
   preview_url_parts: PreviewSlotUrlParts[];
+  preview_urls?: Record<string, string>;
 }
 
 export interface PreviewSlotUrlResponse extends PreviewSlotUrlParts {
-  customerSlug: string;
   host: string;
   url: string;
 }
@@ -360,7 +361,7 @@ export class VibeKanbanServerClient {
   }
 
   resolvePreview(request: PreviewResolveRequest): Promise<PreviewResolveResponse> {
-    return this.post('/preview/resolve', request);
+    return this.post('/preview/resolve', { ...request, customerSlug: '' });
   }
 
   getRunConfigs(workspaceId: string): Promise<WorkspaceRunConfigsResponse> {
@@ -389,17 +390,14 @@ export class VibeKanbanServerClient {
     );
   }
 
-  getPreviewSlotUrl(
+  async getPreviewSlotUrl(
     workspaceId: string,
     previewSlotId: string,
-    args: { customerSlug: string; baseDomain?: string; urlScheme?: 'http' | 'https' },
   ): Promise<PreviewSlotUrlResponse> {
-    const params = new URLSearchParams({ customerSlug: args.customerSlug });
-    if (args.baseDomain) params.set('baseDomain', args.baseDomain);
-    if (args.urlScheme) params.set('urlScheme', args.urlScheme);
-    return this.get(
-      `/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots/${encodeURIComponent(previewSlotId)}/url?${params}`,
-    );
+    const configs = await this.getRunConfigs(workspaceId);
+    const parts = configs.preview_url_parts.find((entry) => entry.previewSlotId === previewSlotId);
+    if (!parts) throw new Error('Preview slot was not found');
+    return buildPreviewSlotUrl(parts, process.env.SITE_ORIGIN);
   }
 
   async sendFollowUp(

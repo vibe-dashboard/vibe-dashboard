@@ -921,6 +921,7 @@ function ToolSummaryEntry({
   command: string | undefined;
   actionType: string;
 }) {
+  const isInlineSurface = useWorkspaceChatSurfaceId() !== null;
   const [expanded, toggle] = usePersistedExpanded(
     `tool:${expansionKey}`,
     false
@@ -940,21 +941,40 @@ function ToolSummaryEntry({
   const hasOutput = content && content.trim().length > 0;
 
   const handleViewContent = useCallback(() => {
-    viewToolContentInPanel(toolName, content, command);
-  }, [viewToolContentInPanel, toolName, content, command]);
+    if (isInlineSurface) toggle();
+    else viewToolContentInPanel(toolName, content, command);
+  }, [
+    isInlineSurface,
+    toggle,
+    viewToolContentInPanel,
+    toolName,
+    content,
+    command,
+  ]);
 
   return (
-    <ChatToolSummary
-      ref={textRef}
-      summary={summary}
-      expanded={expanded}
-      onToggle={toggle}
-      status={status}
-      onViewContent={hasOutput ? handleViewContent : undefined}
-      toolName={toolName}
-      isTruncated={isTruncated}
-      actionType={actionType}
-    />
+    <div className="min-w-0">
+      <ChatToolSummary
+        ref={textRef}
+        summary={summary}
+        expanded={expanded}
+        onToggle={toggle}
+        status={status}
+        onViewContent={hasOutput ? handleViewContent : undefined}
+        toolName={toolName}
+        isTruncated={isTruncated}
+        actionType={actionType}
+      />
+      {isInlineSurface && expanded && hasOutput ? (
+        <pre
+          role="region"
+          aria-label={`${toolName} output`}
+          className="mt-base max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-sm border border-border bg-secondary p-base font-mono text-xs text-normal"
+        >
+          {content}
+        </pre>
+      ) : null}
+    </div>
   );
 }
 
@@ -1139,6 +1159,7 @@ function ErrorMessageEntry({
  * Aggregated group entry for consecutive file_read, search, or web_fetch entries
  */
 function AggregatedGroupEntry({ group }: { group: AggregatedPatchGroup }) {
+  const isInlineSurface = useWorkspaceChatSurfaceId() !== null;
   const { viewToolContentInPanel } = useLogsPanelActions();
   const [expanded, toggle] = usePersistedExpanded(
     `tool:${group.patchKey}`,
@@ -1248,6 +1269,25 @@ function AggregatedGroupEntry({ group }: { group: AggregatedPatchGroup }) {
       onToggle={handleToggle}
       onHoverChange={handleHoverChange}
       onViewContent={handleViewContent}
+      renderEntry={
+        isInlineSurface
+          ? (index) => {
+              const item = aggregatedEntries[index];
+              if (!item?.status) return null;
+              return (
+                <ToolSummaryEntry
+                  summary={item.summary}
+                  expansionKey={item.expansionKey}
+                  status={item.status}
+                  content={item.content}
+                  toolName={item.toolName}
+                  command={item.command}
+                  actionType={group.aggregationType}
+                />
+              );
+            }
+          : undefined
+      }
       label={label}
       icon={icon}
       unit={unit}

@@ -1,58 +1,14 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ArrowSquareOutIcon,
-  GearIcon,
-  GlobeIcon,
-} from '@phosphor-icons/react';
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { ArrowSquareOutIcon, GearIcon, GlobeIcon } from "@phosphor-icons/react";
 import type {
   PreviewSlot,
   WorkspaceRunConfigsResponse,
-} from '../server/vk-client';
+} from "../server/vk-client";
 
 export function enabledPreviewSlots(
   data: WorkspaceRunConfigsResponse | null,
 ): PreviewSlot[] {
   return (data?.preview_slots ?? []).filter((slot) => slot.enabled);
-}
-
-export async function fetchPreviewSlotUrl(
-  workspaceId: string,
-  previewSlotId: string,
-  fetchImpl: typeof fetch = fetch,
-): Promise<string> {
-  const response = await fetchImpl(
-    `/internal/preview/workspaces/${encodeURIComponent(workspaceId)}/preview-slots/${encodeURIComponent(previewSlotId)}/url`,
-  );
-  if (!response.ok) throw new Error(await response.text());
-  const result = (await response.json()) as { url?: unknown };
-  if (typeof result.url !== 'string' || !result.url) {
-    throw new Error('Preview URL response was invalid');
-  }
-  const url = new URL(result.url);
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new Error('Preview URL protocol was invalid');
-  }
-  return result.url;
-}
-
-export async function openPreviewSlotInNewTab(
-  workspaceId: string,
-  previewSlotId: string,
-  openImpl: typeof window.open = window.open.bind(window),
-  fetchImpl: typeof fetch = fetch,
-): Promise<void> {
-  const opened = openImpl('about:blank', '_blank');
-  if (!opened) throw new Error('The browser blocked the preview tab');
-
-  opened.opener = null;
-  try {
-    opened.document.head.innerHTML = '<meta name="referrer" content="no-referrer">';
-    const url = await fetchPreviewSlotUrl(workspaceId, previewSlotId, fetchImpl);
-    opened.location.replace(url);
-  } catch (error) {
-    opened.close();
-    throw error;
-  }
 }
 
 export function WorkspacePreviewMenu({
@@ -75,7 +31,7 @@ export function WorkspacePreviewMenu({
       const response = await fetch(
         `/internal/preview/workspaces/${encodeURIComponent(workspaceId)}/run-configs`,
       );
-      if (!response.ok) throw new Error(await response.text());
+      if (!response.ok) throw new Error("Preview slots could not be loaded");
       setData((await response.json()) as WorkspaceRunConfigsResponse);
     } catch (nextError) {
       setError(errorMessage(nextError));
@@ -94,27 +50,15 @@ export function WorkspacePreviewMenu({
       if (!menuRef.current?.contains(event.target as Node)) setIsOpen(false);
     };
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setIsOpen(false);
+      if (event.key === "Escape") setIsOpen(false);
     };
-    document.addEventListener('pointerdown', closeOnPointerDown);
-    document.addEventListener('keydown', closeOnEscape);
+    document.addEventListener("pointerdown", closeOnPointerDown);
+    document.addEventListener("keydown", closeOnEscape);
     return () => {
-      document.removeEventListener('pointerdown', closeOnPointerDown);
-      document.removeEventListener('keydown', closeOnEscape);
+      document.removeEventListener("pointerdown", closeOnPointerDown);
+      document.removeEventListener("keydown", closeOnEscape);
     };
   }, [isOpen]);
-
-  const openSlot = useCallback(
-    async (slotId: string) => {
-      setError(null);
-      try {
-        await openPreviewSlotInNewTab(workspaceId, slotId);
-      } catch (nextError) {
-        setError(errorMessage(nextError));
-      }
-    },
-    [workspaceId],
-  );
 
   const slots = enabledPreviewSlots(data);
 
@@ -134,7 +78,7 @@ export function WorkspacePreviewMenu({
       {isOpen ? (
         <div
           role="menu"
-          className="absolute right-0 z-[10000] mt-half min-w-64 overflow-hidden rounded-sm border border-border bg-panel py-half shadow-md"
+          className="absolute bottom-full right-0 z-[10000] mb-half max-h-[60vh] min-w-64 overflow-y-auto rounded-sm border border-border bg-panel py-half shadow-md"
         >
           <div className="px-base py-half text-xs font-medium text-low">
             Preview slots
@@ -150,7 +94,15 @@ export function WorkspacePreviewMenu({
           ) : null}
           {!isLoading && !error
             ? slots.map((slot) => (
-                <MenuButton key={slot.id} onClick={() => void openSlot(slot.id)}>
+                <a
+                  key={slot.id}
+                  role="menuitem"
+                  href={data?.preview_urls?.[slot.id]}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-disabled={!data?.preview_urls?.[slot.id]}
+                  className="mx-half flex w-[calc(100%-0.5rem)] items-center gap-base rounded-sm px-base py-half text-left text-sm text-high hover:bg-secondary focus:bg-secondary focus:outline-none"
+                >
                   <ArrowSquareOutIcon className="size-icon-xs shrink-0" />
                   <span className="min-w-0">
                     <span className="block truncate">{slot.title}</span>
@@ -158,7 +110,7 @@ export function WorkspacePreviewMenu({
                       {slot.repo_id} · {slot.slot_slug}
                     </span>
                   </span>
-                </MenuButton>
+                </a>
               ))
             : null}
           <div className="my-half border-t border-border" />

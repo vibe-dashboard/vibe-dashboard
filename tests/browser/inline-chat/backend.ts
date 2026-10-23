@@ -393,6 +393,7 @@ export class InlineChatBackend {
       return route.fulfill({
         json: {
           run_configs: [],
+          preview_urls: { 'slot-1': 'http://127.0.0.1:5189/preview.html?slot=slot-1' },
           preview_slots: [
             {
               id: 'slot-1',
@@ -405,10 +406,6 @@ export class InlineChatBackend {
             { id: 'disabled-slot', title: 'Disabled preview', enabled: false },
           ],
         },
-      });
-    if (path.endsWith('/preview-slots/slot-1/url'))
-      return route.fulfill({
-        json: { url: 'http://127.0.0.1:5189/preview.html?slot=slot-1' },
       });
     if (path === '/api/profiles') return reply(body ?? {});
     if (path.endsWith('/git/status')) return reply([]);

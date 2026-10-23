@@ -317,6 +317,9 @@ importers:
       tailwindcss:
         specifier: ^4.1.18
         version: 4.1.18
+      tldts:
+        specifier: ^7.4.5
+        version: 7.4.5
       uuid:
         specifier: ^11.1.0
         version: 11.1.1
@@ -16958,13 +16961,11 @@ snapshots:
 
   tinyspy@4.0.4: {}
 
-  tldts-core@7.4.5:
-    optional: true
+  tldts-core@7.4.5: {}
 
   tldts@7.4.5:
     dependencies:
       tldts-core: 7.4.5
-    optional: true
 
   tmp@0.2.1:
     dependencies:

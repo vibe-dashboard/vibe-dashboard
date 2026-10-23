@@ -1,6 +1,6 @@
-import { ListMagnifyingGlassIcon, CaretRightIcon } from '@phosphor-icons/react';
-import { cn } from '../lib/cn';
-import { ToolStatusDot, type ToolStatusLike } from './ToolStatusDot';
+import { ListMagnifyingGlassIcon, CaretRightIcon } from "@phosphor-icons/react";
+import { cn } from "../lib/cn";
+import { ToolStatusDot, type ToolStatusLike } from "./ToolStatusDot";
 
 export interface AggregatedEntry {
   summary: string;
@@ -23,6 +23,7 @@ interface ChatAggregatedToolEntriesProps {
   icon?: React.ElementType;
   className?: string;
   onViewContent?: (index: number) => void;
+  renderEntry?: (index: number) => React.ReactNode;
 }
 
 export function ChatAggregatedToolEntries({
@@ -36,21 +37,23 @@ export function ChatAggregatedToolEntries({
   icon: Icon = ListMagnifyingGlassIcon,
   className,
   onViewContent,
+  renderEntry,
 }: ChatAggregatedToolEntriesProps) {
   if (entries.length === 0) return null;
 
   // If only one entry, don't aggregate
   if (entries.length === 1) {
+    if (renderEntry) return <>{renderEntry(0)}</>;
     const entry = entries[0];
     return (
       <div
         className={cn(
-          'flex items-center gap-base text-sm text-low',
-          onViewContent && 'cursor-pointer',
-          className
+          "flex items-center gap-base text-sm text-low",
+          onViewContent && "cursor-pointer",
+          className,
         )}
         onClick={onViewContent ? () => onViewContent(0) : undefined}
-        role={onViewContent ? 'button' : undefined}
+        role={onViewContent ? "button" : undefined}
       >
         <span className="relative shrink-0 pt-0.5">
           <Icon className="size-icon-base" />
@@ -87,11 +90,11 @@ export function ChatAggregatedToolEntries({
 
       return currentPriority > worstPriority ? entry.status : worst;
     },
-    undefined
+    undefined,
   );
 
   return (
-    <div className={cn('flex flex-col', className)}>
+    <div className={cn("flex flex-col", className)}>
       {/* Header row - clickable to expand/collapse */}
       <div
         className="flex items-center gap-base text-sm text-low cursor-pointer group"
@@ -106,8 +109,8 @@ export function ChatAggregatedToolEntries({
           {isHovered ? (
             <CaretRightIcon
               className={cn(
-                'size-icon-base transition-transform duration-150',
-                expanded && 'rotate-90'
+                "size-icon-base transition-transform duration-150",
+                expanded && "rotate-90",
               )}
             />
           ) : (
@@ -128,28 +131,32 @@ export function ChatAggregatedToolEntries({
       {/* Expanded content */}
       {expanded && (
         <div className="ml-6 pt-1 flex flex-col gap-0.5">
-          {entries.map((entry, index) => (
-            <div
-              key={entry.expansionKey}
-              className={cn(
-                'flex items-center gap-base text-sm text-low pl-base',
-                onViewContent && 'cursor-pointer hover:text-normal'
-              )}
-              onClick={onViewContent ? () => onViewContent(index) : undefined}
-              role={onViewContent ? 'button' : undefined}
-            >
-              <span className="relative shrink-0 pt-0.5">
-                <Icon className="size-icon-base" />
-                {entry.status && (
-                  <ToolStatusDot
-                    status={entry.status}
-                    className="absolute -bottom-0.5 -left-0.5"
-                  />
+          {entries.map((entry, index) =>
+            renderEntry ? (
+              <div key={entry.expansionKey}>{renderEntry(index)}</div>
+            ) : (
+              <div
+                key={entry.expansionKey}
+                className={cn(
+                  "flex items-center gap-base text-sm text-low pl-base",
+                  onViewContent && "cursor-pointer hover:text-normal",
                 )}
-              </span>
-              <span className="truncate">{entry.summary}</span>
-            </div>
-          ))}
+                onClick={onViewContent ? () => onViewContent(index) : undefined}
+                role={onViewContent ? "button" : undefined}
+              >
+                <span className="relative shrink-0 pt-0.5">
+                  <Icon className="size-icon-base" />
+                  {entry.status && (
+                    <ToolStatusDot
+                      status={entry.status}
+                      className="absolute -bottom-0.5 -left-0.5"
+                    />
+                  )}
+                </span>
+                <span className="truncate">{entry.summary}</span>
+              </div>
+            ),
+          )}
         </div>
       )}
     </div>

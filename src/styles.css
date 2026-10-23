@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @plugin './hero.ts';
 @source '../node_modules/@heroui/theme/dist/**/*.{js,ts,jsx,tsx}';
+@source './**/*.{ts,tsx}';
+@source '../vibe-kanban/packages/inline-chat/src/**/*.{ts,tsx}';
 @source '../vibe-kanban/packages/ui/src/**/*.{ts,tsx}';
 @source '../vibe-kanban/packages/web-core/src/**/*.{ts,tsx}';
 @custom-variant dark (&:is(.dark *));
@@ -55,6 +57,15 @@ textarea {
 .iframe-container {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
 }
 
 :root {

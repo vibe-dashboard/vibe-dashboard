@@ -16,7 +16,6 @@ export function PreviewRunConfigsPanel({
   const [data, setData] = useState<WorkspaceRunConfigsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [customerSlug, setCustomerSlug] = useState('preview');
   const [runForm, setRunForm] = useState({
     repoId: '',
     slug: 'web',
@@ -129,19 +128,6 @@ export function PreviewRunConfigsPanel({
     await refresh();
   }
 
-  async function openPreviewSlot(previewSlotId: string) {
-    setMessage(null);
-    setError(null);
-    const params = new URLSearchParams({ customerSlug });
-    const response = await fetch(
-      `/internal/preview/workspaces/${encodeURIComponent(workspaceId)}/preview-slots/${encodeURIComponent(previewSlotId)}/url?${params}`,
-    );
-    if (!response.ok) throw new Error(await response.text());
-    const result = await response.json() as { url: string };
-    window.open(result.url, '_blank', 'noopener,noreferrer');
-    setMessage(result.url);
-  }
-
   const runConfigs = data?.run_configs ?? [];
   const previewSlots = data?.preview_slots ?? [];
 
@@ -202,7 +188,6 @@ export function PreviewRunConfigsPanel({
               <h2 className="font-medium">Preview slots</h2>
               <p className="text-sm text-neutral-400">Generate a named Preview URL or start the stored config.</p>
             </div>
-            <TextInput label="Customer slug" value={customerSlug} onChange={setCustomerSlug} />
           </div>
           <ListEmpty items={previewSlots} label="No preview slots yet." />
           <div className="mt-3 space-y-2">
@@ -214,7 +199,7 @@ export function PreviewRunConfigsPanel({
                 </div>
                 <div className="flex gap-2">
                   <button className="rounded border border-neutral-700 px-3 py-1 text-sm" onClick={() => void startPreviewSlot(slot.id).catch((err) => setError(errorMessage(err)))}>Start</button>
-                  <button className="rounded border border-neutral-700 px-3 py-1 text-sm" onClick={() => void openPreviewSlot(slot.id).catch((err) => setError(errorMessage(err)))}>Open URL</button>
+                  <a className="rounded border border-neutral-700 px-3 py-1 text-sm" href={data?.preview_urls?.[slot.id]} target="_blank" rel="noopener noreferrer">Open URL</a>
                 </div>
               </div>
             ))}
