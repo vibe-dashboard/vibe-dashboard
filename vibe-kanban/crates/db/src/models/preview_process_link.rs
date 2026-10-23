@@ -428,12 +428,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn oldest_active_link_uses_insertion_order_to_break_timestamp_ties() {
+    async fn oldest_active_link_spans_workspaces_slots_and_standalone_runs() {
         let pool = test_pool().await;
-        let workspace_id = Uuid::new_v4();
-        let first = create_link(&pool, workspace_id, None).await;
-        let second = create_link(&pool, workspace_id, None).await;
-        let stopped = create_link(&pool, workspace_id, None).await;
+        let standalone_workspace_id = Uuid::new_v4();
+        let slot_workspace_id = Uuid::new_v4();
+        let first = create_link(&pool, standalone_workspace_id, None).await;
+        let second = create_link(&pool, slot_workspace_id, Some(Uuid::new_v4())).await;
+        let stopped = create_link(&pool, Uuid::new_v4(), Some(Uuid::new_v4())).await;
         sqlx::query("UPDATE execution_processes SET started_at = ?")
             .bind("2026-10-23 01:00:00")
             .execute(&pool)
@@ -451,7 +452,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(oldest.id, first.id);
+        assert_eq!(oldest.workspace_id, standalone_workspace_id);
+        assert!(oldest.preview_slot_id.is_none());
         assert_ne!(oldest.id, second.id);
+        assert_ne!(oldest.id, stopped.id);
     }
 
     async fn create_link(
