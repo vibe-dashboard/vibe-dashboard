@@ -28,9 +28,10 @@ export function buildPreviewSlotUrl(
   if (domain.isIp)
     throw new Error("Preview URLs require a DNS hostname in SITE_ORIGIN");
   const prefix = `${parts.workspaceToken}-${parts.repoSlug}-${parts.slotSlug}`;
+  const [siteLabel, ...siteDomain] = origin.hostname.split(".");
   const host = domain.subdomain
-    ? `${prefix}-${origin.hostname}`
-    : `${prefix}.${origin.hostname}`;
+    ? `${prefix}-${siteLabel}-user.${siteDomain.join(".")}`
+    : `${prefix}-user.${origin.hostname}`;
   if (host.split(".")[0]!.length > 63)
     throw new Error("Preview hostname exceeds the DNS label limit");
   origin.hostname = host;

@@ -48,7 +48,7 @@ describe("registerPreviewResolverRoutes", () => {
     process.env.SITE_ORIGIN = "https://mickmister.jamtools.dev";
     const { app, client } = setup();
     const payload = {
-      host: "0123456789abcdef-vibekanban-web-mickmister.jamtools.dev",
+      host: "0123456789abcdef-vibekanban-web-mickmister-user.jamtools.dev",
       workspaceToken: parts.workspaceToken,
       repoSlug: parts.repoSlug,
       slotSlug: parts.slotSlug,
@@ -76,15 +76,15 @@ describe("registerPreviewResolverRoutes", () => {
   it.each([
     [
       "https://jamtools.dev",
-      "https://0123456789abcdef-vibekanban-web.jamtools.dev/",
+      "https://0123456789abcdef-vibekanban-web-user.jamtools.dev/",
     ],
     [
       "https://mickmister.jamtools.dev",
-      "https://0123456789abcdef-vibekanban-web-mickmister.jamtools.dev/",
+      "https://0123456789abcdef-vibekanban-web-mickmister-user.jamtools.dev/",
     ],
     [
       "http://localhost:3001",
-      "http://0123456789abcdef-vibekanban-web.localhost:3001/",
+      "http://0123456789abcdef-vibekanban-web-user.localhost:3001/",
     ],
   ])(
     "serves consistent list and individual URLs from %s",

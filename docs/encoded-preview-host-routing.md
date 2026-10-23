@@ -2,18 +2,19 @@
 
 Vibe Dashboard's server builds preview URLs from `SITE_ORIGIN` and VK's stored
 workspace/repository/slot metadata. There is no customer-slug input. For a bare
-domain, add an encoded subdomain:
+domain, add an encoded subdomain. Generated preview subdomains currently have a
+fixed `-user` suffix:
 
 ```text
 SITE_ORIGIN=https://jamtools.dev
-https://{workspaceToken}-{repoSlug}-{slotSlug}.jamtools.dev/
+https://{workspaceToken}-{repoSlug}-{slotSlug}-user.jamtools.dev/
 ```
 
 For an existing subdomain, decorate the first hostname label:
 
 ```text
 SITE_ORIGIN=https://mickmister.jamtools.dev
-https://0123456789abcdef-vibekanban-web-mickmister.jamtools.dev/
+https://0123456789abcdef-vibekanban-web-mickmister-user.jamtools.dev/
 ```
 
 The encoded data must fit in the first DNS label, so V1 uses fixed separators
@@ -23,7 +24,7 @@ and dashless lowercase alphanumeric slugs:
 - `repoSlug`: 1–18 lowercase alphanumeric characters.
 - `slotSlug`: 1–10 lowercase alphanumeric characters.
 - An existing first hostname label is preserved after the encoded prefix;
-  it is not a separate routing field.
+  it is not a separate routing field. The fixed `-user` suffix follows it.
 
 The full first label must remain within DNS's 63-character limit. Bare versus
 subdomain detection uses the public suffix list, including suffixes like `co.uk`.

@@ -10,22 +10,25 @@ const parts = {
 
 describe("canonical preview URLs", () => {
   it.each([
-    ["https://jamtools.dev", "https://0123456789abcdef-repo-web.jamtools.dev/"],
+    [
+      "https://jamtools.dev",
+      "https://0123456789abcdef-repo-web-user.jamtools.dev/",
+    ],
     [
       "https://mickmister.jamtools.dev",
-      "https://0123456789abcdef-repo-web-mickmister.jamtools.dev/",
+      "https://0123456789abcdef-repo-web-mickmister-user.jamtools.dev/",
     ],
     [
       "https://a.b.jamtools.dev",
-      "https://0123456789abcdef-repo-web-a.b.jamtools.dev/",
+      "https://0123456789abcdef-repo-web-a-user.b.jamtools.dev/",
     ],
     [
       "https://example.co.uk",
-      "https://0123456789abcdef-repo-web.example.co.uk/",
+      "https://0123456789abcdef-repo-web-user.example.co.uk/",
     ],
     [
       "http://dev.example.co.uk:8080/path?query=1#hash",
-      "http://0123456789abcdef-repo-web-dev.example.co.uk:8080/",
+      "http://0123456789abcdef-repo-web-dev-user.example.co.uk:8080/",
     ],
   ])("builds from %s", (origin, expected) => {
     expect(buildPreviewSlotUrl(parts, origin).url).toBe(expected);
