@@ -148,6 +148,45 @@ excluded unless explicitly attached to that run config. The cutover belongs
 with first-class secret injection so compatibility does not require restoring
 blanket inheritance.
 
+## Authentication and shared-secret cutover
+
+V1 has no PreviewServer-specific API authentication. The private sandbox relies
+on Cloudflare Access plus the existing VK/VD server-trust model. Workspace and
+process-link checks prevent selecting another workspace's process, but they do
+not identify the caller or replace authentication. The custom
+`X-Vibe-Requested-Host` header is likewise accepted without cryptographic
+attestation in V1.
+
+Production hardening needs two separate trust boundaries; one secret must not
+be reused for both:
+
+1. **Worker to Caddy.** The Worker strips any inbound
+   `X-Vibe-Requested-Host` and attestation header, sets the canonical requested
+   host itself, and adds a deployment-managed secret. Caddy ignores the custom
+   requested-host header unless that secret matches. Direct requests continue
+   to route only from their actual `Host`. Caddy removes the attestation header
+   before proxying to preview applications.
+2. **Caddy to VD resolver.** Caddy authenticates calls to the local
+   `/internal/preview/resolve` endpoint with a different deployment-managed
+   secret. VD rejects missing or mismatched credentials before parsing or
+   resolving a host. This credential is server-to-server and is never emitted
+   into the generated starting page or browser JavaScript.
+
+Secret configuration should support a runtime file path, with an environment
+value only as a deployment fallback. Files must be read at startup with
+owner-only permissions, never logged, and compared in constant time. Enabling
+the trusted requested-host path must fail closed when its secret is absent;
+silently falling back to unauthenticated header trust would preserve the V1
+hole under a production-looking configuration.
+
+The remaining browser-facing `/internal/preview/workspaces/...` management and
+log routes should use the application's eventual authenticated principal and
+workspace authorization, not expose either shared secret to the browser. Their
+authentication cutover must happen with the application auth/role foundation
+so audit rows can record the same verified principal. Until that foundation
+exists, keep these routes inside the Access-protected sandbox and do not claim
+the deployment is suitable for an untrusted public origin.
+
 ## Hard-break compatibility contract
 
 The named-host shape is the only supported Preview URL contract for this branch.
