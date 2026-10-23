@@ -4,7 +4,6 @@ import {
   CircleDashedIcon,
   CircleIcon,
   ListChecksIcon,
-  SpinnerIcon,
 } from '@phosphor-icons/react';
 import type { Session } from 'shared/types';
 import {
@@ -137,6 +136,12 @@ export function WorkspaceBeadsTaskList({
   const total = data
     ? data.counts.open + data.counts.inProgress + data.counts.done
     : 0;
+  const allCompleted = total > 0 && data?.counts.done === total;
+  const hasNonOpenBeads =
+    data &&
+    Object.values(data.groups).some((tasks) =>
+      tasks.some((task) => task.status !== 'open')
+    );
   const tooltip = data
     ? `${data.counts.inProgress} in progress, ${data.counts.open} open, ${data.counts.done} done`
     : 'Workspace tasks';
@@ -167,12 +172,14 @@ export function WorkspaceBeadsTaskList({
             >
               <div className="relative">
                 <ListChecksIcon className="size-icon-base" />
-                {state.status === 'loading' ? (
-                  <SpinnerIcon className="absolute -top-1 -right-1 size-3 animate-spin text-blue-500" />
-                ) : total > 0 ? (
-                  <span className="absolute -top-1 -right-1 flex h-3 min-w-3 items-center justify-center rounded-full bg-blue-500 px-0.5 text-[8px] leading-none text-white">
-                    {total > 9 ? '9+' : total}
-                  </span>
+                {allCompleted || hasNonOpenBeads ? (
+                  <span
+                    role="img"
+                    aria-label={
+                      allCompleted ? 'All beads completed' : 'Beads activity'
+                    }
+                    className={`absolute -top-0.5 -right-0.5 size-2 rounded-full ${allCompleted ? 'bg-green-500' : 'bg-blue-500'}`}
+                  />
                 ) : null}
               </div>
             </button>
