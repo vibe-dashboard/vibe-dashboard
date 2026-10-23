@@ -12,7 +12,7 @@ use db::models::{
     preview_process_link::{
         CreatePreviewProcessLink, PreviewProcessLink, PreviewProcessStatusSnapshot,
     },
-    preview_slot::{PreviewSlot, UpsertPreviewSlot},
+    preview_slot::{PreviewSlot, PreviewSlotTarget, UpsertPreviewSlot},
     run_config::{RunConfig, UpsertRunConfig},
     run_config_audit_event::{CreateRunConfigAuditEvent, RunConfigAuditEvent},
     scratch::{Scratch, ScratchPayload, ScratchType},
@@ -32,7 +32,11 @@ use ts_rs::TS;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError};
+use crate::{
+    DeploymentImpl,
+    error::ApiError,
+    preview_target::{ExternalPreviewTemplateContext, expand_external_preview_target},
+};
 
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -105,6 +109,21 @@ pub struct StopPreviewProcessRequest {
     pub preview_slot_id: Option<Uuid>,
 }
 
+#[derive(Debug, Deserialize, TS)]
+pub struct ValidatePreviewSlotTargetRequest {
+    pub repo_id: Uuid,
+    pub target: PreviewSlotTarget,
+}
+
+#[derive(Debug, Serialize, TS)]
+pub struct ValidatePreviewSlotTargetResponse {
+    pub valid: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub destination: Option<String>,
+    pub errors: Vec<String>,
+}
+
 fn repo_has_dev_server(repo: &db::models::repo::Repo) -> bool {
     if !repo.dev_server_scripts.is_empty() {
         return true;
@@ -170,6 +189,10 @@ pub fn router() -> Router<DeploymentImpl> {
         .route(
             "/preview-slots",
             get(list_preview_slots).post(upsert_preview_slot),
+        )
+        .route(
+            "/preview-slots/validate-target",
+            post(validate_preview_slot_target),
         )
         .route(
             "/preview-slots/{preview_slot_id}",
@@ -297,6 +320,19 @@ pub async fn upsert_preview_slot(
 ) -> Result<ResponseJson<ApiResponse<PreviewSlot>>, ApiError> {
     validate_slug("preview slot slug", &payload.slot_slug, 10)?;
     validate_workspace_repo(&deployment, workspace.id, payload.repo_id).await?;
+    match (&payload.target, payload.run_config_id) {
+        (Some(_), Some(_)) => {
+            return Err(ApiError::BadRequest(
+                "Provide target or legacy run_config_id, not both".to_string(),
+            ));
+        }
+        (None, None) => {
+            return Err(ApiError::BadRequest(
+                "Preview slot target is required".to_string(),
+            ));
+        }
+        _ => {}
+    }
     if let Some(run_config_id) = payload.local_run_config_id() {
         let run_config = RunConfig::find_by_id(&deployment.db().pool, run_config_id)
             .await?
@@ -306,6 +342,11 @@ pub async fn upsert_preview_slot(
                 "Preview slot repo must match run config repo".to_string(),
             ));
         }
+    }
+
+    if let Some(target @ PreviewSlotTarget::ExternalRedirect { .. }) = payload.target.as_ref() {
+        external_preview_destination(&deployment, &workspace, payload.repo_id, target, true)
+            .await?;
     }
 
     let slot = PreviewSlot::upsert(&deployment.db().pool, &payload).await?;
@@ -328,6 +369,36 @@ pub async fn upsert_preview_slot(
     )
     .await?;
     Ok(ResponseJson(ApiResponse::success(slot)))
+}
+
+#[axum::debug_handler]
+pub async fn validate_preview_slot_target(
+    Extension(workspace): Extension<Workspace>,
+    State(deployment): State<DeploymentImpl>,
+    ResponseJson(payload): ResponseJson<ValidatePreviewSlotTargetRequest>,
+) -> Result<ResponseJson<ApiResponse<ValidatePreviewSlotTargetResponse>>, ApiError> {
+    let response = match external_preview_destination(
+        &deployment,
+        &workspace,
+        payload.repo_id,
+        &payload.target,
+        false,
+    )
+    .await
+    {
+        Ok(destination) => ValidatePreviewSlotTargetResponse {
+            valid: true,
+            destination: Some(destination),
+            errors: vec![],
+        },
+        Err(ApiError::BadRequest(message)) => ValidatePreviewSlotTargetResponse {
+            valid: false,
+            destination: None,
+            errors: vec![message],
+        },
+        Err(error) => return Err(error),
+    };
+    Ok(ResponseJson(ApiResponse::success(response)))
 }
 
 #[axum::debug_handler]
@@ -960,6 +1031,81 @@ async fn repo_display_name(
         .ok_or_else(|| ApiError::BadRequest("Repository is not attached to workspace".to_string()))
 }
 
+async fn external_preview_destination(
+    deployment: &DeploymentImpl,
+    workspace: &Workspace,
+    repo_id: Uuid,
+    target: &PreviewSlotTarget,
+    initialize_identity: bool,
+) -> Result<String, ApiError> {
+    let PreviewSlotTarget::ExternalRedirect {
+        url_template,
+        project_slug,
+        allowed_host_template,
+    } = target
+    else {
+        return Err(ApiError::BadRequest(
+            "Target must be an external redirect".to_string(),
+        ));
+    };
+
+    let pool = &deployment.db().pool;
+    let repo_name = repo_display_name(deployment, workspace.id, repo_id).await?;
+    let repo_slug = if initialize_identity {
+        Some(RepoPreviewSlug::ensure(pool, repo_id, &repo_name).await?)
+    } else {
+        RepoPreviewSlug::find_by_repo_id(pool, repo_id).await?
+    };
+    let workspace_token = if initialize_identity {
+        Some(WorkspacePreviewToken::ensure(pool, workspace.id).await?)
+    } else {
+        WorkspacePreviewToken::find_by_workspace_id(pool, workspace.id).await?
+    };
+    let customer_slug = std::env::var("PREVIEW_URL_DEFAULT_CUSTOMER").ok();
+    if let Some(customer_slug) = customer_slug.as_deref() {
+        validate_customer_slug(customer_slug)?;
+    }
+    let context = ExternalPreviewTemplateContext {
+        branch: &workspace.branch,
+        repo_slug: repo_slug
+            .as_ref()
+            .map(|identity| identity.slug.as_str())
+            .unwrap_or("unused"),
+        repo_name: &repo_name,
+        workspace_token: workspace_token
+            .as_ref()
+            .map(|identity| identity.token.as_str())
+            .unwrap_or("0000000000000000"),
+        customer_slug: customer_slug.as_deref().unwrap_or("unused"),
+        project_slug: project_slug.as_deref(),
+    };
+    let destination = expand_external_preview_target(url_template, allowed_host_template, &context)
+        .map_err(|error| ApiError::BadRequest(error.to_string()))?;
+    if (!initialize_identity)
+        && ((repo_slug.is_none()
+            && templates_use_variable(url_template, allowed_host_template, "repoSlug"))
+            || (workspace_token.is_none()
+                && templates_use_variable(url_template, allowed_host_template, "workspaceToken")))
+    {
+        return Err(ApiError::BadRequest(
+            "Preview URL identity is not initialized".to_string(),
+        ));
+    }
+    if customer_slug.is_none()
+        && templates_use_variable(url_template, allowed_host_template, "customerSlug")
+    {
+        return Err(ApiError::BadRequest(
+            "PREVIEW_URL_DEFAULT_CUSTOMER is required when a target uses customerSlug".to_string(),
+        ));
+    }
+    Ok(destination.to_string())
+}
+
+fn templates_use_variable(url_template: &str, host_template: &str, variable: &str) -> bool {
+    let placeholder = format!("{{{variable}}}");
+    url_template.contains(&placeholder) || host_template.contains(&placeholder)
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn write_run_config_audit(
     deployment: &DeploymentImpl,
@@ -1133,7 +1279,7 @@ mod tests {
     use tower::ServiceExt;
     use uuid::Uuid;
 
-    use super::{build_preview_hostname, validate_customer_slug};
+    use super::{build_preview_hostname, templates_use_variable, validate_customer_slug};
 
     #[test]
     fn preview_hostname_uses_slot_repo_workspace_customer_order() {
@@ -1173,6 +1319,20 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn identity_lookup_is_only_required_when_template_references_identity() {
+        assert!(templates_use_variable(
+            "https://{workspaceToken}.example.com/{repoSlug}",
+            "{workspaceToken}.example.com",
+            "repoSlug"
+        ));
+        assert!(!templates_use_variable(
+            "https://{branchSlug}.example.com",
+            "{branchSlug}.example.com",
+            "repoSlug"
+        ));
     }
 
     #[tokio::test]

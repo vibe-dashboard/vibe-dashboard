@@ -42,6 +42,10 @@ export type PreviewSlotUrlParts = { previewSlotId: string, workspaceToken: strin
 
 export type PreviewSlotUrlResponse = { previewSlotId: string, workspaceToken: string, repoSlug: string, slotSlug: string, customerSlug: string, host: string, url: string, };
 
+export type ValidatePreviewSlotTargetRequest = { repo_id: string, target: PreviewSlotTarget, };
+
+export type ValidatePreviewSlotTargetResponse = { valid: boolean, destination?: string, errors: Array<string>, };
+
 export type NamedPreviewResolveRequest = { host: string, workspaceToken: string, repoSlug: string, slotSlug: string, customerSlug: string, ensure: boolean, method: string, path: string, };
 
 export type NamedPreviewResolveResponse = { status: string, upstream: string | null, message: string | null, executionProcessId: string | null, workspaceId: string | null, previewSlotId: string | null, };

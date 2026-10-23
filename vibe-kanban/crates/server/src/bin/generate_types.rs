@@ -28,6 +28,8 @@ fn generate_types_content() -> String {
         server::routes::workspaces::execution::WorkspaceRunConfigsResponse::decl(),
         server::routes::workspaces::execution::PreviewSlotUrlParts::decl(),
         server::routes::workspaces::execution::PreviewSlotUrlResponse::decl(),
+        server::routes::workspaces::execution::ValidatePreviewSlotTargetRequest::decl(),
+        server::routes::workspaces::execution::ValidatePreviewSlotTargetResponse::decl(),
         server::routes::preview::NamedPreviewResolveRequest::decl(),
         server::routes::preview::NamedPreviewResolveResponse::decl(),
         db::models::repo::SearchResult::decl(),
