@@ -51,6 +51,11 @@ export const test = base.extend<{ backend: InlineChatBackend }>({
 export { expect };
 
 export class InlineChatBackend {
+  discoveryDelayMs = 0;
+  metadataDelayMs = 0;
+  discoveryError: string | null = null;
+  discoveryModelAName = 'Model A';
+  discoveryConnections: string[] = [];
   previewCommand = 'npm run preview';
   previewSlotDeleted = false;
   previewConfigDeleted = false;
@@ -145,7 +150,11 @@ export class InlineChatBackend {
   constructor() {
     for (const session of this.sessions) {
       const process = this.stream(session.id, `History for ${session.id}`);
-      this.processes.set(session.id, { ...process, status: 'completed', completed_at: now });
+      this.processes.set(session.id, {
+        ...process,
+        status: 'completed',
+        completed_at: now,
+      });
     }
   }
 
@@ -156,41 +165,64 @@ export class InlineChatBackend {
         body: '<svg xmlns="http://www.w3.org/2000/svg"/>',
       }),
     );
-    await page.route((url) => url.pathname.startsWith('/api/'), (route) => this.http(route));
+    await page.route(
+      (url) => url.pathname.startsWith('/api/'),
+      (route) => this.http(route),
+    );
     await page.route('**/dashboard/api/**', (route) => this.http(route));
     await page.route('**/internal/preview/**', (route) => this.http(route));
-    await page.routeWebSocket(/\/api\//, (socket) => {
+    await page.routeWebSocket(/\/api\//, async (socket) => {
       const url = new URL(socket.url());
       const key = url.pathname + url.search;
       const sockets = this.sockets.get(key) ?? new Set();
       sockets.add(socket);
       this.sockets.set(key, sockets);
       socket.onClose(() => sockets.delete(socket));
+      if (
+        this.metadataDelayMs &&
+        (url.pathname.startsWith('/api/scratch/') ||
+          url.pathname.includes('/stream/session/'))
+      ) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, this.metadataDelayMs),
+        );
+        if (!sockets.has(socket)) return;
+      }
       if (url.pathname.includes('discovered-options')) {
-        this.patch(socket, '/options', {
-          model_selector: {
-            providers: [],
-            models: [
-              { id: 'model-a', name: 'Model A', reasoning_options: [] },
-              {
-                id: 'model-b',
-                name: 'Model B',
-                reasoning_options: [
-                  { id: 'low', label: 'Low', is_default: true },
-                  { id: 'high', label: 'High', is_default: false },
-                ],
-              },
-            ],
-            default_model: 'model-a',
-            agents: [],
-            permissions: ['AUTO', 'SUPERVISED', 'PLAN'],
-          },
-          slash_commands: [],
-          loading_models: false,
-          loading_agents: false,
-          loading_slash_commands: false,
-          error: null,
-        });
+        this.discoveryConnections.push(key);
+        const publish = () => {
+          if (!sockets.has(socket)) return;
+          this.patch(socket, '/options', {
+            model_selector: {
+              providers: [],
+              models: [
+                {
+                  id: 'model-a',
+                  name: this.discoveryModelAName,
+                  reasoning_options: [],
+                },
+                {
+                  id: 'model-b',
+                  name: 'Model B',
+                  reasoning_options: [
+                    { id: 'low', label: 'Low', is_default: true },
+                    { id: 'high', label: 'High', is_default: false },
+                  ],
+                },
+              ],
+              default_model: 'model-a',
+              agents: [],
+              permissions: ['AUTO', 'SUPERVISED', 'PLAN'],
+            },
+            slash_commands: [],
+            loading_models: false,
+            loading_agents: false,
+            loading_slash_commands: false,
+            error: this.discoveryError,
+          });
+        };
+        if (this.discoveryDelayMs) setTimeout(publish, this.discoveryDelayMs);
+        else publish();
       } else if (url.pathname.startsWith('/api/scratch/')) {
         const path = url.pathname.replace(/\/stream\/ws$/, '');
         this.patch(socket, '/scratch', this.scratches.get(path) ?? null);
@@ -212,10 +244,25 @@ export class InlineChatBackend {
         if (process?.status !== 'running')
           socket.send(JSON.stringify({ finished: true }));
       } else if (url.pathname.includes('/raw-logs/')) {
-        socket.send(JSON.stringify({ JsonPatch: [
-          { op: 'add', path: '/entries/0', value: { type: 'STDOUT', content: 'Preview server listening\n' } },
-          { op: 'add', path: '/entries/1', value: { type: 'STDERR', content: 'Preview warning\n' } },
-        ] }));
+        socket.send(
+          JSON.stringify({
+            JsonPatch: [
+              {
+                op: 'add',
+                path: '/entries/0',
+                value: {
+                  type: 'STDOUT',
+                  content: 'Preview server listening\n',
+                },
+              },
+              {
+                op: 'add',
+                path: '/entries/1',
+                value: { type: 'STDERR', content: 'Preview warning\n' },
+              },
+            ],
+          }),
+        );
       } else if (url.pathname.includes('/git/diff/')) {
         this.patch(socket, '/entries', {});
       } else if (url.pathname === '/api/approvals/stream/ws') {
@@ -231,7 +278,14 @@ export class InlineChatBackend {
     );
   }
 
-  stream(sessionId: string, message: string) {
+  stream(
+    sessionId: string,
+    message: string,
+    config: typeof executorConfig & {
+      model_id?: string;
+      reasoning_id?: string;
+    } = executorConfig,
+  ) {
     const process = {
       id: `process-${sessionId}`,
       session_id: sessionId,
@@ -240,7 +294,7 @@ export class InlineChatBackend {
         typ: {
           type: 'CodingAgentInitialRequest',
           prompt: 'Initial prompt',
-          executor_config: executorConfig,
+          executor_config: config,
           working_dir: null,
         },
         next_action: null,
@@ -407,22 +461,52 @@ export class InlineChatBackend {
       return route.fulfill({ json: { deleted: true } });
     }
     if (path.endsWith('/run-configs/run-1') && method === 'DELETE') {
-      if (!this.previewSlotDeleted) return route.fulfill({ status: 400, json: { message: 'Delete linked preview slots before deleting this run config.' } });
+      if (!this.previewSlotDeleted)
+        return route.fulfill({
+          status: 400,
+          json: {
+            message:
+              'Delete linked preview slots before deleting this run config.',
+          },
+        });
       this.previewConfigDeleted = true;
       return route.fulfill({ json: { deleted: true } });
     }
     if (path.endsWith('/preview-slots/slot-1/restart')) {
       this.previewRestarts++;
-      return route.fulfill({ json: { execution_process: { id: `preview-process-${this.previewRestarts}` } } });
+      return route.fulfill({
+        json: {
+          execution_process: { id: `preview-process-${this.previewRestarts}` },
+        },
+      });
     }
     if (path.endsWith('/preview-slots/slot-1/process')) {
-      return route.fulfill({ json: { processId: `preview-process-${this.previewRestarts}`, message: null } });
+      return route.fulfill({
+        json: {
+          processId: `preview-process-${this.previewRestarts}`,
+          message: null,
+        },
+      });
     }
     if (path.endsWith('/run-configs'))
       return route.fulfill({
         json: {
-          run_configs: this.previewConfigDeleted ? [] : [{ id: 'run-1', repo_id: 'repo-1', slug: 'app', name: 'Application', command: this.previewCommand, kind: 'long_running', enabled: true }],
-          preview_urls: { 'slot-1': 'http://127.0.0.1:5189/preview.html?slot=slot-1' },
+          run_configs: this.previewConfigDeleted
+            ? []
+            : [
+                {
+                  id: 'run-1',
+                  repo_id: 'repo-1',
+                  slug: 'app',
+                  name: 'Application',
+                  command: this.previewCommand,
+                  kind: 'long_running',
+                  enabled: true,
+                },
+              ],
+          preview_urls: {
+            'slot-1': 'http://127.0.0.1:5189/preview.html?slot=slot-1',
+          },
           preview_slots: [
             {
               id: 'slot-1',
@@ -627,7 +711,9 @@ export class InlineChatBackend {
           }
         }
       }
-      return reply(method === 'DELETE' ? null : this.scratches.get(path) ?? null);
+      return reply(
+        method === 'DELETE' ? null : (this.scratches.get(path) ?? null),
+      );
     }
     if (path.includes('/queue')) return reply({ status: 'empty' });
     if (path.includes('/branch-status')) return reply([]);

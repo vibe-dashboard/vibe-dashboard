@@ -105,6 +105,7 @@ export function ModelSelectorContainer({
     config: streamConfig,
     loadingModels,
     error: streamError,
+    retry: retryDiscovery,
   } = useModelSelectorConfig(agent, {
     workspaceId: sessionId ? workspaceId : undefined,
     sessionId,
@@ -400,7 +401,13 @@ export function ModelSelectorContainer({
     return (
       <>
         <DropdownMenu>
-          <DropdownMenuTriggerButton size="sm" label={loadingLabel} disabled />
+          <DropdownMenuTriggerButton
+            size="sm"
+            label={streamError ? t('buttons.retry') : loadingLabel}
+            title={streamError ?? loadingLabel}
+            disabled={!streamError}
+            onClick={() => void retryDiscovery()}
+          />
         </DropdownMenu>
       </>
     );
@@ -436,6 +443,16 @@ export function ModelSelectorContainer({
 
   return (
     <>
+      {streamError && (
+        <button
+          type="button"
+          title={streamError}
+          className="text-xs text-danger hover:underline"
+          onClick={() => void retryDiscovery()}
+        >
+          {t('buttons.retry')}
+        </button>
+      )}
       <DropdownMenu>
         <DropdownMenuTriggerButton
           size="sm"

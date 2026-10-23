@@ -31,7 +31,7 @@ import { useEntries, useTokenUsage } from '../model/contexts/EntriesContext';
 import { useExecutionProcesses } from '@/shared/hooks/useExecutionProcesses';
 import { useReviewOptional } from '@/shared/hooks/useReview';
 import { useTodos } from '../model/hooks/useTodos';
-import { getLatestConfigFromProcesses } from '@/shared/lib/executor';
+import { useSessionExecutorConfig } from '@/shared/hooks/useSessionExecutorConfig';
 import { useExecutorConfig } from '@/shared/hooks/useExecutorConfig';
 import {
   resolveSessionMessageScratchId,
@@ -264,8 +264,14 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   }, [entries]);
 
   // Execution state
-  const { isAttemptRunning, stopExecution, isStopping, processes } =
-    useWorkspaceExecution(workspaceId);
+  const {
+    isAttemptRunning,
+    stopExecution,
+    isStopping,
+    processes,
+    isLoading: isExecutionLoading,
+    error: executionError,
+  } = useWorkspaceExecution(workspaceId);
 
   // Approvals state
   const { getPendingForProcess } = useApprovals();
@@ -406,29 +412,31 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
   // Fetch processes from last session to get full profile (only in new session mode)
   const lastSessionId = isNewSessionMode ? sessions?.[0]?.id : undefined;
-  const { executionProcesses: lastSessionProcesses } =
-    useExecutionProcesses(lastSessionId);
+  const {
+    executionProcesses: lastSessionProcesses,
+    isLoading: isLastSessionLoading,
+    error: lastSessionError,
+  } = useExecutionProcesses(lastSessionId);
 
   // Compute latestConfig: current processes > last session processes > session metadata
-  const latestConfig = useMemo(() => {
-    // Current session's processes take priority (full ExecutorConfig)
-    const fromProcesses = getLatestConfigFromProcesses(processes);
-    if (fromProcesses) return fromProcesses;
-
-    // Try full config from last session's processes
-    const fromLastSession = getLatestConfigFromProcesses(lastSessionProcesses);
-    if (fromLastSession) return fromLastSession;
-
-    // Fallback: just executor from session metadata
-    const lastSessionExecutor = sessions?.[0]?.executor;
-    if (lastSessionExecutor) {
-      return {
-        executor: lastSessionExecutor as BaseCodingAgent,
-      };
-    }
-
-    return null;
-  }, [processes, lastSessionProcesses, sessions]);
+  const cachedSessionConfig = useSessionExecutorConfig(
+    workspaceId,
+    isNewSessionMode ? lastSessionId : sessionId,
+    isNewSessionMode ? lastSessionProcesses : processes,
+    isNewSessionMode
+      ? isLastSessionLoading || !!lastSessionError
+      : isExecutionLoading || !!executionError
+  );
+  const metadataExecutor = isNewSessionMode
+    ? sessions[0]?.executor
+    : session?.executor;
+  const latestConfig =
+    cachedSessionConfig ??
+    (metadataExecutor
+      ? {
+          executor: metadataExecutor as BaseCodingAgent,
+        }
+      : null);
 
   const needsExecutorSelection =
     isNewSessionMode || (!session?.executor && !latestConfig?.executor);

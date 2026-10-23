@@ -1,87 +1,96 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { BaseCodingAgent, ExecutorDiscoveredOptions } from 'shared/types';
-import { useJsonPatchWsStream } from '@/shared/hooks/useJsonPatchWsStream';
 import { agentsApi } from '@/shared/lib/api';
+import { loadExecutorDiscovery } from '@/shared/lib/loadExecutorDiscovery';
+import { useHostId } from '@/shared/providers/HostIdProvider';
+import { executorDiscoveryKeys } from './executorDiscoveryKeys';
 
-type ExecutorDiscoveryStreamState = {
-  options: ExecutorDiscoveredOptions | null;
-};
-
-const defaultOptions: ExecutorDiscoveredOptions = {
-  model_selector: {
-    providers: [],
-    models: [],
-    model_order: [],
-    default_model: null,
-    agents: [],
-    permissions: [],
-  },
-  slash_commands: [],
-  loading_models: true,
-  loading_agents: true,
-  loading_slash_commands: true,
-  error: null,
-};
-
-const settledEmptyOptions: ExecutorDiscoveredOptions = {
-  ...defaultOptions,
-  loading_models: false,
-  loading_agents: false,
-  loading_slash_commands: false,
-};
+function keepResolvedOptions(
+  next: ExecutorDiscoveredOptions,
+  cached: ExecutorDiscoveredOptions | undefined
+): ExecutorDiscoveredOptions {
+  if (!cached) return next;
+  const keepModels = next.loading_models && !cached.loading_models;
+  const keepAgents = next.loading_agents && !cached.loading_agents;
+  const keepCommands =
+    next.loading_slash_commands && !cached.loading_slash_commands;
+  return {
+    ...next,
+    model_selector: {
+      ...next.model_selector,
+      ...(keepModels
+        ? {
+            providers: cached.model_selector.providers,
+            models: cached.model_selector.models,
+            model_order: cached.model_selector.model_order,
+            default_model: cached.model_selector.default_model,
+          }
+        : {}),
+      ...(keepAgents
+        ? {
+            agents: cached.model_selector.agents,
+            permissions: cached.model_selector.permissions,
+          }
+        : {}),
+    },
+    slash_commands: keepCommands ? cached.slash_commands : next.slash_commands,
+    loading_models: keepModels ? false : next.loading_models,
+    loading_agents: keepAgents ? false : next.loading_agents,
+    loading_slash_commands: keepCommands ? false : next.loading_slash_commands,
+  };
+}
 
 function useExecutorDiscovery(
   agent: BaseCodingAgent | null | undefined,
   opts?: { workspaceId?: string; sessionId?: string; repoId?: string }
 ) {
   const { workspaceId, sessionId, repoId } = opts ?? {};
-  const endpoint = useMemo(() => {
-    if (!agent) return undefined;
-    return agentsApi.getDiscoveredOptionsStreamUrl(agent, {
-      workspaceId,
-      sessionId,
-      repoId,
-    });
-  }, [agent, workspaceId, sessionId, repoId]);
-
-  const initialData = useCallback(
-    (): ExecutorDiscoveryStreamState => ({
-      options: { ...defaultOptions },
-    }),
-    []
+  const hostId = useHostId();
+  const queryClient = useQueryClient();
+  const queryKey = executorDiscoveryKeys.byScope(
+    hostId,
+    agent,
+    workspaceId,
+    sessionId,
+    repoId
   );
-
-  const { data, error, isConnected, isInitialized, isFinished } =
-    useJsonPatchWsStream<ExecutorDiscoveryStreamState>(
-      endpoint,
-      !!endpoint,
-      initialData,
-      {
-        reconnectOnCleanClose: false,
-      }
-    );
-
-  // Prefer the backend-reported error from the data payload. Only fall back
-  // to the WebSocket transport error when no data has been received yet —
-  // transient connection failures (e.g. React StrictMode double-mount or
-  // Safari/macOS 26 WebSocket instability) should not persist once data
-  // has successfully loaded.
-  const combinedError = data?.options?.error ?? (isInitialized ? null : error);
-
-  useEffect(() => {
-    if (combinedError) {
-      console.error(
-        'Failed to fetch executor discovery options',
-        combinedError
-      );
-    }
-  }, [combinedError]);
+  const query = useQuery<ExecutorDiscoveredOptions>({
+    queryKey,
+    enabled: !!agent,
+    staleTime: (cachedQuery) => {
+      const options = cachedQuery.state.data;
+      return options &&
+        !options.loading_models &&
+        !options.loading_agents &&
+        !options.loading_slash_commands
+        ? 5 * 60_000
+        : 0;
+    },
+    gcTime: 30 * 60_000,
+    retry: 1,
+    queryFn: ({ signal }) =>
+      loadExecutorDiscovery(
+        agentsApi.getDiscoveredOptionsStreamUrl(agent!, {
+          workspaceId,
+          sessionId,
+          repoId,
+        }),
+        hostId,
+        signal,
+        (options) =>
+          queryClient.setQueryData<ExecutorDiscoveredOptions>(
+            queryKey,
+            (cached) => keepResolvedOptions(options, cached)
+          )
+      ),
+  });
 
   return {
-    options: data?.options ?? (isFinished ? settledEmptyOptions : null),
-    error: combinedError,
-    isConnected,
-    isInitialized,
+    options: agent ? (query.data ?? null) : null,
+    error: query.error?.message ?? null,
+    isConnected: query.isFetching,
+    isInitialized: !!query.data,
+    retry: query.refetch,
   };
 }
 
@@ -89,18 +98,17 @@ export function useModelSelectorConfig(
   agent: BaseCodingAgent | null | undefined,
   opts?: { workspaceId?: string; sessionId?: string; repoId?: string }
 ) {
-  const { options, error, isConnected, isInitialized } = useExecutorDiscovery(
-    agent,
-    opts
-  );
+  const { options, error, isConnected, isInitialized, retry } =
+    useExecutorDiscovery(agent, opts);
 
   return {
     config: options?.model_selector ?? null,
-    loadingModels: options?.loading_models ?? false,
-    loadingAgents: options?.loading_agents ?? false,
+    loadingModels: !error && (options?.loading_models ?? !!agent),
+    loadingAgents: !error && (options?.loading_agents ?? !!agent),
     error,
     isConnected,
     isInitialized,
+    retry,
   };
 }
 
