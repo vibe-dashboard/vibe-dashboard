@@ -115,6 +115,23 @@ assert_equals() {
   fi
 }
 
+assert_workflow_wires_vd_source() {
+  local workflow="$repo_root/.github/workflows/publish-ghcr-vk-vd.yml"
+  local required_lines=(
+    'vd_ref: ${{ steps.resolve.outputs.vd_ref }}'
+    'vd_commit: ${{ steps.resolve.outputs.vd_commit }}'
+    'source-ref: ${{ needs.resolve-vk-ref.outputs.vd_ref }}'
+    'source-checksum: ${{ needs.resolve-vk-ref.outputs.vd_commit }}'
+  )
+  local line
+  for line in "${required_lines[@]}"; do
+    if ! grep -Fqx "      $line" "$workflow"; then
+      echo "not ok - publish workflow is missing VD source wiring: $line" >&2
+      exit 1
+    fi
+  done
+}
+
 vd_work="$(make_vd_repo)"
 vd_bare="$tmpdir/vd.git"
 fakebin="$tmpdir/fakebin"
@@ -140,6 +157,8 @@ chmod +x "$fakebin/curl" "$fakebin/sleep"
 
 vd_main_sha="$(git -C "$vd_work" rev-parse main)"
 vd_feature_sha="$(git -C "$vd_work" rev-parse feature/sync)"
+
+assert_workflow_wires_vd_source
 
 output="$(run_resolver \
   GITHUB_EVENT_NAME=push \
