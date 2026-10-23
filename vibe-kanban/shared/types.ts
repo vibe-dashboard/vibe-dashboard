@@ -540,15 +540,21 @@ session_id: string,
  */
 data: DraftFollowUpData,
 /**
+ * Hash of the exact caller-requested payload, before executor derivation.
+ */
+requested_payload_fingerprint: string,
+/**
  * Timestamp when the message was queued
  */
 queued_at: string, };
 
 export type QueueStatus = { "status": "empty" } | { "status": "queued", message: QueuedMessage, } | { "status": "consuming", message: QueuedMessage, };
 
+export type QueueDispatchOutcome = { "status": "started", process: ExecutionProcess, } | { "status": "failed_before_start", message: string, } | { "status": "indeterminate", message: string, } | { "status": "pending" };
+
 export type QueueEffectLifecycle = "reserved" | "started" | "failed_before_start" | "indeterminate";
 
-export type QueueEffectReconciliation = { queue_id: string, owner: string, session_id: string, lifecycle: QueueEffectLifecycle, process: ExecutionProcess | null, };
+export type QueueEffectReconciliation = { queue_id: string, owner: string, session_id: string, requested_payload_fingerprint: string, lifecycle: QueueEffectLifecycle, process: ExecutionProcess | null, };
 
 export type ConflictOp = "rebase" | "merge" | "cherry_pick" | "revert";
 
