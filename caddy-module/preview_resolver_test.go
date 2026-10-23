@@ -120,6 +120,57 @@ func TestPreviewResolverUsesRequestedHostHeaderAndEnsuresOnlyDocumentNavigations
 	}
 }
 
+func TestPreviewResolverRedirectsExternalTargetsWithoutCaching(t *testing.T) {
+	resolver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"redirect","location":"https://project.preview.example.test/branch"}`))
+	}))
+	defer resolver.Close()
+
+	handler := &PreviewResolver{ResolverURL: resolver.URL, client: resolver.Client()}
+	req := httptest.NewRequest(http.MethodGet, "https://web-vibekanban-0123456789abcdef--customer.example.test/", nil)
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeHTTP(rec, req, caddyhttp.HandlerFunc(func(http.ResponseWriter, *http.Request) error {
+		t.Fatal("next handler should not run")
+		return nil
+	})); err != nil {
+		t.Fatalf("ServeHTTP returned error: %v", err)
+	}
+	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "https://project.preview.example.test/branch" {
+		t.Fatalf("unexpected redirect: status=%d location=%q", rec.Code, rec.Header().Get("Location"))
+	}
+	if rec.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("expected no-store redirect, got %q", rec.Header().Get("Cache-Control"))
+	}
+}
+
+func TestPreviewResolverRejectsUnsafeExternalRedirects(t *testing.T) {
+	for name, location := range map[string]string{
+		"missing":     "",
+		"http":        "http://project.preview.example.test/branch",
+		"credentials": "https://user:pass@project.preview.example.test/branch",
+		"query":       "https://project.preview.example.test/branch?token=secret",
+		"port":        "https://project.preview.example.test:8443/branch",
+	} {
+		t.Run(name, func(t *testing.T) {
+			resolver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_ = json.NewEncoder(w).Encode(previewResolveResponse{Status: "redirect", Location: location})
+			}))
+			defer resolver.Close()
+			handler := &PreviewResolver{ResolverURL: resolver.URL, client: resolver.Client()}
+			req := httptest.NewRequest(http.MethodGet, "https://web-vibekanban-0123456789abcdef--customer.example.test/", nil)
+			rec := httptest.NewRecorder()
+			if err := handler.ServeHTTP(rec, req, caddyhttp.HandlerFunc(func(http.ResponseWriter, *http.Request) error { return nil })); err != nil {
+				t.Fatalf("ServeHTTP returned error: %v", err)
+			}
+			if rec.Code != http.StatusBadGateway || rec.Header().Get("Location") != "" {
+				t.Fatalf("unsafe redirect was not rejected: status=%d location=%q", rec.Code, rec.Header().Get("Location"))
+			}
+		})
+	}
+}
+
 func TestPreviewStatusPollUsesHostIdentityAndReturnsOnlySafeFields(t *testing.T) {
 	var got previewResolveRequest
 	resolver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

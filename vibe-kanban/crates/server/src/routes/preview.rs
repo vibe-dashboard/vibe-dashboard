@@ -10,7 +10,7 @@ use axum::{
 use db::models::{
     execution_process::{ExecutionProcess, ExecutionProcessStatus},
     preview_process_link::{PreviewProcessLink, PreviewProcessStatusSnapshot},
-    preview_slot::PreviewSlot,
+    preview_slot::{PreviewSlot, PreviewSlotTarget},
     run_config::RunConfig,
     workspace::Workspace,
 };
@@ -26,8 +26,10 @@ use uuid::Uuid;
 use ws_bridge::{bridge_axum_ws, connect_upstream_ws};
 
 use crate::{
-    DeploymentImpl, error::ApiError, middleware::signed_ws::SignedWsUpgrade,
-    routes::workspaces::execution::start_run_config,
+    DeploymentImpl,
+    error::ApiError,
+    middleware::signed_ws::SignedWsUpgrade,
+    routes::workspaces::execution::{external_preview_destination, start_run_config},
 };
 
 pub(super) fn api_router() -> Router<DeploymentImpl> {
@@ -55,6 +57,8 @@ pub struct NamedPreviewResolveRequest {
 #[serde(rename_all = "camelCase")]
 pub struct NamedPreviewResolveResponse {
     pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub location: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub upstream: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -91,9 +95,37 @@ async fn resolve_named_preview(
             NamedPreviewResolveResponse::not_found("Preview slot was not found"),
         )));
     };
+    if !slot.enabled {
+        return Ok(ResponseJson(ApiResponse::success(
+            NamedPreviewResolveResponse::not_found("Preview slot is disabled"),
+        )));
+    }
+    if matches!(&slot.target, PreviewSlotTarget::ExternalRedirect { .. }) {
+        let location = match external_preview_destination(
+            &deployment,
+            &workspace,
+            repo_id,
+            &slot.target,
+            false,
+        )
+        .await
+        {
+            Ok(location) => location,
+            Err(ApiError::BadRequest(error)) => {
+                tracing::warn!(%error, preview_slot_id = %slot.id, "External preview target is invalid");
+                return Ok(ResponseJson(ApiResponse::success(
+                    NamedPreviewResolveResponse::failed("External preview target is invalid"),
+                )));
+            }
+            Err(error) => return Err(error),
+        };
+        return Ok(ResponseJson(ApiResponse::success(
+            NamedPreviewResolveResponse::redirect(location),
+        )));
+    }
     let Some(run_config_id) = slot.local_run_config_id() else {
         return Ok(ResponseJson(ApiResponse::success(
-            NamedPreviewResolveResponse::not_found("External preview target is not available yet"),
+            NamedPreviewResolveResponse::failed("Preview slot target is invalid"),
         )));
     };
     let Some(run_config) = RunConfig::find_by_id(pool, run_config_id).await? else {
@@ -101,11 +133,6 @@ async fn resolve_named_preview(
             NamedPreviewResolveResponse::not_found("Run config was not found"),
         )));
     };
-    if !slot.enabled {
-        return Ok(ResponseJson(ApiResponse::success(
-            NamedPreviewResolveResponse::not_found("Preview slot is disabled"),
-        )));
-    }
     if !run_config.enabled {
         return Ok(ResponseJson(ApiResponse::success(
             NamedPreviewResolveResponse::not_found("Run config is disabled"),
@@ -225,6 +252,7 @@ impl NamedPreviewResolveResponse {
     ) -> Self {
         Self {
             status: "ready".to_string(),
+            location: None,
             upstream: Some(format!("http://127.0.0.1:{port}")),
             message: None,
             execution_process_id: Some(execution_process_id),
@@ -236,6 +264,7 @@ impl NamedPreviewResolveResponse {
     fn starting() -> Self {
         Self {
             status: "starting".to_string(),
+            location: None,
             upstream: None,
             message: Some("Preview server is starting".to_string()),
             execution_process_id: None,
@@ -251,6 +280,7 @@ impl NamedPreviewResolveResponse {
     ) -> Self {
         Self {
             status: "starting".to_string(),
+            location: None,
             upstream: None,
             message: Some("Preview server is starting".to_string()),
             execution_process_id: Some(execution_process_id),
@@ -262,6 +292,7 @@ impl NamedPreviewResolveResponse {
     fn not_found(message: &str) -> Self {
         Self {
             status: "not_found".to_string(),
+            location: None,
             upstream: None,
             message: Some(message.to_string()),
             execution_process_id: None,
@@ -273,6 +304,7 @@ impl NamedPreviewResolveResponse {
     fn capacity_full(message: &str) -> Self {
         Self {
             status: "capacity_full".to_string(),
+            location: None,
             upstream: None,
             message: Some(message.to_string()),
             execution_process_id: None,
@@ -284,6 +316,7 @@ impl NamedPreviewResolveResponse {
     fn failed(message: &str) -> Self {
         Self {
             status: "failed".to_string(),
+            location: None,
             upstream: None,
             message: Some(message.to_string()),
             execution_process_id: None,
@@ -300,11 +333,24 @@ impl NamedPreviewResolveResponse {
     ) -> Self {
         Self {
             status: "failed".to_string(),
+            location: None,
             upstream: None,
             message: Some(message.to_string()),
             execution_process_id: Some(execution_process_id),
             workspace_id: Some(workspace_id),
             preview_slot_id: Some(preview_slot_id),
+        }
+    }
+
+    fn redirect(location: String) -> Self {
+        Self {
+            status: "redirect".to_string(),
+            location: Some(location),
+            upstream: None,
+            message: None,
+            execution_process_id: None,
+            workspace_id: None,
+            preview_slot_id: None,
         }
     }
 }
@@ -513,5 +559,16 @@ mod tests {
             assert_eq!(value["workspaceId"], workspace_id.to_string());
             assert_eq!(value["previewSlotId"], slot_id.to_string());
         }
+    }
+
+    #[test]
+    fn redirect_response_exposes_only_location() {
+        let value = serde_json::to_value(NamedPreviewResolveResponse::redirect(
+            "https://preview.example.test/path".to_string(),
+        ))
+        .expect("response should serialize");
+        assert_eq!(value["status"], "redirect");
+        assert_eq!(value["location"], "https://preview.example.test/path");
+        assert!(value.get("upstream").is_none());
     }
 }

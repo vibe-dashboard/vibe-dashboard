@@ -1031,7 +1031,7 @@ async fn repo_display_name(
         .ok_or_else(|| ApiError::BadRequest("Repository is not attached to workspace".to_string()))
 }
 
-async fn external_preview_destination(
+pub(crate) async fn external_preview_destination(
     deployment: &DeploymentImpl,
     workspace: &Workspace,
     repo_id: Uuid,

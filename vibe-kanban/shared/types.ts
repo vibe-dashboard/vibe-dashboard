@@ -48,7 +48,7 @@ export type ValidatePreviewSlotTargetResponse = { valid: boolean, destination?: 
 
 export type NamedPreviewResolveRequest = { host: string, workspaceToken: string, repoSlug: string, slotSlug: string, customerSlug: string, ensure: boolean, method: string, path: string, };
 
-export type NamedPreviewResolveResponse = { status: string, upstream: string | null, message: string | null, executionProcessId: string | null, workspaceId: string | null, previewSlotId: string | null, };
+export type NamedPreviewResolveResponse = { status: string, location: string | null, upstream: string | null, message: string | null, executionProcessId: string | null, workspaceId: string | null, previewSlotId: string | null, };
 
 export type SearchResult = { path: string, is_file: boolean, match_type: SearchMatchType,
 /**

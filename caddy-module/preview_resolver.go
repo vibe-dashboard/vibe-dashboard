@@ -72,6 +72,7 @@ type previewLogEntry struct {
 
 type previewResolveResponse struct {
 	Status             string            `json:"status"`
+	Location           string            `json:"location,omitempty"`
 	Upstream           string            `json:"upstream,omitempty"`
 	Message            string            `json:"message,omitempty"`
 	ExecutionProcessID string            `json:"executionProcessId,omitempty"`
@@ -143,6 +144,15 @@ func (p *PreviewResolver) ServeHTTP(w http.ResponseWriter, r *http.Request, next
 	}
 
 	switch decision.Status {
+	case "redirect":
+		location, err := validatedPreviewRedirect(decision.Location)
+		if err != nil {
+			p.writePreviewUnavailable(w, r, http.StatusBadGateway, "Preview resolver returned an invalid redirect")
+			return nil
+		}
+		w.Header().Set("Location", location)
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusFound)
 	case "ready":
 		if decision.Upstream == "" {
 			p.writePreviewUnavailable(w, r, http.StatusBadGateway, "Preview resolver returned no upstream")
@@ -161,6 +171,17 @@ func (p *PreviewResolver) ServeHTTP(w http.ResponseWriter, r *http.Request, next
 		p.writePreviewUnavailable(w, r, http.StatusBadGateway, "Preview resolver returned an unknown status")
 	}
 	return nil
+}
+
+func validatedPreviewRedirect(raw string) (string, error) {
+	target, err := url.Parse(raw)
+	if err != nil || target.Scheme != "https" || target.Host == "" || target.User != nil || target.RawQuery != "" || target.Fragment != "" {
+		return "", fmt.Errorf("redirect must be an absolute HTTPS URL without credentials, query, or fragment")
+	}
+	if port := target.Port(); port != "" && port != "443" {
+		return "", fmt.Errorf("redirect port must be 443")
+	}
+	return target.String(), nil
 }
 
 func parsePreviewResolverCaddyfile(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {

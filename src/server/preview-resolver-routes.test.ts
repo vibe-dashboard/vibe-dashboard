@@ -57,6 +57,35 @@ describe('registerPreviewResolverRoutes', () => {
     expect(resolvePreview).toHaveBeenCalledWith(payload);
   });
 
+  it('preserves external redirect decisions from VK', async () => {
+    const resolvePreview = vi.fn(async () => ({
+      status: 'redirect' as const,
+      location: 'https://project.preview.example.test/branch',
+    }));
+    const app = new Hono();
+    registerPreviewResolverRoutes(app, { vkClient: { resolvePreview } });
+
+    const response = await app.request('/internal/preview/resolve', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        host: 'web-vibekanban-0123456789abcdef--customer.example.test',
+        workspaceToken: '0123456789abcdef',
+        repoSlug: 'vibekanban',
+        slotSlug: 'web',
+        customerSlug: 'customer',
+        ensure: true,
+        method: 'GET',
+        path: '/',
+      }),
+    });
+
+    await expect(response.json()).resolves.toEqual({
+      status: 'redirect',
+      location: 'https://project.preview.example.test/branch',
+    });
+  });
+
   it('returns bounded redacted logs for the process selected by host resolution', async () => {
     const payload: PreviewResolveRequest = {
       host: 'web-vibekanban-0123456789abcdef--preview.localhost',

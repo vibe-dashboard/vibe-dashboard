@@ -146,7 +146,8 @@ export interface PreviewResolveRequest {
 }
 
 export interface PreviewResolveResponse {
-  status: 'ready' | 'starting' | 'not_found' | 'capacity_full' | 'failed' | 'unavailable' | 'error';
+  status: 'ready' | 'redirect' | 'starting' | 'not_found' | 'capacity_full' | 'failed' | 'unavailable' | 'error';
+  location?: string | null;
   upstream?: string | null;
   message?: string | null;
   executionProcessId?: string | null;

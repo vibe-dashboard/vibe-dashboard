@@ -36,6 +36,7 @@ export interface RegisterPreviewResolverRoutesOptions {
 
 const VALID_RESOLVE_STATUSES = new Set([
   'ready',
+  'redirect',
   'starting',
   'not_found',
   'capacity_full',
@@ -340,6 +341,7 @@ function normalizeResolveResponse(response: PreviewResolveResponse): PreviewReso
   }
   return {
     status,
+    location: response.location ?? undefined,
     upstream: response.upstream ?? undefined,
     message: response.message ?? undefined,
     executionProcessId: response.executionProcessId ?? undefined,
