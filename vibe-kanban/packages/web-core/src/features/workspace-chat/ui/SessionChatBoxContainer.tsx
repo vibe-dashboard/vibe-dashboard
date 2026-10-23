@@ -1170,7 +1170,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
           />
         ) : undefined
       }
-      workspacePreview={chatViewMode === 'full' ? workspacePreview : undefined}
+      workspacePreview={chatViewMode !== 'zen' ? workspacePreview : undefined}
       executor={
         needsExecutorSelection
           ? {

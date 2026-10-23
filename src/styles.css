@@ -103,7 +103,7 @@ textarea {
 .border-muted { border-color: var(--border-muted); }
 @media (max-width: 767px) {
   :root {
-    --mobile-footer-offset: calc(7.15rem + env(safe-area-inset-bottom));
+    --mobile-footer-offset: var(--mobile-footer-height);
     --mobile-footer-height: calc(2.5rem + env(safe-area-inset-bottom));
   }
 }
