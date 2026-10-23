@@ -241,6 +241,7 @@ fn generate_types_content() -> String {
         executors::executors::claude::ClaudeEffort::decl(),
         executors::executors::claude::ClaudeCode::decl(),
         executors::executors::gemini::Gemini::decl(),
+        executors::executors::generic_acp::GenericAcp::decl(),
         executors::executors::amp::Amp::decl(),
         executors::executors::codex::Codex::decl(),
         executors::executors::codex::SandboxMode::decl(),
@@ -364,6 +365,10 @@ fn generate_schemas() -> Result<HashMap<&'static str, String>, serde_json::Error
         (
             "gemini",
             generate_json_schema::<executors::executors::gemini::Gemini>()?,
+        ),
+        (
+            "generic_acp",
+            generate_json_schema::<executors::executors::generic_acp::GenericAcp>()?,
         ),
         (
             "codex",
