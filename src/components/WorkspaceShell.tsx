@@ -842,7 +842,7 @@ export function WorkspaceShell({
         return;
       }
 
-      if (e.ctrlKey && !e.metaKey && !e.altKey && !isEditableTarget(e.target)) {
+      if (e.ctrlKey && !e.metaKey && !e.altKey) {
         if (key === "[" || key === "]") {
           e.preventDefault();
           e.stopPropagation();

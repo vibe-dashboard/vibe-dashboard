@@ -73,7 +73,7 @@ export function ContextUsageGauge({
 
   const progressColor =
     status === 'empty'
-      ? 'text-low/40'
+      ? 'text-low opacity-40'
       : status === 'critical'
         ? 'text-error'
         : status === 'high'
@@ -116,7 +116,7 @@ export function ContextUsageGauge({
             fill="none"
             stroke="currentColor"
             strokeWidth={strokeWidth}
-            className="text-border/60"
+            className="text-low opacity-25"
           />
           <circle
             cx="10"

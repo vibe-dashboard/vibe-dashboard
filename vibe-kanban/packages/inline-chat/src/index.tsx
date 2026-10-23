@@ -69,7 +69,7 @@ export type InlineVkAgentChatProps = {
   surfaceId: string;
   title?: string;
   theme?: InlineVkAgentChatTheme;
-  chatViewMode?: 'full' | 'zen';
+  chatViewMode?: SurfaceChatViewMode;
   workspacePreview?: ReactNode;
   onOpenCraft?: () => void;
   onRemoveCraft?: () => void;
@@ -79,7 +79,7 @@ export type InlineVkCreateWorkspaceProps = {
   surfaceId: string;
   theme?: InlineVkAgentChatTheme;
   onWorkspaceCreated?: (workspaceId: string) => void;
-  chatViewMode?: 'full' | 'zen';
+  chatViewMode?: SurfaceChatViewMode;
 };
 
 const inlineQueryClient = new QueryClient({
@@ -422,12 +422,13 @@ function InlineWorkspaceChat({
       >
         <SelectTrigger
           aria-label="Chat view"
-          className="inline-flex h-9 w-auto min-w-[88px] shrink-0 rounded-sm border-border bg-secondary text-sm text-normal"
+          className="inline-flex h-7 w-auto min-w-[72px] shrink-0 rounded-sm border-border bg-secondary py-0 text-xs text-normal"
         >
           <SelectValue placeholder="View" />
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="full">Full</SelectItem>
+          <SelectItem value="mostly-zen">Chat</SelectItem>
           <SelectItem value="zen">Zen</SelectItem>
         </SelectContent>
       </Select>
@@ -470,7 +471,7 @@ function InlineWorkspaceChatContent({
   refHolder: React.RefObject<{
     scrollToBottom: (behavior?: 'auto' | 'smooth') => void;
   } | null>;
-  chatViewMode: 'full' | 'zen';
+  chatViewMode: SurfaceChatViewMode;
   chatViewModeSelector: ReactNode;
   workspacePreview?: ReactNode;
   surfaceId: string;

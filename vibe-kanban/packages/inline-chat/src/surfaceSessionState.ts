@@ -1,6 +1,6 @@
 const STORAGE_PREFIX = 'vd:inline-vk-chat:v1';
 
-export type SurfaceChatViewMode = 'full' | 'zen';
+export type SurfaceChatViewMode = 'full' | 'mostly-zen' | 'zen';
 
 export function getBrowserStorage(): Storage | null {
   if (typeof window === 'undefined') return null;
@@ -65,7 +65,7 @@ export function readSurfaceChatViewMode(
     const mode = storage.getItem(
       surfaceChatViewModeStorageKey(workspaceId, surfaceId)
     );
-    return mode === 'full' || mode === 'zen' ? mode : null;
+    return mode === 'full' || mode === 'mostly-zen' || mode === 'zen' ? mode : null;
   } catch {
     return null;
   }

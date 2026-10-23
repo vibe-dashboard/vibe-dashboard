@@ -181,10 +181,11 @@ export function WorkspaceBeadsTaskList({
       </Tooltip>
       <PopoverContent
         align="end"
-        className="w-[25rem] max-w-[calc(100vw-2rem)] max-h-[min(80vh,var(--radix-popover-content-available-height))] overflow-hidden"
+        side="top"
+        className="flex w-[25rem] max-w-[calc(100vw-2rem)] max-h-[min(80vh,var(--radix-popover-content-available-height))] flex-col overflow-hidden"
       >
-        <div className="flex min-h-0 flex-col gap-base">
-          <div className="flex items-start justify-between gap-base">
+        <div className="flex min-h-0 flex-1 flex-col gap-base overflow-hidden">
+          <div className="flex shrink-0 items-start justify-between gap-base">
             <div>
               <h4 className="text-sm font-medium text-normal">
                 Workspace tasks
@@ -229,7 +230,7 @@ export function WorkspaceBeadsTaskList({
           ) : null}
 
           {data?.initialized ? (
-            <div className="min-h-0 overflow-y-auto pr-1">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
               <TaskSection
                 workspaceId={data.workspaceId}
                 title="In progress"
@@ -253,7 +254,7 @@ export function WorkspaceBeadsTaskList({
             </div>
           ) : null}
 
-          <div className="border-t border-secondary pt-base">
+          <div className="shrink-0 border-t border-secondary pt-base">
             <label
               className="mb-1 block text-xs font-medium text-low"
               htmlFor="workspace-beads-housekeeping-session"

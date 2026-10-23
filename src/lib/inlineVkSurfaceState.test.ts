@@ -83,7 +83,7 @@ describe("surface session persistence", () => {
   it("ignores an invalid stored chat view mode", () => {
     storage.setItem(
       "vd:inline-vk-chat:v1:workspace:surface:chat-view-mode",
-      "mostly-zen",
+      "invalid-mode",
     );
     expect(
       readSurfaceChatViewMode(storage, "workspace", "surface"),
