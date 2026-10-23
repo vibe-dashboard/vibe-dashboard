@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { VKService } from './vk-service.js';
-import { formatRawLogEntry, formatRawLogs } from './vk.js';
+import { formatRawLogEntry, formatRawLogs, validateAndUpsertExternalPreviewSlot } from './vk.js';
 
 const fakeSockets: Array<{
   emit: (type: string, value: unknown) => void;
@@ -78,6 +78,100 @@ describe('VKService Preview URL helpers', () => {
       url: expect.stringMatching(/\/api\/workspaces\/workspace-1\/execution\/run-configs\/config-1$/),
       init: expect.objectContaining({ method: 'DELETE' }),
     }));
+  });
+
+  it('validates external preview targets before upserting them', async () => {
+    const calls: string[] = [];
+    const target = {
+      type: 'external_redirect' as const,
+      url_template: 'https://{branchSlug}.preview.example.test',
+      allowed_host_template: '{branchSlug}.preview.example.test',
+      project_slug: null,
+    };
+    const body = {
+      id: null,
+      repo_id: 'repo-1',
+      run_config_id: null,
+      target,
+      slot_slug: 'web',
+      title: 'Web',
+      description: 'Hosted preview',
+      enabled: true,
+    };
+    const client = {
+      getRunConfigs: vi.fn(async () => ({
+        run_configs: [], preview_url_parts: [], preview_slots: [{
+          ...body, id: 'slot-1', created_at: '', updated_at: '',
+        }],
+      })),
+      validatePreviewSlotTarget: vi.fn(async () => {
+        calls.push('validate');
+        return { valid: true, destination: 'https://feature.preview.example.test', errors: [] };
+      }),
+      upsertPreviewSlot: vi.fn(async () => {
+        calls.push('upsert');
+        return { ...body, id: 'slot-1', created_at: '', updated_at: '' };
+      }),
+    };
+
+    const result = await validateAndUpsertExternalPreviewSlot(client, 'workspace-1', body);
+
+    expect(calls).toEqual(['validate', 'upsert']);
+    expect(result.destination).toBe('https://feature.preview.example.test');
+    expect(client.validatePreviewSlotTarget).toHaveBeenCalledWith('workspace-1', { repo_id: 'repo-1', target });
+    expect(client.upsertPreviewSlot).toHaveBeenCalledWith('workspace-1', expect.objectContaining({ id: 'slot-1' }));
+  });
+
+  it('posts external target dry-runs to the workspace validation endpoint', async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ url: String(input), init });
+      return jsonResponse({ success: true, data: {
+        valid: true, destination: 'https://feature.preview.example.test', errors: [],
+      } });
+    }));
+    const body = {
+      repo_id: 'repo-1',
+      target: {
+        type: 'external_redirect' as const,
+        url_template: 'https://{branchSlug}.preview.example.test',
+        allowed_host_template: '{branchSlug}.preview.example.test',
+      },
+    };
+
+    await new VKService().validatePreviewSlotTarget('workspace-1', body);
+
+    expect(requests).toEqual([{
+      url: expect.stringMatching(/\/workspaces\/workspace-1\/execution\/preview-slots\/validate-target$/),
+      init: expect.objectContaining({ method: 'POST', body: JSON.stringify(body) }),
+    }]);
+  });
+
+  it('does not write an external preview slot when validation fails', async () => {
+    const client = {
+      getRunConfigs: vi.fn(async () => ({ run_configs: [], preview_slots: [], preview_url_parts: [] })),
+      validatePreviewSlotTarget: vi.fn(async () => ({ valid: false, errors: ['host mismatch'] })),
+      upsertPreviewSlot: vi.fn(),
+    };
+    const body = {
+      id: null,
+      repo_id: 'repo-1',
+      run_config_id: null,
+      target: {
+        type: 'external_redirect' as const,
+        url_template: 'https://wrong.example.test',
+        allowed_host_template: 'allowed.example.test',
+        project_slug: null,
+      },
+      slot_slug: 'web',
+      title: 'Web',
+      description: null,
+      enabled: true,
+    };
+
+    await expect(validateAndUpsertExternalPreviewSlot(client, 'workspace-1', body))
+      .rejects.toThrow('host mismatch');
+    expect(client.upsertPreviewSlot).not.toHaveBeenCalled();
   });
 
   it('restarts a stored preview slot by stopping its active linked process first', async () => {

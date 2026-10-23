@@ -237,7 +237,8 @@ export interface UpsertRunConfig {
 export interface PreviewSlot {
   id: string;
   repo_id: string;
-  run_config_id: string;
+  run_config_id?: string | null;
+  target: PreviewSlotTarget;
   slot_slug: string;
   title: string;
   description?: string | null;
@@ -249,11 +250,27 @@ export interface PreviewSlot {
 export interface UpsertPreviewSlot {
   id?: string | null;
   repo_id: string;
-  run_config_id: string;
+  run_config_id?: string | null;
+  target?: PreviewSlotTarget | null;
   slot_slug: string;
   title: string;
   description?: string | null;
   enabled?: boolean;
+}
+
+export type PreviewSlotTarget =
+  | { type: 'local_run_config'; run_config_id: string }
+  | {
+    type: 'external_redirect';
+    url_template: string;
+    project_slug?: string | null;
+    allowed_host_template: string;
+  };
+
+export interface ValidatePreviewSlotTargetResponse {
+  valid: boolean;
+  destination?: string;
+  errors: string[];
 }
 
 export interface PreviewSlotUrlParts {
@@ -600,6 +617,18 @@ export class VKService {
       body: JSON.stringify(body),
     });
     return this.parseApiResponse<PreviewSlot>(response, 'upsert preview slot');
+  }
+
+  async validatePreviewSlotTarget(
+    workspaceId: string,
+    body: { repo_id: string; target: PreviewSlotTarget },
+  ): Promise<ValidatePreviewSlotTargetResponse> {
+    const response = await fetch(config.endpoints.validatePreviewSlotTarget(workspaceId), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return this.parseApiResponse<ValidatePreviewSlotTargetResponse>(response, 'validate preview slot target');
   }
 
   async deleteRunConfig(workspaceId: string, runConfigId: string): Promise<void> {

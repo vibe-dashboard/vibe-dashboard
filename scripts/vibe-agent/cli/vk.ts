@@ -13,6 +13,7 @@ import {
 import {
   VKService,
   type PreviewSlot,
+  type UpsertPreviewSlot,
   type PullRequestDetail,
   type RunConfig,
   type RunConfigKind,
@@ -25,6 +26,29 @@ const service = new VKService();
 
 type FlagValue = string | boolean | string[];
 type FlagMap = Record<string, FlagValue>;
+
+export async function validateAndUpsertExternalPreviewSlot(
+  client: Pick<VKService, 'getRunConfigs' | 'validatePreviewSlotTarget' | 'upsertPreviewSlot'>,
+  workspaceId: string,
+  body: UpsertPreviewSlot,
+): Promise<{ slot: PreviewSlot; destination: string }> {
+  if (body.target?.type !== 'external_redirect') {
+    throw new Error('External preview slot target is required');
+  }
+  const existing = body.id ? undefined : (await client.getRunConfigs(workspaceId)).preview_slots.find(
+    slot => slot.repo_id === body.repo_id && slot.slot_slug === body.slot_slug,
+  );
+  const upsertBody = existing ? { ...body, id: existing.id } : body;
+  const validation = await client.validatePreviewSlotTarget(workspaceId, {
+    repo_id: body.repo_id,
+    target: body.target,
+  });
+  if (!validation.valid || !validation.destination) {
+    throw new Error(validation.errors.join('; ') || 'External preview target is invalid');
+  }
+  const slot = await client.upsertPreviewSlot(workspaceId, upsertBody);
+  return { slot, destination: validation.destination };
+}
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -295,7 +319,14 @@ function printRunConfig(runConfig: RunConfig) {
 function printPreviewSlot(slot: PreviewSlot) {
   console.log(`Preview Slot: ${slot.id}`);
   console.log(`Repo:         ${slot.repo_id}`);
-  console.log(`Run Config:   ${slot.run_config_id}`);
+  if (slot.target.type === 'external_redirect') {
+    console.log('Target:       external redirect');
+    console.log(`URL Template: ${slot.target.url_template}`);
+    console.log(`Allowed Host: ${slot.target.allowed_host_template}`);
+    if (slot.target.project_slug) console.log(`Project Slug: ${slot.target.project_slug}`);
+  } else {
+    console.log(`Run Config:   ${slot.target.run_config_id}`);
+  }
   console.log(`Slot Slug:    ${slot.slot_slug}`);
   console.log(`Title:        ${slot.title}`);
   if (slot.description) console.log(`Description:  ${slot.description}`);
@@ -779,36 +810,51 @@ async function commandPreviewUrl(positional: string[], flags: FlagMap) {
     }
 
     case 'upsert-slot': {
+      const usage = 'Usage: vk preview-url upsert-slot <workspace-id> --repo <repo-id> (--run-config <run-config-id> | --url-template <https-template> --allowed-host-template <host-template> [--project-slug <slug>]) --slot <slot-slug> --title <title> [--description <text>] [--id <preview-slot-id>] [--disabled] [--json]';
       const workspaceId = requireWorkspaceId(
         positional[1],
-        'Usage: vk preview-url upsert-slot <workspace-id> --repo <repo-id> --run-config <run-config-id> --slot <slot-slug> --title <title> [--description <text>] [--id <preview-slot-id>] [--disabled] [--json]',
+        usage,
       );
       const repoId = getFlagString(flags, 'repo') ?? getFlagString(flags, 'repo-id');
       const runConfigId = getFlagString(flags, 'run-config') ?? getFlagString(flags, 'run-config-id');
+      const urlTemplate = getFlagString(flags, 'url-template');
+      const allowedHostTemplate = getFlagString(flags, 'allowed-host-template');
+      const projectSlug = getFlagString(flags, 'project-slug');
       const slotSlug = getFlagString(flags, 'slot') ?? getFlagString(flags, 'slot-slug') ?? positional[2];
       const title = getFlagString(flags, 'title') ?? slotSlug;
-      if (!repoId || !runConfigId || !slotSlug || !title) {
-        console.error('Usage: vk preview-url upsert-slot <workspace-id> --repo <repo-id> --run-config <run-config-id> --slot <slot-slug> --title <title> [--description <text>] [--id <preview-slot-id>] [--disabled] [--json]');
+      const externalRequested = urlTemplate !== undefined || allowedHostTemplate !== undefined || projectSlug !== undefined;
+      if (!repoId || !slotSlug || !title || (externalRequested ? (!urlTemplate || !allowedHostTemplate || !!runConfigId) : !runConfigId)) {
+        console.error(usage);
         process.exit(1);
       }
-      const slot = await service.upsertPreviewSlot(workspaceId, {
+      const body: UpsertPreviewSlot = {
         id: getFlagString(flags, 'id') ?? getFlagString(flags, 'preview-slot-id') ?? null,
         repo_id: repoId,
-        run_config_id: runConfigId,
+        run_config_id: externalRequested ? null : runConfigId,
+        target: externalRequested ? {
+          type: 'external_redirect',
+          url_template: urlTemplate!,
+          allowed_host_template: allowedHostTemplate!,
+          project_slug: projectSlug ?? null,
+        } : null,
         slot_slug: slotSlug,
         title,
         description: getFlagString(flags, 'description') ?? null,
         enabled: enabledFlag(flags),
-      });
+      };
+      const result = externalRequested
+        ? await validateAndUpsertExternalPreviewSlot(service, workspaceId, body)
+        : { slot: await service.upsertPreviewSlot(workspaceId, body), destination: undefined };
       if (flags.json === true) {
-        console.log(JSON.stringify(slot, null, 2));
+        console.log(JSON.stringify(externalRequested ? result : result.slot, null, 2));
         return;
       }
       console.log('Saved preview slot:');
-      printPreviewSlot(slot);
+      printPreviewSlot(result.slot);
+      if (result.destination) console.log(`Destination:  ${result.destination}`);
       console.log('');
       console.log('To get its URL:');
-      console.log(`  vk preview-url url ${workspaceId} ${slot.id} [--customer <customer-slug>]`);
+      console.log(`  vk preview-url url ${workspaceId} ${result.slot.id} [--customer <customer-slug>]`);
       break;
     }
 
@@ -1304,7 +1350,7 @@ function printHelp() {
   console.log('  dev-server logs <process-id> [--json]      Fetch raw dev server logs');
   console.log('  dev-server stop <process-id>               Stop a dev server process');
   console.log('  preview-url upsert-run-config <workspace-id> --repo <repo> --slug <slug> --name <name> --command "script"');
-  console.log('  preview-url upsert-slot <workspace-id> --repo <repo> --run-config <id> --slot <slug> --title <title>');
+  console.log('  preview-url upsert-slot <workspace-id> --repo <repo> (--run-config <id> | --url-template <template> --allowed-host-template <template>) --slot <slug> --title <title>');
   console.log('  preview-url delete-run-config <workspace-id> <run-config-id>');
   console.log('  preview-url delete-slot <workspace-id> <slot-id>');
   console.log('  preview-url start-run-config <workspace-id> <run-config-id> [--json]');

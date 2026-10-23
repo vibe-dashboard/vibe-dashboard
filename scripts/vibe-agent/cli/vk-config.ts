@@ -31,6 +31,7 @@ export const config = {
     runConfig: (workspaceId: string, runConfigId: string) => `${BASE_URL}/api/workspaces/${workspaceId}/execution/run-configs/${runConfigId}`,
     startRunConfig: (workspaceId: string, runConfigId: string) => `${BASE_URL}/api/workspaces/${workspaceId}/execution/run-configs/${runConfigId}/start`,
     previewSlots: (workspaceId: string) => `${BASE_URL}/api/workspaces/${workspaceId}/execution/preview-slots`,
+    validatePreviewSlotTarget: (workspaceId: string) => `${BASE_URL}/api/workspaces/${workspaceId}/execution/preview-slots/validate-target`,
     previewSlot: (workspaceId: string, previewSlotId: string) => `${BASE_URL}/api/workspaces/${workspaceId}/execution/preview-slots/${previewSlotId}`,
     startPreviewSlot: (workspaceId: string, previewSlotId: string) => `${BASE_URL}/api/workspaces/${workspaceId}/execution/preview-slots/${previewSlotId}/start`,
     stopPreviewProcess: (workspaceId: string, processId: string) => `${BASE_URL}/api/workspaces/${workspaceId}/execution/preview-processes/${processId}/stop`,
