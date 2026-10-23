@@ -149,6 +149,17 @@ textarea {
 
 @layer base {
   *, ::before, ::after { border-color: hsl(var(--heroui-divider) / 0.3); }
+
+  /* Animate rendered colors rather than the theme's unregistered variables.
+   * Keep layout and interaction-specific transitions under component control. */
+  @media (prefers-reduced-motion: no-preference) {
+    *, ::before, ::after {
+      transition-property: color, background-color, border-color, outline-color,
+        text-decoration-color, fill, stroke, box-shadow;
+      transition-duration: 220ms;
+      transition-timing-function: ease-in-out;
+    }
+  }
 }
 
 /* Resolve these against the page palette before remapping the chat's tokens.

@@ -35,7 +35,7 @@ export function PendingOpenCraftVoyageTab({
   const label = tab.label || 'craft';
   const baseBorderClass = compact
     ? 'border-r border-divider'
-    : 'border-r border-divider border-b-2';
+    : 'border-r border-divider/25 border-b-2';
 
   return (
     <div
@@ -186,9 +186,9 @@ export function VoyageBarView({
   getEmoji: (tabGroup: TabGroup) => string;
 }) {
   return (
-    <div className="hidden md:flex h-9 border-b border-divider bg-content1 items-stretch shrink-0 [&_button]:cursor-pointer">
+    <div className="hidden md:flex h-9 border-b border-divider/25 bg-content1 items-stretch shrink-0 [&_button]:cursor-pointer">
       <button
-        className="inline-flex h-full w-9 shrink-0 cursor-pointer items-center justify-center border-r border-b-2 border-divider bg-content1 text-sm text-foreground transition-colors hover:bg-content2/80"
+        className="inline-flex h-full w-9 shrink-0 cursor-pointer items-center justify-center border-r border-b-2 border-divider/25 border-b-transparent bg-content1 text-sm text-foreground transition-colors hover:bg-content2/80"
         onClick={onOpenSidebar}
         title="Open sidebar"
         aria-label="Open sidebar"
@@ -196,7 +196,7 @@ export function VoyageBarView({
         <IconMenu2 size={16} stroke={2} aria-hidden="true" />
       </button>
       <button
-        className="inline-flex h-full w-9 shrink-0 cursor-pointer items-center justify-center border-r border-b-2 border-divider bg-content1 text-sm text-foreground transition-colors hover:bg-content2/80"
+        className="inline-flex h-full w-9 shrink-0 cursor-pointer items-center justify-center border-r border-b-2 border-divider/25 border-b-transparent bg-content1 text-sm text-foreground transition-colors hover:bg-content2/80"
         onClick={onToggleVoyageActions}
         data-voyage-plus-trigger="true"
         title="Voyage actions"
@@ -219,10 +219,10 @@ export function VoyageBarView({
                 onDragStart={(event) => onDragStartItem(event, item.entry.id)}
                 onDragOver={onDragOver}
                 onDrop={(event) => onDropItem(event, item.entry.id)}
-                className={`shrink-0 inline-flex h-full cursor-pointer select-none items-center border-r border-divider border-b-2 text-xs text-foreground transition-colors ${
+                className={`shrink-0 inline-flex h-full cursor-pointer select-none items-center border-r border-divider/25 border-b-2 text-xs text-foreground transition-colors ${
                   isActive
                     ? 'border-b-primary bg-content1'
-                    : 'bg-content1 hover:bg-content2/80'
+                    : 'border-b-transparent bg-content1 hover:bg-content2/80'
                 }`}
                 title={`${item.space.name} / ${item.tabGroup.label}`}
               >
@@ -251,7 +251,7 @@ export function VoyageBarView({
         </div>
       </div>
       <button
-        className="inline-flex h-full w-9 shrink-0 cursor-pointer items-center justify-center border-l border-b-2 border-divider bg-content1 text-foreground transition-colors hover:bg-content2/80"
+        className="inline-flex h-full w-9 shrink-0 cursor-pointer items-center justify-center border-l border-b-2 border-divider/25 border-b-transparent bg-content1 text-foreground transition-colors hover:bg-content2/80"
         onClick={onHide}
         title="Hide voyage bar"
         aria-label="Hide voyage bar"
