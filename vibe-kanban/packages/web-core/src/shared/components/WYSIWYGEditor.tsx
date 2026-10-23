@@ -561,11 +561,21 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
                 />
                 {!disabled && !showStaticToolbar && <ToolbarPlugin />}
 
-                <div className="relative" style={composerWrapperStyle}>
+                <div
+                  className={cn(
+                    'relative',
+                    constrainMobileComposerHeight && 'scrollbar-none'
+                  )}
+                  style={composerWrapperStyle}
+                >
                   <RichTextPlugin
                     contentEditable={
                       <ContentEditable
-                        className={cn('outline-none', className)}
+                        className={cn(
+                          'outline-none',
+                          constrainMobileComposerHeight && 'scrollbar-none',
+                          className
+                        )}
                         aria-label={
                           disabled ? 'Markdown content' : 'Markdown editor'
                         }

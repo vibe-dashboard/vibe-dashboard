@@ -147,6 +147,40 @@ describe('created workspace navigation', () => {
     });
   });
 
+  it.each([false, true])(
+    'keeps the created craft selected after cleanup with a stale source selection (saved voyage: %s)',
+    async (saved) => {
+      const s = setup(saved);
+      let selectedCraft = 'source';
+      let voyageCrafts = ['first', 'other-create', 'source', 'destination'];
+      s.sessionActions.selectSessionTab.mockImplementation(
+        (_spaceId: string, tabGroupId: string) => {
+          selectedCraft = tabGroupId;
+        },
+      );
+      s.sessionActions.activateSavedSession.mockImplementation(
+        (session: SavedWorkspaceSession) => {
+          selectedCraft = session.activeTabGroupId;
+        },
+      );
+      s.actions.deleteTabGroup.mockImplementation(async () => {
+        voyageCrafts = voyageCrafts.filter((id) => id !== 'source');
+        return { wasDeleted: true };
+      });
+      s.sessionActions.removeTabGroupFromSession.mockImplementation(() => {
+        selectedCraft = 'other-create';
+      });
+      s.hook.rerender({ ...s.props, workspace: s.readyWorkspace });
+
+      await act(async () => {
+        await s.hook.result.current(s.origin);
+      });
+
+      expect(voyageCrafts).toEqual(['first', 'other-create', 'destination']);
+      expect(selectedCraft).toBe('destination');
+    },
+  );
+
   it.each(['other-craft', 'other-voyage'])(
     'preserves navigation to %s during creation',
     async (navigation) => {

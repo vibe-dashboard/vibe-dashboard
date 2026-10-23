@@ -130,7 +130,6 @@ export function useWorkspaceCreationTransition(input: {
           sessionActions.addTabGroupToSession(destination.tabGroupId, {
             select: false,
           });
-          sessionActions.removeTabGroupFromSession(origin.sourceTabGroupId);
         }
       },
     });
