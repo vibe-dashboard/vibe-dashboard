@@ -86,9 +86,12 @@ CLI mutations require expected version and idempotency key. The daemon uses the
 same mutation functions under its existing owner lock. Projection is a retryable
 effect, not authority for completing a run.
 
-Dispatch identity includes run/item/revision/attempt. Persist its exact queue
-identity and payload before delivery. A retry after a *proven* pre-admission
-failure allocates a new attempt; an uncertain attempt blocks retry. Completion
+Dispatch identity binds run/item/revision. Persist its exact queue identity and
+payload before delivery. Transport retries before acceptance retain that same
+identity and immutable payload; record retry attempts in history. Adapter
+integration must adjust the pure runtime's current new-identity retry operation
+accordingly before exposing it. An uncertain attempt blocks ordinary retry and
+can only reconcile/replay the same identity. Completion
 requires a result from the exact accepted process, not role name or timestamp.
 
 Current VK `POST /sessions/:id/queue` only stores a slot; consumption occurs on
@@ -97,7 +100,57 @@ adapter therefore needs a reviewed VK idle-drain operation behind the same
 atomic admission and durable queue-effect identity, or an equivalent identified
 start operation. It must not work around this with a dummy predecessor turn or
 an uncorrelated direct follow-up. Matching reserved/indeterminate effects stay
-blocked; only an explicitly proven unaccepted identity permits recreation.
+blocked. An empty slot plus absent durable effect is not proof that a timed-out
+request cannot still arrive. Reconstruction may only replay the same immutable
+dispatch identity through a server operation that atomically deduplicates it;
+it cannot mark work proven-unaccepted or allocate a replacement attempt from
+absence alone. Started-effect replay takes precedence over unrelated queue
+occupancy but never removes the unrelated slot. Validate owner and payload
+before replaying any accepted process.
+
+The result adapter fetches terminal process status and its authoritative final
+response from VK and verifies the persisted session/process binding. A caller's
+`--source-process` value or supplied JSON is not itself trusted evidence that
+the accepted process emitted that result.
+
+### Reviewed dispatch-adapter contract
+
+Add an identified idle-drain operation, proposed as
+`POST /api/sessions/:session_id/queue/:queue_id/start`. Its strict input carries
+the persisted owner and immutable request fingerprint. Idle-drain and existing
+process-finalization paths use the same atomic exact-identity slot-claim/start
+primitive. A matching consuming slot is never claimed twice.
+
+Reconcile durable state first, after validating session, owner, and the full
+immutable requested message/executor payload:
+
+| Durable effect | Action |
+| --- | --- |
+| started | Return its exact process; preserve any unrelated current slot. |
+| reserved / indeterminate | Block and reconcile; never launch another child. |
+| failed_before_start | Reconstruct/retry only the same identity and payload. |
+| absent | Inspect slot; absence never permits a new dispatch identity. |
+
+A matching queued slot may be claimed once. A matching consuming slot waits for
+reconciliation. An unrelated slot remains untouched. Empty slot/no effect may
+recreate the same intent through nonreplacement enqueue; delayed original
+requests must remain harmless at enqueue, claim, reservation and spawn. Persist
+a requested-payload fingerprint at VK's durable queue-effect boundary: the
+existing owner/process-only reconciliation response cannot establish this.
+Do not confuse derived executor/session-continuity fields with the original
+immutable transport payload.
+
+Fresh-session creation also receives a persisted caller-generated identity and
+atomically replays only its complete original creation tuple. Existing-session
+dispatch stores the selected session, executor, message type and fresh policy
+before I/O. Each run snapshots those dispatch-affecting message settings.
+
+The workspace selection lock spans deterministic run selection and dispatch
+intent allocation. CLI `submit-result` obtains the accepted terminal process and
+final response from VK; caller-supplied JSON/process flags cannot advance work.
+Any future manual override is a separate audited operation. Tests exercise
+response loss and competing idle/finalizer requests before claim, after claim,
+after reservation and after spawn, including occupied unrelated-slot replay.
 
 ### Template and result example
 
