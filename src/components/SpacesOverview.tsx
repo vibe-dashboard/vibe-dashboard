@@ -88,7 +88,8 @@ function getTabGroupDisplayLabel(
 
 function useVKDashboardData() {
   const [workspaces, setWorkspaces] = useState<DashboardWorkspace[]>([]);
-  const [repos, setRepos] = useState<Repo[]>([]);
+  // Temporary placeholder while repository fetching is disabled to avoid N+1 requests.
+  const [repos] = useState<Repo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -97,12 +98,11 @@ function useVKDashboardData() {
     setError(null);
 
     try {
-      // Fetch workspaces, summaries, and repos in parallel
-      const [allWorkspaces, summaryResult, reposResult] =
+      // Fetch workspaces and summaries in parallel
+      const [allWorkspaces, summaryResult] =
         await Promise.allSettled([
           vkClient.getWorkspaces(),
           vkClient.getWorkspaceSummaries(false),
-          vkClient.getRepos(),
         ]);
 
       if (allWorkspaces.status === "rejected") {
@@ -116,26 +116,6 @@ function useVKDashboardData() {
       if (summaryResult.status === "fulfilled") {
         for (const s of summaryResult.value.summaries) {
           summaryMap.set(s.workspace_id, s);
-        }
-      }
-
-      // Parse repos list (non-critical)
-      const allRepos =
-        reposResult.status === "fulfilled" ? reposResult.value : [];
-
-      // Batch-fetch per-workspace repos
-      const repoResults = await Promise.allSettled(
-        activeWorkspaces.map((ws) =>
-          vkClient
-            .getWorkspaceRepos(ws.id)
-            .then((repos) => ({ wsId: ws.id, repos })),
-        ),
-      );
-
-      const wsRepoMap = new Map<string, RepoWithBranch[]>();
-      for (const result of repoResults) {
-        if (result.status === "fulfilled") {
-          wsRepoMap.set(result.value.wsId, result.value.repos);
         }
       }
 
@@ -161,12 +141,11 @@ function useVKDashboardData() {
           has_running_dev_server: summary?.has_running_dev_server ?? false,
           has_unseen_turns: summary?.has_unseen_turns ?? false,
           pr_status: summary?.pr_status ?? null,
-          repos: wsRepoMap.get(ws.id) ?? [],
+          repos: [],
         };
       });
 
       setWorkspaces(merged);
-      setRepos(allRepos);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load data");
     } finally {
