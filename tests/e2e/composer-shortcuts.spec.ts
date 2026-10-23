@@ -16,9 +16,12 @@ async function checkOpenCraftShortcut(page: Page, composer: Locator, draft: stri
 }
 
 test('Open Craft shortcut works from both native composers without submitting or losing drafts', async ({ page, request }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
   const backend = new InlineChatBackend();
   await backend.install(page);
+  await page.goto('/');
+  await page.goto('/');
+  await page.goto('/');
   await expect.poll(async () => {
     const response = await request.get('/kv/get-all').catch(() => null);
     if (!response?.headers()['content-type']?.includes('application/json')) return false;
@@ -63,6 +66,21 @@ test('Open Craft shortcut works from both native composers without submitting or
       await create.getByRole('button', { name: 'Continue', exact: true }).click();
     }
     await checkOpenCraftShortcut(page, createComposer, 'Keep the new workspace draft');
+    await createComposer.focus();
+    await createComposer.press('Control+[');
+    await expect(chat).toBeVisible();
+    const chatComposer = chat.getByRole('textbox', { name: /Follow up|Markdown editor/ }).last();
+    await expect(chatComposer).toHaveText('Keep the chat draft');
+    await chatComposer.focus();
+    await chatComposer.press('Control+]');
+    await expect(create).toBeVisible();
+    if (!(await createComposer.isVisible())) {
+      await create.getByRole('button', { name: 'Recent', exact: true }).click();
+      await page.getByRole('option', { name: 'repo', exact: true }).click();
+      await page.getByRole('option', { name: /main/ }).click();
+      await create.getByRole('button', { name: 'Continue', exact: true }).click();
+    }
+    await expect(createComposer).toHaveText('Keep the new workspace draft');
     expect(backend.requests.filter((item) => item.method === 'POST' &&
       (item.path.endsWith('/follow-up') || item.path === '/api/workspaces'))).toEqual([]);
   } finally {

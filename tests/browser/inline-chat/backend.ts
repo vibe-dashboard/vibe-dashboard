@@ -20,6 +20,11 @@ const opencode = {
   auto_compact: true,
 };
 export const executorConfig = { executor: 'OPENCODE', variant: 'DEFAULT' };
+const repository = {
+  id: 'repo-1', path: '/repo', name: 'repo', display_name: 'repo',
+  target_branch: 'main', dev_server_scripts: [], default_target_branch: 'main',
+  parallel_setup_script: false, created_at: now, updated_at: now,
+};
 
 export function session(id: string, workspace = 'workspace-1') {
   return {
@@ -51,6 +56,8 @@ export const test = base.extend<{ backend: InlineChatBackend }>({
 export { expect };
 
 export class InlineChatBackend {
+  attachmentName = 'proof.txt';
+  attachmentMime = 'text/plain';
   discoveryDelayMs = 0;
   metadataDelayMs = 0;
   discoveryError: string | null = null;
@@ -72,6 +79,10 @@ export class InlineChatBackend {
     session('session-3', 'workspace-2'),
   ];
   private sockets = new Map<string, Set<WebSocketRoute>>();
+  activeSocketCount(path: string) {
+    return [...this.sockets.entries()].reduce((count, [url, sockets]) =>
+      count + (url.split('?')[0] === path ? sockets.size : 0), 0);
+  }
   private processes = new Map<
     string,
     Record<string, unknown> & { id: string; session_id: string; status: string }
@@ -613,9 +624,9 @@ export class InlineChatBackend {
     if (path.endsWith('/attachments/upload'))
       return reply({
         id: 'attachment-1',
-        file_path: '.vibe-attachments/proof.txt',
-        original_name: 'proof.txt',
-        mime_type: 'text/plain',
+        file_path: `.vibe-attachments/${this.attachmentName}`,
+        original_name: this.attachmentName,
+        mime_type: this.attachmentMime,
         size_bytes: 5,
         hash: 'test',
         created_at: now,
@@ -624,10 +635,10 @@ export class InlineChatBackend {
     if (path.includes('/attachments/') && path.endsWith('/metadata'))
       return reply({
         exists: true,
-        file_name: 'proof.txt',
-        path: '.vibe-attachments/proof.txt',
+        file_name: this.attachmentName,
+        path: `.vibe-attachments/${this.attachmentName}`,
         size_bytes: 5,
-        format: 'txt',
+        format: this.attachmentName.split('.').pop(),
         proxy_url: '/api/attachments/attachment-1/file',
       });
     if (path.match(/^\/api\/sessions\/[^/]+\/conversation-preview$/)) {
@@ -669,20 +680,8 @@ export class InlineChatBackend {
       path === '/api/repos' ||
       path === '/api/repos/recent'
     )
-      return reply([
-        {
-          id: 'repo-1',
-          path: '/repo',
-          name: 'repo',
-          display_name: 'repo',
-          target_branch: 'main',
-          dev_server_scripts: [],
-          default_target_branch: 'main',
-          parallel_setup_script: false,
-          created_at: now,
-          updated_at: now,
-        },
-      ]);
+      return reply([repository]);
+    if (path === '/api/repos/repo-1') return reply(repository);
     if (path.endsWith('/beads/tasks'))
       return route.fulfill({ json: this.tasks });
     if (path.startsWith('/api/scratch/')) {
