@@ -73,7 +73,7 @@ const ROLE_WITH_SUFFIX_PATTERN = new RegExp(`^(${baseRolesPattern})-([a-zA-Z0-9_
 /**
  * Check if a string is a valid agent role.
  * Valid: implementer, reviewer, pm, assistant, reviewer-2, pm-3, pm-songdrive, reviewer-foo, etc.
- * Also accepts arbitrary role names (custom roles default to CODEX executor).
+ * Also accepts arbitrary role names. Roles do not select executor profiles.
  */
 export function isValidRole(role: string): role is AgentRole {
   // Allow standard roles with pattern
@@ -106,7 +106,7 @@ export function parseRole(role: string): { base: BaseRole; suffix: string | null
   const suffixMatch = role.match(ROLE_WITH_SUFFIX_PATTERN);
   if (suffixMatch) {
     const base = suffixMatch[1] as BaseRole;
-    const suffix = suffixMatch[2];
+    const suffix = suffixMatch[2]!;
     return { base, suffix };
   }
 
@@ -130,70 +130,6 @@ export interface ExecutorProfileId {
   variant?: string;
 }
 
-/**
- * Role profile defining executor and variant for a base role.
- */
-export interface RoleProfile {
-  executor: Executor;
-  variant?: string;
-}
-
-/**
- * Role profiles mapping base roles to their executor and variant.
- * Source of truth for which executor and variant to use per role.
- *
- * Current executor policy:
- * - All roles use CODEX for now.
- * - Reviewer roles keep HIGH variant for thorough reasoning.
- * - Arbitrary/custom roles default to CODEX.
- */
-export const ROLE_PROFILES: Record<BaseRole, RoleProfile> = {
-  implementer: {
-    executor: 'CODEX',
-  },
-  reviewer: {
-    executor: 'CODEX',
-    variant: 'HIGH',
-  },
-  pm: {
-    executor: 'CODEX',
-  },
-  assistant: {
-    executor: 'CODEX',
-  },
-};
-
-/**
- * Get the executor profile for a given role.
- * Looks up the base role's profile from ROLE_PROFILES.
- *
- * IMPORTANT: This is the source of truth for executor and variant.
- * YAML config files cannot override these settings.
- * For example, reviewer role ALWAYS uses CODEX with HIGH variant,
- * regardless of any YAML config.
- *
- * All roles currently resolve to CODEX; reviewer roles keep HIGH variant.
- * For arbitrary/custom roles (not matching standard pattern),
- * defaults to CODEX executor with no variant.
- */
-export function getRoleProfile(role: AgentRole): RoleProfile {
-  const parsed = parseRole(role);
-
-  if (role === 'codex' || parsed?.suffix === 'codex') {
-    return { executor: 'CODEX' };
-  }
-
-  // If it's a standard role, use its profile
-  if (parsed) {
-    return ROLE_PROFILES[parsed.base];
-  }
-
-  // For arbitrary/custom roles, default to CODEX
-  return {
-    executor: 'CODEX',
-  };
-}
-
 export interface AgentYamlConfig {
   variant: string;
 }
@@ -209,7 +145,7 @@ function findWorktreeRoot(cwd: string): string | null {
   const worktreesIdx = cwd.indexOf('/worktrees/');
   if (worktreesIdx === -1) return null;
   const afterWorktrees = cwd.slice(worktreesIdx + '/worktrees/'.length);
-  const worktreeName = afterWorktrees.split('/')[0];
+  const worktreeName = afterWorktrees.split('/')[0]!;
   return cwd.slice(0, worktreesIdx + '/worktrees/'.length + worktreeName.length);
 }
 
@@ -220,7 +156,7 @@ function parseYamlVariant(contents: string): string | null {
     if (!trimmed || trimmed.startsWith('#')) continue;
     const match = trimmed.match(/^variant\s*:\s*(.+)\s*$/);
     if (match) {
-      return match[1].replace(/^['"]|['"]$/g, '').trim();
+      return match[1]!.replace(/^['"]|['"]$/g, '').trim();
     }
   }
   return null;

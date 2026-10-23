@@ -1085,6 +1085,10 @@ async function commandSend(sessionId: string, prompt: string) {
   const executionProcess = await service.sendMessage(sessionId, prompt);
 
   console.log('Message sent:');
+  console.log(`  Session:           ${executionProcess.session_id}`);
+  if (executionProcess.session_id !== sessionId) {
+    console.log(`  Replaced session:  ${sessionId} (history preserved)`);
+  }
   console.log(`  Execution Process: ${executionProcess.id}`);
   console.log(`  Status:            ${executionProcess.status}`);
   console.log(`  Started:           ${executionProcess.created_at}`);
@@ -1178,7 +1182,7 @@ function printHelp() {
   console.log('  create-session <workspace-id> <executor>   Create new session');
   console.log('  create-workspace --message "prompt" --repo <repo[:branch]>   Create and start workspace');
   console.log('  workspace create-from-pr --repo <repo> --remote <remote> --pr <n>  Create workspace from PR');
-  console.log('  send <session-id> "<prompt>"               Send message to session');
+  console.log('  send <session-id> "<prompt>"               Send using the configured profile; replace session if executor changes');
   console.log('');
   console.log('Options:');
   console.log('  --all                 Show all entry types in conversation');
@@ -1192,6 +1196,8 @@ function printHelp() {
   console.log('  --timeout <ms>        WebSocket log wait time (default: 2000)');
   console.log('');
   console.log(`Executors: ${Object.keys(config.executors).join(', ')}`);
+  console.log('Send config: /var/lib/vd/instance-config/vibe-agent.json (read for every send)');
+  console.log('  {"version":1,"executorProfile":{"executor":"OpenCode","variant":"Default","reasoning":"medium"}}');
 }
 
 const invokedPath = process.argv[1] ?? '';

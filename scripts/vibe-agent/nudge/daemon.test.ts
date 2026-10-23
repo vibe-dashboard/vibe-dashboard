@@ -1,8 +1,9 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ConversationEntry, ExecutionProcess, SendMessageBody, Session, Workspace } from '../types.js';
+import { readRuntimeExecutorProfile } from '../core/runtime-config.js';
 import {
   createNudgeDaemonOptions,
   isNudgeDaemonEnabled,
@@ -13,9 +14,19 @@ import {
   type NudgeDaemonClient,
 } from './daemon.js';
 
+vi.mock('../core/runtime-config.js', { spy: true });
+
 const tempDirs: string[] = [];
 
+beforeEach(() => {
+  vi.mocked(readRuntimeExecutorProfile).mockReturnValue({ executor: 'Codex', variant: 'Default' });
+  const home = mkdtempSync(join(tmpdir(), 'vd-nudge-home-'));
+  tempDirs.push(home);
+  vi.stubEnv('HOME', home);
+});
+
 afterEach(() => {
+  vi.unstubAllEnvs();
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -85,6 +96,13 @@ function fakeClient(input: {
 }) {
   const sent: Array<{ sessionId: string; body: SendMessageBody }> = [];
   const client: NudgeDaemonClient = {
+    apiBaseUrl: 'http://nudge.test',
+    async getExecutorProfiles() {
+      return { CODEX: { DEFAULT: { CODEX: {} }, REVIEW: { CODEX: {} } }, OPENCODE: { DEFAULT: { OPENCODE: {} } } };
+    },
+    async getReasoningCapabilities() {
+      return { model_id: 'codex-model', default_model: null, models: [{ id: 'codex-model', reasoning_options: [{ id: 'medium' }, { id: 'high' }] }] };
+    },
     async getAllWorkspaces() {
       return input.workspaces ?? [workspace()];
     },
@@ -146,7 +164,7 @@ describe('nudge daemon', () => {
         sessionId: 'session-1',
         body: {
           prompt: 'Continue',
-          executor_config: { executor: 'CODEX' },
+          executor_config: { executor: 'CODEX', variant: 'DEFAULT' },
           retry_process_id: null,
           force_when_dirty: null,
           perform_git_reset: null,
@@ -166,6 +184,21 @@ describe('nudge daemon', () => {
 
     expect(result.nudgesSent).toBe(0);
     expect(sent).toEqual([]);
+  });
+
+  it.each([
+    [{ executor: 'Codex', variant: 'Review', reasoning: 'high' }, 'REVIEW', 'high'],
+    [{ executor: 'OpenCode', variant: 'Default', reasoning: 'medium' }, 'DEFAULT', 'medium'],
+  ] as const)('applies %j without moving the nudge from its original session', async (selection, variant, reasoning_id) => {
+    vi.mocked(readRuntimeExecutorProfile).mockReturnValue(selection);
+    const { client, sent } = fakeClient({});
+    const result = await runNudgeDaemonCycle(client, options(), readNudgeDaemonState(tempStatePath()), () => {});
+    expect(result.errors).toEqual([]);
+    expect(sent).toEqual([expect.objectContaining({
+      sessionId: 'session-1', body: expect.objectContaining({
+        prompt: 'Continue', executor_config: { executor: 'CODEX', variant, reasoning_id },
+      }),
+    })]);
   });
 
   it('does not nudge the same process twice after state is persisted', async () => {

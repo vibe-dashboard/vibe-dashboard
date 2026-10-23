@@ -50,6 +50,7 @@ function normalizeWebSocketMessageData(data: unknown): string | Buffer {
   return String(data);
 }
 import { config, Executor } from './vk-config.js';
+import { sendToSession } from '../core/send-to-session.js';
 
 // Type definitions
 export interface Project {
@@ -520,27 +521,8 @@ export class VKService {
     return this.parseApiResponse<Session>(response, 'create session');
   }
 
-  async sendMessage(sessionId: string, prompt: string): Promise<ExecutionProcess> {
-    const session = await this.getSession(sessionId);
-
-    if (!session.executor) {
-      throw new Error(`Failed to send message: session ${sessionId} has no executor`);
-    }
-
-    const response = await fetch(config.endpoints.sessionFollowUp(sessionId), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        prompt,
-        executor_config: {
-          executor: session.executor as Executor,
-        },
-        retry_process_id: null,
-        force_when_dirty: null,
-        perform_git_reset: null,
-      }),
-    });
-    return this.parseApiResponse<ExecutionProcess>(response, 'send message');
+  sendMessage(sessionId: string, prompt: string): ReturnType<typeof sendToSession> {
+    return sendToSession(sessionId, prompt);
   }
 
   // Dev servers

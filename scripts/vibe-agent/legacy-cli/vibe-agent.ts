@@ -7,6 +7,9 @@ import * as path from 'path';
 import { execFileSync, spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { client } from '../core/client.js';
+import { resolveSendProfile } from '../core/executor-profile.js';
+import { resolveSendReasoning } from '../core/reasoning.js';
+import { buildSendPrompt, resolvePinnedExecutorConfig } from '../core/message-policy.js';
 import type { ConversationEntry, ExecutionProcess, Session } from '../types.js';
 import {
   WORKSPACE_DATA_DIR,
@@ -17,15 +20,12 @@ import {
 import {
   getAgentContext,
   getSessionForRole,
-  roleToExecutor,
 } from '../core/context.js';
 import { BASE_ROLES, isValidRole } from '../config.js';
 
 // Message helpers
 
-export function buildSendPrompt(message: string): string {
-  return message;
-}
+export { buildSendPrompt };
 
 
 export const REQUEST_REVIEW_PROMPT = `Review the code on this branch thoroughly. Come back with concerns and actionable steps to resolve them. List pros and cons of each fix strategy.
@@ -1131,9 +1131,7 @@ async function callbackRunner(args: string[]): Promise<void> {
     const session = await client.getSession(payload.sessionId);
     await client.sendMessage(payload.sessionId, {
       prompt: message,
-      executor_config: {
-        executor: session.executor,
-      },
+      executor_config: await resolvePinnedExecutorConfig(session),
       retry_process_id: null,
       force_when_dirty: null,
       perform_git_reset: null,
@@ -1147,13 +1145,11 @@ async function callbackRunner(args: string[]): Promise<void> {
 }
 
 
-async function sendRespondMessage(replySessionId: string, prompt: string): Promise<void> {
+export async function sendRespondMessage(replySessionId: string, prompt: string): Promise<void> {
   const replySession = await client.getSession(replySessionId);
   await client.sendMessage(replySessionId, {
     prompt,
-    executor_config: {
-      executor: replySession.executor,
-    },
+    executor_config: await resolvePinnedExecutorConfig(replySession),
     retry_process_id: null,
     force_when_dirty: null,
     perform_git_reset: null,
@@ -1257,7 +1253,7 @@ async function ensureSessionName(sessionId: string, currentName: string | null |
   await client.updateSession(sessionId, { name: role });
 }
 
-async function send(args: string[]): Promise<void> {
+export async function send(args: string[]): Promise<void> {
   let parsed: ParsedSendArgs;
   try {
     parsed = parseSendArgs(args);
@@ -1272,7 +1268,7 @@ async function send(args: string[]): Promise<void> {
   if (!targetRoleArg || !message) {
     console.error('Usage: vibe-agent send [--respond] <role> "<message>" [--timeout <duration>] [--json]');
     console.error(`Standard roles: ${BASE_ROLES.join(', ')} (or with suffix: reviewer-2, etc.), human`);
-    console.error('Custom roles are also allowed (use CODEX by default)');
+    console.error('Custom roles are also allowed (use the configured send profile)');
     process.exit(1);
   }
 
@@ -1285,7 +1281,7 @@ async function send(args: string[]): Promise<void> {
   if (!isValidRole(targetRoleArg)) {
     console.error(`Invalid role: ${targetRoleArg}`);
     console.error(`Standard roles: ${BASE_ROLES.join(', ')} (or with suffix: reviewer-2, etc.), human`);
-    console.error('Custom roles are also allowed (use CODEX by default)');
+    console.error('Custom roles are also allowed (use the configured send profile)');
     process.exit(1);
   }
 
@@ -1298,7 +1294,10 @@ async function send(args: string[]): Promise<void> {
   }
 
   try {
-    const executor = roleToExecutor(targetRole);
+    const profiles = await client.getExecutorProfiles();
+    const profile = resolveSendProfile(profiles);
+    const { executor, variant } = profile;
+    let newSession = false;
 
     // Find existing session for target role
     let session = await getSessionForRole(workspaceId, targetRole);
@@ -1311,11 +1310,10 @@ async function send(args: string[]): Promise<void> {
         executor,
         name: targetRole,
       });
-      // Register the newly created session with the role
-      registerSession(workspaceId, session.id, targetRole);
+      newSession = true;
       if (!jsonOutput) {
         if (previousSession) {
-          console.log(`Created new ${executor} session for ${targetRole}: ${session.id} (replaced ${previousSession.executor} session ${previousSession.id})`);
+          console.log(`Created new ${executor} session for ${targetRole}: ${session.id} (previous role session: ${previousSession.executor} ${previousSession.id})`);
         } else {
           console.log(`Created new ${executor} session for ${targetRole}: ${session.id}`);
         }
@@ -1333,20 +1331,28 @@ async function send(args: string[]): Promise<void> {
       }
     }
 
-    // Send exactly the caller-provided message; do not prepend onboarding,
-    // quick-reference, or response instructions.
-    const finalMessage = buildSendPrompt(message);
+    const finalMessage = buildSendPrompt(message, newSession);
+    const executorConfig = { executor, variant, ...await resolveSendReasoning(profiles, profile, session) };
 
     // Send message using the live follow-up API shape
     const result = await client.sendMessage(session.id, {
       prompt: finalMessage,
-      executor_config: {
-        executor: session.executor,
-      },
+      executor_config: executorConfig,
       retry_process_id: null,
       force_when_dirty: null,
       perform_git_reset: null,
     });
+
+    let registrationError: string | null = null;
+    if (newSession) {
+      try {
+        // Publish only after acceptance: rejected first sends must not replace the role mapping.
+        registerSession(workspaceId, session.id, targetRole);
+      } catch (error) {
+        registrationError = (error as Error).message;
+        console.error(`Message accepted for session ${session.id}, process ${result.id}, but role registration failed: ${registrationError}. Do not resend this message; register the accepted session as ${targetRole}.`);
+      }
+    }
 
     let respondRunnerPid: number | undefined;
     let replySessionId: string | null = null;
@@ -1386,6 +1392,7 @@ async function send(args: string[]): Promise<void> {
         session_id: session.id,
         process_id: result.id,
         status: result.status,
+        ...(registrationError ? { registration_error: registrationError } : {}),
         ...(respond ? {
           respond_monitor_pid: respondRunnerPid ?? null,
           reply_session_id: replySessionId,
@@ -1569,14 +1576,14 @@ async function registerSelf(args: string[]): Promise<void> {
   if (!roleArg) {
     console.error('Usage: vibe-agent register-self <role> [--json]');
     console.error(`Standard roles: ${BASE_ROLES.join(', ')} (or with suffix: reviewer-2, etc.)`);
-    console.error('Custom roles are also allowed (use CODEX by default)');
+    console.error('Custom roles are also allowed');
     process.exit(1);
   }
 
   if (!isValidRole(roleArg)) {
     console.error(`Invalid role: ${roleArg}`);
     console.error(`Standard roles: ${BASE_ROLES.join(', ')} (or with suffix: reviewer-2, etc.)`);
-    console.error('Custom roles are also allowed (use CODEX by default)');
+    console.error('Custom roles are also allowed');
     process.exit(1);
   }
 
@@ -2225,7 +2232,7 @@ Commands:
   onboarding                   Print repo workflow conventions for agents
 
 Standard roles: ${BASE_ROLES.join(', ')} (or with suffix: reviewer-2, pm-3, etc.)
-Custom roles are also allowed (default to CODEX executor)
+Custom roles are also allowed. All send roles use the same configured executor profile.
 
 Environment variables:
   VK_WORKSPACE_ID    Workspace ID (required, set by VK)
@@ -2235,6 +2242,11 @@ Environment variables:
   VK_TASK_ID         Task ID
   VK_WORKSPACE_BRANCH  Workspace branch
   VIBE_API_URL       VK API URL (default: http://localhost:3007)
+
+Send configuration:
+  /var/lib/vd/instance-config/vibe-agent.json
+  {"version":1,"executorProfile":{"executor":"OpenCode","variant":"Default","reasoning":"medium"}}
+  Read on every outgoing message. Omit reasoning to retain the saved preset setting.
 `);
 }
 

@@ -64,17 +64,26 @@ import type {
   SendMessageBody,
   UpdateSessionBody,
   ConversationEntry,
+  ExecutorProfiles,
+  ReasoningCapabilities,
 } from '../types.js';
 
 export class VibeClient {
   private baseUrl: string;
 
-  constructor(baseUrl: string = config.BASE_URL) {
-    this.baseUrl = baseUrl;
+  constructor(
+    baseUrl: string = config.BASE_URL,
+    private fetchImpl: (url: string, options?: RequestInit) => Promise<Response> = (url, options) => fetch(url, options),
+  ) {
+    this.baseUrl = baseUrl.replace(/\/+$/, '').replace(/\/api$/, '');
+  }
+
+  get apiBaseUrl(): string {
+    return this.baseUrl;
   }
 
   private async request<T>(url: string, options?: RequestInit): Promise<T> {
-    const response = await fetch(url, {
+    const response = await this.fetchImpl(url, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
@@ -213,7 +222,7 @@ export class VibeClient {
 
         const latestProcess = processes.sort(
           (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        )[0];
+        )[0]!;
 
         return {
           workspace_id: workspaceId,
@@ -232,6 +241,84 @@ export class VibeClient {
 
       return summaries.filter((summary): summary is WorkspaceSummary => summary !== null);
     }
+  }
+
+  async getExecutorProfiles(): Promise<ExecutorProfiles> {
+    const info = await this.request<{ executors: ExecutorProfiles }>(`${this.baseUrl}/api/info`);
+    return info.executors;
+  }
+
+  async getReasoningCapabilities(
+    profile: { executor: Executor; variant: string },
+    session: Pick<Session, 'id' | 'workspace_id'>,
+    timeoutMs = 5000,
+  ): Promise<ReasoningCapabilities> {
+    const query = new URLSearchParams({ executor: profile.executor, variant: profile.variant });
+    const [preset, selector] = await Promise.all([
+      this.request<{ model_id: string | null }>(`${this.baseUrl}/api/agents/preset-options?${query}`, {
+        signal: AbortSignal.timeout(timeoutMs),
+      }),
+      this.discoverModelSelector(profile.executor, session, timeoutMs),
+    ]);
+    return {
+      model_id: preset.model_id ?? null,
+      default_model: selector.default_model ?? null,
+      models: selector.models,
+    };
+  }
+
+  private discoverModelSelector(
+    executor: Executor,
+    session: Pick<Session, 'id' | 'workspace_id'>,
+    timeoutMs: number,
+  ): Promise<Omit<ReasoningCapabilities, 'model_id'>> {
+    return new Promise((resolve, reject) => {
+      const query = new URLSearchParams({ executor, workspace_id: session.workspace_id, session_id: session.id });
+      const url = `${this.baseUrl.replace(/^http/, 'ws')}/api/agents/discovered-options/ws?${query}`;
+      const socket = new globalThis.WebSocket(url);
+      let settled = false;
+      let options: Record<string, unknown> = {};
+      const finish = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        socket.close();
+        if (error) reject(error);
+        else resolve(options.model_selector as Omit<ReasoningCapabilities, 'model_id'>);
+      };
+      const timer = setTimeout(() => finish(new Error('Model discovery timed out')), timeoutMs);
+      socket.addEventListener('error', () => finish(new Error('Model discovery failed')));
+      socket.addEventListener('close', () => finish(new Error('Model discovery closed before completion')));
+      socket.addEventListener('message', event => {
+        if (settled) return;
+        try {
+          const message = JSON.parse(String(normalizeWebSocketMessageData(event.data)));
+          for (const op of message.JsonPatch ?? []) {
+            if (op.op !== 'replace' && op.op !== 'add') continue;
+            // VK discovery uses whole snapshots plus replacements of these fields.
+            if (op.path === '/options') options = op.value;
+            else if (op.path === '/options/model_selector') options.model_selector = op.value;
+            else if (op.path === '/options/loading_models') options.loading_models = op.value;
+            else if (op.path === '/options/error') options.error = op.value;
+            else if (op.path === '/options/model_selector/models' || op.path === '/options/model_selector/default_model') {
+              const selector = options.model_selector as Record<string, unknown> | undefined;
+              if (!selector) throw new Error('Missing model discovery snapshot');
+              selector[op.path.split('/').at(-1)!] = op.value;
+            }
+          }
+          // Ready only marks the initial snapshot; defaults can arrive after models_loaded.
+          if (message.finished === true) {
+            if (options.loading_models !== false || options.error || !options.model_selector) {
+              finish(new Error('Model discovery is incomplete'));
+            } else {
+              finish();
+            }
+          }
+        } catch (error) {
+          finish(error instanceof Error ? error : new Error(String(error)));
+        }
+      });
+    });
   }
 
   // Sessions
@@ -297,7 +384,7 @@ export class VibeClient {
         }
 
         if (pathParts.length === 2) {
-          const idx = Number.parseInt(pathParts[1], 10);
+          const idx = Number.parseInt(pathParts[1]!, 10);
           if (!Number.isInteger(idx)) return;
 
           if (op.op === 'add') {

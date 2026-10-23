@@ -60,6 +60,7 @@ export interface Session {
   workspace_id: string;
   executor: Executor;
   name?: string | null;
+  agent_working_dir?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -111,6 +112,19 @@ export interface ApiResponse<T> {
 }
 
 // Request bodies
+// VK flattens saved configuration names alongside recently_used_models metadata.
+export type ExecutorProfiles = Partial<Record<Executor, Record<string, unknown>>>;
+
+export interface ReasoningCapabilities {
+  model_id: string | null;
+  default_model: string | null;
+  models: Array<{
+    id: string;
+    provider_id?: string | null;
+    reasoning_options: Array<{ id: string }>;
+  }>;
+}
+
 export interface CreateTaskBody {
   project_id: string;
   title: string;
@@ -149,6 +163,8 @@ export interface SendMessageBody {
   };
   executor_config?: {
     executor: Executor;
+    variant?: string;
+    reasoning_id?: string;
   };
   retry_process_id?: string | null;
   force_when_dirty?: boolean | null;
