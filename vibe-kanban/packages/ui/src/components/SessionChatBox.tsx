@@ -804,7 +804,9 @@ export function SessionChatBox<TExecutor extends string = string>({
         )
       }
       headerRight={
-        shouldHideZenHeader ? chatViewModeSelector : (
+        shouldHideZenHeader ? (
+          chatViewModeSelector
+        ) : (
           <>
             {/* Turn navigation + Agent icon for existing session mode */}
             {!isNewSessionMode && (
