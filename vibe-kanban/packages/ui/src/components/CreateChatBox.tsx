@@ -182,9 +182,9 @@ export function CreateChatBox<TExecutor extends string = string>({
       error={error}
       visualVariant={VisualVariant.NORMAL}
       dropzone={dropzone}
-      modelSelector={isMinimalZen ? undefined : modelSelector}
+      modelSelector={chatViewMode === 'full' ? modelSelector : undefined}
       headerLeft={
-        isMinimalZen ? undefined : (
+        chatViewMode !== 'full' ? undefined : (
           <>
             {agentIcon}
             <ToolbarDropdown label={executorLabel} disabled={isDisabled}>

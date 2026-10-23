@@ -422,7 +422,8 @@ function InlineWorkspaceChat({
       >
         <SelectTrigger
           aria-label="Chat view"
-          className="inline-flex h-7 w-auto min-w-[72px] shrink-0 rounded-sm border-border bg-secondary py-0 text-xs text-normal"
+          className="inline-flex min-w-[72px] shrink-0 rounded-sm border-border bg-secondary text-xs text-normal"
+          style={{ height: 24, width: 'auto', padding: '0 6px' }}
         >
           <SelectValue placeholder="View" />
         </SelectTrigger>

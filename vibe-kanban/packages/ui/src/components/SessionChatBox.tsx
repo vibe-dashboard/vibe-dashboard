@@ -684,9 +684,9 @@ export function SessionChatBox<TExecutor extends string = string>({
       visualVariant={getVisualVariant()}
       isRunning={showRunningAnimation}
       dropzone={dropzone}
-      modelSelector={isMinimalZen ? undefined : modelSelector}
+      modelSelector={chatViewMode === 'full' ? modelSelector : undefined}
       headerLeft={
-        shouldHideZenHeader ? undefined : (
+        chatViewMode !== 'full' ? undefined : (
           <>
             {/* New session mode: agent icon + executor dropdown */}
             {isNewSessionMode && executor && (

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowSquareOutIcon, GearIcon } from "@phosphor-icons/react";
-import { IconEyeSearch } from "@tabler/icons-react";
+import { IconWorld } from "@tabler/icons-react";
 import type {
   PreviewSlot,
   WorkspaceRunConfigsResponse,
@@ -73,7 +73,7 @@ export function WorkspacePreviewMenu({
         onClick={() => setIsOpen((open) => !open)}
         className="flex cursor-pointer items-center text-low transition-colors hover:text-normal focus:outline-none focus-visible:ring-1 focus-visible:ring-brand"
       >
-        <IconEyeSearch className="size-icon-base" aria-hidden="true" />
+        <IconWorld className="size-icon-base" aria-hidden="true" />
       </button>
       {isOpen ? (
         <div

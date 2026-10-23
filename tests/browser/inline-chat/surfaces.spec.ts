@@ -13,6 +13,36 @@ test('two inline panes keep independent drafts, modes and lifetime', async ({
     pane.getByRole('textbox', { name: /Follow up|Markdown editor/ }).last();
   await composer(left).fill('Left unsent draft');
   await composer(right).fill('Right unsent draft');
+  const viewSelector = left.getByRole('combobox', { name: 'Chat view' });
+  expect((await viewSelector.boundingBox())!.height).toBeLessThanOrEqual(24);
+  await viewSelector.click();
+  await page.getByRole('option', { name: 'Chat', exact: true }).click();
+  await expect(viewSelector).toHaveText('Chat');
+  await expect(
+    left.getByRole('button', { name: 'Model A', exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    left.getByRole('button', { name: 'Custom', exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    left.getByRole('button', { name: 'Permissions', exact: true }),
+  ).toHaveCount(0);
+  await expect(left.getByText('0 files changed', { exact: true })).toHaveCount(0);
+  await expect(
+    right.getByRole('button', { name: 'Model A', exact: true }),
+  ).toBeVisible();
+  await expect(right.getByText('0 files changed', { exact: true })).toBeVisible();
+  await expect(composer(left)).toHaveText('Left unsent draft');
+  await expect(left.getByRole('button', { name: 'Attach file' })).toBeVisible();
+  await viewSelector.click();
+  await page.getByRole('option', { name: 'Full', exact: true }).click();
+  await expect(
+    left.getByRole('button', { name: 'Model A', exact: true }),
+  ).toBeVisible();
+  await expect(
+    left.getByRole('button', { name: 'Permissions', exact: true }),
+  ).toBeVisible();
+  await expect(left.getByText('0 files changed', { exact: true })).toBeVisible();
   await left.getByRole('combobox', { name: 'Chat view' }).click();
   await page.getByRole('option', { name: 'Zen', exact: true }).click();
   await expect(
