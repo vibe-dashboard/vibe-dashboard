@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { VibeClient } from '../core/client.js';
 import type { ExecutionProcessFinalResponse, QueueEffectReconciliation, QueueStatus, Session } from '../types.js';
 import { mutateSerialRun, readSerialRun, type SerialResult, type WorkflowDispatch } from './serial-workflow.js';
+import { schemaHash } from './workflow-xml.js';
 
 export interface SerialWorkflowTransportClient {
   getSessions(workspaceId: string): Promise<Session[]>;
@@ -31,12 +33,15 @@ async function acquireWorkspaceLock(runFile: string, workspaceId: string): Promi
   fs.mkdirSync(path.dirname(lock), { recursive: true });
   const deadline = Date.now() + 5_000;
   while (true) {
+    const candidate = `${lock}.${process.pid}.${randomUUID()}`;
     try {
-      fs.mkdirSync(lock);
-      fs.writeFileSync(path.join(lock, 'pid'), String(process.pid), { flag: 'wx' });
+      fs.mkdirSync(candidate);
+      fs.writeFileSync(path.join(candidate, 'pid'), String(process.pid), { flag: 'wx' });
+      fs.renameSync(candidate, lock);
       return () => fs.rmSync(lock, { recursive: true, force: true });
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      fs.rmSync(candidate, { recursive: true, force: true });
+      if (!['EEXIST', 'ENOTEMPTY'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
       try {
         const owner = Number(fs.readFileSync(path.join(lock, 'pid'), 'utf8'));
         process.kill(owner, 0);
@@ -58,11 +63,17 @@ export async function dispatchSerialWorkflow(
   let run = readSerialRun(runFile);
   const releaseWorkspace = await acquireWorkspaceLock(runFile, run.workspaceId);
   try {
-  for (const sibling of fs.readdirSync(path.dirname(runFile)).filter(name => name.endsWith('.json'))) {
+  for (const sibling of fs.readdirSync(path.dirname(runFile)).filter(name => name.endsWith('.json') && !name.endsWith('.projection.json'))) {
     const siblingFile = path.join(path.dirname(runFile), sibling);
     if (siblingFile === runFile) continue;
     const other = readSerialRun(siblingFile);
-    if (other.workspaceId === run.workspaceId && ['active', 'waiting'].includes(other.status)) {
+    const otherCurrent = other.items[other.currentIndex];
+    const otherDispatch = otherCurrent?.dispatchId
+      ? other.dispatches.find(entry => entry.id === otherCurrent.dispatchId)
+      : null;
+    const ownsWorkspace = ['active', 'waiting'].includes(other.status)
+      || Boolean(otherDispatch && ['intent', 'submitting', 'uncertain', 'accepted'].includes(otherDispatch.status));
+    if (other.workspaceId === run.workspaceId && ownsWorkspace) {
       throw new Error(`Workspace ${run.workspaceId} already has active workflow run ${other.id}`);
     }
   }
@@ -90,7 +101,6 @@ export async function dispatchSerialWorkflow(
   }
 
   if (dispatch.status === 'accepted') return dispatch;
-  if (dispatch.status === 'uncertain') throw new Error('Dispatch is indeterminate and requires exact reconciliation');
   const transport = dispatch.transport;
   if (transport.freshSession) {
     const fresh = transport.freshSession;
@@ -114,6 +124,7 @@ export async function dispatchSerialWorkflow(
     }
     if (reconciled.status === 'indeterminate' || effect.lifecycle === 'reserved' || effect.lifecycle === 'indeterminate') throw new Error(`Queue effect is ${effect.lifecycle}; refusing duplicate start`);
   }
+  if (dispatch.status === 'uncertain') throw new Error('Dispatch is indeterminate and exact reconciliation did not prove acceptance');
 
   if (dispatch.status === 'intent') {
     mutateSerialRun(runFile, readSerialRun(runFile).version, `${idempotencyKey}:submitting:${dispatch.attempt}`, { type: 'submitting', dispatchId: dispatch.id });
@@ -154,12 +165,62 @@ export async function submitObservedSerialResult(
   const observed = await client.getExecutionProcessFinalResponseStrict(dispatch.processId);
   if (observed.process_id !== dispatch.processId || !observed.finished) throw new Error('Accepted workflow process is not terminal');
   if (!observed.final_response) {
-    mutateSerialRun(runFile, expectedVersion, idempotencyKey, { type: 'missing_result', dispatchId: dispatch.id, sourceProcessId: dispatch.processId });
+    mutateSerialRun(runFile, expectedVersion, idempotencyKey, { type: 'invalid_result', dispatchId: dispatch.id, sourceProcessId: dispatch.processId, reason: 'Terminal process returned no final response' });
     return;
   }
   let result: SerialResult;
   try { result = JSON.parse(observed.final_response) as SerialResult; }
-  catch { throw new Error('Accepted workflow process final response is not JSON'); }
+  catch {
+    mutateSerialRun(runFile, expectedVersion, idempotencyKey, { type: 'invalid_result', dispatchId: dispatch.id, sourceProcessId: dispatch.processId, reason: 'Terminal process final response is not valid JSON' });
+    return;
+  }
   const item = run.template.items[run.currentIndex]!;
-  mutateSerialRun(runFile, expectedVersion, idempotencyKey, { type: 'result', schema: item.schema, sourceProcessId: dispatch.processId, result });
+  try {
+    mutateSerialRun(runFile, expectedVersion, idempotencyKey, { type: 'result', schema: item.schema, sourceProcessId: dispatch.processId, result });
+  } catch (error) {
+    const reason = `Terminal process result rejected: ${(error as Error).message}`;
+    mutateSerialRun(runFile, expectedVersion, `${idempotencyKey}:invalid`, { type: 'invalid_result', dispatchId: dispatch.id, sourceProcessId: dispatch.processId, reason });
+  }
+}
+
+export type BeadProjectionRunner = (command: string, args: string[], options: { cwd: string }) => void;
+
+export function projectSerialWorkflowToBeads(
+  runFile: string,
+  beadsDir = process.env.VD_BEADS_DIR ?? process.cwd(),
+  runner: BeadProjectionRunner = (command, args, options) => { execFileSync(command, args, { ...options, stdio: 'pipe' }); },
+): void {
+  const run = readSerialRun(runFile);
+  const current = run.items[run.currentIndex];
+  const events = run.history.slice(-10).map(event => ({ sequence: event.sequence, type: event.type, itemId: event.itemId, revision: event.revision, at: event.at }));
+  const projection = {
+    runId: run.id,
+    version: run.version,
+    status: run.status,
+    revision: run.revision,
+    current: current ? `${current.id}:${run.template.items[run.currentIndex]!.label}` : '',
+    events,
+    beadIds: run.beadIds,
+  };
+  const projectionHash = schemaHash(projection);
+  const receiptFile = `${runFile}.projection.json`;
+  try {
+    const receipt = JSON.parse(fs.readFileSync(receiptFile, 'utf8')) as { hash?: unknown };
+    if (receipt.hash === projectionHash) return;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error;
+  }
+  for (const beadId of run.beadIds) {
+    runner('bd', [
+      'update', beadId,
+      '--set-metadata', `workflow_run=${projection.runId}`,
+      '--set-metadata', `workflow_status=${projection.status}`,
+      '--set-metadata', `workflow_revision=${projection.revision}`,
+      '--set-metadata', `workflow_current=${projection.current}`,
+      '--set-metadata', `workflow_events=${JSON.stringify(events)}`,
+    ], { cwd: beadsDir });
+  }
+  const temporary = `${receiptFile}.tmp.${randomUUID()}`;
+  fs.writeFileSync(temporary, `${JSON.stringify({ hash: projectionHash, version: run.version })}\n`, { flag: 'wx', mode: 0o600 });
+  fs.renameSync(temporary, receiptFile);
 }

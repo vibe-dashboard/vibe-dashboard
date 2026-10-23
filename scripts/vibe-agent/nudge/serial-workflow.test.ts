@@ -125,8 +125,8 @@ describe('serial workflow transitions', { timeout: 20_000 }, () => {
 
   it('marks clean missing-result completion needs-attention without resending', () => {
     const value = setup(); const accepted = value.accepted();
-    value.command({ type: 'missing_result', dispatchId: accepted.dispatchId, sourceProcessId: accepted.processId });
-    expect(readSerialRun(value.file).status).toBe('needs_attention');
+    value.command({ type: 'invalid_result', dispatchId: accepted.dispatchId, sourceProcessId: accepted.processId, reason: 'Terminal process returned no final response' });
+    expect(readSerialRun(value.file)).toMatchObject({ status: 'needs_attention', dispatches: [{ resultError: 'Terminal process returned no final response' }] });
     expect(() => value.command({ type: 'retry' })).toThrow(/proven/);
   });
 

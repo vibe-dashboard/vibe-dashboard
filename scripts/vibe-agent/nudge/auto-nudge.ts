@@ -33,7 +33,7 @@ import {
 import { DEFAULT_HANDLER_LOG_PATH, runWorkflowHandler } from './workflow-handlers.js';
 import { DEFAULT_WORKFLOW_CONFIG_PATH, loadWorkflowConfig, type WorkflowConfig, type WorkflowMessageTypeConfig } from './workflow-config.js';
 import { parseWorkflowResultXml, schemaHash, validateWorkflowActions, type WorkflowAction, type WorkflowSchemaIdentity } from './workflow-xml.js';
-import { dispatchSerialWorkflow, submitObservedSerialResult } from './serial-workflow-adapter.js';
+import { dispatchSerialWorkflow, projectSerialWorkflowToBeads, submitObservedSerialResult } from './serial-workflow-adapter.js';
 import { readSerialRun } from './serial-workflow.js';
 
 const DEFAULT_STATE_PATH = '/var/lib/vd/auto-nudge/state.json';
@@ -75,6 +75,7 @@ export interface AutoNudgeClient {
   getSessionProcesses(sessionId: string): Promise<ExecutionProcess[]>;
   getExecutionProcess(processId: string): Promise<ExecutionProcess>;
   getExecutionProcessFinalResponse(processId: string): Promise<ExecutionProcessFinalResponse>;
+  getExecutionProcessFinalResponseStrict?(processId: string): Promise<ExecutionProcessFinalResponse>;
   getAutoNudgeStatus(request: AutoNudgeStatusRequest, signal?: AbortSignal): Promise<AutoNudgeStatusResponse>;
   fetchConversation(processId: string, timeoutMs?: number): Promise<ConversationEntry[]>;
   sendMessage(sessionId: string, body: SendMessageBody): Promise<ExecutionProcess>;
@@ -784,13 +785,16 @@ async function processSerialWorkflowRuns(
   if (!client.createIdentifiedSession || !client.queueMessage || !client.reconcileQueuedExecution || !client.startQueuedExecution) {
     throw new Error('VK client does not support durable serial workflow dispatch');
   }
+  if (!client.getExecutionProcessFinalResponseStrict) throw new Error('VK client does not support strict REST workflow results');
   const candidates = fs.readdirSync(options.serialWorkflowDir)
-    .filter(file => file.endsWith('.json') && !file.endsWith('.events.jsonl'))
+    .filter(file => file.endsWith('.json') && !file.endsWith('.projection.json'))
     .map(file => path.join(options.serialWorkflowDir!, file))
     .map(file => ({ file, run: readSerialRun(file) }))
     .sort((left, right) => left.run.history[0]!.at.localeCompare(right.run.history[0]!.at) || left.run.id.localeCompare(right.run.id));
   const selected = new Map<string, string>();
   for (const { file, run } of candidates) {
+    try { projectSerialWorkflowToBeads(file); }
+    catch (error) { result.errors.push(`workflow ${run.id} projection: ${(error as Error).message}`); }
     if (!registeredWorkspaceIds.has(run.workspaceId) || ['completed', 'cancelled', 'waiting', 'needs_attention'].includes(run.status)) continue;
     if (!selected.has(run.workspaceId)) selected.set(run.workspaceId, file);
   }
@@ -804,14 +808,15 @@ async function processSerialWorkflowRuns(
       queueMessage: (sessionId: string, body: QueueMessageBody) => client.queueMessage!(sessionId, body),
       reconcileQueuedExecution: (sessionId: string, queueId: string) => client.reconcileQueuedExecution!(sessionId, queueId),
       startQueuedExecution: (sessionId: string, queueId: string, body: Omit<QueueMessageBody, 'queue_id'>) => client.startQueuedExecution!(sessionId, queueId, body),
-      getExecutionProcessFinalResponseStrict: (processId: string) => client.getExecutionProcessFinalResponse(processId),
+      getExecutionProcessFinalResponseStrict: (processId: string) => client.getExecutionProcessFinalResponseStrict!(processId),
     };
     try {
       if (dispatch?.status === 'accepted') {
-        await submitObservedSerialResult(file, { getExecutionProcessFinalResponseStrict: id => client.getExecutionProcessFinalResponse(id) }, run.version, `daemon:result:${dispatch.id}`);
+        await submitObservedSerialResult(file, { getExecutionProcessFinalResponseStrict: id => client.getExecutionProcessFinalResponseStrict!(id) }, run.version, `daemon:result:${dispatch.id}`);
       } else {
         await dispatchSerialWorkflow(file, transportClient, run.version, `daemon:dispatch:${run.revision}:${item?.id ?? 'none'}`);
       }
+      projectSerialWorkflowToBeads(file);
     } catch (error) {
       if (!(error instanceof Error && error.message.includes('not terminal'))) result.errors.push(`workflow ${run.id}: ${(error as Error).message}`);
     }
@@ -1107,6 +1112,7 @@ export function createAutoNudgeClient(source: VibeClientAdapterSource): AutoNudg
     ...(source.startQueuedExecution ? { startQueuedExecution: (sessionId: string, queueId: string, body: Omit<QueueMessageBody, 'queue_id'>) => source.startQueuedExecution!(sessionId, queueId, body) } : {}),
     getExecutionProcess: id => source.getExecutionProcess(id),
     getExecutionProcessFinalResponse: id => source.getExecutionProcessFinalResponseStrict(id),
+    getExecutionProcessFinalResponseStrict: id => source.getExecutionProcessFinalResponseStrict(id),
     getAutoNudgeStatus: (request, signal) => source.getAutoNudgeStatus(request, signal),
     fetchConversation: (id, timeout) => source.fetchConversation(id, timeout), sendMessage: (id, request) => source.sendMessage(id, request),
   };

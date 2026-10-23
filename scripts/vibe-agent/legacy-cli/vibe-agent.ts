@@ -43,7 +43,7 @@ import {
 } from '../nudge/auto-nudge.js';
 import { parseSerialWorkflowConfig } from '../nudge/serial-workflow-config.js';
 import { createSerialRun, mutateSerialRun, readSerialRun } from '../nudge/serial-workflow.js';
-import { dispatchSerialWorkflow, submitObservedSerialResult } from '../nudge/serial-workflow-adapter.js';
+import { dispatchSerialWorkflow, projectSerialWorkflowToBeads, submitObservedSerialResult } from '../nudge/serial-workflow-adapter.js';
 
 const DEFAULT_SERIAL_WORKFLOW_DIR = '/var/lib/vd/auto-nudge/workflows';
 
@@ -2031,25 +2031,6 @@ function workflowRunFile(runId: string): string {
   return path.join(process.env.VD_SERIAL_WORKFLOW_DIR ?? DEFAULT_SERIAL_WORKFLOW_DIR, `${runId}.json`);
 }
 
-function projectWorkflowToBeads(file: string): void {
-  const run = readSerialRun(file);
-  const current = run.items[run.currentIndex];
-  const events = run.history.slice(-10).map(event => ({
-    sequence: event.sequence, type: event.type, itemId: event.itemId,
-    revision: event.revision, at: event.at,
-  }));
-  for (const beadId of run.beadIds) {
-    execFileSync('bd', [
-      'update', beadId,
-      '--set-metadata', `workflow_run=${run.id}`,
-      '--set-metadata', `workflow_status=${run.status}`,
-      '--set-metadata', `workflow_revision=${run.revision}`,
-      '--set-metadata', `workflow_current=${current ? `${current.id}:${run.template.items[run.currentIndex]!.label}` : ''}`,
-      '--set-metadata', `workflow_events=${JSON.stringify(events)}`,
-    ], { cwd: process.env.VD_BEADS_DIR ?? process.cwd(), stdio: 'pipe' });
-  }
-}
-
 async function workflowCommand(args: string[]): Promise<void> {
   const [operation] = args;
   const runId = workflowFlag(args, '--run-id')!;
@@ -2069,7 +2050,7 @@ async function workflowCommand(args: string[]): Promise<void> {
     const decisionSession = workflowFlag(args, '--decision-session', false);
     const authority = decisionSession ? { mode: 'decision_maker' as const, sessionId: decisionSession } : { mode: 'human' as const };
     const receipt = createSerialRun(file, { id: runId, workspaceId, beadIds: beads, template, authority }, workflowFlag(args, '--idempotency-key')!);
-    projectWorkflowToBeads(file); console.log(JSON.stringify(receipt));
+    projectSerialWorkflowToBeads(file); console.log(JSON.stringify(receipt));
     return;
   }
   const expectedVersion = Number(workflowFlag(args, '--expected-version'));
@@ -2080,16 +2061,16 @@ async function workflowCommand(args: string[]): Promise<void> {
     const registry = readAutoNudgeWorkspaceRegistry(process.env.VD_AUTO_NUDGE_WORKSPACE_REGISTRY_PATH ?? DEFAULT_WORKSPACE_REGISTRY_PATH);
     if (!registry.workspaces[run.workspaceId]) throw new Error('Workflow workspace is not registered for auto-nudge; run vibe-agent auto-nudge enable first');
     const result = await dispatchSerialWorkflow(file, client, expectedVersion, key);
-    projectWorkflowToBeads(file); console.log(JSON.stringify(result));
+    projectSerialWorkflowToBeads(file); console.log(JSON.stringify(result));
     return;
   }
   if (operation === 'submit-result') {
     await submitObservedSerialResult(file, client, expectedVersion, key);
-    projectWorkflowToBeads(file); console.log(JSON.stringify(readSerialRun(file)));
+    projectSerialWorkflowToBeads(file); console.log(JSON.stringify(readSerialRun(file)));
     return;
   }
-  if (operation === 'retry') { const result = mutateSerialRun(file, expectedVersion, key, { type: 'retry' }); projectWorkflowToBeads(file); console.log(JSON.stringify(result)); return; }
-  if (operation === 'cancel') { const result = mutateSerialRun(file, expectedVersion, key, { type: 'cancel', reason: workflowFlag(args, '--reason')! }); projectWorkflowToBeads(file); console.log(JSON.stringify(result)); return; }
+  if (operation === 'retry') { const result = mutateSerialRun(file, expectedVersion, key, { type: 'retry' }); projectSerialWorkflowToBeads(file); console.log(JSON.stringify(result)); return; }
+  if (operation === 'cancel') { const result = mutateSerialRun(file, expectedVersion, key, { type: 'cancel', reason: workflowFlag(args, '--reason')! }); projectSerialWorkflowToBeads(file); console.log(JSON.stringify(result)); return; }
   throw new Error('Usage: vibe-agent workflow <create|status|start|submit-result|retry|cancel> --run-id <id> ...');
 }
 

@@ -942,8 +942,13 @@ mod admission_tests {
             "../../migrations/20261020000000_enforce_single_active_coding_agent.sql"
         ))
         .execute(pool)
-        .await
-        .map(|_| ())
+        .await?;
+        sqlx::raw_sql(include_str!(
+            "../../migrations/20261023000000_add_queue_effect_requested_payload_fingerprint.sql"
+        ))
+        .execute(pool)
+        .await?;
+        Ok(())
     }
 
     async fn insert(
@@ -1009,6 +1014,49 @@ mod admission_tests {
             error
                 .as_database_error()
                 .is_some_and(|db| db.is_unique_violation())
+        );
+    }
+
+    #[tokio::test]
+    async fn payload_fingerprint_migration_quarantines_legacy_queue_effects() {
+        let pool = pool().await;
+        sqlx::raw_sql(include_str!(
+            "../../migrations/20261020000000_enforce_single_active_coding_agent.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        let queue_id = Uuid::new_v4();
+        let session_id = Uuid::new_v4();
+        let process_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO sessions (id) VALUES (?)")
+            .bind(session_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO execution_process_queue_effects (queue_id, owner, execution_process_id, session_id, run_reason, executor_action, lifecycle) VALUES (?, 'legacy', ?, ?, 'codingagent', '{}', 'started')")
+            .bind(queue_id)
+            .bind(process_id)
+            .bind(session_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        sqlx::raw_sql(include_str!(
+            "../../migrations/20261023000000_add_queue_effect_requested_payload_fingerprint.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let row: (String, String) = sqlx::query_as("SELECT lifecycle, requested_payload_fingerprint FROM execution_process_queue_effects WHERE queue_id = ?")
+            .bind(queue_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            row,
+            ("indeterminate".to_string(), "legacy:unknown".to_string())
         );
     }
 

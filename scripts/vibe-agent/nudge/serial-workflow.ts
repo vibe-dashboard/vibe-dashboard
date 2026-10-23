@@ -43,6 +43,7 @@ export interface WorkflowDispatch {
   transport: WorkflowDispatchTransport;
   status: DeliveryStatus;
   processId: string | null;
+  resultError: string | null;
 }
 export interface SerialResult {
   run_id: string;
@@ -101,7 +102,7 @@ export type WorkflowCommand =
   | { type: 'accept'; dispatchId: string; processId: string }
   | { type: 'delivery_failed'; dispatchId: string; disposition: 'proven_unaccepted' | 'uncertain'; reason: string }
   | { type: 'result'; schema: WorkflowSchemaIdentity; sourceProcessId: string; result: SerialResult }
-  | { type: 'missing_result'; dispatchId: string; sourceProcessId: string }
+  | { type: 'invalid_result'; dispatchId: string; sourceProcessId: string; reason: string }
   | { type: 'retry' }
   | { type: 'cancel'; reason: string };
 
@@ -225,7 +226,7 @@ function apply(run: SerialRun, command: WorkflowCommand): void {
   const fields: Record<WorkflowCommand['type'], string[]> = {
     start: ['type', 'dispatchId', 'transport'], submitting: ['type', 'dispatchId'], accept: ['type', 'dispatchId', 'processId'],
     delivery_failed: ['type', 'dispatchId', 'disposition', 'reason'], result: ['type', 'schema', 'sourceProcessId', 'result'],
-    missing_result: ['type', 'dispatchId', 'sourceProcessId'], retry: ['type'], cancel: ['type', 'reason'],
+    invalid_result: ['type', 'dispatchId', 'sourceProcessId', 'reason'], retry: ['type'], cancel: ['type', 'reason'],
   };
   if (!Object.hasOwn(fields, command.type)) throw new Error('Unknown workflow command');
   exact(record(command, 'command'), fields[command.type], 'command');
@@ -247,7 +248,7 @@ function apply(run: SerialRun, command: WorkflowCommand): void {
       if (!transport.fresh || fresh.id !== transport.sessionId) throw new Error('Fresh session identity does not match transport');
     } else if (transport.fresh) throw new Error('Fresh transport requires identified session tuple');
     if (run.status !== 'queued' || item.status !== 'pending' || item.dispatchId !== null) throw new Error('Current item cannot start');
-    const dispatch: WorkflowDispatch = { id: command.dispatchId, itemId: item.id, revision: run.revision, attempt: 1, transport: structuredClone(command.transport), status: 'intent', processId: null };
+    const dispatch: WorkflowDispatch = { id: command.dispatchId, itemId: item.id, revision: run.revision, attempt: 1, transport: structuredClone(command.transport), status: 'intent', processId: null, resultError: null };
     run.dispatches.push(dispatch); item.dispatchId = dispatch.id; item.status = 'active'; run.status = 'active';
   } else if (command.type === 'submitting') {
     const dispatch = dispatchFor(run, command.dispatchId);
@@ -296,9 +297,11 @@ function apply(run: SerialRun, command: WorkflowCommand): void {
       for (const reset of run.items.slice(run.currentIndex)) { reset.status = 'pending'; reset.revision = run.revision; reset.dispatchId = null; reset.result = null; }
       run.status = 'queued';
     } else { item.status = transition.action === 'wait' ? 'waiting' : 'needs_attention'; run.status = item.status; }
-  } else if (command.type === 'missing_result') {
+  } else if (command.type === 'invalid_result') {
+    text(command.reason, 'reason');
     const dispatch = dispatchFor(run, command.dispatchId);
-    if (dispatch.status !== 'accepted' || dispatch.processId !== command.sourceProcessId || run.status !== 'active') throw new Error('Missing-result signal must identify current accepted process');
+    if (dispatch.status !== 'accepted' || dispatch.processId !== command.sourceProcessId || run.status !== 'active') throw new Error('Invalid-result signal must identify current accepted process');
+    dispatch.resultError = command.reason;
     item.status = 'needs_attention'; run.status = 'needs_attention';
   } else if (command.type === 'cancel') {
     text(command.reason, 'reason');

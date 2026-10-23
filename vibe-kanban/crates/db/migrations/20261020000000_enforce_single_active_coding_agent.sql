@@ -12,7 +12,6 @@ CREATE TABLE execution_process_queue_effects (
     owner TEXT NOT NULL,
     execution_process_id BLOB NOT NULL UNIQUE,
     session_id BLOB NOT NULL,
-    requested_payload_fingerprint TEXT NOT NULL,
     run_reason TEXT NOT NULL,
     executor_action TEXT NOT NULL,
     lifecycle TEXT NOT NULL CHECK (lifecycle IN ('reserved', 'started', 'failed_before_start', 'indeterminate')),
