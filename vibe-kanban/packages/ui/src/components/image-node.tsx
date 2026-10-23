@@ -45,7 +45,7 @@ export interface OpenImagePreviewOptions {
 export interface CreateImageNodeOptions {
   fetchAttachmentUrl: (
     attachmentId: string,
-    type: AttachmentType,
+    type: AttachmentType
   ) => Promise<string>;
   openImagePreview: (options: OpenImagePreviewOptions) => void;
 }
@@ -113,7 +113,7 @@ async function downloadBlobUrl(url: string, filename: string): Promise<void> {
 }
 
 function toMetadataFromLocalImage(
-  localImage: LocalAttachmentMetadata | undefined,
+  localImage: LocalAttachmentMetadata | undefined
 ): ImageMetadataLike | null {
   if (!localImage) return null;
 
@@ -130,18 +130,18 @@ function useImageMetadata(
   workspaceId: string | undefined,
   sessionId: string | undefined,
   src: string,
-  localAttachments: LocalAttachmentMetadata[],
+  localAttachments: LocalAttachmentMetadata[]
 ) {
   const isVibeImage = src.startsWith('.vibe-attachments/');
 
   const localImage = useMemo(
     () => localAttachments.find((attachment) => attachment.path === src),
-    [localAttachments, src],
+    [localAttachments, src]
   );
 
   const localImageMetadata = useMemo(
     () => toMetadataFromLocalImage(localImage),
-    [localImage],
+    [localImage]
   );
 
   const shouldFetch = isVibeImage && !!workspaceId && !localImage;
@@ -152,7 +152,7 @@ function useImageMetadata(
       if (!workspaceId || !sessionId) return null;
 
       const response = await fetch(
-        `/api/workspaces/${workspaceId}/attachments/metadata?path=${encodeURIComponent(src)}&session_id=${sessionId}`,
+        `/api/workspaces/${workspaceId}/attachments/metadata?path=${encodeURIComponent(src)}&session_id=${sessionId}`
       );
       const payload = await response.json();
       return payload.data as ImageMetadataLike | null;
@@ -170,7 +170,7 @@ function useImageMetadata(
 function useAttachmentUrl(
   attachmentId: string | null,
   type: AttachmentType,
-  fetchAttachmentUrl: CreateImageNodeOptions['fetchAttachmentUrl'],
+  fetchAttachmentUrl: CreateImageNodeOptions['fetchAttachmentUrl']
 ): AttachmentUrlResult {
   const query = useQuery({
     queryKey: ['attachment-url', attachmentId, type],
@@ -211,7 +211,7 @@ export function createImageNode(options: CreateImageNodeOptions) {
         : null;
     const localAttachment = useMemo(
       () => localAttachments.find((attachment) => attachment.path === src),
-      [localAttachments, src],
+      [localAttachments, src]
     );
     const isImageAttachment =
       isAttachment &&
@@ -221,19 +221,19 @@ export function createImageNode(options: CreateImageNodeOptions) {
     const { url: thumbnailUrl, loading: attachmentLoading } = useAttachmentUrl(
       isImageAttachment && !localAttachment ? attachmentId : null,
       'thumbnail',
-      options.fetchAttachmentUrl,
+      options.fetchAttachmentUrl
     );
     const { url: fullSizeUrl } = useAttachmentUrl(
       localAttachment ? null : attachmentId,
       'file',
-      options.fetchAttachmentUrl,
+      options.fetchAttachmentUrl
     );
 
     const { data: metadata, isLoading: loading } = useImageMetadata(
       workspaceId,
       sessionId,
       src,
-      localAttachments,
+      localAttachments
     );
     const workspaceDisplayName =
       metadata?.file_name || localAttachment?.file_name || altText || src;
@@ -244,7 +244,7 @@ export function createImageNode(options: CreateImageNodeOptions) {
     const showDownloadButton = Boolean(
       (isAttachment &&
         (localAttachment?.proxy_url || fullSizeUrl || metadata?.proxy_url)) ||
-      (!isWorkspaceImage && metadata?.proxy_url),
+        (!isWorkspaceImage && metadata?.proxy_url)
     );
 
     const handleClick = useCallback(
@@ -293,7 +293,7 @@ export function createImageNode(options: CreateImageNodeOptions) {
         metadata,
         isWorkspaceImage,
         altText,
-      ],
+      ]
     );
 
     const handleDownload = useCallback(
@@ -317,7 +317,7 @@ export function createImageNode(options: CreateImageNodeOptions) {
         isWorkspaceImage,
         metadata,
         altText,
-      ],
+      ]
     );
 
     const handleDelete = useCallback(
@@ -334,7 +334,7 @@ export function createImageNode(options: CreateImageNodeOptions) {
           }
         });
       },
-      [editor, nodeKey],
+      [editor, nodeKey]
     );
 
     let thumbnailContent: React.ReactNode;
@@ -343,7 +343,7 @@ export function createImageNode(options: CreateImageNodeOptions) {
 
     const hasContext = !!workspaceId;
     const hasLocalImage = localAttachments.some(
-      (attachment) => attachment.path === src,
+      (attachment) => attachment.path === src
     );
 
     if (isAttachment) {
@@ -372,7 +372,7 @@ export function createImageNode(options: CreateImageNodeOptions) {
         );
       }
       displayName = truncatePath(
-        altText || t('kanban.imageAttachmentNameFallback'),
+        altText || t('kanban.imageAttachmentNameFallback')
       );
       if (localAttachment?.is_pending) {
         const parts = ['Uploading'];

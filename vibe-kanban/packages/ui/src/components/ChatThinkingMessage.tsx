@@ -25,7 +25,7 @@ export function ChatThinkingMessage({
     <div
       className={cn(
         'flex items-start gap-base text-sm text-default-500',
-        className,
+        className
       )}
     >
       <ChatDotsIcon className="shrink-0 size-icon-base pt-0.5" />

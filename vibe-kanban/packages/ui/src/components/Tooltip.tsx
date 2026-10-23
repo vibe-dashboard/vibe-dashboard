@@ -31,7 +31,7 @@ export function Tooltip({
             className={cn(
               'z-[10000] flex items-center rounded-sm border border-divider bg-content1 px-base py-half text-xs text-foreground shadow-md',
               'animate-in fade-in-0 zoom-in-95',
-              className,
+              className
             )}
           >
             <span>{content}</span>
@@ -40,7 +40,7 @@ export function Tooltip({
                 className={cn(
                   'ml-2 inline-flex items-center gap-0.5 px-2 py-0.5',
                   'rounded-sm border border-divider bg-content2',
-                  'font-ibm-plex-mono text-xs text-foreground',
+                  'font-ibm-plex-mono text-xs text-foreground'
                 )}
               >
                 {formattedShortcut}

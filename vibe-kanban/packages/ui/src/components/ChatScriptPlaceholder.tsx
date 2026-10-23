@@ -31,7 +31,7 @@ export function ChatScriptPlaceholder({
     <div
       className={cn(
         'flex items-start gap-base text-sm rounded-md -mx-half px-half py-half',
-        className,
+        className
       )}
     >
       <span className="relative shrink-0 pt-0.5">

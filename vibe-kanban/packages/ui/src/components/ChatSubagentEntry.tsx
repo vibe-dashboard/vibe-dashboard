@@ -127,7 +127,7 @@ export function ChatSubagentEntry({
         isErrorStatus && 'border-danger bg-danger/5',
         status?.status === 'success' && 'border-success/50',
         !isErrorStatus && status?.status !== 'success' && 'border-divider',
-        className,
+        className
       )}
     >
       {/* Header */}
@@ -136,7 +136,7 @@ export function ChatSubagentEntry({
           'flex items-center px-double py-base gap-base',
           isErrorStatus && 'bg-danger/10',
           status?.status === 'success' && 'bg-success/5',
-          isInteractive && 'cursor-pointer',
+          isInteractive && 'cursor-pointer'
         )}
         onClick={isInteractive ? onToggle : undefined}
         onKeyDown={handleKeyDown}
@@ -163,7 +163,7 @@ export function ChatSubagentEntry({
           <CaretDownIcon
             className={cn(
               'size-icon-xs shrink-0 text-default-500 transition-transform',
-              !expanded && '-rotate-90',
+              !expanded && '-rotate-90'
             )}
           />
         )}

@@ -12,7 +12,7 @@ const Command = React.forwardRef<
     ref={ref}
     className={cn(
       'flex h-full w-full flex-col overflow-hidden bg-content1 text-foreground',
-      className,
+      className
     )}
     {...props}
   />
@@ -63,7 +63,7 @@ const CommandInput = React.forwardRef<
       className={cn(
         'flex h-10 w-full rounded-sm bg-transparent py-half text-base text-foreground outline-none',
         'placeholder:text-default-500 disabled:cursor-not-allowed disabled:opacity-50',
-        className,
+        className
       )}
       {...props}
     />
@@ -105,7 +105,7 @@ const CommandGroup = React.forwardRef<
       'overflow-hidden p-half text-foreground',
       '[&_[cmdk-group-heading]]:px-base [&_[cmdk-group-heading]]:py-half',
       '[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-default-500',
-      className,
+      className
     )}
     {...props}
   />
@@ -134,7 +134,7 @@ const CommandItem = React.forwardRef<
       'relative flex cursor-pointer select-none items-center gap-base rounded-sm px-base py-half text-sm outline-none',
       'data-[selected=true]:bg-content2 data-[selected=true]:text-foreground',
       'data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50',
-      className,
+      className
     )}
     {...props}
   />
@@ -149,7 +149,7 @@ function CommandShortcut({
     <span
       className={cn(
         'ml-auto text-xs tracking-widest text-default-500',
-        className,
+        className
       )}
       {...props}
     />

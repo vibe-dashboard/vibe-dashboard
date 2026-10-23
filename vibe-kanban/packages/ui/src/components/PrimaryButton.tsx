@@ -33,7 +33,7 @@ export function PrimaryButton({
       className={cn(
         'rounded-sm px-base py-half text-cta min-h-cta flex gap-half items-center',
         variantStyles,
-        className,
+        className
       )}
       onClick={onClick}
       disabled={disabled}

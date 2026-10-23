@@ -78,7 +78,7 @@ function parseDiffStats(unifiedDiff: string): {
  */
 export function useDiffData(
   input: DiffInput,
-  options?: { ignoreWhitespace?: boolean },
+  options?: { ignoreWhitespace?: boolean }
 ): DiffData {
   return useMemo(() => {
     if (input.type === 'content') {
@@ -110,7 +110,7 @@ export function useDiffData(
         const metadata = parseDiffFromFile(
           oldFile,
           newFile,
-          options?.ignoreWhitespace ? { ignoreWhitespace: true } : undefined,
+          options?.ignoreWhitespace ? { ignoreWhitespace: true } : undefined
         );
 
         // Calculate additions/deletions from hunks
@@ -197,7 +197,7 @@ export function DiffViewCard({
       <div
         className={cn(
           'flex items-center bg-content1 p-base w-full',
-          onToggle && 'cursor-pointer',
+          onToggle && 'cursor-pointer'
         )}
         onClick={onToggle}
       >
@@ -230,7 +230,7 @@ export function DiffViewCard({
           <CaretDownIcon
             className={cn(
               'size-icon-xs shrink-0 text-default-500 transition-transform',
-              !expanded && '-rotate-90',
+              !expanded && '-rotate-90'
             )}
           />
         )}
@@ -289,7 +289,7 @@ export function DiffViewBody({
       theme: { dark: 'github-dark', light: 'github-light' } as const,
       unsafeCSS: PIERRE_DIFFS_THEME_CSS,
     }),
-    [diffMode, theme, wrapText, hideLineNumbers],
+    [diffMode, theme, wrapText, hideLineNumbers]
   );
 
   if (!isValid) {

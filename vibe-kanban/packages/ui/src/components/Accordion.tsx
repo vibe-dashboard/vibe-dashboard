@@ -13,9 +13,8 @@ const AccordionItem = React.forwardRef<
 ));
 AccordionItem.displayName = AccordionPrimitive.Item.displayName;
 
-interface AccordionTriggerProps extends React.ComponentPropsWithoutRef<
-  typeof AccordionPrimitive.Trigger
-> {
+interface AccordionTriggerProps
+  extends React.ComponentPropsWithoutRef<typeof AccordionPrimitive.Trigger> {
   sticky?: boolean;
 }
 
@@ -47,7 +46,7 @@ const AccordionContent = React.forwardRef<
       'overflow-hidden',
       'data-[state=open]:animate-accordion-down',
       'data-[state=closed]:animate-accordion-up',
-      className,
+      className
     )}
     {...props}
   />

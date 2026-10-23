@@ -55,7 +55,7 @@ export function ChatScriptEntry({
     <div
       className={cn(
         'flex items-start gap-base text-sm cursor-pointer hover:bg-content1/50 rounded-md -mx-half px-half py-half transition-colors',
-        className,
+        className
       )}
       onClick={handleClick}
       role="button"

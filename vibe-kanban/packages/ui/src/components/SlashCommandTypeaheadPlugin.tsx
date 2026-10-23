@@ -31,14 +31,14 @@ class SlashCommandOption extends MenuOption {
 
 function filterSlashCommands(
   all: SlashCommandDescriptionLike[],
-  query: string,
+  query: string
 ): SlashCommandDescriptionLike[] {
   const q = query.trim().toLowerCase();
   if (!q) return all;
 
   const startsWith = all.filter((c) => c.name.toLowerCase().startsWith(q));
   const includes = all.filter(
-    (c) => !startsWith.includes(c) && c.name.toLowerCase().includes(q),
+    (c) => !startsWith.includes(c) && c.name.toLowerCase().includes(q)
   );
   return [...startsWith, ...includes];
 }
@@ -77,7 +77,7 @@ export function SlashCommandTypeaheadPlugin({
       const filtered = filterSlashCommands(commands, query).slice(0, 20);
       setOptions(filtered.map((c) => new SlashCommandOption(c)));
     },
-    [enabled, commands],
+    [enabled, commands]
   );
 
   const hasVisibleResults = useMemo(() => {
@@ -128,7 +128,7 @@ export function SlashCommandTypeaheadPlugin({
       }}
       menuRenderFn={(
         anchorRef,
-        { selectedIndex, selectOptionAndCleanUp, setHighlightedIndex },
+        { selectedIndex, selectOptionAndCleanUp, setHighlightedIndex }
       ) => {
         if (!anchorRef.current) return null;
         if (!enabled) return null;
@@ -189,7 +189,7 @@ export function SlashCommandTypeaheadPlugin({
               </TypeaheadMenu.ScrollArea>
             )}
           </TypeaheadMenu>,
-          document.body,
+          document.body
         );
       }}
     />

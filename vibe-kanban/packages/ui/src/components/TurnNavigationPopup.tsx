@@ -84,7 +84,7 @@ export function TurnNavigationPopup({
       setOpen(false);
       onNavigateToTurn(patchKey);
     },
-    [onNavigateToTurn],
+    [onNavigateToTurn]
   );
 
   // Scroll the list to show the active turn (or bottom if none).
@@ -94,7 +94,7 @@ export function TurnNavigationPopup({
     if (!open || !list) return;
     if (activePatchKey) {
       const activeEl = list.querySelector<HTMLElement>(
-        `[data-patch-key="${activePatchKey}"]`,
+        `[data-patch-key="${activePatchKey}"]`
       );
       if (activeEl) {
         const top = activeEl.offsetTop - list.offsetTop;
@@ -154,7 +154,7 @@ export function TurnNavigationPopup({
                       'w-full text-left px-base py-half rounded transition-colors group',
                       isActive
                         ? 'bg-primary/10 border-l-2 border-primary'
-                        : 'hover:bg-content2',
+                        : 'hover:bg-content2'
                     )}
                     onClick={() => handleNavigate(turn.patchKey)}
                   >
@@ -162,7 +162,7 @@ export function TurnNavigationPopup({
                       <span
                         className={cn(
                           'text-xs shrink-0 tabular-nums',
-                          isActive ? 'text-primary' : 'text-default-500',
+                          isActive ? 'text-primary' : 'text-default-500'
                         )}
                       >
                         #{turn.turnNumber}
@@ -172,7 +172,7 @@ export function TurnNavigationPopup({
                           'text-sm truncate',
                           isActive
                             ? 'text-primary font-medium'
-                            : 'text-foreground group-hover:text-foreground',
+                            : 'text-foreground group-hover:text-foreground'
                         )}
                       >
                         {turn.content}

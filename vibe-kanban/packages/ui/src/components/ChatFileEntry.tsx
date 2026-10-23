@@ -88,7 +88,7 @@ export function ChatFileEntry({
         className={cn(
           'rounded-sm border overflow-hidden',
           isDenied && 'border-danger bg-danger/10',
-          className,
+          className
         )}
       >
         {/* Header */}
@@ -96,7 +96,7 @@ export function ChatFileEntry({
           className={cn(
             'flex items-center p-base w-full',
             isDenied ? 'bg-danger/20' : 'bg-content1',
-            isInteractive && 'cursor-pointer',
+            isInteractive && 'cursor-pointer'
           )}
           onClick={handleClick}
           onKeyDown={handleKeyDown}
@@ -145,7 +145,7 @@ export function ChatFileEntry({
             <CaretDownIcon
               className={cn(
                 'size-icon-xs shrink-0 text-default-500 transition-transform',
-                !expanded && '-rotate-90',
+                !expanded && '-rotate-90'
               )}
             />
           )}
@@ -164,7 +164,7 @@ export function ChatFileEntry({
         'flex items-center border rounded-sm p-base w-full',
         isDenied ? 'bg-danger/20 border-danger' : 'bg-content1',
         isInteractive && 'cursor-pointer',
-        className,
+        className
       )}
       onClick={handleClick}
       onKeyDown={handleKeyDown}
@@ -213,7 +213,7 @@ export function ChatFileEntry({
         <CaretDownIcon
           className={cn(
             'size-icon-xs shrink-0 text-default-500 transition-transform',
-            !expanded && '-rotate-90',
+            !expanded && '-rotate-90'
           )}
         />
       )}

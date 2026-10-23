@@ -27,7 +27,7 @@ export const AskUserQuestionBanner = forwardRef<
   AskUserQuestionBannerProps
 >(function AskUserQuestionBanner(
   { questions, onSubmitAnswers, isSubmitting, isTimedOut, error },
-  ref,
+  ref
 ) {
   const { t } = useTranslation('common');
   // Track completed answers: question text -> selected labels array
@@ -39,7 +39,7 @@ export const AskUserQuestionBanner = forwardRef<
       questions
         .filter((q) => rec[q.question] !== undefined)
         .map((q) => ({ question: q.question, answer: rec[q.question] })),
-    [questions],
+    [questions]
   );
   // Track which question index we're currently showing
   const currentIndex = useMemo(() => {
@@ -51,7 +51,7 @@ export const AskUserQuestionBanner = forwardRef<
 
   // For multi-select: track toggled labels for the current question
   const [multiSelectLabels, setMultiSelectLabels] = useState<Set<string>>(
-    new Set(),
+    new Set()
   );
 
   const currentQuestion =
@@ -97,7 +97,7 @@ export const AskUserQuestionBanner = forwardRef<
       questions.length,
       onSubmitAnswers,
       toQuestionAnswers,
-    ],
+    ]
   );
 
   // Confirm multi-select or "Other" text answer
@@ -151,7 +151,7 @@ export const AskUserQuestionBanner = forwardRef<
       questions.length,
       onSubmitAnswers,
       toQuestionAnswers,
-    ],
+    ]
   );
 
   if (isAllAnswered && !isSubmitting) return null;

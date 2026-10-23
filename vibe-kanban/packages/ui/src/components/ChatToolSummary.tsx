@@ -36,7 +36,7 @@ export const ChatToolSummary = forwardRef<
     isTruncated,
     actionType,
   },
-  ref,
+  ref
 ) {
   // Can expand if text is truncated and onToggle is provided
   const canExpand = isTruncated && onToggle;
@@ -71,7 +71,7 @@ export const ChatToolSummary = forwardRef<
       className={cn(
         'flex items-center gap-base text-sm text-default-500',
         isClickable && 'cursor-pointer',
-        className,
+        className
       )}
       onClick={isClickable ? handleClick : undefined}
       role={isClickable ? 'button' : undefined}
@@ -101,7 +101,7 @@ export const ChatToolSummary = forwardRef<
         ref={ref}
         className={cn(
           !expanded && 'truncate',
-          expanded && 'whitespace-pre-wrap break-all',
+          expanded && 'whitespace-pre-wrap break-all'
         )}
       >
         {summary}

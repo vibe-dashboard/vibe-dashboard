@@ -94,7 +94,7 @@ export function ChatEntryContainer({
         config.border,
         config.bg,
         isGreyed && 'opacity-50 pointer-events-none',
-        className,
+        className
       )}
     >
       {/* Header */}
@@ -102,7 +102,7 @@ export function ChatEntryContainer({
         className={cn(
           'flex items-center px-double py-base gap-base rounded-sm overflow-hidden',
           config.headerBg,
-          onToggle && 'cursor-pointer',
+          onToggle && 'cursor-pointer'
         )}
         onClick={onToggle}
         onKeyDown={handleKeyDown}
@@ -121,7 +121,7 @@ export function ChatEntryContainer({
           <CaretDownIcon
             className={cn(
               'size-icon-xs shrink-0 text-default-500 transition-transform',
-              !expanded && '-rotate-90',
+              !expanded && '-rotate-90'
             )}
           />
         )}

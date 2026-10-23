@@ -161,7 +161,7 @@ interface SessionChatBoxProps<TExecutor extends string = string> {
   chatViewModeSelector?: ReactNode;
   editor: EditorProps;
   renderEditor: (
-    props: SessionChatBoxEditorRenderProps<TExecutor>,
+    props: SessionChatBoxEditorRenderProps<TExecutor>
   ) => ReactNode;
   actions: ActionsProps;
   session: SessionProps<TExecutor>;
@@ -181,7 +181,7 @@ interface SessionChatBoxProps<TExecutor extends string = string> {
   emptyExecutorLabel?: string;
   renderAgentIcon?: (
     executor: TExecutor | string | null | undefined,
-    className?: string,
+    className?: string
   ) => ReactNode;
   formatSessionDate?: (createdAt: string | Date) => string;
   todos?: TodoProgressItem[];
@@ -290,11 +290,11 @@ export function SessionChatBox<TExecutor extends string = string>({
   // Derived state from status
   const isDisabled = Boolean(
     status === 'sending' ||
-    status === 'stopping' ||
-    feedbackMode?.isSubmitting ||
-    editMode?.isSubmitting ||
-    approvalMode?.isSubmitting ||
-    askQuestionMode?.isSubmitting,
+      status === 'stopping' ||
+      feedbackMode?.isSubmitting ||
+      editMode?.isSubmitting ||
+      approvalMode?.isSubmitting ||
+      askQuestionMode?.isSubmitting
   );
   const hasContent =
     editor.value.trim().length > 0 || (reviewComments?.count ?? 0) > 0;
@@ -612,7 +612,7 @@ export function SessionChatBox<TExecutor extends string = string>({
           >
             <TrashIcon className="h-4 w-4" />
           </button>
-        </div>,
+        </div>
       );
     }
 
@@ -627,7 +627,7 @@ export function SessionChatBox<TExecutor extends string = string>({
           isSubmitting={askQuestionMode.isSubmitting}
           isTimedOut={askQuestionMode.isTimedOut}
           error={askQuestionMode.error ?? null}
-        />,
+        />
       );
     }
 
@@ -642,7 +642,7 @@ export function SessionChatBox<TExecutor extends string = string>({
           <span className="text-sm text-default-500">
             {t('followUp.queuedMessage')}
           </span>
-        </div>,
+        </div>
       );
     }
 
@@ -821,7 +821,7 @@ export function SessionChatBox<TExecutor extends string = string>({
                       icon={ArrowUpIcon}
                       title={t('conversation.actions.scrollToPreviousMessage')}
                       aria-label={t(
-                        'conversation.actions.scrollToPreviousMessage',
+                        'conversation.actions.scrollToPreviousMessage'
                       )}
                       onClick={onScrollToPreviousMessage}
                     />
@@ -867,7 +867,7 @@ export function SessionChatBox<TExecutor extends string = string>({
                       <span className="flex items-center gap-1.5 max-w-[200px]">
                         {renderAgentIcon?.(
                           s.executor ?? null,
-                          'size-icon shrink-0',
+                          'size-icon shrink-0'
                         )}
                         <span className="truncate">
                           {s.name
@@ -893,7 +893,7 @@ export function SessionChatBox<TExecutor extends string = string>({
                     onClick={() =>
                       onRenameSession(
                         selectedSessionId,
-                        selectedSessionObj?.name ?? '',
+                        selectedSessionObj?.name ?? ''
                       )
                     }
                   >

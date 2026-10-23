@@ -50,7 +50,7 @@ export function ChatAggregatedToolEntries({
         className={cn(
           'flex items-center gap-base text-sm text-default-500',
           onViewContent && 'cursor-pointer',
-          className,
+          className
         )}
         onClick={onViewContent ? () => onViewContent(0) : undefined}
         role={onViewContent ? 'button' : undefined}
@@ -90,7 +90,7 @@ export function ChatAggregatedToolEntries({
 
       return currentPriority > worstPriority ? entry.status : worst;
     },
-    undefined,
+    undefined
   );
 
   return (
@@ -110,7 +110,7 @@ export function ChatAggregatedToolEntries({
             <CaretRightIcon
               className={cn(
                 'size-icon-base transition-transform duration-150',
-                expanded && 'rotate-90',
+                expanded && 'rotate-90'
               )}
             />
           ) : (
@@ -139,7 +139,7 @@ export function ChatAggregatedToolEntries({
                 key={entry.expansionKey}
                 className={cn(
                   'flex items-center gap-base text-sm text-default-500 pl-base',
-                  onViewContent && 'cursor-pointer hover:text-foreground',
+                  onViewContent && 'cursor-pointer hover:text-foreground'
                 )}
                 onClick={onViewContent ? () => onViewContent(index) : undefined}
                 role={onViewContent ? 'button' : undefined}
@@ -155,7 +155,7 @@ export function ChatAggregatedToolEntries({
                 </span>
                 <span className="truncate">{entry.summary}</span>
               </div>
-            ),
+            )
           )}
         </div>
       )}

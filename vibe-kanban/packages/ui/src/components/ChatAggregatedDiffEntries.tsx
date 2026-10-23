@@ -72,7 +72,7 @@ function parseUnifiedDiffStats(unifiedDiff: string) {
 
 function buildDiffContent(
   change: ChatAggregatedDiffChange,
-  filePath: string,
+  filePath: string
 ): ChatFileEntryDiffInput | undefined {
   if (change.action === 'edit' && change.unified_diff) {
     return {
@@ -136,7 +136,7 @@ function DiffEntry({
       : undefined;
   const diffContent = useMemo(
     () => buildDiffContent(change, filePath),
-    [change, filePath],
+    [change, filePath]
   );
   const hasStats =
     (additions !== undefined && additions > 0) ||
@@ -255,14 +255,14 @@ export function ChatAggregatedDiffEntries({
       className={cn(
         'rounded-sm border overflow-hidden',
         isDenied && 'border-danger bg-danger/10',
-        className,
+        className
       )}
     >
       <div
         className={cn(
           'flex items-center p-base w-full',
           isDenied ? 'bg-danger/20' : 'bg-content1',
-          'cursor-pointer',
+          'cursor-pointer'
         )}
         onClick={handleClick}
         onMouseEnter={() => onHoverChange(true)}
@@ -277,7 +277,7 @@ export function ChatAggregatedDiffEntries({
               <CaretDownIcon
                 className={cn(
                   'size-icon-base transition-transform duration-150',
-                  !expanded && '-rotate-90',
+                  !expanded && '-rotate-90'
                 )}
               />
             ) : (
@@ -323,7 +323,7 @@ export function ChatAggregatedDiffEntries({
           <CaretDownIcon
             className={cn(
               'size-icon-xs shrink-0 text-default-500 transition-transform',
-              !expanded && '-rotate-90',
+              !expanded && '-rotate-90'
             )}
           />
         )}

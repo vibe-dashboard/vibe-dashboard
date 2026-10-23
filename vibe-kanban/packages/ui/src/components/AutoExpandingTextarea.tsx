@@ -12,7 +12,7 @@ const AutoExpandingTextarea = React.forwardRef<
 >(
   (
     { className, maxRows = 10, disableInternalScroll = false, ...props },
-    ref,
+    ref
   ) => {
     const internalRef = React.useRef<HTMLTextAreaElement>(null);
 
@@ -60,7 +60,7 @@ const AutoExpandingTextarea = React.forwardRef<
           onInput(e);
         }
       },
-      [adjustHeight, onInput],
+      [adjustHeight, onInput]
     );
 
     return (
@@ -68,14 +68,14 @@ const AutoExpandingTextarea = React.forwardRef<
         className={cn(
           'bg-content2 p-0 min-h-[80px] w-full text-sm outline-none disabled:cursor-not-allowed disabled:opacity-50 resize-none overflow-x-hidden whitespace-pre-wrap break-words',
           disableInternalScroll ? 'overflow-hidden' : 'overflow-y-auto',
-          className,
+          className
         )}
         ref={textareaRef}
         onInput={handleInput}
         {...props}
       />
     );
-  },
+  }
 );
 
 AutoExpandingTextarea.displayName = 'AutoExpandingTextarea';

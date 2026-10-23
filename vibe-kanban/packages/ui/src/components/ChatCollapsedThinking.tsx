@@ -61,7 +61,7 @@ export function ChatCollapsedThinking({
             <CaretRightIcon
               className={cn(
                 'size-icon-base transition-transform duration-150',
-                expanded && 'rotate-90',
+                expanded && 'rotate-90'
               )}
             />
           ) : (

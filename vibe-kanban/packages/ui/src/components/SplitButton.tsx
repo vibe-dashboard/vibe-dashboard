@@ -42,7 +42,7 @@ export function SplitButton<T extends string>({
             'flex-1 bg-content1 px-base py-half',
             'text-sm text-foreground',
             'focus:outline-none focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset',
-            'rounded-l-sm',
+            'rounded-l-sm'
           )}
         >
           {label}
@@ -54,7 +54,7 @@ export function SplitButton<T extends string>({
             className={cn(
               'flex items-center justify-center bg-content1 px-base py-half',
               'focus:outline-none focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset',
-              'rounded-r-sm',
+              'rounded-r-sm'
             )}
           >
             <CaretDownIcon

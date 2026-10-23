@@ -40,7 +40,7 @@ export function ChatTodoList({ todos, expanded, onToggle }: ChatTodoListProps) {
         <CaretDownIcon
           className={cn(
             'shrink-0 size-icon-base transition-transform',
-            expanded && 'rotate-180',
+            expanded && 'rotate-180'
           )}
         />
       </div>

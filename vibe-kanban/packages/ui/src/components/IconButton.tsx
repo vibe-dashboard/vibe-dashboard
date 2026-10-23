@@ -34,7 +34,7 @@ export function IconButton({
       className={cn(
         'flex items-center justify-center p-half rounded-sm transition-colors',
         variantStyles,
-        className,
+        className
       )}
       onClick={onClick}
       disabled={disabled}

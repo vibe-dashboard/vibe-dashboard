@@ -38,7 +38,7 @@ const PopoverContent = forwardRef<
           'data-[side=right]:slide-in-from-left-2',
           'data-[side=top]:slide-in-from-bottom-2',
           'origin-[--radix-popover-content-transform-origin]',
-          className,
+          className
         )}
         {...props}
       />

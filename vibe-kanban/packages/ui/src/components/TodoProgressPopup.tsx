@@ -38,7 +38,7 @@ export function TodoProgressPopup({
   const { completed, total, percentage } = useMemo(() => {
     const total = todos.length;
     const completed = todos.filter(
-      (todo) => todo.status?.toLowerCase() === 'completed',
+      (todo) => todo.status?.toLowerCase() === 'completed'
     ).length;
     const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
     return { completed, total, percentage };
@@ -57,7 +57,7 @@ export function TodoProgressPopup({
             disabled
             className={cn(
               'flex items-center justify-center text-lowest opacity-40 cursor-not-allowed',
-              className,
+              className
             )}
             aria-label={t('todoPopup.title')}
           >
@@ -77,7 +77,7 @@ export function TodoProgressPopup({
               className={cn(
                 'flex items-center justify-center text-default-500 hover:text-foreground transition-colors',
                 'focus:outline-none focus-visible:ring-1 focus-visible:ring-focus',
-                className,
+                className
               )}
               aria-label={t('todoPopup.title')}
             >
@@ -115,7 +115,7 @@ export function TodoProgressPopup({
             <div
               className={cn(
                 'h-full transition-all duration-300 rounded-full',
-                percentage === 100 ? 'bg-success' : 'bg-primary',
+                percentage === 100 ? 'bg-success' : 'bg-primary'
               )}
               style={{ width: `${percentage}%` }}
             />

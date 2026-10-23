@@ -18,7 +18,7 @@ export function ChatSystemMessage({
     <div
       className={cn(
         'flex items-start gap-base text-sm text-default-500 cursor-pointer',
-        className,
+        className
       )}
       onClick={onToggle}
       role="button"
@@ -27,7 +27,7 @@ export function ChatSystemMessage({
       <span
         className={cn(
           !expanded && 'truncate',
-          expanded && 'whitespace-pre-wrap break-all',
+          expanded && 'whitespace-pre-wrap break-all'
         )}
       >
         {content}

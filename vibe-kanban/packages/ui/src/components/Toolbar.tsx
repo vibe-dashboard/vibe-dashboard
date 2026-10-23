@@ -30,7 +30,8 @@ function Toolbar({ children, className, ...props }: ToolbarProps) {
   );
 }
 
-interface ToolbarIconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+interface ToolbarIconButtonProps
+  extends ButtonHTMLAttributes<HTMLButtonElement> {
   icon: Icon;
 }
 
@@ -45,7 +46,7 @@ function ToolbarIconButton({
       className={cn(
         'flex items-center justify-center text-default-500 hover:text-foreground',
         disabled && 'opacity-40 cursor-not-allowed hover:text-default-500',
-        className,
+        className
       )}
       disabled={disabled}
       {...props}

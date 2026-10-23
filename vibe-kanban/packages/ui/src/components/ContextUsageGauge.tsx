@@ -34,7 +34,7 @@ export function ContextUsageGauge({
 
     const pct = Math.min(
       100,
-      (tokenUsageInfo.total_tokens / tokenUsageInfo.model_context_window) * 100,
+      (tokenUsageInfo.total_tokens / tokenUsageInfo.model_context_window) * 100
     );
 
     const formatTokens = (n: number) => {
@@ -93,7 +93,7 @@ export function ContextUsageGauge({
         className={cn(
           'flex items-center justify-center rounded-sm p-half',
           'hover:bg-content2 transition-colors cursor-help',
-          className,
+          className
         )}
         aria-label={
           status === 'empty'
@@ -130,7 +130,7 @@ export function ContextUsageGauge({
             strokeDashoffset={dashOffset}
             className={cn(
               progressColor,
-              'transition-all duration-500 ease-out',
+              'transition-all duration-500 ease-out'
             )}
           />
         </svg>

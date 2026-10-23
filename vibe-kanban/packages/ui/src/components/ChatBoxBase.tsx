@@ -87,7 +87,7 @@ export function ChatBoxBase({
           visualVariant === VisualVariant.EDIT ||
           visualVariant === VisualVariant.PLAN) &&
           'border-primary bg-primary/10',
-        isRunning && 'chat-box-running',
+        isRunning && 'chat-box-running'
       )}
     >
       {dropzone && <input {...dropzone.getInputProps()} />}

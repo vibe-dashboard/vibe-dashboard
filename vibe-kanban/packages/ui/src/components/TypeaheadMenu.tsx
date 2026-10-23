@@ -35,7 +35,7 @@ function parseLength(value: string): number {
 
 function resolveLineHeight(
   style: CSSStyleDeclaration,
-  fallbackHeight: number,
+  fallbackHeight: number
 ): number {
   const explicit = parseLength(style.lineHeight);
   if (explicit > 0) return explicit;
@@ -56,7 +56,7 @@ function clamp(value: number, min: number, max: number) {
 
 function placementsEqual(
   a: TypeaheadPlacement,
-  b: TypeaheadPlacement,
+  b: TypeaheadPlacement
 ): boolean {
   return (
     a.side === b.side &&
@@ -69,7 +69,7 @@ function placementsEqual(
 function computePlacement(
   anchorEl: HTMLElement,
   menuEl: HTMLElement,
-  editorEl?: HTMLElement | null,
+  editorEl?: HTMLElement | null
 ): TypeaheadPlacement {
   const anchorRect = anchorEl.getBoundingClientRect();
   const menuRect = menuEl.getBoundingClientRect();
@@ -87,7 +87,7 @@ function computePlacement(
   const measuredHeight = round(
     menuRect.height ||
       parseLength(menuStyles.height) ||
-      parseLength(menuStyles.minHeight),
+      parseLength(menuStyles.minHeight)
   );
 
   const lineHeight = resolveLineHeight(anchorStyles, anchorRect.height);
@@ -101,7 +101,7 @@ function computePlacement(
     belowSpace >= measuredHeight || belowSpace >= aboveSpace ? 'bottom' : 'top';
   const availableSpace = Math.max(
     side === 'bottom' ? belowSpace : aboveSpace,
-    0,
+    0
   );
 
   let maxHeight = configuredMaxHeight
@@ -110,7 +110,7 @@ function computePlacement(
   if (configuredMinHeight) {
     maxHeight = Math.max(
       maxHeight,
-      Math.min(configuredMinHeight, availableSpace),
+      Math.min(configuredMinHeight, availableSpace)
     );
   }
 
@@ -121,7 +121,7 @@ function computePlacement(
   const minLeft = marginLeft;
   const maxLeft = Math.max(
     minLeft,
-    viewportWidth - measuredWidth - marginRight,
+    viewportWidth - measuredWidth - marginRight
   );
   const left = clamp(round(anchorRect.left), round(minLeft), round(maxLeft));
   const top =

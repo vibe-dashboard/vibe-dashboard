@@ -64,7 +64,7 @@ function ComponentInfoComponent({
     const firstFile = data.stack[0]?.file;
     if (firstFile) {
       const match = firstFile.match(
-        /^(.+\.(?:tsx|ts|jsx|js|vue|svelte)):(\d+):(\d+)$/,
+        /^(.+\.(?:tsx|ts|jsx|js|vue|svelte)):(\d+):(\d+)$/
       );
       if (match) {
         file = match[1];
