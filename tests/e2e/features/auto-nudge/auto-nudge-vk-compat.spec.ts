@@ -93,6 +93,73 @@ test.describe.serial('auto-nudge compatibility with real VK QA-mode contracts', 
     } finally { await rm(value.dir, { recursive: true, force: true }); }
   });
 
+  test('concurrent identified idle starts accept one child and validate durable replay', async () => {
+    test.setTimeout(90_000); const value = await context();
+    try {
+      const target = await client.createSession({ workspace_id: value.workspace.id, executor: 'CODEX', name: `idle-dispatch-${Date.now()}` });
+      const queueId = randomUUID(); const owner = 'qa-idle-dispatch';
+      const queueBody = { queue_id: queueId, owner, message: 'QA_DELAY_BEFORE_SPAWN_MS=1000\nidentified idle dispatch', executor_config: { executor: target.executor } };
+      const start = (payload = queueBody) => api(`/api/sessions/${target.id}/queue/${queueId}/start`, {
+        method: 'POST', body: JSON.stringify({ owner: payload.owner, message: payload.message, executor_config: payload.executor_config }),
+      });
+      expect((await api(`/api/sessions/${target.id}/queue`, { method: 'POST', body: JSON.stringify(queueBody) })).status).toBe(200);
+      const responses = await Promise.all(Array.from({ length: 4 }, () => start()));
+      const results = await Promise.all(responses.map(async response => {
+        expect(response.status).toBe(200);
+        return await response.json() as { data: { status: string; process?: ExecutionProcess } };
+      }));
+      expect(results.every(result => ['started', 'pending', 'indeterminate'].includes(result.data.status))).toBe(true);
+      expect(results.some(result => result.data.status === 'started')).toBe(true);
+      const processId = results.find(result => result.data.status === 'started')!.data.process!.id;
+      expect(results.filter(result => result.data.status === 'started').every(result => result.data.process?.id === processId)).toBe(true);
+      await terminal(processId);
+      expect(await client.getSessionProcesses(target.id)).toHaveLength(1);
+      await expect(api(`/api/sessions/${target.id}/queue`).then(response => response.json())).resolves.toMatchObject({ data: { status: 'empty' } });
+      await expect(start().then(response => response.json())).resolves.toMatchObject({ data: { status: 'started', process: { id: processId } } });
+      expect((await start({ ...queueBody, owner: 'wrong-owner' })).status).toBe(409);
+      expect((await start({ ...queueBody, message: 'changed payload' })).status).toBe(409);
+      expect(await client.getSessionProcesses(target.id)).toHaveLength(1);
+    } finally { await rm(value.dir, { recursive: true, force: true }); }
+  });
+
+  test('identified start overlaps finalizer consumption without a duplicate child', async () => {
+    test.setTimeout(90_000); const value = await context();
+    try {
+      const target = await client.createSession({ workspace_id: value.workspace.id, executor: 'CODEX', name: `idle-finalizer-race-${Date.now()}` });
+      const predecessor = await client.sendMessage(target.id, body('idle/finalizer predecessor', target));
+      const queueId = randomUUID(); const owner = 'qa-idle-finalizer';
+      const queueBody = { queue_id: queueId, owner, message: 'QA_DELAY_BEFORE_SPAWN_MS=2000\nfinalizer-owned dispatch', executor_config: { executor: target.executor } };
+      const start = () => api(`/api/sessions/${target.id}/queue/${queueId}/start`, {
+        method: 'POST', body: JSON.stringify({ owner, message: queueBody.message, executor_config: queueBody.executor_config }),
+      });
+      expect((await api(`/api/sessions/${target.id}/queue`, { method: 'POST', body: JSON.stringify(queueBody) })).status).toBe(200);
+      await terminal(predecessor.id);
+      await expect.poll(async () => {
+        const payload = await (await api(`/api/sessions/${target.id}/queue`)).json() as { data: { status: string } };
+        return payload.data.status;
+      }, { timeout: 15_000, intervals: [10, 20, 50] }).toBe('consuming');
+      const responses = await Promise.all(Array.from({ length: 4 }, () => start()));
+      const observedProcessIds: string[] = [];
+      for (const response of responses) {
+        expect(response.status).toBe(200);
+        const payload = await response.json() as { data: { status: string; process?: ExecutionProcess } };
+        expect(['pending', 'indeterminate', 'started']).toContain(payload.data.status);
+        if (payload.data.status === 'started') observedProcessIds.push(payload.data.process!.id);
+      }
+      let processId: string | null = null;
+      await expect.poll(async () => {
+        const payload = await (await start()).json() as { data: { status: string; process?: ExecutionProcess } };
+        processId = payload.data.process?.id ?? null;
+        return payload.data.status;
+      }, { timeout: 20_000 }).toBe('started');
+      expect(observedProcessIds.every(id => id === processId)).toBe(true);
+      await terminal(processId!);
+      const processes = await client.getSessionProcesses(target.id);
+      expect(processes).toHaveLength(2);
+      expect(new Set(processes.map(process => process.id))).toEqual(new Set([predecessor.id, processId]));
+    } finally { await rm(value.dir, { recursive: true, force: true }); }
+  });
+
   test('queued consumption records durable started identity before removing its slot', async () => {
     test.setTimeout(90_000); const value = await context();
     try {
