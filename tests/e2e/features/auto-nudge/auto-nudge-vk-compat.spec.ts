@@ -8,6 +8,8 @@ import { VibeClient } from '../../../../scripts/vibe-agent/core/client.js';
 import { createAutoNudgeClient, readAutoNudgeState, runAutoNudgeCycle, writeAutoNudgeState, type AutoNudgeOptions } from '../../../../scripts/vibe-agent/nudge/auto-nudge.js';
 import { createCallback } from '../../../../scripts/vibe-agent/nudge/callback-registry.js';
 import { readResponseRouteState } from '../../../../scripts/vibe-agent/nudge/response-routes.js';
+import { DEFAULT_OVERSEER_RESULT_SCHEMA } from '../../../../scripts/vibe-agent/nudge/workflow-config.js';
+import { schemaHash } from '../../../../scripts/vibe-agent/nudge/workflow-xml.js';
 import type { ExecutionProcess, SendMessageBody, Session } from '../../../../scripts/vibe-agent/types.js';
 
 const sandboxUrl = process.env.VK_MOCKED_SANDBOX_URL ?? 'http://localhost:50005';
@@ -36,7 +38,7 @@ async function context() {
   const teammate = await client.createSession({ workspace_id: workspace.id, executor: 'CODEX', name: `auto-nudge-teammate-${Date.now()}` });
   const overseer = await client.createSession({ workspace_id: workspace.id, executor: 'CODEX', name: `auto-nudge-overseer-${Date.now()}` });
   const dir = await mkdtemp(join(tmpdir(), 'auto-nudge-qa-'));
-  const options: AutoNudgeOptions = { config: { version: 1, workspaces: [{ workspaceId: workspace.id, overseerSessionId: overseer.id }] }, statePath: join(dir, 'state.json'), callbackRegistryPath: join(dir, 'callbacks.json'), responseRoutesPath: join(dir, 'response-routes.json'), now: () => new Date(), unacknowledgedAfterMs: 0, operationTimeoutMs: 5_000, responseTimeoutMs: 30_000, checkpointPollMs: 100, concurrency: 2, dryRun: false };
+  const options: AutoNudgeOptions = { config: { version: 1, workspaces: [{ workspaceId: workspace.id, overseerSessionId: overseer.id }] }, statePath: join(dir, 'state.json'), callbackRegistryPath: join(dir, 'callbacks.json'), responseRoutesPath: join(dir, 'response-routes.json'), workflowConfigPath: join(dir, 'workflow.yaml'), sendQueuePath: join(dir, 'send-queue.json'), now: () => new Date(), unacknowledgedAfterMs: 0, operationTimeoutMs: 5_000, responseTimeoutMs: 30_000, checkpointPollMs: 100, concurrency: 2, dryRun: false };
   return { workspace, teammate, overseer, dir, options };
 }
 
@@ -313,18 +315,25 @@ test.describe.serial('auto-nudge compatibility with real VK QA-mode contracts', 
   test('persisted checkpoint restart reconciles an exact real QA process without resending', async () => {
     test.setTimeout(60_000); const value = await context();
     try {
-      const checkpoint = await client.sendMessage(value.overseer.id, body(`auto-nudge restart reconciliation ${Date.now()}`, value.overseer)); await terminal(checkpoint.id);
+      // QA echoes its prompt at the end of its final assistant message. Supply
+      // the real checkpoint contract so restart proves validated reconciliation,
+      // rather than relying on obsolete missing-envelope delegation inference.
+      const envelope = `<auto-nudge-result schema_id="vd.auto-nudge.overseer-result" schema_version="1" schema_hash="${schemaHash(DEFAULT_OVERSEER_RESULT_SCHEMA)}" format="json">{"outcome":"complete","actions":[]}</auto-nudge-result>`;
+      const checkpoint = await client.sendMessage(value.overseer.id, body(`auto-nudge restart reconciliation ${Date.now()}\n${envelope}`, value.overseer)); await terminal(checkpoint.id);
+      const final = await client.getExecutionProcessFinalResponseStrict(checkpoint.id);
+      expect(final.process_id).toBe(checkpoint.id);
+      expect(final.final_response?.trim().endsWith(envelope)).toBe(true);
       const state = readAutoNudgeState(value.options.statePath); state.triggers[checkpoint.id] = { processId: checkpoint.id, workspaceId: value.workspace.id, sessionId: value.teammate.id, observedAt: checkpoint.created_at, status: 'checkpoint-sent', checkpointProcessId: checkpoint.id, baselineProcessIds: [], updatedAt: checkpoint.updated_at, error: null }; writeAutoNudgeState(value.options.statePath, state);
       const before = (await client.getSessionProcesses(value.overseer.id)).length;
       await expect.poll(async () => {
         await runAutoNudgeCycle(createAutoNudgeClient(client), value.options);
         const status = readAutoNudgeState(value.options.statePath).triggers[checkpoint.id]?.status;
-        return ['done', 'observed', 'delegated'].includes(status ?? '') ? 'reconciled' : status;
-      }, { timeout: 10_000 }).toBe('reconciled');
+        return status;
+      }, { timeout: 10_000 }).toBe('done');
       expect((await client.getSessionProcesses(value.overseer.id)).length).toBe(before);
       const trigger = readAutoNudgeState(value.options.statePath).triggers[checkpoint.id];
-      expect(['done', 'observed', 'delegated']).toContain(trigger?.status);
-      if (trigger?.status === 'observed') expect(trigger.checkpointProcessId).toBeNull();
+      expect(trigger).toMatchObject({ status: 'done', checkpointProcessId: checkpoint.id });
+      expect(trigger?.correctionSendId).toBeUndefined();
     } finally { await rm(value.dir, { recursive: true, force: true }); }
   });
 
