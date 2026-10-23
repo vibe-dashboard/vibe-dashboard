@@ -100,18 +100,17 @@ async fn get_execution_process_final_response(
             .as_ref()
             .and_then(|session| session.executor.as_deref())
             == Some("CODEX")
+            && let Some(mut stream) = deployment.container().stream_raw_logs(&process_id).await
         {
-            if let Some(mut stream) = deployment.container().stream_raw_logs(&process_id).await {
-                let mut collector = CodexUsageLimitCollector::default();
-                while let Some(message) = stream.next().await {
-                    match message? {
-                        LogMsg::Stdout(chunk) => collector.push(&chunk),
-                        LogMsg::Finished => break,
-                        _ => {}
-                    }
+            let mut collector = CodexUsageLimitCollector::default();
+            while let Some(message) = stream.next().await {
+                match message? {
+                    LogMsg::Stdout(chunk) => collector.push(&chunk),
+                    LogMsg::Finished => break,
+                    _ => {}
                 }
-                usage_limit_events = collector.finish();
             }
+            usage_limit_events = collector.finish();
         }
     }
 

@@ -74,13 +74,12 @@ impl CodexUsageLimitCollector {
     }
 
     fn consume_line(&mut self) {
-        if !self.oversized {
-            if let Ok(value) = serde_json::from_str::<Value>(&self.pending) {
-                if let Some(event) = usage_limit_event(&value) {
-                    self.events
-                        .insert((event.thread_id.clone(), event.turn_id.clone()), event);
-                }
-            }
+        if !self.oversized
+            && let Ok(value) = serde_json::from_str::<Value>(&self.pending)
+            && let Some(event) = usage_limit_event(&value)
+        {
+            self.events
+                .insert((event.thread_id.clone(), event.turn_id.clone()), event);
         }
         self.pending.clear();
         self.oversized = false;
