@@ -484,30 +484,26 @@ function InlineWorkspaceChatContent({
   const workspace = useWorkspaceContext();
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 justify-end bg-primary px-base py-half">
-        {chatViewModeSelector}
-      </div>
-      <WorkspacesMainContainer
-        ref={refHolder}
-        selectedWorkspace={workspace.workspace ?? null}
-        selectedSession={workspace.selectedSession}
-        selectedSessionId={workspace.selectedSessionId}
-        sessions={workspace.sessions}
-        repos={workspace.repos}
-        onSelectSession={workspace.selectSession}
-        isLoading={workspace.isLoading}
-        isSessionsLoading={workspace.isSessionsLoading}
-        isNewSessionMode={workspace.isNewSessionMode}
-        onStartNewSession={workspace.startNewSession}
-        chatViewMode={chatViewMode}
-        workspacePreview={workspacePreview}
-        showContextBar={false}
-        disableViewCode
-        surfaceId={surfaceId}
-        showOpenInIdeAction
-      />
-    </div>
+    <WorkspacesMainContainer
+      ref={refHolder}
+      selectedWorkspace={workspace.workspace ?? null}
+      selectedSession={workspace.selectedSession}
+      selectedSessionId={workspace.selectedSessionId}
+      sessions={workspace.sessions}
+      repos={workspace.repos}
+      onSelectSession={workspace.selectSession}
+      isLoading={workspace.isLoading}
+      isSessionsLoading={workspace.isSessionsLoading}
+      isNewSessionMode={workspace.isNewSessionMode}
+      onStartNewSession={workspace.startNewSession}
+      chatViewMode={chatViewMode}
+      chatViewModeSelector={chatViewModeSelector}
+      workspacePreview={workspacePreview}
+      showContextBar={false}
+      disableViewCode
+      surfaceId={surfaceId}
+      showOpenInIdeAction
+    />
   );
 }
 

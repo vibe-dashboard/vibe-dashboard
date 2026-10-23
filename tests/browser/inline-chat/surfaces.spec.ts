@@ -15,11 +15,21 @@ test("two inline panes keep independent drafts, modes and lifetime", async ({
   await composer(right).fill("Right unsent draft");
   const viewSelector = left.getByRole("combobox", { name: "Chat view" });
   const selectorBounds = (await viewSelector.boundingBox())!;
-  const paneBounds = (await left.boundingBox())!;
-  expect(selectorBounds.y - paneBounds.y).toBeLessThan(16);
+  const previewBounds = (await left
+    .getByRole("button", { name: "Preview slots" })
+    .boundingBox())!;
+  expect(selectorBounds.x).toBeGreaterThan(previewBounds.x);
   expect(
-    paneBounds.x + paneBounds.width - selectorBounds.x - selectorBounds.width,
-  ).toBeLessThan(16);
+    Math.abs(
+      selectorBounds.y +
+        selectorBounds.height / 2 -
+        previewBounds.y -
+        previewBounds.height / 2,
+    ),
+  ).toBeLessThan(2);
+  expect(selectorBounds.y).toBeLessThan(
+    (await composer(left).boundingBox())!.y,
+  );
   await expect(viewSelector.locator("svg")).toBeVisible();
   await viewSelector.click();
   await expect(page.getByRole("option")).toHaveText(["Full", "Chat", "Zen"]);
@@ -62,6 +72,9 @@ test("two inline panes keep independent drafts, modes and lifetime", async ({
   await left.getByRole("combobox", { name: "Chat view" }).click();
   await page.getByRole("option", { name: "Zen", exact: true }).click();
   await expect(viewSelector).toBeVisible();
+  expect((await viewSelector.boundingBox())!.y).toBeLessThan(
+    (await composer(left).boundingBox())!.y,
+  );
   await expect(left.getByRole("button", { name: "Preview slots" })).toHaveCount(
     0,
   );

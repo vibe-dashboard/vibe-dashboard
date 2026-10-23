@@ -804,7 +804,7 @@ export function SessionChatBox<TExecutor extends string = string>({
         )
       }
       headerRight={
-        shouldHideZenHeader ? undefined : (
+        shouldHideZenHeader ? chatViewModeSelector : (
           <>
             {/* Turn navigation + Agent icon for existing session mode */}
             {!isNewSessionMode && (
@@ -900,12 +900,12 @@ export function SessionChatBox<TExecutor extends string = string>({
                 </>
               )}
             </ToolbarDropdown>
+            {chatViewModeSelector}
           </>
         )
       }
       footerLeft={
         <>
-          {chatViewModeSelector}
           {!isMinimalZen && (
             <>
               <ToolbarIconButton

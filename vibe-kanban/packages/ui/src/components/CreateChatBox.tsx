@@ -215,7 +215,7 @@ export function CreateChatBox<TExecutor extends string = string>({
           </>
         )
       }
-      headerRight={undefined}
+      headerRight={chatViewModeSelector}
       footerLeft={
         <>
           {!isMinimalZen && (
@@ -237,7 +237,6 @@ export function CreateChatBox<TExecutor extends string = string>({
             </>
           )}
           {repoSummaryNode}
-          {chatViewModeSelector}
           {linkedIssue && (
             <div
               className="inline-flex items-center gap-half whitespace-nowrap text-sm text-low"
