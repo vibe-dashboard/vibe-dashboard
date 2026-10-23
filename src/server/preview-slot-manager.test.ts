@@ -50,7 +50,8 @@ function setup() {
     stopExecutionProcess: vi.fn(async () => {}),
     startPreviewSlot: vi.fn<PreviewSlotManagementClient['startPreviewSlot']>(),
     upsertRunConfig: vi.fn(async () => config),
-    upsertPreviewSlot: vi.fn(async () => slot),
+    deletePreviewSlot: vi.fn(async () => {}),
+    deleteRunConfig: vi.fn(async () => {}),
   };
   return { client, manager: new PreviewSlotManager(client), config, slot };
 }
@@ -117,20 +118,26 @@ describe('preview slot management', () => {
     expect(client.startPreviewSlot).not.toHaveBeenCalled();
   });
 
-  it('retires a deleted slot and stops its process without disabling its shared script', async () => {
-    process.env.SITE_ORIGIN = 'https://jamtools.dev';
+  it('uses native deletion for enabled and previously disabled preview slots', async () => {
     const { client, manager, slot } = setup();
     await manager.delete('workspace1', 'slot1');
-    expect(client.upsertPreviewSlot).toHaveBeenCalledWith('workspace1', {
-      id: slot.id,
-      repo_id: slot.repo_id,
-      run_config_id: slot.run_config_id,
-      slot_slug: slot.slot_slug,
-      title: slot.title,
-      enabled: false,
-    });
-    expect(client.stopExecutionProcess).toHaveBeenCalledWith('process1');
+    expect(client.deletePreviewSlot).toHaveBeenCalledWith('workspace1', 'slot1');
+    slot.enabled = false;
+    await manager.delete('workspace1', 'slot1');
+    expect(client.deletePreviewSlot).toHaveBeenCalledTimes(2);
     expect(client.upsertRunConfig).not.toHaveBeenCalled();
+  });
+
+  it('requires every linked slot to be deleted before deleting a run config', async () => {
+    const { client, manager, slot } = setup();
+    slot.enabled = false;
+    await expect(manager.deleteRunConfig('workspace1', 'config1')).rejects.toMatchObject({ status: 400, message: 'Delete linked preview slots before deleting this run config.' });
+    expect(client.deleteRunConfig).not.toHaveBeenCalled();
+    const configs = await client.getRunConfigs();
+    configs.preview_slots = [];
+    client.getRunConfigs.mockResolvedValue(configs);
+    await manager.deleteRunConfig('workspace1', 'config1');
+    expect(client.deleteRunConfig).toHaveBeenCalledWith('workspace1', 'config1');
   });
 
   it('looks up logs without starting a stopped server', async () => {

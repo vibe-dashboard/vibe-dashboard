@@ -5,7 +5,8 @@ export type PreviewSlotManagementClient = Pick<
   VibeKanbanServerClient,
   | 'getRunConfigs'
   | 'upsertRunConfig'
-  | 'upsertPreviewSlot'
+  | 'deletePreviewSlot'
+  | 'deleteRunConfig'
   | 'resolvePreview'
   | 'stopExecutionProcess'
   | 'startPreviewSlot'
@@ -99,16 +100,21 @@ export class PreviewSlotManager {
   }
 
   async delete(workspaceId: string, slotId: string) {
-    const { slot, result } = await this.process(workspaceId, slotId);
-    if (result.executionProcessId)
-      await this.client.stopExecutionProcess(result.executionProcessId);
-    return this.client.upsertPreviewSlot(workspaceId, {
-      id: slot.id,
-      repo_id: slot.repo_id,
-      run_config_id: slot.run_config_id,
-      slot_slug: slot.slot_slug,
-      title: slot.title,
-      enabled: false,
-    });
+    const configs = await this.client.getRunConfigs(workspaceId);
+    if (!configs.preview_slots.some((slot) => slot.id === slotId)) {
+      throw new PreviewSlotManagementError('Preview slot was not found', 404);
+    }
+    await this.client.deletePreviewSlot(workspaceId, slotId);
+  }
+
+  async deleteRunConfig(workspaceId: string, configId: string) {
+    const configs = await this.client.getRunConfigs(workspaceId);
+    if (!configs.run_configs.some((config) => config.id === configId)) {
+      throw new PreviewSlotManagementError('Run config was not found', 404);
+    }
+    if (configs.preview_slots.some((slot) => slot.run_config_id === configId)) {
+      throw new PreviewSlotManagementError('Delete linked preview slots before deleting this run config.', 400);
+    }
+    await this.client.deleteRunConfig(workspaceId, configId);
   }
 }

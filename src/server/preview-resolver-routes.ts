@@ -6,6 +6,7 @@ import {
 } from './preview-slot-manager';
 import {
   VibeKanbanServerClient,
+  VkApiError,
   type PreviewResolveRequest,
   type PreviewResolveResponse,
   type UpsertPreviewSlot,
@@ -23,6 +24,8 @@ export interface RegisterPreviewResolverRoutesOptions {
         | 'startRunConfig'
         | 'startPreviewSlot'
         | 'stopExecutionProcess'
+        | 'deletePreviewSlot'
+        | 'deleteRunConfig'
       >
     >;
 }
@@ -91,8 +94,25 @@ export function registerPreviewResolverRoutes(
     } catch (error) {
       if (error instanceof PreviewSlotManagementError)
         return c.json({ message: error.message }, error.status);
+      if (error instanceof VkApiError && error.status === 405)
+        return c.json({ message: 'Deleting preview slots requires an updated VK backend.' }, 502);
       console.warn('Preview slot deletion failed', error);
       return c.json({ message: 'Preview slot could not be deleted' }, 502);
+    }
+  });
+  app.delete('/internal/preview/workspaces/:workspaceId/run-configs/:runConfigId', async (c) => {
+    try {
+      await slotManager.deleteRunConfig(c.req.param('workspaceId'), c.req.param('runConfigId'));
+      return c.json({ deleted: true });
+    } catch (error) {
+      if (error instanceof PreviewSlotManagementError)
+        return c.json({ message: error.message }, error.status);
+      if (error instanceof VkApiError && error.status === 405)
+        return c.json({ message: 'Deleting run configs requires an updated VK backend.' }, 502);
+      if (error instanceof VkApiError && error.status === 400)
+        return c.json({ message: error.message }, 400);
+      console.warn('Run config deletion failed', error);
+      return c.json({ message: 'Run config could not be deleted' }, 502);
     }
   });
   app.get(`${slotPath}/process`, async (c) => {

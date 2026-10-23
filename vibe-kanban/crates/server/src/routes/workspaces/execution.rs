@@ -4,7 +4,7 @@ use axum::{
     Extension, Router,
     extract::{Path as AxumPath, Query, State},
     response::Json as ResponseJson,
-    routing::{get, post},
+    routing::{delete, get, post},
 };
 use db::models::{
     execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus},
@@ -154,12 +154,20 @@ pub fn router() -> Router<DeploymentImpl> {
             post(start_run_config_by_id),
         )
         .route(
+            "/run-configs/{run_config_id}",
+            delete(delete_run_config_by_id),
+        )
+        .route(
             "/preview-slots",
             get(list_preview_slots).post(upsert_preview_slot),
         )
         .route(
             "/preview-slots/{preview_slot_id}/start",
             post(start_preview_slot_by_id),
+        )
+        .route(
+            "/preview-slots/{preview_slot_id}",
+            delete(delete_preview_slot_by_id),
         )
         .route(
             "/preview-slots/{preview_slot_id}/url",
@@ -344,6 +352,104 @@ pub async fn preview_slot_url(
         url: format!("{url_scheme}://{host}/"),
         host,
     })))
+}
+
+#[axum::debug_handler]
+pub async fn delete_run_config_by_id(
+    Extension(workspace): Extension<Workspace>,
+    State(deployment): State<DeploymentImpl>,
+    AxumPath((workspace_id, run_config_id)): AxumPath<(Uuid, Uuid)>,
+) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    debug_assert_eq!(workspace_id, workspace.id);
+    let _guard = run_config_start_lock().lock().await;
+    let pool = &deployment.db().pool;
+    let run_config = RunConfig::find_by_id(pool, run_config_id)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("Run config not found".to_string()))?;
+    validate_workspace_repo(&deployment, workspace.id, run_config.repo_id).await?;
+    if !PreviewSlot::find_by_run_config_id(pool, run_config_id)
+        .await?
+        .is_empty()
+    {
+        return Err(ApiError::BadRequest(
+            "Delete linked preview slots before deleting this run config.".to_string(),
+        ));
+    }
+    stop_linked_preview_process(
+        &deployment,
+        PreviewProcessLink::find_active_by_config(pool, workspace.id, run_config_id).await?,
+    )
+    .await?;
+    RunConfig::delete(pool, run_config_id).await?;
+    write_run_config_audit(
+        &deployment,
+        Some(workspace.id),
+        Some(run_config.repo_id),
+        None,
+        None,
+        None,
+        "run_config.delete",
+        Some(serde_json::json!({ "runConfigId": run_config_id }).to_string()),
+    )
+    .await?;
+    Ok(ResponseJson(ApiResponse::success(())))
+}
+
+#[axum::debug_handler]
+pub async fn delete_preview_slot_by_id(
+    Extension(workspace): Extension<Workspace>,
+    State(deployment): State<DeploymentImpl>,
+    AxumPath((workspace_id, preview_slot_id)): AxumPath<(Uuid, Uuid)>,
+) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    debug_assert_eq!(workspace_id, workspace.id);
+    let _guard = run_config_start_lock().lock().await;
+    let pool = &deployment.db().pool;
+    let slot = PreviewSlot::find_by_id(pool, preview_slot_id)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("Preview slot not found".to_string()))?;
+    validate_workspace_repo(&deployment, workspace.id, slot.repo_id).await?;
+    stop_linked_preview_process(
+        &deployment,
+        PreviewProcessLink::find_active_by_slot(pool, workspace.id, preview_slot_id).await?,
+    )
+    .await?;
+    PreviewSlot::delete(pool, preview_slot_id).await?;
+    write_run_config_audit(
+        &deployment,
+        Some(workspace.id),
+        Some(slot.repo_id),
+        Some(slot.run_config_id),
+        None,
+        None,
+        "preview_slot.delete",
+        Some(serde_json::json!({ "previewSlotId": preview_slot_id }).to_string()),
+    )
+    .await?;
+    Ok(ResponseJson(ApiResponse::success(())))
+}
+
+async fn stop_linked_preview_process(
+    deployment: &DeploymentImpl,
+    link: Option<PreviewProcessLink>,
+) -> Result<(), ApiError> {
+    if let Some(link) = link {
+        if let Some(process) =
+            ExecutionProcess::find_by_id(&deployment.db().pool, link.execution_process_id).await?
+            && process.status == ExecutionProcessStatus::Running
+        {
+            deployment
+                .container()
+                .stop_execution(&process, ExecutionProcessStatus::Killed)
+                .await?;
+        }
+        PreviewProcessLink::mark_ended_for_process(
+            &deployment.db().pool,
+            link.execution_process_id,
+            db::models::preview_process_link::PreviewProcessStatusSnapshot::Stopped,
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 fn preview_url_origin(

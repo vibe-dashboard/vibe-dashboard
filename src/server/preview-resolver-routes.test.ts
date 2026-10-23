@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { registerPreviewResolverRoutes } from "./preview-resolver-routes";
+import { VkApiError, type VibeKanbanServerClient } from './vk-client';
 
 const parts = {
   previewSlotId: "slot1",
@@ -15,13 +16,15 @@ function setup() {
       status: "ready" as const,
       upstream: "http://127.0.0.1:4567",
     })),
-    getRunConfigs: vi.fn(async () => ({
+    getRunConfigs: vi.fn<VibeKanbanServerClient['getRunConfigs']>(async () => ({
       run_configs: [],
       preview_slots: [],
       preview_url_parts: [parts],
     })),
     upsertRunConfig: vi.fn(async () => ({ id: "run1" }) as any),
     upsertPreviewSlot: vi.fn(async () => ({ id: "slot1" }) as any),
+    deletePreviewSlot: vi.fn(async () => {}),
+    deleteRunConfig: vi.fn(async () => {}),
     startRunConfig: vi.fn(
       async () => ({ upstream: "http://127.0.0.1:4567" }) as any,
     ),
@@ -135,6 +138,24 @@ describe("registerPreviewResolverRoutes", () => {
       expect(response.status).toBe(404);
       await expect(response.json()).resolves.toEqual({ message: 'Preview slot was not found' });
     }
+  });
+
+  it.each(['preview-slots', 'run-configs'])('proxies native %s deletion and reports unsupported runtimes', async (resource) => {
+    const { app, client } = setup();
+    const slot = { id: 'slot1', repo_id: 'repo1', run_config_id: 'config1', slot_slug: 'web', title: 'Web', enabled: false, created_at: '', updated_at: '' };
+    const config = { id: 'config1', repo_id: 'repo1', slug: 'web', name: 'Web', command: 'npm run dev', kind: 'long_running' as const, enabled: true, created_at: '', updated_at: '' };
+    client.getRunConfigs.mockResolvedValue({ run_configs: [config], preview_slots: resource === 'preview-slots' ? [slot] : [], preview_url_parts: [] });
+    const id = resource === 'preview-slots' ? 'slot1' : 'config1';
+    const remove = resource === 'preview-slots' ? client.deletePreviewSlot : client.deleteRunConfig;
+    const path = `/internal/preview/workspaces/ws1/${resource}/${id}`;
+    const response = await app.request(path, { method: 'DELETE' });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ deleted: true });
+    expect(remove).toHaveBeenCalledWith('ws1', id);
+    remove.mockRejectedValue(new VkApiError({ message: 'Unsupported', status: 405, bodyText: '' }));
+    const unsupported = await app.request(path, { method: 'DELETE' });
+    expect(unsupported.status).toBe(502);
+    await expect(unsupported.json()).resolves.toMatchObject({ message: expect.stringContaining('requires an updated VK backend') });
   });
 
   it("forwards configuration writes and explicit start actions", async () => {

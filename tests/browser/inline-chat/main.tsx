@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { InlineVkAgentChat, InlineVkCreateWorkspace } from '@vibe/inline-chat';
 import { WorkspacePreviewMenu } from '../../../src/components/WorkspacePreviewMenu';
+import { PreviewRunConfigsPanel } from '../../../src/components/PreviewRunConfigsPanel';
 import '../../../src/styles.css';
 
 function Harness() {
@@ -9,6 +10,9 @@ function Harness() {
   const [configured, setConfigured] = useState('');
   const rightWorkspace =
     new URLSearchParams(location.search).get('right') ?? 'workspace-1';
+  if (new URLSearchParams(location.search).has('preview-config')) {
+    return <PreviewRunConfigsPanel workspaceId="workspace-1" />;
+  }
   if (new URLSearchParams(location.search).has('create')) {
     return (
       <div style={{ height: '100vh' }}>

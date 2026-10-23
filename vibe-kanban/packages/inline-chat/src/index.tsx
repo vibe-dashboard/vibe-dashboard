@@ -9,11 +9,13 @@ import React, {
 } from 'react';
 import { Provider as NiceModalProvider } from '@ebay/nice-modal-react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Trigger as SelectTrigger } from '@radix-ui/react-select';
+import { CaretDownIcon } from '@phosphor-icons/react';
+import { dropdownMenuTriggerButtonClassName } from '@vibe/ui/components/Dropdown';
 import {
   Select,
   SelectContent,
   SelectItem,
-  SelectTrigger,
   SelectValue,
 } from '@vibe/ui/components/Select';
 import type { Workspace as RemoteWorkspace } from 'shared/remote-types';
@@ -422,10 +424,15 @@ function InlineWorkspaceChat({
       >
         <SelectTrigger
           aria-label="Chat view"
-          className="inline-flex min-w-[72px] shrink-0 rounded-sm border-border bg-secondary text-xs text-normal"
-          style={{ height: 24, width: 'auto', padding: '0 6px' }}
+          className={`${dropdownMenuTriggerButtonClassName} text-sm h-cta`}
         >
-          <SelectValue placeholder="View" />
+          <span className="text-normal truncate flex-1 text-left">
+            <SelectValue placeholder="View" />
+          </span>
+          <CaretDownIcon
+            className="size-icon-2xs text-normal flex-shrink-0"
+            weight="bold"
+          />
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="full">Full</SelectItem>

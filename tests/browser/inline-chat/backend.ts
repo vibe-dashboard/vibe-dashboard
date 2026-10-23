@@ -52,7 +52,8 @@ export { expect };
 
 export class InlineChatBackend {
   previewCommand = 'npm run preview';
-  previewSlotEnabled = true;
+  previewSlotDeleted = false;
+  previewConfigDeleted = false;
   previewRestarts = 0;
   requests: Array<{ path: string; method: string; body: any }> = [];
   unexpected: string[] = [];
@@ -402,7 +403,12 @@ export class InlineChatBackend {
       return route.fulfill({ json: { command: this.previewCommand } });
     }
     if (path.endsWith('/preview-slots/slot-1') && method === 'DELETE') {
-      this.previewSlotEnabled = false;
+      this.previewSlotDeleted = true;
+      return route.fulfill({ json: { deleted: true } });
+    }
+    if (path.endsWith('/run-configs/run-1') && method === 'DELETE') {
+      if (!this.previewSlotDeleted) return route.fulfill({ status: 400, json: { message: 'Delete linked preview slots before deleting this run config.' } });
+      this.previewConfigDeleted = true;
       return route.fulfill({ json: { deleted: true } });
     }
     if (path.endsWith('/preview-slots/slot-1/restart')) {
@@ -415,7 +421,7 @@ export class InlineChatBackend {
     if (path.endsWith('/run-configs'))
       return route.fulfill({
         json: {
-          run_configs: [{ id: 'run-1', repo_id: 'repo-1', slug: 'app', name: 'Application', command: this.previewCommand, kind: 'long_running', enabled: true }],
+          run_configs: this.previewConfigDeleted ? [] : [{ id: 'run-1', repo_id: 'repo-1', slug: 'app', name: 'Application', command: this.previewCommand, kind: 'long_running', enabled: true }],
           preview_urls: { 'slot-1': 'http://127.0.0.1:5189/preview.html?slot=slot-1' },
           preview_slots: [
             {
@@ -425,10 +431,10 @@ export class InlineChatBackend {
               run_config_id: 'run-1',
               title: 'Application preview',
               slot_slug: 'app',
-              enabled: this.previewSlotEnabled,
+              enabled: true,
             },
             { id: 'disabled-slot', title: 'Disabled preview', enabled: false },
-          ],
+          ].filter((slot) => !this.previewSlotDeleted || slot.id !== 'slot-1'),
         },
       });
     if (path === '/api/profiles') return reply(body ?? {});

@@ -119,13 +119,24 @@ export function PreviewRunConfigsPanel({
     await action(`/internal/preview/workspaces/${encodeURIComponent(workspaceId)}/preview-slots/${encodeURIComponent(previewSlotId)}/start`, 'Started preview slot');
   }
 
-  async function action(url: string, successMessage: string) {
+  async function action(url: string, successMessage: string, method = 'POST') {
     setMessage(null);
     setError(null);
-    const response = await fetch(url, { method: 'POST' });
-    if (!response.ok) throw new Error(await response.text());
+    const response = await fetch(url, { method });
+    if (!response.ok) {
+      const result = await response.json().catch(() => null);
+      throw new Error(result?.message || 'Preview action failed');
+    }
     setMessage(successMessage);
     await refresh();
+  }
+
+  async function deletePreviewSlot(slotId: string) {
+    await action(`/internal/preview/workspaces/${encodeURIComponent(workspaceId)}/preview-slots/${encodeURIComponent(slotId)}`, 'Deleted preview slot', 'DELETE');
+  }
+
+  async function deleteRunConfig(configId: string) {
+    await action(`/internal/preview/workspaces/${encodeURIComponent(workspaceId)}/run-configs/${encodeURIComponent(configId)}`, 'Deleted run config', 'DELETE');
   }
 
   const runConfigs = data?.run_configs ?? [];
@@ -200,6 +211,7 @@ export function PreviewRunConfigsPanel({
                 <div className="flex gap-2">
                   <button className="rounded border border-neutral-700 px-3 py-1 text-sm" onClick={() => void startPreviewSlot(slot.id).catch((err) => setError(errorMessage(err)))}>Start</button>
                   <a className="rounded border border-neutral-700 px-3 py-1 text-sm" href={data?.preview_urls?.[slot.id]} target="_blank" rel="noopener noreferrer">Open URL</a>
+                  <button className="rounded border border-red-700 px-3 py-1 text-sm text-red-400" aria-label={`Delete preview slot ${slot.title}`} onClick={() => void deletePreviewSlot(slot.id).catch((err) => setError(errorMessage(err)))}>Delete</button>
                 </div>
               </div>
             ))}
@@ -216,9 +228,12 @@ export function PreviewRunConfigsPanel({
                   <div className="font-medium">{runConfig.name} <span className="text-neutral-500">/{runConfig.slug}</span></div>
                   <code className="text-xs text-neutral-400">{runConfig.command}</code>
                 </div>
+                <div className="flex gap-2">
                 <button className="rounded border border-neutral-700 px-3 py-1 text-sm" onClick={() => void startRunConfig(runConfig.id).catch((err) => setError(errorMessage(err)))}>
                   Run on demand
                 </button>
+                <button className="rounded border border-red-700 px-3 py-1 text-sm text-red-400" aria-label={`Delete run config ${runConfig.name}`} onClick={() => void deleteRunConfig(runConfig.id).catch((err) => setError(errorMessage(err)))}>Delete</button>
+                </div>
               </div>
             ))}
           </div>

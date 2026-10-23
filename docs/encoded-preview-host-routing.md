@@ -61,10 +61,15 @@ Each slot has edit, restart, and server-log actions beside its URL:
 - **Restart** stops the current workspace's slot process, then starts a new one.
 - **Logs** opens stdout/stderr replay and live output for the current process.
   Viewing logs does not start a server. Stopped slots show an empty-state message.
-- **Delete preview slot**, inside the edit modal, stops the current process and
-  persists `enabled=false` on the slot. This retires it from the dropdown and URL
-  routing while retaining its shared run config. The current VK API has no
-  hard-delete endpoint.
+- **Delete preview slot**, inside the edit modal, uses the native workspace-scoped
+  DELETE endpoint to stop its current process and remove the slot record.
+- **Delete run config**, on the PreviewServer configuration page, removes an
+  unlinked run config. Delete all linked preview slots first, including disabled
+  slots. This follows the `feature/encoded-preview-hosts` deletion contract.
+
+Both deletion endpoints require an updated VK runtime. Older binaries return
+HTTP 405; VD reports the missing backend support rather than substituting soft
+deletion. No schema or generated-type migration is needed for these endpoints.
 
 ## Runtime request flow
 

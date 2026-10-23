@@ -14,7 +14,13 @@ test('two inline panes keep independent drafts, modes and lifetime', async ({
   await composer(left).fill('Left unsent draft');
   await composer(right).fill('Right unsent draft');
   const viewSelector = left.getByRole('combobox', { name: 'Chat view' });
-  expect((await viewSelector.boundingBox())!.height).toBeLessThanOrEqual(24);
+  const controlStyle = (element: HTMLElement) => {
+    const style = getComputedStyle(element);
+    return { height: style.height, padding: style.padding, fontSize: style.fontSize, borderRadius: style.borderRadius, background: style.backgroundColor };
+  };
+  expect(await viewSelector.evaluate(controlStyle)).toEqual(
+    await left.getByRole('button', { name: 'Custom', exact: true }).evaluate(controlStyle),
+  );
   await viewSelector.click();
   await page.getByRole('option', { name: 'Chat', exact: true }).click();
   await expect(viewSelector).toHaveText('Chat');

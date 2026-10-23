@@ -143,6 +143,15 @@ describe('VibeKanbanServerClient', () => {
     });
   });
 
+  it('deletes preview slots and run configs through the native workspace API', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ success: true, data: null }));
+    const client = new VibeKanbanServerClient({ baseUrl: 'http://vk.local/api', fetch: fetchImpl });
+    await client.deletePreviewSlot('workspace/id', 'slot id');
+    await client.deleteRunConfig('workspace/id', 'config id');
+    expect(fetchImpl).toHaveBeenNthCalledWith(1, 'http://vk.local/api/workspaces/workspace%2Fid/execution/preview-slots/slot%20id', expect.objectContaining({ method: 'DELETE' }));
+    expect(fetchImpl).toHaveBeenNthCalledWith(2, 'http://vk.local/api/workspaces/workspace%2Fid/execution/run-configs/config%20id', expect.objectContaining({ method: 'DELETE' }));
+  });
+
   it('throws VkApiError for unsuccessful VK envelopes', async () => {
     const client = new VibeKanbanServerClient({
       baseUrl: 'http://vk.local/api',

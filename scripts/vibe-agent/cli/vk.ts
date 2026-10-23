@@ -820,6 +820,18 @@ async function commandPreviewUrl(positional: string[], flags: FlagMap) {
       break;
     }
 
+    case 'delete-run-config':
+    case 'delete-slot': {
+      const usage = `Usage: vk preview-url ${subcommand} <workspace-id> <${subcommand === 'delete-slot' ? 'preview-slot-id' : 'run-config-id'}> [--json]`;
+      const workspaceId = requireWorkspaceId(positional[1], usage);
+      const id = positional[2];
+      if (!id) throw new Error(usage);
+      if (subcommand === 'delete-slot') await service.deletePreviewSlot(workspaceId, id);
+      else await service.deleteRunConfig(workspaceId, id);
+      console.log(flags.json === true ? JSON.stringify({ deleted: true }) : `Deleted ${subcommand === 'delete-slot' ? 'preview slot' : 'run config'} ${id}`);
+      break;
+    }
+
     case 'start-run-config': {
       const workspaceId = requireWorkspaceId(positional[1], 'Usage: vk preview-url start-run-config <workspace-id> <run-config-id> [--json]');
       const runConfigId = positional[2] ?? getFlagString(flags, 'run-config') ?? getFlagString(flags, 'run-config-id');
@@ -892,6 +904,8 @@ async function commandPreviewUrl(positional: string[], flags: FlagMap) {
       console.error('  vk preview-url upsert-run-config <workspace-id> --repo <repo-id> --slug web --name Web --command "npm run dev"');
       console.error('  vk preview-url upsert-slot <workspace-id> --repo <repo-id> --run-config <run-config-id> --slot web --title Web');
       console.error('  vk preview-url url <workspace-id> <preview-slot-id>');
+      console.error('  vk preview-url delete-slot <workspace-id> <preview-slot-id>');
+      console.error('  vk preview-url delete-run-config <workspace-id> <run-config-id>');
       console.error('  vk preview-url start-slot <workspace-id> <preview-slot-id> [--json]');
       process.exit(1);
   }
@@ -1128,6 +1142,8 @@ function printHelp() {
   console.log('  dev-script get <repo-id> [--json]          Show repo dev server script');
   console.log('  preview-url list <workspace-id> [--json]   List Preview URL run configs and slots');
   console.log('  preview-url url <workspace-id> <slot-id>                    Print canonical preview URL');
+  console.log('  preview-url delete-slot <workspace-id> <slot-id>             Delete a preview slot');
+  console.log('  preview-url delete-run-config <workspace-id> <run-config-id> Delete an unlinked run config');
   console.log('  sessions <workspace-id>                    List sessions for workspace');
   console.log('  status <workspace-id>...                   Get workspace status summary');
   console.log('  processes <session-id>                     List execution processes');

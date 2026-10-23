@@ -376,6 +376,14 @@ export class VibeKanbanServerClient {
     return this.post(`/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots`, body);
   }
 
+  async deleteRunConfig(workspaceId: string, runConfigId: string): Promise<void> {
+    await this.request(`/workspaces/${encodeURIComponent(workspaceId)}/execution/run-configs/${encodeURIComponent(runConfigId)}`, { method: 'DELETE' });
+  }
+
+  async deletePreviewSlot(workspaceId: string, previewSlotId: string): Promise<void> {
+    await this.request(`/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots/${encodeURIComponent(previewSlotId)}`, { method: 'DELETE' });
+  }
+
   startRunConfig(workspaceId: string, runConfigId: string): Promise<RunConfigStartResponse> {
     return this.post(
       `/workspaces/${encodeURIComponent(workspaceId)}/execution/run-configs/${encodeURIComponent(runConfigId)}/start`,
@@ -438,8 +446,13 @@ export class VibeKanbanServerClient {
 
     const bodyText = await response.text();
     if (!response.ok) {
+      let message: string | undefined;
+      try {
+        const body = JSON.parse(bodyText);
+        if (typeof body?.message === 'string') message = body.message;
+      } catch {}
       throw new VkApiError({
-        message: `VK API ${path} failed: HTTP ${response.status} ${response.statusText}`,
+        message: message ?? `VK API ${path} failed: HTTP ${response.status} ${response.statusText}`,
         status: response.status,
         bodyText,
       });

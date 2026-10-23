@@ -61,7 +61,19 @@ test('preview scripts can be edited, restarted, streamed and deleted from the sl
   await expect(left.getByRole('menu')).toContainText(
     'No preview slots configured',
   );
-  expect(backend.previewSlotEnabled).toBe(false);
+  expect(backend.previewSlotDeleted).toBe(true);
+});
+
+test('run-config deletion requires deleting its preview slots first', async ({ page, backend }) => {
+  await page.goto('/?preview-config');
+  await page.getByRole('button', { name: 'Delete run config Application', exact: true }).click();
+  await expect(page.getByText('Delete linked preview slots before deleting this run config.', { exact: true })).toBeVisible();
+  expect(backend.previewConfigDeleted).toBe(false);
+  await page.getByRole('button', { name: 'Delete preview slot Application preview', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Delete preview slot Application preview', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Delete run config Application', exact: true }).click();
+  await expect(page.getByText('No run configs yet.', { exact: true })).toBeVisible();
+  expect(backend.previewConfigDeleted).toBe(true);
 });
 
 test('failed actions preserve script edits and stopped slots show a logs empty state', async ({
