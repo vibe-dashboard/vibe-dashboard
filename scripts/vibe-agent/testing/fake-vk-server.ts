@@ -59,6 +59,8 @@ export class FakeVkServer {
   private sockets = new Set<Socket>();
   private server = createServer((request, res) => void this.handleHttp(request, res));
   private processes = new Map<string, FakeVkProcess>();
+  private queues = new Map<string, { status: 'queued' | 'consuming'; body: { queue_id: string; owner: string; message: string; executor_config: { executor: string } }; fingerprint: string }>();
+  private queueEffects = new Map<string, { owner: string; sessionId: string; fingerprint: string; process: FakeVkProcess; lifecycle: 'started' }>();
   private barrierResolvers = new Map<string, () => void>();
   baseUrl = '';
 
@@ -197,6 +199,58 @@ export class FakeVkServer {
     if (request.method === 'GET' && sessionMatch) {
       const session = this.scenario.sessions.find(item => item.id === decodeURIComponent(sessionMatch[1]));
       return session ? response(res, (({ processes: _p, ...rest }) => rest)(session)) : response(res, 'missing', 404);
+    }
+    const identifiedSession = url.pathname.match(/^\/api\/sessions\/identified\/([^/]+)$/);
+    if (request.method === 'POST' && identifiedSession) {
+      const id = decodeURIComponent(identifiedSession[1]); const body = await this.body(request) as { workspace_id: string; executor: string; name?: string | null; agent_working_dir?: string | null };
+      const existing = this.scenario.sessions.find(item => item.id === id);
+      if (existing) {
+        if (existing.workspace_id !== body.workspace_id || existing.executor !== body.executor || existing.name !== body.name) return response(res, 'identified session conflict', 409);
+        return response(res, (({ processes: _p, ...rest }) => rest)(existing));
+      }
+      const created = { id, workspace_id: body.workspace_id, executor: body.executor as FakeVkSession['executor'], name: body.name ?? '', created_at: new Date().toISOString(), updated_at: new Date().toISOString(), processes: [] };
+      this.scenario.sessions.push(created); return response(res, (({ processes: _p, ...rest }) => rest)(created));
+    }
+    const queueRoot = url.pathname.match(/^\/api\/sessions\/([^/]+)\/queue$/);
+    if (queueRoot && request.method === 'GET') {
+      const sessionId = decodeURIComponent(queueRoot[1]); const queued = this.queues.get(sessionId);
+      return response(res, queued ? { status: queued.status, message: { id: queued.body.queue_id, owner: queued.body.owner, session_id: sessionId, data: { message: queued.body.message, executor_config: queued.body.executor_config, session_command: null }, requested_payload_fingerprint: queued.fingerprint, queued_at: new Date().toISOString() } } : { status: 'empty' });
+    }
+    if (queueRoot && request.method === 'POST') {
+      const sessionId = decodeURIComponent(queueRoot[1]); const body = await this.body(request) as { queue_id: string; owner: string; message: string; executor_config: { executor: string } };
+      const existing = this.queues.get(sessionId);
+      if (existing && JSON.stringify(existing.body) !== JSON.stringify(body)) return response(res, 'queue occupied or identity conflict', 409);
+      const fingerprint = createHash('sha256').update(JSON.stringify({ message: body.message, executor_config: body.executor_config, session_command: null })).digest('hex');
+      const queued = existing ?? { status: 'queued' as const, body, fingerprint: `sha256:${fingerprint}` }; this.queues.set(sessionId, queued);
+      return response(res, { status: queued.status, message: { id: body.queue_id, owner: body.owner, session_id: sessionId, data: { message: body.message, executor_config: body.executor_config, session_command: null }, requested_payload_fingerprint: queued.fingerprint, queued_at: new Date().toISOString() } });
+    }
+    const queueProcess = url.pathname.match(/^\/api\/sessions\/([^/]+)\/queue\/([^/]+)\/process$/);
+    if (queueProcess && request.method === 'GET') {
+      const sessionId = decodeURIComponent(queueProcess[1]); const queueId = decodeURIComponent(queueProcess[2]); const effect = this.queueEffects.get(queueId);
+      if (!effect) return response(res, null);
+      if (effect.sessionId !== sessionId) return response(res, 'queue effect session conflict', 400);
+      return response(res, { queue_id: queueId, owner: effect.owner, session_id: sessionId, requested_payload_fingerprint: effect.fingerprint, lifecycle: effect.lifecycle, process: effect.process });
+    }
+    const queueStart = url.pathname.match(/^\/api\/sessions\/([^/]+)\/queue\/([^/]+)\/start$/);
+    if (queueStart && request.method === 'POST') {
+      const sessionId = decodeURIComponent(queueStart[1]); const queueId = decodeURIComponent(queueStart[2]); const body = await this.body(request) as { owner: string; message: string; executor_config: { executor: string } };
+      const effect = this.queueEffects.get(queueId);
+      if (effect) {
+        const queuedFingerprint = createHash('sha256').update(JSON.stringify({ message: body.message, executor_config: body.executor_config, session_command: null })).digest('hex');
+        if (effect.sessionId !== sessionId || effect.owner !== body.owner || effect.fingerprint !== `sha256:${queuedFingerprint}`) return response(res, 'queue effect conflict', 409);
+        return response(res, { status: 'started', process: effect.process });
+      }
+      const queued = this.queues.get(sessionId);
+      if (!queued || queued.body.queue_id !== queueId || queued.body.owner !== body.owner || queued.body.message !== body.message || JSON.stringify(queued.body.executor_config) !== JSON.stringify(body.executor_config)) return response(res, 'queue identity conflict', 409);
+      if (queued.status === 'consuming') return response(res, { status: 'pending' });
+      queued.status = 'consuming';
+      const declaration = this.scenario.followUps?.find(item => item.sessionId === sessionId && !this.processes.has(item.process.id));
+      if (!declaration) return response(res, 'unexpected queued start', 422);
+      this.processes.set(declaration.process.id, structuredClone(declaration.process));
+      this.scenario.sessions.find(item => item.id === sessionId)?.processes.push(structuredClone(declaration.process));
+      this.queueEffects.set(queueId, { owner: body.owner, sessionId, fingerprint: queued.fingerprint, process: structuredClone(declaration.process), lifecycle: 'started' });
+      this.queues.delete(sessionId);
+      return response(res, { status: 'started', process: declaration.process });
     }
     const followUp = url.pathname.match(/^\/api\/sessions\/([^/]+)\/follow-up$/);
     if (request.method === 'POST' && followUp) {

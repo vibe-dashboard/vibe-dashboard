@@ -77,6 +77,11 @@ import type {
   SendMessageBody,
   UpdateSessionBody,
   ConversationEntry,
+  CreateIdentifiedSessionBody,
+  QueueDispatchOutcome,
+  QueueEffectReconciliation,
+  QueueMessageBody,
+  QueueStatus,
 } from '../types.js';
 
 export class VibeClient {
@@ -263,6 +268,32 @@ export class VibeClient {
     return this.request<Session>(this.url('/api/sessions'), {
       method: 'POST',
       body: JSON.stringify(body),
+    });
+  }
+
+  async createIdentifiedSession(sessionId: string, body: CreateIdentifiedSessionBody): Promise<Session> {
+    return this.request<Session>(this.url(`/api/sessions/identified/${encodeURIComponent(sessionId)}`), {
+      method: 'POST', body: JSON.stringify(body),
+    });
+  }
+
+  async queueMessage(sessionId: string, body: QueueMessageBody): Promise<QueueStatus> {
+    return this.request<QueueStatus>(this.url(`/api/sessions/${encodeURIComponent(sessionId)}/queue`), {
+      method: 'POST', body: JSON.stringify(body),
+    });
+  }
+
+  async getQueueStatus(sessionId: string): Promise<QueueStatus> {
+    return this.request<QueueStatus>(this.url(`/api/sessions/${encodeURIComponent(sessionId)}/queue`));
+  }
+
+  async reconcileQueuedExecution(sessionId: string, queueId: string): Promise<QueueEffectReconciliation | null> {
+    return this.request<QueueEffectReconciliation | null>(this.url(`/api/sessions/${encodeURIComponent(sessionId)}/queue/${encodeURIComponent(queueId)}/process`));
+  }
+
+  async startQueuedExecution(sessionId: string, queueId: string, body: Omit<QueueMessageBody, 'queue_id'>): Promise<QueueDispatchOutcome> {
+    return this.request<QueueDispatchOutcome>(this.url(`/api/sessions/${encodeURIComponent(sessionId)}/queue/${encodeURIComponent(queueId)}/start`), {
+      method: 'POST', body: JSON.stringify(body),
     });
   }
 

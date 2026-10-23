@@ -61,7 +61,7 @@ export function parseSerialWorkflowConfig(
         }
         return {
           id: nonempty(item.id, 'item.id'), label: nonempty(item.label, 'item.label'), role: message.toRole,
-          prompt: messaging.prompts[message.promptId]!.text,
+          prompt: messaging.prompts[message.promptId]!.text, messageType, fresh: message.fresh,
           schema: { schemaId: schema.schemaId, schemaVersion: schema.schemaVersion, schemaHash: schemaHash(resultSchema) },
           resultSchema,
           outcomes,

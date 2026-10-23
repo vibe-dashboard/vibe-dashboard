@@ -104,6 +104,7 @@ pub struct QueueEffectReconciliation {
     pub queue_id: Uuid,
     pub owner: String,
     pub session_id: Uuid,
+    pub requested_payload_fingerprint: String,
     pub lifecycle: QueueEffectLifecycle,
     pub process: Option<ExecutionProcess>,
 }
@@ -478,18 +479,20 @@ impl ExecutionProcess {
         owner: &str,
         process_id: Uuid,
         data: &CreateExecutionProcess,
+        requested_payload_fingerprint: &str,
     ) -> Result<QueueEffectReservation, ExecutionProcessError> {
         let action = serde_json::to_string(&data.executor_action)
             .map_err(|error| ExecutionProcessError::CreateFailed(error.to_string()))?;
         let run_reason = serde_json::to_string(&data.run_reason)
             .map_err(|error| ExecutionProcessError::CreateFailed(error.to_string()))?;
         let inserted = sqlx::query(
-            "INSERT INTO execution_process_queue_effects (queue_id, owner, execution_process_id, session_id, run_reason, executor_action, lifecycle) VALUES (?, ?, ?, ?, ?, ?, 'reserved') ON CONFLICT(queue_id) DO NOTHING",
+            "INSERT INTO execution_process_queue_effects (queue_id, owner, execution_process_id, session_id, requested_payload_fingerprint, run_reason, executor_action, lifecycle) VALUES (?, ?, ?, ?, ?, ?, ?, 'reserved') ON CONFLICT(queue_id) DO NOTHING",
         )
         .bind(queue_id)
         .bind(owner)
         .bind(process_id)
         .bind(data.session_id)
+        .bind(requested_payload_fingerprint)
         .bind(&run_reason)
         .bind(&action)
         .execute(pool)
@@ -498,16 +501,21 @@ impl ExecutionProcess {
             return Ok(QueueEffectReservation::Proceed);
         }
 
-        let row = sqlx::query_as::<_, (String, Uuid, Uuid, String, String, String)>(
-            "SELECT owner, execution_process_id, session_id, run_reason, executor_action, lifecycle FROM execution_process_queue_effects WHERE queue_id = ?",
+        let row = sqlx::query_as::<_, (String, Uuid, Uuid, String, String, String, String)>(
+            "SELECT owner, execution_process_id, session_id, requested_payload_fingerprint, run_reason, executor_action, lifecycle FROM execution_process_queue_effects WHERE queue_id = ?",
         )
         .bind(queue_id)
         .fetch_one(pool)
         .await?;
-        if row.0 != owner || row.2 != data.session_id || row.3 != run_reason || row.4 != action {
+        if row.0 != owner
+            || row.2 != data.session_id
+            || row.3 != requested_payload_fingerprint
+            || row.4 != run_reason
+            || row.5 != action
+        {
             return Err(ExecutionProcessError::QueueEffectConflict { queue_id });
         }
-        match row.5.as_str() {
+        match row.6.as_str() {
             "started" => Self::find_by_id(pool, row.1)
                 .await?
                 .map(|process| QueueEffectReservation::Started(Box::new(process)))
@@ -561,13 +569,14 @@ impl ExecutionProcess {
         pool: &SqlitePool,
         queue_id: Uuid,
     ) -> Result<Option<QueueEffectReconciliation>, ExecutionProcessError> {
-        let row = sqlx::query_as::<_, (String, Uuid, Uuid, String)>(
-            "SELECT owner, execution_process_id, session_id, lifecycle FROM execution_process_queue_effects WHERE queue_id = ?",
+        let row = sqlx::query_as::<_, (String, Uuid, Uuid, String, String)>(
+            "SELECT owner, execution_process_id, session_id, requested_payload_fingerprint, lifecycle FROM execution_process_queue_effects WHERE queue_id = ?",
         )
         .bind(queue_id)
         .fetch_optional(pool)
         .await?;
-        let Some((owner, process_id, session_id, lifecycle)) = row else {
+        let Some((owner, process_id, session_id, requested_payload_fingerprint, lifecycle)) = row
+        else {
             return Ok(None);
         };
         let lifecycle = match lifecycle.as_str() {
@@ -586,6 +595,7 @@ impl ExecutionProcess {
             queue_id,
             owner,
             session_id,
+            requested_payload_fingerprint,
             lifecycle,
             process,
         }))
@@ -1027,6 +1037,7 @@ mod admission_tests {
                 "workflow",
                 first_process,
                 &data,
+                "sha256:test",
             )
             .await
             .unwrap(),
@@ -1039,9 +1050,22 @@ mod admission_tests {
                 "workflow",
                 Uuid::new_v4(),
                 &data,
+                "sha256:test",
             )
             .await,
             Err(ExecutionProcessError::QueueEffectIndeterminate { .. })
+        ));
+        assert!(matches!(
+            ExecutionProcess::reserve_queue_effect(
+                &pool,
+                queue_id,
+                "workflow",
+                Uuid::new_v4(),
+                &data,
+                "sha256:changed-payload",
+            )
+            .await,
+            Err(ExecutionProcessError::QueueEffectConflict { .. })
         ));
 
         ExecutionProcess::set_queue_effect_lifecycle(
@@ -1060,6 +1084,7 @@ mod admission_tests {
                 "workflow",
                 retry_process,
                 &data,
+                "sha256:test",
             )
             .await
             .unwrap(),
@@ -1080,6 +1105,7 @@ mod admission_tests {
                 "workflow",
                 Uuid::new_v4(),
                 &data,
+                "sha256:test",
             )
             .await,
             Err(ExecutionProcessError::QueueEffectIndeterminate { .. })
@@ -1091,6 +1117,7 @@ mod admission_tests {
                 "other-owner",
                 Uuid::new_v4(),
                 &data,
+                "sha256:test",
             )
             .await,
             Err(ExecutionProcessError::QueueEffectConflict { .. })
@@ -1123,9 +1150,16 @@ mod admission_tests {
         };
 
         assert!(matches!(
-            ExecutionProcess::reserve_queue_effect(&pool, queue_id, "workflow", process_id, &data,)
-                .await
-                .unwrap(),
+            ExecutionProcess::reserve_queue_effect(
+                &pool,
+                queue_id,
+                "workflow",
+                process_id,
+                &data,
+                "sha256:test"
+            )
+            .await
+            .unwrap(),
             QueueEffectReservation::Proceed
         ));
         let created = ExecutionProcess::create(&pool, &data, process_id, &[])
@@ -1146,6 +1180,7 @@ mod admission_tests {
             "workflow",
             Uuid::new_v4(),
             &data,
+            "sha256:test",
         )
         .await
         .unwrap();
@@ -1179,9 +1214,16 @@ mod admission_tests {
             run_reason: ExecutionProcessRunReason::CodingAgent,
         };
         assert!(matches!(
-            ExecutionProcess::reserve_queue_effect(&pool, queue_id, "workflow", process_id, &data)
-                .await
-                .unwrap(),
+            ExecutionProcess::reserve_queue_effect(
+                &pool,
+                queue_id,
+                "workflow",
+                process_id,
+                &data,
+                "sha256:test"
+            )
+            .await
+            .unwrap(),
             QueueEffectReservation::Proceed
         ));
         ExecutionProcess::create(&pool, &data, process_id, &[])
@@ -1207,6 +1249,7 @@ mod admission_tests {
                 "workflow",
                 Uuid::new_v4(),
                 &data,
+                "sha256:test",
             )
             .await,
             Err(ExecutionProcessError::QueueEffectIndeterminate { .. })

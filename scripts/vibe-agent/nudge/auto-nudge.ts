@@ -8,7 +8,7 @@ import * as Ajv2020Module from 'ajv/dist/2020.js';
 import type { ValidateFunction } from 'ajv';
 import { buildBeadsFormsSummary, compileBeadsForm, type StandardBeadsForm } from '../../../packages/beads-form/src/index.js';
 import { client as defaultClient } from '../core/client.js';
-import type { AutoNudgeProcessWindowQuery, AutoNudgeStatusRequest, AutoNudgeStatusResponse, AutoNudgeStatusSession, AutoNudgeStatusWorkspace, ConversationEntry, CreateSessionBody, ExecutionProcess, ExecutionProcessFinalResponse, SendMessageBody, Session, Workspace } from '../types.js';
+import type { AutoNudgeProcessWindowQuery, AutoNudgeStatusRequest, AutoNudgeStatusResponse, AutoNudgeStatusSession, AutoNudgeStatusWorkspace, ConversationEntry, CreateIdentifiedSessionBody, CreateSessionBody, ExecutionProcess, ExecutionProcessFinalResponse, QueueDispatchOutcome, QueueEffectReconciliation, QueueMessageBody, QueueStatus, SendMessageBody, Session, Workspace } from '../types.js';
 import { conversationEntryText, conversationEntryType, isActiveProcess } from './criteria.js';
 import { callbacksForTrigger, DEFAULT_CALLBACK_REGISTRY_PATH, type CallbackRecord } from './callback-registry.js';
 import {
@@ -33,9 +33,12 @@ import {
 import { DEFAULT_HANDLER_LOG_PATH, runWorkflowHandler } from './workflow-handlers.js';
 import { DEFAULT_WORKFLOW_CONFIG_PATH, loadWorkflowConfig, type WorkflowConfig, type WorkflowMessageTypeConfig } from './workflow-config.js';
 import { parseWorkflowResultXml, schemaHash, validateWorkflowActions, type WorkflowAction, type WorkflowSchemaIdentity } from './workflow-xml.js';
+import { dispatchSerialWorkflow, submitObservedSerialResult } from './serial-workflow-adapter.js';
+import { readSerialRun } from './serial-workflow.js';
 
 const DEFAULT_STATE_PATH = '/var/lib/vd/auto-nudge/state.json';
 const DEFAULT_LOCK_PATH = '/var/lib/vd/auto-nudge/owner.lock';
+const DEFAULT_SERIAL_WORKFLOW_DIR = '/var/lib/vd/auto-nudge/workflows';
 export const DEFAULT_WORKSPACE_REGISTRY_PATH = '/var/lib/vd/auto-nudge/workspaces.json';
 export const DEFAULT_POLL_SECONDS = 300;
 export const MIN_POLL_SECONDS = 5;
@@ -76,11 +79,16 @@ export interface AutoNudgeClient {
   fetchConversation(processId: string, timeoutMs?: number): Promise<ConversationEntry[]>;
   sendMessage(sessionId: string, body: SendMessageBody): Promise<ExecutionProcess>;
   createSession?(body: CreateSessionBody): Promise<Session>;
+  createIdentifiedSession?(sessionId: string, body: CreateIdentifiedSessionBody): Promise<Session>;
+  queueMessage?(sessionId: string, body: QueueMessageBody): Promise<QueueStatus>;
+  reconcileQueuedExecution?(sessionId: string, queueId: string): Promise<QueueEffectReconciliation | null>;
+  startQueuedExecution?(sessionId: string, queueId: string, body: Omit<QueueMessageBody, 'queue_id'>): Promise<QueueDispatchOutcome>;
 }
 export interface AutoNudgeOptions {
   config: AutoNudgeConfig; statePath: string; callbackRegistryPath: string; responseRoutesPath?: string; workspaceRegistryPath?: string;
   workflowConfigPath?: string;
   sendQueuePath?: string;
+  serialWorkflowDir?: string;
   handlerLogPath?: string;
   now: () => Date; unacknowledgedAfterMs: number; operationTimeoutMs: number; responseTimeoutMs: number;
   concurrency: number; dryRun: boolean; discordWebhookUrl?: string;
@@ -766,6 +774,50 @@ function latestProcessForSession(session: AutoNudgeStatusSession): ExecutionProc
   return session.latest_codingagent_process ? [session.latest_codingagent_process] : [];
 }
 
+async function processSerialWorkflowRuns(
+  client: AutoNudgeClient,
+  options: AutoNudgeOptions,
+  registeredWorkspaceIds: Set<string>,
+  result: AutoNudgeCycleResult,
+): Promise<void> {
+  if (!options.serialWorkflowDir || options.dryRun || !fs.existsSync(options.serialWorkflowDir)) return;
+  if (!client.createIdentifiedSession || !client.queueMessage || !client.reconcileQueuedExecution || !client.startQueuedExecution) {
+    throw new Error('VK client does not support durable serial workflow dispatch');
+  }
+  const candidates = fs.readdirSync(options.serialWorkflowDir)
+    .filter(file => file.endsWith('.json') && !file.endsWith('.events.jsonl'))
+    .map(file => path.join(options.serialWorkflowDir!, file))
+    .map(file => ({ file, run: readSerialRun(file) }))
+    .sort((left, right) => left.run.history[0]!.at.localeCompare(right.run.history[0]!.at) || left.run.id.localeCompare(right.run.id));
+  const selected = new Map<string, string>();
+  for (const { file, run } of candidates) {
+    if (!registeredWorkspaceIds.has(run.workspaceId) || ['completed', 'cancelled', 'waiting', 'needs_attention'].includes(run.status)) continue;
+    if (!selected.has(run.workspaceId)) selected.set(run.workspaceId, file);
+  }
+  for (const file of selected.values()) {
+    const run = readSerialRun(file);
+    const item = run.items[run.currentIndex];
+    const dispatch = item?.dispatchId ? run.dispatches.find(entry => entry.id === item.dispatchId) : null;
+    const transportClient = {
+      getSessions: (workspaceId: string) => client.getSessions(workspaceId),
+      createIdentifiedSession: (sessionId: string, body: CreateIdentifiedSessionBody) => client.createIdentifiedSession!(sessionId, body),
+      queueMessage: (sessionId: string, body: QueueMessageBody) => client.queueMessage!(sessionId, body),
+      reconcileQueuedExecution: (sessionId: string, queueId: string) => client.reconcileQueuedExecution!(sessionId, queueId),
+      startQueuedExecution: (sessionId: string, queueId: string, body: Omit<QueueMessageBody, 'queue_id'>) => client.startQueuedExecution!(sessionId, queueId, body),
+      getExecutionProcessFinalResponseStrict: (processId: string) => client.getExecutionProcessFinalResponse(processId),
+    };
+    try {
+      if (dispatch?.status === 'accepted') {
+        await submitObservedSerialResult(file, { getExecutionProcessFinalResponseStrict: id => client.getExecutionProcessFinalResponse(id) }, run.version, `daemon:result:${dispatch.id}`);
+      } else {
+        await dispatchSerialWorkflow(file, transportClient, run.version, `daemon:dispatch:${run.revision}:${item?.id ?? 'none'}`);
+      }
+    } catch (error) {
+      if (!(error instanceof Error && error.message.includes('not terminal'))) result.errors.push(`workflow ${run.id}: ${(error as Error).message}`);
+    }
+  }
+}
+
 export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNudgeOptions): Promise<AutoNudgeCycleResult> {
   const state = readAutoNudgeState(options.statePath);
   const result: AutoNudgeCycleResult = {
@@ -993,6 +1045,7 @@ export async function runAutoNudgeCycle(client: AutoNudgeClient, options: AutoNu
       }
     } catch (error) { result.errors.push(`workspace ${configured.workspaceId}: ${(error as Error).message}`); }
   }, options.signal);
+  await processSerialWorkflowRuns(client, options, new Set(registered.map(item => item.workspaceId)), result);
   await processSendQueue(client, options, result, sendGuard);
   await processOutbox(options, state, result);
   return result;
@@ -1040,7 +1093,7 @@ export async function runWithOwnerLock<T>(lockPath: string, task: () => Promise<
   try { return await task(); }
   finally { release(); }
 }
-type VibeClientAdapterSource = Pick<typeof defaultClient, 'getAllWorkspaces' | 'getSessions' | 'getSession' | 'createSession' | 'getSessionProcesses' | 'fetchConversation' | 'sendMessage' | 'getExecutionProcess' | 'getExecutionProcessFinalResponse' | 'getExecutionProcessFinalResponseStrict' | 'getAutoNudgeStatus'>;
+type VibeClientAdapterSource = Pick<typeof defaultClient, 'getAllWorkspaces' | 'getSessions' | 'getSession' | 'createSession' | 'getSessionProcesses' | 'fetchConversation' | 'sendMessage' | 'getExecutionProcess' | 'getExecutionProcessFinalResponse' | 'getExecutionProcessFinalResponseStrict' | 'getAutoNudgeStatus'> & Partial<Pick<typeof defaultClient, 'createIdentifiedSession' | 'queueMessage' | 'reconcileQueuedExecution' | 'startQueuedExecution'>>;
 
 export function createAutoNudgeClient(source: VibeClientAdapterSource): AutoNudgeClient {
   return {
@@ -1048,6 +1101,10 @@ export function createAutoNudgeClient(source: VibeClientAdapterSource): AutoNudg
     getSessions: id => source.getSessions(id), getSessionProcesses: id => source.getSessionProcesses(id),
     getSession: id => source.getSession(id),
     createSession: body => source.createSession(body),
+    ...(source.createIdentifiedSession ? { createIdentifiedSession: (id: string, body: CreateIdentifiedSessionBody) => source.createIdentifiedSession!(id, body) } : {}),
+    ...(source.queueMessage ? { queueMessage: (id: string, body: QueueMessageBody) => source.queueMessage!(id, body) } : {}),
+    ...(source.reconcileQueuedExecution ? { reconcileQueuedExecution: (sessionId: string, queueId: string) => source.reconcileQueuedExecution!(sessionId, queueId) } : {}),
+    ...(source.startQueuedExecution ? { startQueuedExecution: (sessionId: string, queueId: string, body: Omit<QueueMessageBody, 'queue_id'>) => source.startQueuedExecution!(sessionId, queueId, body) } : {}),
     getExecutionProcess: id => source.getExecutionProcess(id),
     getExecutionProcessFinalResponse: id => source.getExecutionProcessFinalResponseStrict(id),
     getAutoNudgeStatus: (request, signal) => source.getAutoNudgeStatus(request, signal),
@@ -1066,7 +1123,7 @@ async function main(): Promise<void> {
   await runWithOwnerLock(process.env.VD_AUTO_NUDGE_LOCK_PATH ?? DEFAULT_LOCK_PATH, async () => {
     const abortController = new AbortController();
     const stop = () => { stopping = true; abortController.abort(); }; process.once('SIGINT', stop); process.once('SIGTERM', stop);
-    const options: AutoNudgeOptions = { config, statePath: args.statePath, callbackRegistryPath: process.env.VD_CALLBACK_REGISTRY_PATH ?? DEFAULT_CALLBACK_REGISTRY_PATH, responseRoutesPath: process.env.VD_RESPONSE_ROUTES_PATH ?? DEFAULT_RESPONSE_ROUTES_PATH, workspaceRegistryPath: args.registryPath, workflowConfigPath: process.env.VD_AUTO_NUDGE_WORKFLOW_CONFIG_PATH ?? DEFAULT_WORKFLOW_CONFIG_PATH, sendQueuePath: process.env.VD_SEND_QUEUE_PATH ?? DEFAULT_SEND_QUEUE_PATH, handlerLogPath: process.env.VD_HANDLER_LOG_PATH ?? DEFAULT_HANDLER_LOG_PATH, now: () => new Date(), unacknowledgedAfterMs: 60_000, operationTimeoutMs: 15_000, responseTimeoutMs: 30 * 60_000, concurrency: 4, dryRun: args.dryRun, discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL, signal: abortController.signal };
+    const options: AutoNudgeOptions = { config, statePath: args.statePath, callbackRegistryPath: process.env.VD_CALLBACK_REGISTRY_PATH ?? DEFAULT_CALLBACK_REGISTRY_PATH, responseRoutesPath: process.env.VD_RESPONSE_ROUTES_PATH ?? DEFAULT_RESPONSE_ROUTES_PATH, workspaceRegistryPath: args.registryPath, workflowConfigPath: process.env.VD_AUTO_NUDGE_WORKFLOW_CONFIG_PATH ?? DEFAULT_WORKFLOW_CONFIG_PATH, sendQueuePath: process.env.VD_SEND_QUEUE_PATH ?? DEFAULT_SEND_QUEUE_PATH, serialWorkflowDir: process.env.VD_SERIAL_WORKFLOW_DIR ?? DEFAULT_SERIAL_WORKFLOW_DIR, handlerLogPath: process.env.VD_HANDLER_LOG_PATH ?? DEFAULT_HANDLER_LOG_PATH, now: () => new Date(), unacknowledgedAfterMs: 60_000, operationTimeoutMs: 15_000, responseTimeoutMs: 30 * 60_000, concurrency: 4, dryRun: args.dryRun, discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL, signal: abortController.signal };
     do { const result = await runAutoNudgeCycle(makeClient(), options); console.log(JSON.stringify({ type: 'auto-nudge-cycle', at: new Date().toISOString(), ...result })); if (!args.once && !stopping) { try { await abortableDelay(pollMs, abortController.signal); } catch { /* Shutdown aborts the poll delay. */ } } } while (!args.once && !stopping);
   });
   if (stopping || args.once) process.exit(0);

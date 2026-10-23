@@ -195,6 +195,7 @@ fn generate_types_content() -> String {
         git::GitBranch::decl(),
         services::services::queued_message::QueuedMessage::decl(),
         services::services::queued_message::QueueStatus::decl(),
+        services::services::container::QueueDispatchOutcome::decl(),
         db::models::execution_process::QueueEffectLifecycle::decl(),
         db::models::execution_process::QueueEffectReconciliation::decl(),
         git::ConflictOp::decl(),

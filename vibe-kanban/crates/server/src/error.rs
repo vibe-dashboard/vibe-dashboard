@@ -353,6 +353,10 @@ impl IntoResponse for ApiError {
                     ),
                 )
             }
+            ApiError::Session(SessionError::IdentityConflict { id }) => ErrorInfo::conflict(
+                "SessionError",
+                format!("Identified session {id} conflicts with its existing creation tuple."),
+            ),
             ApiError::ScratchError(ScratchError::Database(_)) => {
                 ErrorInfo::internal("ScratchError")
             }

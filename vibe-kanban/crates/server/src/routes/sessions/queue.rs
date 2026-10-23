@@ -13,7 +13,10 @@ use db::models::{
 use deployment::Deployment;
 use executors::profile::ExecutorConfig;
 use serde::Deserialize;
-use services::services::queued_message::{QueueError, QueueStatus};
+use services::services::{
+    container::{ContainerService, QueueDispatchOutcome},
+    queued_message::{QueueError, QueueStatus},
+};
 use ts_rs::TS;
 use utils::response::ApiResponse;
 
@@ -32,6 +35,13 @@ struct QueueMessageRequest {
 struct QueueIdentity {
     pub queue_id: uuid::Uuid,
     pub owner: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct StartQueueRequest {
+    owner: String,
+    message: String,
+    executor_config: ExecutorConfig,
 }
 
 fn queue_error(error: QueueError) -> ApiError {
@@ -156,6 +166,31 @@ async fn get_queued_execution(
     Ok(ResponseJson(ApiResponse::success(reconciliation)))
 }
 
+async fn start_queued_execution(
+    Extension(session): Extension<Session>,
+    State(deployment): State<DeploymentImpl>,
+    axum::extract::Path((_session_id, queue_id)): axum::extract::Path<(uuid::Uuid, uuid::Uuid)>,
+    Json(payload): Json<StartQueueRequest>,
+) -> Result<ResponseJson<ApiResponse<QueueDispatchOutcome>>, ApiError> {
+    if payload.owner.trim().is_empty() {
+        return Err(ApiError::BadRequest("Queue owner is required".to_string()));
+    }
+    if let Some(message) = super::invalid_session_command_message(&payload.message) {
+        return Err(ApiError::BadRequest(message));
+    }
+    let data = DraftFollowUpData {
+        session_command: super::parse_session_command(&payload.message),
+        message: payload.message,
+        executor_config: payload.executor_config,
+    };
+    let fingerprint = services::services::queued_message::requested_payload_fingerprint(&data);
+    let outcome = deployment
+        .container()
+        .start_queued_message(session.id, queue_id, &payload.owner, &fingerprint)
+        .await?;
+    Ok(ResponseJson(ApiResponse::success(outcome)))
+}
+
 pub(super) fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     Router::new()
         .route(
@@ -166,6 +201,10 @@ pub(super) fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
                 .delete(cancel_queued_message),
         )
         .route("/{queue_id}/process", get(get_queued_execution))
+        .route(
+            "/{queue_id}/start",
+            axum::routing::post(start_queued_execution),
+        )
         .layer(from_fn_with_state(
             deployment.clone(),
             load_session_middleware,

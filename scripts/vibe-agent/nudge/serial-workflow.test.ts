@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_WORKFLOW_CONFIG_YAML, parseWorkflowConfig } from './workflow-config.js';
 import { parseSerialWorkflowConfig } from './serial-workflow-config.js';
@@ -12,9 +13,17 @@ import { createSerialRun, mutateSerialRun, readSerialRun, recoverSerialRun, SERI
 const directories: string[] = [];
 afterEach(() => { for (const dir of directories.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 const schema = { schemaId: 'vd.workflow.role-result', schemaVersion: 1, schemaHash: schemaHash(SERIAL_RESULT_SCHEMA) };
+const start = (sessionId = 'session') => ({
+  type: 'start' as const,
+  dispatchId: randomUUID(),
+  transport: {
+    owner: 'workflow:run-one', sessionId, messageType: 'implement_change', fresh: false,
+    prompt: 'Do the work', executorConfig: { executor: 'CODEX' }, freshSession: null,
+  },
+});
 function template(): SerialTemplate {
   return { id: 'reviewed-change', version: 1, items: ['implement', 'review', 'test'].map(id => ({
-    id, label: id, role: id, prompt: `Do ${id}`, schema: structuredClone(schema), resultSchema: structuredClone(SERIAL_RESULT_SCHEMA),
+    id, label: id, role: id, prompt: `Do ${id}`, messageType: `${id}_change`, fresh: false, schema: structuredClone(schema), resultSchema: structuredClone(SERIAL_RESULT_SCHEMA),
     outcomes: { complete: { action: 'advance' }, rejected: id === 'implement' ? { action: 'needs_attention' } : { action: 'reset', resetsTo: 'implement' }, waiting: { action: 'wait' } },
   })) };
 }
@@ -26,7 +35,7 @@ function setup() {
   let sequence = 0;
   const command = (value: WorkflowCommand, key = `command-${++sequence}`) => mutateSerialRun(file, readSerialRun(file).version, key, value);
   const accepted = () => {
-    const started = command({ type: 'start', sessionId: 'session' });
+    const started = command(start());
     const dispatchId = started.dispatchId!;
     command({ type: 'submitting', dispatchId });
     const processId = `process-${sequence}`;
@@ -53,7 +62,7 @@ describe('serial workflow transitions', { timeout: 20_000 }, () => {
     expect(run.template.items[0]!.prompt).toBe('Do implement');
     expect(run.beadIds).toEqual(['bead-a', 'bead-b']);
     expect(run.items.every(item => item.status === 'completed')).toBe(true);
-    expect(() => value.command({ type: 'start', sessionId: 'other' })).toThrow(/terminal/);
+    expect(() => value.command(start('other'))).toThrow(/terminal/);
   });
 
   it.each(['review', 'test'])('resets on %s rejection and refuses stale downstream approval', rejecting => {
@@ -80,7 +89,7 @@ describe('serial workflow transitions', { timeout: 20_000 }, () => {
     createSerialRun(file, { ...value.input, template: custom }, 'new');
     for (let index = 0; index < 3; index++) {
       const mutate = (command: WorkflowCommand) => mutateSerialRun(file, readSerialRun(file).version, `v${readSerialRun(file).version}`, command);
-      const id = mutate({ type: 'start', sessionId: 's' }).dispatchId!;
+      const id = mutate(start('s')).dispatchId!;
       mutate({ type: 'submitting', dispatchId: id }); mutate({ type: 'accept', dispatchId: id, processId: `p${index}` });
       mutate({ type: 'result', schema, sourceProcessId: `p${index}`, result: { run_id: 'run-one', item_id: custom.items[index]!.id, revision: 1, dispatch_id: id, outcome: index === 2 ? 'rejected' : 'complete', details: {} } });
     }
@@ -99,18 +108,18 @@ describe('serial workflow transitions', { timeout: 20_000 }, () => {
     for (const command of cases) { expect(() => value.command(command)).toThrow(); expect(readFileSync(value.file, 'utf8')).toBe(before); }
   });
 
-  it('retries only a proven pre-admission failure and assigns a new attempt identity', () => {
-    const value = setup(); const first = value.command({ type: 'start', sessionId: 'session' }).dispatchId!;
+  it('retries a proven pre-admission failure with the same immutable transport identity', () => {
+    const value = setup(); const first = value.command(start()).dispatchId!;
     value.command({ type: 'submitting', dispatchId: first });
     value.command({ type: 'delivery_failed', dispatchId: first, disposition: 'proven_unaccepted', reason: 'VK proved no child' });
     value.command({ type: 'retry' });
-    const second = value.command({ type: 'start', sessionId: 'session' }).dispatchId!;
-    expect(second).not.toBe(first);
-    expect(readSerialRun(value.file).dispatches.map(entry => entry.attempt)).toEqual([1, 2]);
-    value.command({ type: 'submitting', dispatchId: second });
-    value.command({ type: 'delivery_failed', dispatchId: second, disposition: 'uncertain', reason: 'connection dropped' });
+    const retried = readSerialRun(value.file);
+    expect(retried.items[0]!.dispatchId).toBe(first);
+    expect(retried.dispatches).toMatchObject([{ id: first, attempt: 2, status: 'intent', transport: start().transport }]);
+    value.command({ type: 'submitting', dispatchId: first });
+    value.command({ type: 'delivery_failed', dispatchId: first, disposition: 'uncertain', reason: 'connection dropped' });
     expect(() => value.command({ type: 'retry' })).toThrow(/proven/);
-    value.command({ type: 'accept', dispatchId: second, processId: 'reconciled' });
+    value.command({ type: 'accept', dispatchId: first, processId: 'reconciled' });
     expect(readSerialRun(value.file).status).toBe('active');
   });
 
@@ -124,14 +133,14 @@ describe('serial workflow transitions', { timeout: 20_000 }, () => {
   it('records waiting without allowing another role or result to advance', () => {
     const value = setup(); value.accepted(); value.command(value.result('waiting'));
     expect(readSerialRun(value.file).status).toBe('waiting');
-    expect(() => value.command({ type: 'start', sessionId: 'other' })).toThrow();
+    expect(() => value.command(start('other'))).toThrow();
     expect(() => value.command(value.result())).toThrow(/current accepted/);
   });
 
   it('does not claim that cancelling an accepted process terminated transport', () => {
     const value = setup(); value.accepted(); value.command({ type: 'cancel', reason: 'user requested' });
     expect(readSerialRun(value.file)).toMatchObject({ status: 'needs_attention', cancelRequested: true });
-    expect(() => value.command({ type: 'start', sessionId: 'other' })).toThrow(/cancellation/);
+    expect(() => value.command(start('other'))).toThrow(/cancellation/);
     const unstarted = setup(); unstarted.command({ type: 'cancel', reason: 'user requested' });
     expect(readSerialRun(unstarted.file).status).toBe('cancelled');
   });
@@ -140,11 +149,11 @@ describe('serial workflow transitions', { timeout: 20_000 }, () => {
 describe('durable mutation and journal boundaries', { timeout: 20_000 }, () => {
   it('returns the original receipt before checking a now-stale expected version', () => {
     const value = setup(); const version = readSerialRun(value.file).version;
-    const command = { type: 'start' as const, sessionId: 'session' };
+    const command = start();
     const original = mutateSerialRun(value.file, version, 'same-key', command);
     value.command({ type: 'submitting', dispatchId: original.dispatchId! });
     expect(mutateSerialRun(value.file, version, 'same-key', command)).toEqual(original);
-    expect(() => mutateSerialRun(value.file, version, 'same-key', { ...command, sessionId: 'different' })).toThrow(/conflict/);
+    expect(() => mutateSerialRun(value.file, version, 'same-key', { ...command, transport: { ...command.transport, sessionId: 'different' } })).toThrow(/conflict/);
     expect(() => mutateSerialRun(value.file, version, 'another-key', command)).toThrow(/version conflict/);
     expect(createSerialRun(value.file, value.input, 'create').version).toBe(1);
   });
@@ -205,7 +214,7 @@ describe('durable mutation and journal boundaries', { timeout: 20_000 }, () => {
   it('recovers a proven dead lock owner without discarding run state', () => {
     const value = setup(); mkdirSync(`${value.file}.lock`);
     writeFileSync(`${value.file}.lock/pid`, '2147483647');
-    expect(value.command({ type: 'start', sessionId: 's' }).version).toBe(2);
+    expect(value.command(start('s')).version).toBe(2);
     expect(readSerialRun(value.file).dispatches).toHaveLength(1);
   });
 
@@ -214,7 +223,7 @@ describe('durable mutation and journal boundaries', { timeout: 20_000 }, () => {
     const child = spawn(process.execPath, ['-e', `const fs=require('fs'); const p=process.argv[1]; fs.mkdirSync(p); fs.writeFileSync(p+'/pid',String(process.pid)); process.stdout.write('ready'); setTimeout(()=>{fs.rmSync(p,{recursive:true});},250);`, `${value.file}.lock`], { stdio: ['ignore', 'pipe', 'pipe'] });
     const exited = new Promise<void>((resolve, reject) => { child.once('error', reject); child.once('exit', code => code === 0 ? resolve() : reject(new Error(`lock holder exited ${code}`))); });
     await new Promise<void>((resolve, reject) => { child.once('error', reject); child.stdout.once('data', () => resolve()); });
-    const before = Date.now(); value.command({ type: 'start', sessionId: 's' });
+    const before = Date.now(); value.command(start('s'));
     expect(Date.now() - before).toBeGreaterThanOrEqual(150);
     await exited;
     expect(readSerialRun(value.file).dispatches).toHaveLength(1);
@@ -230,7 +239,7 @@ describe('durable mutation and journal boundaries', { timeout: 20_000 }, () => {
       process.stdout.write('ready\\n');
       process.stdin.once('data', async () => {
         try {
-          const result = runtime.mutateSerialRun(process.argv[2], Number(process.argv[3]), process.argv[4], {type:'start',sessionId:process.argv[4]});
+          const result = runtime.mutateSerialRun(process.argv[2], Number(process.argv[3]), process.argv[4], {type:'start',dispatchId:process.argv[4],transport:{owner:'workflow:run-one',sessionId:process.argv[4],messageType:'implement_change',fresh:false,prompt:'Do the work',executorConfig:{executor:'CODEX'},freshSession:null}});
           process.stdout.write(JSON.stringify({ok:true,result})+'\\n');
         } catch(error) { process.stdout.write(JSON.stringify({ok:false,error:error.message})+'\\n'); }
         await server.close();

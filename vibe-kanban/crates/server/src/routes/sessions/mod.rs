@@ -49,6 +49,14 @@ pub struct CreateSessionRequest {
     pub name: Option<String>,
 }
 
+#[derive(Debug, Deserialize, TS)]
+pub struct CreateIdentifiedSessionRequest {
+    pub workspace_id: Uuid,
+    pub executor: Option<String>,
+    pub name: Option<String>,
+    pub agent_working_dir: Option<String>,
+}
+
 pub async fn get_sessions(
     State(deployment): State<DeploymentImpl>,
     Query(query): Query<SessionQuery>,
@@ -88,6 +96,30 @@ pub async fn create_session(
     )
     .await?;
 
+    Ok(ResponseJson(ApiResponse::success(session)))
+}
+
+pub async fn create_identified_session(
+    State(deployment): State<DeploymentImpl>,
+    axum::extract::Path(session_id): axum::extract::Path<Uuid>,
+    Json(payload): Json<CreateIdentifiedSessionRequest>,
+) -> Result<ResponseJson<ApiResponse<Session>>, ApiError> {
+    let pool = &deployment.db().pool;
+    Workspace::find_by_id(pool, payload.workspace_id)
+        .await?
+        .ok_or(ApiError::Workspace(WorkspaceError::ValidationError(
+            "Workspace not found".to_string(),
+        )))?;
+    let session = Session::create_identified(
+        pool,
+        session_id,
+        payload.workspace_id,
+        payload.executor.as_deref(),
+        payload.name.as_deref(),
+        payload.agent_working_dir.as_deref(),
+    )
+    .await
+    .map_err(ApiError::Session)?;
     Ok(ResponseJson(ApiResponse::success(session)))
 }
 
@@ -382,6 +414,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
 
     let sessions_router = Router::new()
         .route("/", get(get_sessions).post(create_session))
+        .route("/identified/{session_id}", post(create_identified_session))
         .nest("/{session_id}", session_id_router)
         .nest("/{session_id}/queue", queue::router(deployment));
 

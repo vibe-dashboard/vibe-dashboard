@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use dashmap::{DashMap, mapref::entry::Entry};
 use db::models::scratch::DraftFollowUpData;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 use ts_rs::TS;
 use uuid::Uuid;
@@ -19,6 +20,8 @@ pub struct QueuedMessage {
     pub session_id: Uuid,
     /// The follow-up data (message + variant)
     pub data: DraftFollowUpData,
+    /// Hash of the exact caller-requested payload, before executor derivation.
+    pub requested_payload_fingerprint: String,
     /// Timestamp when the message was queued
     pub queued_at: DateTime<Utc>,
 }
@@ -43,6 +46,12 @@ pub enum QueueError {
     IdentityConflict { id: Uuid },
     #[error("queued message {id} has already been consumed or is no longer queued")]
     TooLate { id: Uuid },
+}
+
+#[derive(Debug, Clone)]
+pub enum QueueClaim {
+    Claimed(QueuedMessage),
+    Consuming(QueuedMessage),
 }
 
 #[derive(Debug, Clone)]
@@ -73,11 +82,13 @@ impl QueuedMessageService {
         owner: String,
         data: DraftFollowUpData,
     ) -> Result<QueueStatus, QueueError> {
+        let requested_payload_fingerprint = requested_payload_fingerprint(&data);
         let queued = QueuedMessage {
             id,
             owner,
             session_id,
             data,
+            requested_payload_fingerprint,
             queued_at: Utc::now(),
         };
         match self.queue.entry(session_id) {
@@ -170,6 +181,51 @@ impl QueuedMessageService {
         Some(entry.message.clone())
     }
 
+    /// Claim only the exact immutable queue intent. An exact consuming replay
+    /// is reported separately so a second caller can reconcile but never start.
+    pub fn claim_queued_identity(
+        &self,
+        session_id: Uuid,
+        id: Uuid,
+        owner: &str,
+        data: &DraftFollowUpData,
+    ) -> Result<QueueClaim, QueueError> {
+        match self.queue.entry(session_id) {
+            Entry::Vacant(_) => Err(QueueError::TooLate { id }),
+            Entry::Occupied(mut entry) => {
+                check_identity(&entry.get().message, id, owner)?;
+                if !same_data(&entry.get().message.data, data) {
+                    return Err(QueueError::IdentityConflict { id });
+                }
+                if entry.get().consuming {
+                    return Ok(QueueClaim::Consuming(entry.get().message.clone()));
+                }
+                entry.get_mut().consuming = true;
+                Ok(QueueClaim::Claimed(entry.get().message.clone()))
+            }
+        }
+    }
+
+    /// Return an exact consuming intent for a DB-proven failed-before-start
+    /// retry. Durable queue-effect reservation remains the single start winner.
+    pub fn retry_consuming_identity(
+        &self,
+        session_id: Uuid,
+        id: Uuid,
+        owner: &str,
+        data: &DraftFollowUpData,
+    ) -> Result<QueuedMessage, QueueError> {
+        let entry = self
+            .queue
+            .get(&session_id)
+            .ok_or(QueueError::TooLate { id })?;
+        check_identity(&entry.message, id, owner)?;
+        if !entry.consuming || !same_data(&entry.message.data, data) {
+            return Err(QueueError::IdentityConflict { id });
+        }
+        Ok(entry.message.clone())
+    }
+
     pub fn release_claim(&self, session_id: Uuid, id: Uuid) {
         if let Some(mut entry) = self.queue.get_mut(&session_id)
             && entry.message.id == id
@@ -211,6 +267,13 @@ impl QueuedMessageService {
 
 fn same_data(left: &DraftFollowUpData, right: &DraftFollowUpData) -> bool {
     serde_json::to_value(left).ok() == serde_json::to_value(right).ok()
+}
+
+/// Fingerprint the caller-requested queue payload before it is expanded into
+/// executor continuity and cleanup actions.
+pub fn requested_payload_fingerprint(data: &DraftFollowUpData) -> String {
+    let bytes = serde_json::to_vec(data).expect("DraftFollowUpData must serialize");
+    format!("sha256:{:x}", Sha256::digest(bytes))
 }
 
 fn check_identity(message: &QueuedMessage, id: Uuid, owner: &str) -> Result<(), QueueError> {
@@ -314,6 +377,40 @@ mod tests {
             service.cancel_queued(session, id, "callback").unwrap().id,
             id
         );
+    }
+
+    #[test]
+    fn exact_claim_has_one_starter_and_consuming_replays_never_reclaim() {
+        let service = QueuedMessageService::new();
+        let session = Uuid::new_v4();
+        let id = Uuid::new_v4();
+        let payload = data("one");
+        service
+            .queue_message(session, id, "workflow".into(), payload.clone())
+            .unwrap();
+        assert!(matches!(
+            service.claim_queued_identity(session, id, "workflow", &payload),
+            Ok(QueueClaim::Claimed(_))
+        ));
+        assert!(matches!(
+            service.claim_queued_identity(session, id, "workflow", &payload),
+            Ok(QueueClaim::Consuming(_))
+        ));
+        assert_eq!(
+            service
+                .retry_consuming_identity(session, id, "workflow", &payload)
+                .unwrap()
+                .id,
+            id
+        );
+        assert!(matches!(
+            service.claim_queued_identity(session, id, "other", &payload),
+            Err(QueueError::IdentityConflict { .. })
+        ));
+        assert!(matches!(
+            service.claim_queued_identity(session, id, "workflow", &data("changed")),
+            Err(QueueError::IdentityConflict { .. })
+        ));
     }
 
     #[test]

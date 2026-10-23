@@ -41,6 +41,11 @@ import {
   readAutoNudgeWorkspaceRegistry,
   type AutoNudgeWorkspaceCriteria,
 } from '../nudge/auto-nudge.js';
+import { parseSerialWorkflowConfig } from '../nudge/serial-workflow-config.js';
+import { createSerialRun, mutateSerialRun, readSerialRun } from '../nudge/serial-workflow.js';
+import { dispatchSerialWorkflow, submitObservedSerialResult } from '../nudge/serial-workflow-adapter.js';
+
+const DEFAULT_SERIAL_WORKFLOW_DIR = '/var/lib/vd/auto-nudge/workflows';
 
 // Message helpers
 
@@ -2014,6 +2019,80 @@ async function autoNudgeCommand(args: string[]): Promise<void> {
   process.exit(1);
 }
 
+function workflowFlag(args: string[], name: string, required = true): string | undefined {
+  const index = args.indexOf(name);
+  const value = index >= 0 ? args[index + 1] : undefined;
+  if (required && (!value || value.startsWith('--'))) throw new Error(`Missing ${name}`);
+  return value;
+}
+
+function workflowRunFile(runId: string): string {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(runId)) throw new Error('Workflow run ID contains unsafe characters');
+  return path.join(process.env.VD_SERIAL_WORKFLOW_DIR ?? DEFAULT_SERIAL_WORKFLOW_DIR, `${runId}.json`);
+}
+
+function projectWorkflowToBeads(file: string): void {
+  const run = readSerialRun(file);
+  const current = run.items[run.currentIndex];
+  const events = run.history.slice(-10).map(event => ({
+    sequence: event.sequence, type: event.type, itemId: event.itemId,
+    revision: event.revision, at: event.at,
+  }));
+  for (const beadId of run.beadIds) {
+    execFileSync('bd', [
+      'update', beadId,
+      '--set-metadata', `workflow_run=${run.id}`,
+      '--set-metadata', `workflow_status=${run.status}`,
+      '--set-metadata', `workflow_revision=${run.revision}`,
+      '--set-metadata', `workflow_current=${current ? `${current.id}:${run.template.items[run.currentIndex]!.label}` : ''}`,
+      '--set-metadata', `workflow_events=${JSON.stringify(events)}`,
+    ], { cwd: process.env.VD_BEADS_DIR ?? process.cwd(), stdio: 'pipe' });
+  }
+}
+
+async function workflowCommand(args: string[]): Promise<void> {
+  const [operation] = args;
+  const runId = workflowFlag(args, '--run-id')!;
+  const file = workflowRunFile(runId);
+  if (operation === 'status') { console.log(JSON.stringify(readSerialRun(file), null, 2)); return; }
+  if (operation === 'create') {
+    const configFile = path.resolve(workflowFlag(args, '--config')!);
+    const templateId = workflowFlag(args, '--template')!;
+    const explicitWorkspace = workflowFlag(args, '--workspace', false);
+    const workspaceId = explicitWorkspace ?? (await getAgentContext()).workspaceId;
+    if (!workspaceId) throw new Error('Missing --workspace and current workspace context');
+    const parsed = parseSerialWorkflowConfig(fs.readFileSync(configFile, 'utf8'), configFile);
+    const template = parsed.templates[templateId];
+    if (!template) throw new Error(`Unknown workflow template ${templateId}`);
+    const beads = (workflowFlag(args, '--beads') ?? '').split(',').map(value => value.trim()).filter(Boolean);
+    for (const beadId of beads) execFileSync('bd', ['show', beadId], { cwd: process.env.VD_BEADS_DIR ?? process.cwd(), stdio: 'pipe' });
+    const decisionSession = workflowFlag(args, '--decision-session', false);
+    const authority = decisionSession ? { mode: 'decision_maker' as const, sessionId: decisionSession } : { mode: 'human' as const };
+    const receipt = createSerialRun(file, { id: runId, workspaceId, beadIds: beads, template, authority }, workflowFlag(args, '--idempotency-key')!);
+    projectWorkflowToBeads(file); console.log(JSON.stringify(receipt));
+    return;
+  }
+  const expectedVersion = Number(workflowFlag(args, '--expected-version'));
+  if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1) throw new Error('--expected-version must be a positive integer');
+  const key = workflowFlag(args, '--idempotency-key')!;
+  if (operation === 'start') {
+    const run = readSerialRun(file);
+    const registry = readAutoNudgeWorkspaceRegistry(process.env.VD_AUTO_NUDGE_WORKSPACE_REGISTRY_PATH ?? DEFAULT_WORKSPACE_REGISTRY_PATH);
+    if (!registry.workspaces[run.workspaceId]) throw new Error('Workflow workspace is not registered for auto-nudge; run vibe-agent auto-nudge enable first');
+    const result = await dispatchSerialWorkflow(file, client, expectedVersion, key);
+    projectWorkflowToBeads(file); console.log(JSON.stringify(result));
+    return;
+  }
+  if (operation === 'submit-result') {
+    await submitObservedSerialResult(file, client, expectedVersion, key);
+    projectWorkflowToBeads(file); console.log(JSON.stringify(readSerialRun(file)));
+    return;
+  }
+  if (operation === 'retry') { const result = mutateSerialRun(file, expectedVersion, key, { type: 'retry' }); projectWorkflowToBeads(file); console.log(JSON.stringify(result)); return; }
+  if (operation === 'cancel') { const result = mutateSerialRun(file, expectedVersion, key, { type: 'cancel', reason: workflowFlag(args, '--reason')! }); projectWorkflowToBeads(file); console.log(JSON.stringify(result)); return; }
+  throw new Error('Usage: vibe-agent workflow <create|status|start|submit-result|retry|cancel> --run-id <id> ...');
+}
+
 async function sessionsCommand(args: string[]): Promise<void> {
   const subcommand = args[0];
   const commandArgs = subcommand === 'list' ? args.slice(1) : args;
@@ -2559,6 +2638,9 @@ Commands:
   auto-nudge disable           Disable overseer coordination for this workspace
     --json                     Output as JSON
 
+  workflow <operation>         Durable serial workflow create/status/start/
+                               submit-result/retry/cancel (run with --help)
+
   send <role> "<message>"      Send message to another agent
     --respond                  Accepted alias; response routing is the default
     --fire-and-forget          Do not route the receiving agent final response back
@@ -2951,6 +3033,9 @@ async function main(): Promise<void> {
       break;
     case 'auto-nudge':
       await autoNudgeCommand(commandArgs);
+      break;
+    case 'workflow':
+      await workflowCommand(commandArgs);
       break;
     case 'send':
       await send(commandArgs);

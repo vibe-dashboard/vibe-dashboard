@@ -11,6 +11,8 @@ export interface SerialItem {
   label: string;
   role: string;
   prompt: string;
+  messageType: string;
+  fresh: boolean;
   schema: WorkflowSchemaIdentity;
   resultSchema: Record<string, unknown>;
   outcomes: Record<string, OutcomeTransition>;
@@ -18,12 +20,27 @@ export interface SerialItem {
 export interface SerialTemplate { id: string; version: number; items: SerialItem[] }
 export type RunStatus = 'queued' | 'active' | 'waiting' | 'needs_attention' | 'cancelled' | 'completed';
 export type DeliveryStatus = 'intent' | 'submitting' | 'accepted' | 'proven_unaccepted' | 'uncertain';
+export interface WorkflowDispatchTransport {
+  owner: string;
+  sessionId: string;
+  messageType: string;
+  fresh: boolean;
+  prompt: string;
+  executorConfig: Record<string, unknown>;
+  freshSession: null | {
+    id: string;
+    workspaceId: string;
+    executor: string;
+    name: string;
+    agentWorkingDir: string | null;
+  };
+}
 export interface WorkflowDispatch {
   id: string;
   itemId: string;
   revision: number;
   attempt: number;
-  sessionId: string;
+  transport: WorkflowDispatchTransport;
   status: DeliveryStatus;
   processId: string | null;
 }
@@ -38,7 +55,7 @@ export interface SerialResult {
 export interface WorkflowEvent { sequence: number; idempotencyKey: string; type: string; itemId: string | null; revision: number; at: string; details: Record<string, unknown> }
 export interface MutationReceipt { runId: string; version: number; status: RunStatus; revision: number; currentItemId: string | null; dispatchId: string | null }
 export type FormAuthority = { mode: 'human' } | { mode: 'decision_maker'; sessionId: string };
-const Ajv2020 = (Ajv2020Module.default ?? Ajv2020Module) as unknown as new () => { compile(schema: object): ValidateFunction };
+const Ajv2020 = Ajv2020Module as unknown as new () => { compile(schema: object): ValidateFunction };
 // Read/replay validates the same immutable schema repeatedly. Bound this compiler
 // registry so long-lived daemons do not retain every historical template.
 const validators = new Map<string, ValidateFunction>();
@@ -79,7 +96,7 @@ export interface SerialRun {
   receipts: Record<string, { commandHash: string; result: MutationReceipt }>;
 }
 export type WorkflowCommand =
-  | { type: 'start'; sessionId: string }
+  | { type: 'start'; dispatchId: string; transport: WorkflowDispatchTransport }
   | { type: 'submitting'; dispatchId: string }
   | { type: 'accept'; dispatchId: string; processId: string }
   | { type: 'delivery_failed'; dispatchId: string; disposition: 'proven_unaccepted' | 'uncertain'; reason: string }
@@ -159,8 +176,9 @@ export function validateSerialTemplate(value: unknown): asserts value is SerialT
   const seen = new Set<string>();
   for (const raw of template.items) {
     const item = record(raw, 'item');
-    exact(item, ['id', 'label', 'role', 'prompt', 'schema', 'resultSchema', 'outcomes'], 'item');
-    for (const key of ['id', 'label', 'role', 'prompt']) text(item[key], `item.${key}`);
+    exact(item, ['id', 'label', 'role', 'prompt', 'messageType', 'fresh', 'schema', 'resultSchema', 'outcomes'], 'item');
+    for (const key of ['id', 'label', 'role', 'prompt', 'messageType']) text(item[key], `item.${key}`);
+    if (typeof item.fresh !== 'boolean') throw new Error('item.fresh must be boolean');
     const id = item.id as string;
     if (seen.has(id)) throw new Error(`Duplicate item ${id}`);
     validateSchemaIdentity(item.schema);
@@ -203,9 +221,9 @@ function dispatchFor(run: SerialRun, id: string): WorkflowDispatch {
   if (!dispatch || item?.dispatchId !== id || dispatch.itemId !== item.id || dispatch.revision !== run.revision) throw new Error('Stale dispatch');
   return dispatch;
 }
-function apply(run: SerialRun, command: WorkflowCommand, allocateDispatchId: () => string = randomUUID): void {
+function apply(run: SerialRun, command: WorkflowCommand): void {
   const fields: Record<WorkflowCommand['type'], string[]> = {
-    start: ['type', 'sessionId'], submitting: ['type', 'dispatchId'], accept: ['type', 'dispatchId', 'processId'],
+    start: ['type', 'dispatchId', 'transport'], submitting: ['type', 'dispatchId'], accept: ['type', 'dispatchId', 'processId'],
     delivery_failed: ['type', 'dispatchId', 'disposition', 'reason'], result: ['type', 'schema', 'sourceProcessId', 'result'],
     missing_result: ['type', 'dispatchId', 'sourceProcessId'], retry: ['type'], cancel: ['type', 'reason'],
   };
@@ -214,9 +232,22 @@ function apply(run: SerialRun, command: WorkflowCommand, allocateDispatchId: () 
   if (run.status === 'completed' || run.status === 'cancelled' || run.cancelRequested) throw new Error('Run is terminal or cancellation is pending');
   const item = run.items[run.currentIndex]!;
   if (command.type === 'start') {
-    text(command.sessionId, 'sessionId');
+    text(command.dispatchId, 'dispatchId');
+    if (run.dispatches.some(dispatch => dispatch.id === command.dispatchId)) throw new Error('Dispatch identity already exists');
+    const transport = record(command.transport, 'transport');
+    exact(transport, ['owner', 'sessionId', 'messageType', 'fresh', 'prompt', 'executorConfig', 'freshSession'], 'transport');
+    for (const key of ['owner', 'sessionId', 'messageType', 'prompt']) text(transport[key], `transport.${key}`);
+    if (typeof transport.fresh !== 'boolean') throw new Error('transport.fresh must be boolean');
+    record(transport.executorConfig, 'transport.executorConfig');
+    if (transport.freshSession !== null) {
+      const fresh = record(transport.freshSession, 'transport.freshSession');
+      exact(fresh, ['id', 'workspaceId', 'executor', 'name', 'agentWorkingDir'], 'transport.freshSession');
+      for (const key of ['id', 'workspaceId', 'executor', 'name']) text(fresh[key], `transport.freshSession.${key}`);
+      if (fresh.agentWorkingDir !== null && typeof fresh.agentWorkingDir !== 'string') throw new Error('agentWorkingDir must be string or null');
+      if (!transport.fresh || fresh.id !== transport.sessionId) throw new Error('Fresh session identity does not match transport');
+    } else if (transport.fresh) throw new Error('Fresh transport requires identified session tuple');
     if (run.status !== 'queued' || item.status !== 'pending' || item.dispatchId !== null) throw new Error('Current item cannot start');
-    const dispatch: WorkflowDispatch = { id: allocateDispatchId(), itemId: item.id, revision: run.revision, attempt: run.dispatches.filter(entry => entry.itemId === item.id && entry.revision === run.revision).length + 1, sessionId: command.sessionId, status: 'intent', processId: null };
+    const dispatch: WorkflowDispatch = { id: command.dispatchId, itemId: item.id, revision: run.revision, attempt: 1, transport: structuredClone(command.transport), status: 'intent', processId: null };
     run.dispatches.push(dispatch); item.dispatchId = dispatch.id; item.status = 'active'; run.status = 'active';
   } else if (command.type === 'submitting') {
     const dispatch = dispatchFor(run, command.dispatchId);
@@ -225,7 +256,7 @@ function apply(run: SerialRun, command: WorkflowCommand, allocateDispatchId: () 
   } else if (command.type === 'accept') {
     text(command.processId, 'processId');
     const dispatch = dispatchFor(run, command.dispatchId);
-    if (!['submitting', 'uncertain'].includes(dispatch.status)) throw new Error('Dispatch cannot be accepted');
+    if (!['intent', 'submitting', 'uncertain'].includes(dispatch.status)) throw new Error('Dispatch cannot be accepted');
     if (run.dispatches.some(entry => entry.processId === command.processId)) throw new Error('Process already bound to a dispatch');
     dispatch.status = 'accepted'; dispatch.processId = command.processId; item.status = 'active'; run.status = 'active';
   } else if (command.type === 'delivery_failed') {
@@ -237,7 +268,9 @@ function apply(run: SerialRun, command: WorkflowCommand, allocateDispatchId: () 
   } else if (command.type === 'retry') {
     const dispatch = item.dispatchId && dispatchFor(run, item.dispatchId);
     if (run.status !== 'needs_attention' || !dispatch || dispatch.status !== 'proven_unaccepted') throw new Error('Retry requires proven pre-admission failure');
-    item.dispatchId = null; item.result = null; item.status = 'pending'; run.status = 'queued';
+    dispatch.attempt++;
+    dispatch.status = 'intent';
+    item.result = null; item.status = 'active'; run.status = 'active';
   } else if (command.type === 'result') {
     const payload = record(command.result, 'result');
     exact(payload, ['run_id', 'item_id', 'revision', 'dispatch_id', 'outcome', 'details'], 'result');
@@ -305,7 +338,6 @@ export function validateSerialRun(value: unknown): asserts value is SerialRun {
   const input: CreateSerialRunInput = { id: run.id, workspaceId: run.workspaceId, beadIds: run.beadIds, template: run.template, authority: run.authority };
   const replay = initialRun(input);
   const expectedReceipts = new Map<string, { commandHash: string; result: MutationReceipt }>();
-  let dispatchIndex = 0;
   // Replay the pure reducer to validate *all* persisted cross-references, rather
   // than trusting a checksum or duplicating a weaker set of enum checks.
   for (const [index, event] of run.history.entries()) {
@@ -321,9 +353,7 @@ export function validateSerialRun(value: unknown): asserts value is SerialRun {
     } else {
       const command = record(event.details, 'event command') as unknown as WorkflowCommand;
       if (command.type !== event.type) throw new Error('History command type mismatch');
-      apply(replay, command, () => {
-        const id = run.dispatches[dispatchIndex++]?.id; text(id, 'dispatch.id'); return id;
-      });
+      apply(replay, command);
       appendEvent(replay, event.idempotencyKey, command.type, event.details, new Date(event.at));
       commandHash = schemaHash(command);
     }

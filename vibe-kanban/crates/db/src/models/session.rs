@@ -17,6 +17,8 @@ pub enum SessionError {
     WorkspaceNotFound,
     #[error("Executor mismatch: session uses {expected} but request specified {actual}")]
     ExecutorMismatch { expected: String, actual: String },
+    #[error("Identified session {id} conflicts with its existing immutable creation tuple")]
+    IdentityConflict { id: Uuid },
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
@@ -38,6 +40,40 @@ pub struct CreateSession {
 }
 
 impl Session {
+    pub async fn create_identified(
+        pool: &SqlitePool,
+        id: Uuid,
+        workspace_id: Uuid,
+        executor: Option<&str>,
+        name: Option<&str>,
+        agent_working_dir: Option<&str>,
+    ) -> Result<Self, SessionError> {
+        sqlx::query!(
+            r#"INSERT INTO sessions (id, workspace_id, name, executor, agent_working_dir)
+               VALUES ($1, $2, $3, $4, $5)
+               ON CONFLICT(id) DO NOTHING"#,
+            id,
+            workspace_id,
+            name,
+            executor,
+            agent_working_dir,
+        )
+        .execute(pool)
+        .await?;
+        let existing = Self::find_by_id(pool, id)
+            .await?
+            .ok_or(SessionError::NotFound)?;
+        if existing.workspace_id == workspace_id
+            && existing.executor.as_deref() == executor
+            && existing.name.as_deref() == name
+            && existing.agent_working_dir.as_deref() == agent_working_dir
+        {
+            Ok(existing)
+        } else {
+            Err(SessionError::IdentityConflict { id })
+        }
+    }
+
     pub async fn find_by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Self>, sqlx::Error> {
         sqlx::query_as!(
             Session,

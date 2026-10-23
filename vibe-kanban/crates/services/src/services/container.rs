@@ -47,9 +47,11 @@ use executors::{
 use futures::{StreamExt, future, stream::BoxStream};
 use git::{GitService, GitServiceError};
 use json_patch::Patch;
+use serde::{Deserialize, Serialize};
 use sqlx::Error as SqlxError;
 use thiserror::Error;
 use tokio::{sync::RwLock, task::JoinHandle};
+use ts_rs::TS;
 use utils::{
     log_msg::LogMsg,
     msg_store::MsgStore,
@@ -92,6 +94,15 @@ pub enum StartExecutionOutcome {
     Uncertain(ContainerError),
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum QueueDispatchOutcome {
+    Started { process: Box<ExecutionProcess> },
+    FailedBeforeStart { message: String },
+    Indeterminate { message: String },
+    Pending,
+}
+
 #[cfg(feature = "qa-mode")]
 fn qa_action_has_marker(action: &ExecutorAction, marker: &str) -> bool {
     let prompt = match action.typ() {
@@ -130,6 +141,14 @@ pub trait ContainerService {
     fn git(&self) -> &GitService;
 
     fn notification_service(&self) -> &NotificationService;
+
+    async fn start_queued_message(
+        &self,
+        session_id: Uuid,
+        queue_id: Uuid,
+        owner: &str,
+        requested_payload_fingerprint: &str,
+    ) -> Result<QueueDispatchOutcome, ContainerError>;
 
     async fn touch(&self, workspace: &Workspace) -> Result<(), ContainerError>;
 
@@ -1224,7 +1243,7 @@ pub trait ContainerService {
         session: &Session,
         executor_action: &ExecutorAction,
         run_reason: &ExecutionProcessRunReason,
-        queue_effect: Option<(Uuid, &str)>,
+        queue_effect: Option<(Uuid, &str, &str)>,
     ) -> Result<ExecutionProcess, ContainerError> {
         // Create new execution process record
         // Capture current HEAD per repository as the "before" commit for this execution
@@ -1260,13 +1279,14 @@ pub trait ContainerService {
         };
 
         let process_id = Uuid::new_v4();
-        if let Some((queue_id, owner)) = queue_effect {
+        if let Some((queue_id, owner, requested_payload_fingerprint)) = queue_effect {
             match ExecutionProcess::reserve_queue_effect(
                 &self.db().pool,
                 queue_id,
                 owner,
                 process_id,
                 &create_execution_process,
+                requested_payload_fingerprint,
             )
             .await?
             {
@@ -1285,7 +1305,7 @@ pub trait ContainerService {
         {
             Ok(process) => process,
             Err(error) => {
-                if let Some((queue_id, _)) = queue_effect {
+                if let Some((queue_id, _, _)) = queue_effect {
                     let _ = ExecutionProcess::set_queue_effect_lifecycle(
                         &self.db().pool,
                         queue_id,
@@ -1315,7 +1335,7 @@ pub trait ContainerService {
                 None,
             )
             .await;
-            if let Some((queue_id, _)) = queue_effect {
+            if let Some((queue_id, _, _)) = queue_effect {
                 let _ = ExecutionProcess::set_queue_effect_lifecycle(
                     &self.db().pool,
                     queue_id,
@@ -1367,7 +1387,7 @@ pub trait ContainerService {
                     None,
                 )
                 .await;
-                if let Some((queue_id, _)) = queue_effect {
+                if let Some((queue_id, _, _)) = queue_effect {
                     let _ = ExecutionProcess::set_queue_effect_lifecycle(
                         &self.db().pool,
                         queue_id,
@@ -1390,7 +1410,7 @@ pub trait ContainerService {
             )
         );
 
-        if let Some((queue_id, _)) = queue_effect {
+        if let Some((queue_id, _, _)) = queue_effect {
             ExecutionProcess::set_queue_effect_lifecycle(
                 &self.db().pool,
                 queue_id,
@@ -1416,7 +1436,7 @@ pub trait ContainerService {
 
         let persisted_outcome = persist_queue_start_outcome(
             &self.db().pool,
-            queue_effect.map(|(queue_id, _)| (queue_id, process_id)),
+            queue_effect.map(|(queue_id, _, _)| (queue_id, process_id)),
             start_outcome,
         )
         .await?;
@@ -1699,9 +1719,16 @@ mod queue_start_outcome_tests {
         data: &CreateExecutionProcess,
     ) {
         assert!(matches!(
-            ExecutionProcess::reserve_queue_effect(pool, queue_id, "workflow", process_id, data)
-                .await
-                .unwrap(),
+            ExecutionProcess::reserve_queue_effect(
+                pool,
+                queue_id,
+                "workflow",
+                process_id,
+                data,
+                "sha256:test"
+            )
+            .await
+            .unwrap(),
             QueueEffectReservation::Proceed
         ));
     }
@@ -1734,6 +1761,7 @@ mod queue_start_outcome_tests {
                 "workflow",
                 Uuid::new_v4(),
                 &data,
+                "sha256:test",
             )
             .await
             .unwrap(),
@@ -1765,6 +1793,7 @@ mod queue_start_outcome_tests {
                 "workflow",
                 Uuid::new_v4(),
                 &data,
+                "sha256:test",
             )
             .await,
             Err(ExecutionProcessError::QueueEffectIndeterminate { .. })

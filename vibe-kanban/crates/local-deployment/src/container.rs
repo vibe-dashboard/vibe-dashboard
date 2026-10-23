@@ -49,11 +49,15 @@ use services::services::{
     analytics::AnalyticsContext,
     approvals::{Approvals, executor_approvals::ExecutorApprovalBridge},
     config::{Config, DEFAULT_COMMIT_REMINDER_PROMPT},
-    container::{ContainerError, ContainerRef, ContainerService, StartExecutionOutcome},
+    container::{
+        ContainerError, ContainerRef, ContainerService, QueueDispatchOutcome, StartExecutionOutcome,
+    },
     diff_stream::{self, DiffStreamHandle},
     file::FileService,
     notification::NotificationService,
-    queued_message::{QueuedMessage, QueuedMessageService},
+    queued_message::{
+        QueueClaim, QueueStatus, QueuedMessage, QueuedMessageService, requested_payload_fingerprint,
+    },
     remote_client::RemoteClient,
     remote_sync,
 };
@@ -1004,9 +1008,8 @@ impl LocalContainerService {
                     );
 
                     if should_execute_queued {
-                        if let Some(queued_msg) = container
-                            .queued_message_service
-                            .claim_queued(ctx.session.id)
+                        if let Some(queued_msg) =
+                            container.queued_message_service.get_queued(ctx.session.id)
                         {
                             tracing::info!(
                                 "Found queued message for session {}, starting follow-up execution",
@@ -1028,38 +1031,39 @@ impl LocalContainerService {
                             }
 
                             // Execute the queued follow-up
-                            match container.start_queued_follow_up(&ctx, &queued_msg).await {
-                                QueuedStartResult::NotAccepted(error) => {
-                                    tracing::error!("Failed to start queued follow-up: {}", error);
-                                    container
-                                        .queued_message_service
-                                        .release_claim(ctx.session.id, queued_msg.id);
+                            let fingerprint = requested_payload_fingerprint(&queued_msg.data);
+                            match container
+                                .start_queued_message(
+                                    ctx.session.id,
+                                    queued_msg.id,
+                                    &queued_msg.owner,
+                                    &fingerprint,
+                                )
+                                .await
+                            {
+                                Ok(QueueDispatchOutcome::FailedBeforeStart { message }) => {
+                                    tracing::error!(
+                                        "Failed to start queued follow-up: {}",
+                                        message
+                                    );
                                     container.finalize_task(&ctx).await;
                                 }
-                                QueuedStartResult::Indeterminate(error) => {
+                                Ok(QueueDispatchOutcome::Indeterminate { message }) => {
                                     tracing::error!(
                                         "Queued follow-up start is indeterminate; retaining consuming slot: {}",
-                                        error
+                                        message
                                     );
                                 }
-                                QueuedStartResult::Accepted(process) => {
+                                Ok(QueueDispatchOutcome::Pending) => {}
+                                Ok(QueueDispatchOutcome::Started { process }) => {
                                     tracing::info!(
                                         queue_id = %queued_msg.id,
                                         process_id = %process.id,
                                         "Queued follow-up durably accepted"
                                     );
-                                    if let Err(error) = container
-                                        .queued_message_service
-                                        .complete_claim(ctx.session.id, queued_msg.id)
-                                    {
-                                        tracing::error!(
-                                            "Queued follow-up {} started but its slot could not be completed: {}",
-                                            queued_msg.id,
-                                            error
-                                        );
-                                    }
                                     started_queued_follow_up = true;
                                 }
+                                Err(error) => tracing::error!("Queued follow-up failed: {error}"),
                             }
                         } else {
                             container.finalize_task(&ctx).await;
@@ -1111,9 +1115,8 @@ impl LocalContainerService {
                     .unwrap_or(true);
 
                     if !has_running_agent
-                        && let Some(queued_msg) = container
-                            .queued_message_service
-                            .claim_queued(ctx.session.id)
+                        && let Some(queued_msg) =
+                            container.queued_message_service.get_queued(ctx.session.id)
                     {
                         tracing::info!(
                             "Parallel setup script finished with queued message for session {}, starting follow-up",
@@ -1130,39 +1133,37 @@ impl LocalContainerService {
                             );
                         }
 
-                        match container.start_queued_follow_up(&ctx, &queued_msg).await {
-                            QueuedStartResult::NotAccepted(error) => {
-                                container
-                                    .queued_message_service
-                                    .release_claim(ctx.session.id, queued_msg.id);
+                        let fingerprint = requested_payload_fingerprint(&queued_msg.data);
+                        match container
+                            .start_queued_message(
+                                ctx.session.id,
+                                queued_msg.id,
+                                &queued_msg.owner,
+                                &fingerprint,
+                            )
+                            .await
+                        {
+                            Ok(QueueDispatchOutcome::FailedBeforeStart { message }) => {
                                 tracing::error!(
                                     "Failed to start queued follow-up from setup script completion: {}",
-                                    error
+                                    message
                                 );
                             }
-                            QueuedStartResult::Indeterminate(error) => {
+                            Ok(QueueDispatchOutcome::Indeterminate { message }) => {
                                 tracing::error!(
                                     "Queued follow-up from setup completion is indeterminate; retaining consuming slot: {}",
-                                    error
+                                    message
                                 );
                             }
-                            QueuedStartResult::Accepted(process) => {
+                            Ok(QueueDispatchOutcome::Pending) => {}
+                            Ok(QueueDispatchOutcome::Started { process }) => {
                                 tracing::info!(
                                     queue_id = %queued_msg.id,
                                     process_id = %process.id,
                                     "Queued follow-up from setup completion durably accepted"
                                 );
-                                if let Err(error) = container
-                                    .queued_message_service
-                                    .complete_claim(ctx.session.id, queued_msg.id)
-                                {
-                                    tracing::error!(
-                                        "Queued follow-up {} started but its slot could not be completed: {}",
-                                        queued_msg.id,
-                                        error
-                                    );
-                                }
                             }
+                            Err(error) => tracing::error!("Queued follow-up failed: {error}"),
                         }
                     }
                 }
@@ -1562,10 +1563,14 @@ impl LocalContainerService {
     /// Start a follow-up execution from a queued message
     async fn start_queued_follow_up(
         &self,
-        ctx: &ExecutionContext,
+        workspace: &Workspace,
+        session: &Session,
         queued: &QueuedMessage,
     ) -> QueuedStartResult {
-        match self.start_queued_follow_up_inner(ctx, queued).await {
+        match self
+            .start_queued_follow_up_inner(workspace, session, queued)
+            .await
+        {
             Ok(process) => QueuedStartResult::Accepted(Box::new(process)),
             Err(error) => {
                 #[cfg(feature = "qa-mode")]
@@ -1591,7 +1596,8 @@ impl LocalContainerService {
 
     async fn start_queued_follow_up_inner(
         &self,
-        ctx: &ExecutionContext,
+        workspace: &Workspace,
+        session: &Session,
         queued: &QueuedMessage,
     ) -> Result<ExecutionProcess, ContainerError> {
         let queued_data = &queued.data;
@@ -1599,10 +1605,10 @@ impl LocalContainerService {
 
         // Validate executor matches session if session has prior executions
         let expected_executor: Option<String> =
-            ExecutionProcess::latest_executor_profile_for_session(&self.db.pool, ctx.session.id)
+            ExecutionProcess::latest_executor_profile_for_session(&self.db.pool, session.id)
                 .await?
                 .map(|profile| profile.executor.to_string())
-                .or_else(|| ctx.session.executor.clone());
+                .or_else(|| session.executor.clone());
 
         if let Some(expected) = expected_executor {
             let actual = executor_profile_id.executor.to_string();
@@ -1611,10 +1617,10 @@ impl LocalContainerService {
             }
         }
 
-        if ctx.session.executor.is_none() {
+        if session.executor.is_none() {
             Session::update_executor(
                 &self.db.pool,
-                ctx.session.id,
+                session.id,
                 &executor_profile_id.executor.to_string(),
             )
             .await?;
@@ -1622,14 +1628,12 @@ impl LocalContainerService {
 
         // Get latest agent turn for session continuity (from coding agent turns).
         let latest_session_info =
-            CodingAgentTurn::find_latest_session_info(&self.db.pool, ctx.session.id).await?;
+            CodingAgentTurn::find_latest_session_info(&self.db.pool, session.id).await?;
 
-        let repos =
-            WorkspaceRepo::find_repos_for_workspace(&self.db.pool, ctx.workspace.id).await?;
+        let repos = WorkspaceRepo::find_repos_for_workspace(&self.db.pool, workspace.id).await?;
         let cleanup_action = self.cleanup_actions_for_repos(&repos);
 
-        let working_dir = ctx
-            .session
+        let working_dir = session
             .agent_working_dir
             .as_ref()
             .filter(|dir| !dir.is_empty())
@@ -1677,12 +1681,13 @@ impl LocalContainerService {
         };
         let action = ExecutorAction::new(action_type, cleanup_action.map(Box::new));
 
+        let payload_fingerprint = requested_payload_fingerprint(&queued.data);
         self.start_execution_with_queue_id(
-            &ctx.workspace,
-            &ctx.session,
+            workspace,
+            session,
             &action,
             &ExecutionProcessRunReason::CodingAgent,
-            Some((queued.id, &queued.owner)),
+            Some((queued.id, &queued.owner, &payload_fingerprint)),
         )
         .await
     }
@@ -1717,6 +1722,121 @@ impl ContainerService for LocalContainerService {
 
     fn notification_service(&self) -> &NotificationService {
         &self.notification_service
+    }
+
+    async fn start_queued_message(
+        &self,
+        session_id: Uuid,
+        queue_id: Uuid,
+        owner: &str,
+        requested_fingerprint: &str,
+    ) -> Result<QueueDispatchOutcome, ContainerError> {
+        let mut retry_failed_before_start = false;
+        if let Some(effect) =
+            ExecutionProcess::reconcile_queue_effect(&self.db.pool, queue_id).await?
+        {
+            if effect.session_id != session_id
+                || effect.owner != owner
+                || effect.requested_payload_fingerprint != requested_fingerprint
+            {
+                return Err(ExecutionProcessError::QueueEffectConflict { queue_id }.into());
+            }
+            match effect.lifecycle {
+                QueueEffectLifecycle::Started => {
+                    if let QueueStatus::Queued { message } | QueueStatus::Consuming { message } =
+                        self.queued_message_service.get_status(session_id)
+                        && message.id == queue_id
+                        && message.owner == owner
+                        && requested_payload_fingerprint(&message.data) == requested_fingerprint
+                    {
+                        if matches!(
+                            self.queued_message_service.get_status(session_id),
+                            QueueStatus::Queued { .. }
+                        ) {
+                            let _ = self.queued_message_service.claim_queued_identity(
+                                session_id,
+                                queue_id,
+                                owner,
+                                &message.data,
+                            );
+                        }
+                        let _ = self
+                            .queued_message_service
+                            .complete_claim(session_id, queue_id);
+                    }
+                    return effect
+                        .process
+                        .map(|process| QueueDispatchOutcome::Started {
+                            process: Box::new(process),
+                        })
+                        .ok_or_else(|| {
+                            ExecutionProcessError::QueueEffectIndeterminate { queue_id }.into()
+                        });
+                }
+                QueueEffectLifecycle::Reserved | QueueEffectLifecycle::Indeterminate => {
+                    return Ok(QueueDispatchOutcome::Indeterminate {
+                        message: format!("queue effect {queue_id} is not safely retryable"),
+                    });
+                }
+                QueueEffectLifecycle::FailedBeforeStart => retry_failed_before_start = true,
+            }
+        }
+
+        let (queued, slot_consuming) = match self.queued_message_service.get_status(session_id) {
+            QueueStatus::Empty => return Ok(QueueDispatchOutcome::Pending),
+            QueueStatus::Queued { message } => (message, false),
+            QueueStatus::Consuming { message } => (message, true),
+        };
+        if queued.id != queue_id
+            || queued.owner != owner
+            || requested_payload_fingerprint(&queued.data) != requested_fingerprint
+        {
+            return Err(ExecutionProcessError::QueueEffectConflict { queue_id }.into());
+        }
+        if retry_failed_before_start && slot_consuming {
+            self.queued_message_service
+                .retry_consuming_identity(session_id, queue_id, owner, &queued.data)
+                .map_err(|error| ContainerError::Other(anyhow!(error)))?;
+        } else {
+            match self.queued_message_service.claim_queued_identity(
+                session_id,
+                queue_id,
+                owner,
+                &queued.data,
+            ) {
+                Ok(QueueClaim::Consuming(_)) => return Ok(QueueDispatchOutcome::Pending),
+                Ok(QueueClaim::Claimed(_)) => {}
+                Err(error) => return Err(ContainerError::Other(anyhow!(error))),
+            }
+        }
+
+        let session = Session::find_by_id(&self.db.pool, session_id)
+            .await?
+            .ok_or(sqlx::Error::RowNotFound)?;
+        let workspace = Workspace::find_by_id(&self.db.pool, session.workspace_id)
+            .await?
+            .ok_or(sqlx::Error::RowNotFound)?;
+        let outcome = self
+            .start_queued_follow_up(&workspace, &session, &queued)
+            .await;
+        Ok(match outcome {
+            QueuedStartResult::Accepted(process) => {
+                self.queued_message_service
+                    .complete_claim(session_id, queue_id)
+                    .map_err(|error| ContainerError::Other(anyhow!(error)))?;
+                QueueDispatchOutcome::Started { process }
+            }
+            QueuedStartResult::NotAccepted(error) => {
+                self.queued_message_service
+                    .release_claim(session_id, queue_id);
+                QueueDispatchOutcome::FailedBeforeStart {
+                    message: error.to_string(),
+                }
+            }
+            QueuedStartResult::Indeterminate(error) => QueueDispatchOutcome::Indeterminate {
+                message: error.to_string(),
+            },
+        })
     }
 
     async fn touch(&self, workspace: &Workspace) -> Result<(), ContainerError> {

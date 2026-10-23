@@ -60,6 +60,7 @@ export interface Session {
   workspace_id: string;
   executor: Executor;
   name?: string | null;
+  agent_working_dir?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -221,6 +222,40 @@ export interface SendMessageBody {
   retry_process_id?: string | null;
   force_when_dirty?: boolean | null;
   perform_git_reset?: boolean | null;
+}
+
+export interface QueueMessageBody {
+  queue_id: string;
+  owner: string;
+  message: string;
+  executor_config: { executor: Executor; variant?: string };
+}
+
+export interface QueuedMessage {
+  id: string;
+  owner: string;
+  session_id: string;
+  data: { message: string; executor_config: { executor: Executor; variant?: string }; session_command: unknown };
+  requested_payload_fingerprint: string;
+  queued_at: string;
+}
+export type QueueStatus = { status: 'empty' } | { status: 'queued' | 'consuming'; message: QueuedMessage };
+export type QueueEffectLifecycle = 'reserved' | 'started' | 'failed_before_start' | 'indeterminate';
+export interface QueueEffectReconciliation {
+  queue_id: string;
+  owner: string;
+  session_id: string;
+  requested_payload_fingerprint: string;
+  lifecycle: QueueEffectLifecycle;
+  process: ExecutionProcess | null;
+}
+export type QueueDispatchOutcome =
+  | { status: 'started'; process: ExecutionProcess }
+  | { status: 'failed_before_start' | 'indeterminate'; message: string }
+  | { status: 'pending' };
+
+export interface CreateIdentifiedSessionBody extends CreateSessionBody {
+  agent_working_dir: string | null;
 }
 
 // Session file format
