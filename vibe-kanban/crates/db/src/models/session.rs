@@ -48,16 +48,16 @@ impl Session {
         name: Option<&str>,
         agent_working_dir: Option<&str>,
     ) -> Result<Self, SessionError> {
-        sqlx::query!(
+        sqlx::query(
             r#"INSERT INTO sessions (id, workspace_id, name, executor, agent_working_dir)
                VALUES ($1, $2, $3, $4, $5)
                ON CONFLICT(id) DO NOTHING"#,
-            id,
-            workspace_id,
-            name,
-            executor,
-            agent_working_dir,
         )
+        .bind(id)
+        .bind(workspace_id)
+        .bind(name)
+        .bind(executor)
+        .bind(agent_working_dir)
         .execute(pool)
         .await?;
         let existing = Self::find_by_id(pool, id)
