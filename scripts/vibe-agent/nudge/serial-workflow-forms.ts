@@ -125,7 +125,7 @@ export async function syncSerialWorkflowForm(
       return;
     }
     const observed = await client.getExecutionProcessFinalResponseStrict(decision.processId);
-    if (observed.process_id !== decision.processId) throw new Error('Decision process identity mismatch');
+    if (observed.process_id !== decision.processId) { needsAttention = true; throw new Error('Decision process identity mismatch'); }
     if (!observed.finished) return;
     needsAttention = true;
     if (!observed.final_response) throw new Error('Decision-maker returned no final result');
