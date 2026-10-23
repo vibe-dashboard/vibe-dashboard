@@ -1044,7 +1044,7 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
 
     return (
       <>
-        <div className="dark w-screen h-screen fixed inset-0">
+        <div className="w-screen h-screen fixed inset-0 bg-background text-foreground">
           <WorkspaceShell
             workspace={workspace}
             session={sessionNav}
