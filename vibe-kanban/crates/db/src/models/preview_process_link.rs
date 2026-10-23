@@ -220,6 +220,23 @@ impl PreviewProcessLink {
         Ok(count.0)
     }
 
+    pub async fn find_oldest_active(pool: &SqlitePool) -> Result<Option<Self>, sqlx::Error> {
+        let row = sqlx::query_as::<_, PreviewProcessLinkRow>(
+            r#"SELECT ppl.id, ppl.workspace_id, ppl.repo_id, ppl.run_config_id,
+                      ppl.preview_slot_id, ppl.execution_process_id, ppl.assigned_port,
+                      ppl.status_snapshot, ppl.started_at, ppl.updated_at, ppl.ended_at
+               FROM preview_process_links AS ppl
+               JOIN execution_processes AS ep ON ep.id = ppl.execution_process_id
+               WHERE ppl.ended_at IS NULL AND ep.status = 'running'
+               ORDER BY ep.started_at ASC, ep.rowid ASC
+               LIMIT 1"#,
+        )
+        .fetch_optional(pool)
+        .await?;
+
+        row.map(TryInto::try_into).transpose()
+    }
+
     pub async fn create(
         pool: &SqlitePool,
         input: &CreatePreviewProcessLink,
@@ -309,6 +326,15 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .unwrap();
+        pool.execute(
+            r#"CREATE TABLE execution_processes (
+                id BLOB PRIMARY KEY,
+                status TEXT NOT NULL,
+                started_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
+            )"#,
+        )
+        .await
+        .unwrap();
         pool.execute(
             r#"CREATE TABLE preview_process_links (
                 id BLOB PRIMARY KEY,
@@ -401,6 +427,33 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn oldest_active_link_uses_insertion_order_to_break_timestamp_ties() {
+        let pool = test_pool().await;
+        let workspace_id = Uuid::new_v4();
+        let first = create_link(&pool, workspace_id, None).await;
+        let second = create_link(&pool, workspace_id, None).await;
+        let stopped = create_link(&pool, workspace_id, None).await;
+        sqlx::query("UPDATE execution_processes SET started_at = ?")
+            .bind("2026-10-23 01:00:00")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE execution_processes SET status = 'killed' WHERE id = ?")
+            .bind(stopped.execution_process_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let oldest = PreviewProcessLink::find_oldest_active(&pool)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(oldest.id, first.id);
+        assert_ne!(oldest.id, second.id);
+    }
+
     async fn create_link(
         pool: &sqlx::SqlitePool,
         workspace_id: Uuid,
@@ -415,6 +468,11 @@ mod tests {
         execution_process_id: Uuid,
         preview_slot_id: Option<Uuid>,
     ) -> PreviewProcessLink {
+        sqlx::query("INSERT OR IGNORE INTO execution_processes (id, status) VALUES (?, 'running')")
+            .bind(execution_process_id)
+            .execute(pool)
+            .await
+            .unwrap();
         PreviewProcessLink::create(
             pool,
             &CreatePreviewProcessLink {
@@ -436,6 +494,15 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .unwrap();
+        pool.execute(
+            r#"CREATE TABLE execution_processes (
+                id BLOB PRIMARY KEY,
+                status TEXT NOT NULL,
+                started_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
+            )"#,
+        )
+        .await
+        .unwrap();
         pool.execute(
             r#"CREATE TABLE preview_process_links (
                 id BLOB PRIMARY KEY,

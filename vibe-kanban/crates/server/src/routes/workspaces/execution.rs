@@ -42,7 +42,7 @@ pub enum RunScriptError {
     ProcessAlreadyRunning,
 }
 
-const DEFAULT_RUN_CONFIG_GLOBAL_PROCESS_LIMIT: i64 = 5;
+const DEFAULT_RUN_CONFIG_GLOBAL_PROCESS_LIMIT: i64 = 8;
 
 type RunConfigStartLock = Mutex<()>;
 
@@ -751,21 +751,43 @@ pub(crate) async fn start_run_config(
 
     let active_count = PreviewProcessLink::count_active(pool).await?;
     if active_count >= DEFAULT_RUN_CONFIG_GLOBAL_PROCESS_LIMIT {
+        let oldest_link = PreviewProcessLink::find_oldest_active(pool)
+            .await?
+            .ok_or_else(|| {
+                ApiError::Conflict(
+                    "Preview process capacity changed while selecting an eviction candidate"
+                        .to_string(),
+                )
+            })?;
+        let oldest_process = ExecutionProcess::find_by_id(pool, oldest_link.execution_process_id)
+            .await?
+            .ok_or_else(|| {
+                ApiError::Conflict(
+                    "Oldest active preview process disappeared before eviction".to_string(),
+                )
+            })?;
+
+        deployment
+            .container()
+            .stop_execution(&oldest_process, ExecutionProcessStatus::Killed)
+            .await?;
+        PreviewProcessLink::mark_ended_for_process(
+            pool,
+            oldest_process.id,
+            PreviewProcessStatusSnapshot::Stopped,
+        )
+        .await?;
         write_run_config_audit(
             deployment,
-            Some(workspace.id),
-            Some(run_config.repo_id),
-            Some(run_config.id),
-            preview_slot.map(|slot| slot.id),
-            None,
-            "run_config.start_capacity_full",
+            Some(oldest_link.workspace_id),
+            Some(oldest_link.repo_id),
+            Some(oldest_link.run_config_id),
+            oldest_link.preview_slot_id,
+            Some(oldest_process.id),
+            "run_config.capacity_evicted",
             None,
         )
         .await?;
-        return Err(ApiError::Conflict(format!(
-            "Run config process capacity is full (limit {})",
-            DEFAULT_RUN_CONFIG_GLOBAL_PROCESS_LIMIT
-        )));
     }
 
     let repo = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id)
