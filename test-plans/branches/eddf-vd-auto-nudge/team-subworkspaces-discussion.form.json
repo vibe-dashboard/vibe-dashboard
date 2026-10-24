@@ -1,0 +1,147 @@
+{
+  "format": "standard",
+  "id": "team_subworkspace_discussion_v2",
+  "title": "Discuss isolated teams, workflows, and VK sub-workspaces",
+  "description": "Standalone architecture discussion for task-otw. The questions and choices contain all findings, proposals, tradeoffs, examples and rollout steps needed for discussion; no previous conversation or external document is required. This describes proposed behavior, not existing functionality. Confirmed requirement: agents continue spawning at their workspace root, including the root of an isolated child workspace, not inside an individual repository. All choices are checkboxes: choose one option per lettered group A–I, combining different groups freely. Explain conflicting selections in Additional notes. Recommendations are suggestions, not settled requirements.",
+  "allowCodeFileChanges": {
+    "label": "Authorize implementation of the selected design after this response",
+    "description": "Leave unchecked to continue discussion. Checking authorizes implementation only of clearly selected, compatible choices after unresolved contracts are clarified. It does not authorize live service deployment/restart, destructive cleanup of existing worktrees, or merging existing work.",
+    "defaultChecked": false
+  },
+  "questions": [
+    {
+      "type": "choices",
+      "id": "workspace_git_lifecycle",
+      "title": "1. What should VK own, and how should isolated work avoid branch clutter?",
+      "description": "GOAL: independently scheduled work must not accidentally edit the same checkout. The parent workspace remains the human-facing coordination space. SOURCE REVIEW: Workspace currently has one branch string and no parent/kind field (crates/db/src/models/workspace.rs). WorkspaceManager creates a container directory containing one Git worktree per attached repo, with the same workspace branch name in each repository and a separate target branch per repo (crates/workspace-manager/src/workspace_manager.rs). WorktreeManager and existing ensure/recreate, status, push, PR, merge and cleanup paths assume named branches. Branch names are repository-wide, not worktree-local: hiding children in VK does not hide their branches from git branch; deleting a worktree does not automatically delete its branch; the same branch generally cannot be checked out twice. Lists, summaries and websocket streams currently have no child filter. LocalContainerService already owns copying configured files/attachments, generated root AGENTS.md/CLAUDE.md imports and workspace setup during materialization/reconstruction (crates/local-deployment/src/container.rs); repository setup scripts are another existing lifecycle concern. PROPOSED RESPONSIBILITY: orchestrators select team, task, repository inputs and policy; VK owns durable child identity, filesystem/Git lifecycle, initialization and cleanup. WorkspaceManager coordinates repositories; WorktreeManager handles per-repository Git. Agent prompts should not be the authoritative worktree creator. Select one A, one B and one C.",
+      "choices": [
+        {
+          "id": "a_child_workspace",
+          "label": "A1 — Child/sub-workspace extends VK Workspace",
+          "description": "Add parent ID, child kind/purpose and durable run/slot ownership. Sessions and processes belong to the actual child, reusing existing execution/log infrastructure. Proposed create-child API accepts a caller-generated ID, parent ID, frozen repo/revision manifest and initialization policy; identical retries return the same resource, changed payloads conflict. Default search/list/summary/stream results and downstream search indexes exclude children. Parent details expose child activity, errors, logs and direct links; explicit child lookup and operational monitoring still work. Hidden is a discovery rule, not an authorization boundary or an exemption from capacity accounting. Initially allow one parent level, reject cycles/nesting, and account for children during parent archive/delete. Requires forward DB migration and generated API types.",
+          "is_recommended_reason": "Reuses VK's workspace/session/process and multi-repo lifecycle instead of adding a separate directory manager to VD."
+        },
+        {
+          "id": "a_sandbox_entity",
+          "label": "A2 — Separate VK execution-sandbox entity",
+          "description": "Keep Workspace human-facing and add a separate sandbox table/API, binding sessions/executions explicitly to it. Avoids child filtering throughout workspace discovery, but requires adapting execution directories, Git, logs, setup and deletion paths that currently derive everything from workspace identity. Cleaner conceptual separation at higher initial migration cost. VK still owns worktrees and setup."
+        },
+        {
+          "id": "b_detached_refs",
+          "label": "B1 — Detached worktrees with durable internal refs",
+          "description": "Run scratch worktrees at detached HEAD and retain checkpoints at refs/vk/runs/<run-id>/<slot-id> in each repo, outside refs/heads. This truly avoids scratch names in git branch. Detached HEAD alone is insufficient: durable refs must keep commits reachable after worktree removal. Promotion creates a normal review/integration branch when needed; scratch refs are not automatically pushed. Use immutable IDs, not team display names, for refs/paths. Requires an explicit Git mode and adaptations to branch status, auto-commit checkpoint publication, restart reconstruction, merge, push, PR and cleanup; passing a fake branch string to current APIs is not enough. Reconstruct from persisted exact commits, never from a newly moved parent branch. Fence ref updates and cleanup against active execution/checkpoint publication.",
+          "is_recommended_reason": "Best fit if avoiding actual Git branch namespace pollution is required; budget for the existing branch-backed assumptions."
+        },
+        {
+          "id": "b_ephemeral_branches",
+          "label": "B2 — Local ephemeral branches, filtered and pruned",
+          "description": "Use refs/heads/vk-internal/<run-id>/<slot-id>, hide them in normal VK branch pickers, do not auto-push them, and prune only after proven integration or explicit discard. Smaller initial change because existing APIs remain branch-backed. This still adds local Git branches: prefixes/UI filters organize clutter rather than eliminate it. git push --all could publish them unless separately guarded. Reuse a branch for the slot's unit of work, not one branch per prompt. Do not blindly reset it between runs. Choose this if compatibility outweighs clean git branch output; detached mode can follow later."
+        },
+        {
+          "id": "c_all_repositories",
+          "label": "C1 — Inherit all repos, pinned parent commit inputs",
+          "description": "Freeze the parent's repository set, names/layout and an exact base commit per repo at run creation. CONFIRMED ROOT-CWD REQUIREMENT: spawn every role at its actual workspace root; for example /workspaces/child-id/ contains repo-a/, repo-b/, root AGENTS.md/CLAUDE.md and the Beads redirect. Do not set agent_working_dir to repo-a/, and do not spawn at the parent's shared root while claiming child isolation. Fresh sessions, callbacks, CLI routing and recovery must preserve this root binding. Repository-specific setup commands may use the relevant repo directory, but agent startup remains at workspace root. A dirty parent is not an implicit input: request a deliberate commit/checkpoint or a separately specified patch snapshot; do not copy live uncommitted files. Preserve cross-repo tools at the cost of more disk/setup. Persist per-child/per-repo readiness: reserved → materializing → initializing → ready, or failed/needs-attention; start no agent until every required repo is ready. Reconcile partial operations against the same child ID/manifest after crashes. Reuse VK instructions and approved copy/setup policy. Redirect Beads to the parent's persisted tracker, never create an independent tracker per checkout. Worktrees do not isolate dependency/build outputs, ports, env files, caches or shared services: define sharing and per-child paths explicitly. Arbitrary setup scripts are not exactly-once; record outcomes and require idempotent scripts or explicit recovery after uncertain side effects.",
+          "is_recommended_reason": "Preserves VK's existing multi-repo layout while making inputs and readiness reproducible."
+        },
+        {
+          "id": "c_repository_subset",
+          "label": "C2 — Explicit per-run repo subset at pinned commits",
+          "description": "Let the orchestrator freeze a nonempty subset of the parent's repos. Use C1's same dirty-parent, readiness, initialization and Beads rules. Reduces disk/setup, but tools/instruction files may assume omitted repos: validate the requested layout and dependencies before dispatch. Membership cannot silently change mid-run."
+        }
+      ]
+    },
+    {
+      "type": "choices",
+      "id": "teams_parallelism",
+      "title": "2. How should teams, full agent names, exclusive workflows and parallel work fit together?",
+      "description": "SOURCE REVIEW: serial-workflow.ts persists workspaceId, an immutable template and exact dispatch/process identities, but no team binding. serial-workflow-adapter.ts resolves session.name === item.role, holds a filesystem workspace lock and rejects sibling active/unresolved runs. auto-nudge.ts selects one run per registered workspace. Fresh role sessions still use the SAME checkout: conversation isolation is not filesystem isolation. Per-session admission does not stop two different sessions editing one workspace simultaneously. PROPOSED MODEL: parent workspace → ad-hoc team → workflow run → execution slot(s) → role session incarnation → exact process. Example: parent Dashboard has search/implementer and search/reviewer; billing/implementer can work in parallel. Store team ID and role ID separately; the combined full agent name is a display/routing alias, not an authority token or a string to split for ownership. Each fresh session has its own ID; old logs retain attribution. Orchestrators explicitly choose team_id or proposed --team when creating a run; templates stay role-based. Snapshot parent/team IDs and role-session bindings before I/O. Renames/reuse must not retarget saved messages, callbacks, forms or accepted results. Resolve membership by IDs rather than newest matching name. A team lease reserves workflow ownership; a global capacity slot permits an active process. Human waits can retain the former without occupying the latter. Select one D, one E and one F.",
+      "choices": [
+        {
+          "id": "d_parent_teams",
+          "label": "D1 — Ad-hoc teams scoped to the parent workspace",
+          "description": "Lightweight team records have immutable IDs, mutable names and role membership, with name uniqueness within the parent. search/reviewer is fully qualified inside that parent; cross-parent addressing also includes parent ID (optionally display parent/search/reviewer). An orchestrator may explicitly select an existing team or create a new one, but cannot steal a busy lease. The run binds one team for its lifetime; changing it requires an explicit audited handoff after unresolved work is reconciled. A rename changes display, not ownership or live session targets. No global organization/team permissions framework is needed just for ad-hoc scheduling.",
+          "is_recommended_reason": "Fits task-specific collaboration without conflicting team names across unrelated parent workspaces."
+        },
+        {
+          "id": "d_global_teams",
+          "label": "D2 — Instance-global teams move across workspaces",
+          "description": "One persistent team identity and one active run globally per team. Names must be globally unique or qualified. Useful for a shared specialist team, but sessions and repo bindings still need explicit per-run/workspace incarnations. Moving a busy team requires an audited handoff, never reusing a live session against a different checkout. Adds coordination beyond parent-scoped teams."
+        },
+        {
+          "id": "e_serial_checkout",
+          "label": "E1 — One child checkout per run; serial team roles",
+          "description": "Each team run gets a fresh child multi-repo workspace. Implementer/reviewer/tester take turns under a VK-enforced single active mutating execution lease; fresh conversations keep that run's checkout. Different teams/runs get different children and execute in parallel. Tests and auto-commit also mutate files; termination must be confirmed before handing ownership to another role. This is the smallest extension of the serial engine, but DOES NOT allow concurrent agents within one team. Use another team/run for independent parallel work until per-agent slots exist.",
+          "is_recommended_reason": "Smallest slice if parallel teams are enough initially and implement/review/test remain serial within each team."
+        },
+        {
+          "id": "e_agent_slots",
+          "label": "E2 — Separate worktree slots per independently scheduled agent",
+          "description": "Each concurrent agent/task slot gets its own multi-repo child, including reviewers/testers that may write files or run tools. A run owns these slots and one integration slot. Review frozen commits, not another agent's moving checkout. Serial handoffs may transfer a slot only after termination, or create a new slot from the accepted commit manifest. Parallel implementers return commits for serialized integration rather than editing the integration slot concurrently. One team still owns one top-level workflow; parallel tasks are inside that run. Requires fork/join or task-dispatch semantics beyond today's strictly serial engine. No worktree per prompt: a durable slot lasts for a unit of work. Select this if agent-level isolation and same-team parallelism must exist in the first release."
+        },
+        {
+          "id": "f_queue_team",
+          "label": "F1 — Durable exclusive team lease; queue extra runs",
+          "description": "Atomically reserve the team before provisioning/dispatch. Hold ownership through provisioning, execution, human waits and unresolved deliveries/processes. A second run receives its own durable ID in an observable FIFO team backlog; retries cannot duplicate it. Release only after relevant children are terminal and old dispatches cannot still be accepted, not from a status string or expired heartbeat alone. Cancellation first reconciles/stops children; abandoned ownership needs explicit recovery. Change current workspace-wide workflow serialization to team-scoped isolation; keep parent/repo integration exclusive. VK enforces checkout mutation admission across every ingress, VD owns workflow/team policy, and durable identities/reconciliation bridge them so daemon, CLI and restart cannot acquire competing ownership.",
+          "is_recommended_reason": "Lets orchestrators select arbitrary teams without replacing or overlapping an occupied team's workflow."
+        },
+        {
+          "id": "f_conflict_team",
+          "label": "F2 — Durable exclusive team lease; return busy conflict",
+          "description": "Use the same ownership/cancellation/uncertainty rules as F1, but reject a second run with team-busy plus the owning run ID. The orchestrator chooses another team or retries deliberately; no automatic team substitution. Simpler than a team FIFO. This decision is independent of VK's global overloaded-process queue."
+        }
+      ]
+    },
+    {
+      "type": "choices",
+      "id": "integration_build_plan",
+      "title": "3. How should work return to the parent, and what should we build first?",
+      "description": "PROPOSED FLOW: reserve team/run → persist frozen repo inputs and child IDs → VK materializes/initializes → ready + team/checkout admission + global capacity permits identified dispatch → correlated agent result and commit manifest → serialized integration → retention/cleanup. Keep exact queue_id/owner/session/payload/process rules; response loss does not authorize a replacement child/run/process. Creation and promotion need their own replay identities. GLOBAL OVERLOAD: task-5k3 requests a configurable VK active-session cap with automatic queueing. Count hidden children too. A team lease is not a capacity permit; waiting for capacity must not consume a running permit. Distinguish queued-for-team, provisioning, queued-for-capacity, running, waiting and needs-attention. Document resource acquisition order and reconcile after restart rather than adding an unbounded prompt-driven scheduler. Worktrees share a Git object store and host: this is checkout isolation, not container/process/security isolation. Parent config is canonical; a child snapshots effective run configuration. Select one G, one H and one I.",
+      "choices": [
+        {
+          "id": "g_explicit_promotion",
+          "label": "G1 — Explicit reviewed promotion through VK",
+          "description": "Return per-repo base SHA, result SHA and validation evidence. Authorized workflow/human integration reserves the parent/repo write boundary, validates expected target heads and no conflicting active parent writer/dirty state, then merges/cherry-picks through VK Git services. Prefer staging away from an active parent checkout. Never merge behind a running parent's back or force-update a changed target. Persist per-repo promotion receipts so replay after response loss cannot apply twice. Multi-repo promotion is a resumable saga, not an atomic all-repo transaction: record partial success, retain source refs and pause dependent work on conflicts. Optional publication creates explicit review branches/PRs; it does not push every scratch ref.",
+          "is_recommended_reason": "Prevents moving the shared-checkout race to the integration boundary."
+        },
+        {
+          "id": "g_auto_ff",
+          "label": "G2 — Auto-promote only approved, verified fast-forwards",
+          "description": "After required validation and a workflow outcome explicitly authorizing integration, auto-promote only if the recorded expected target SHA still matches and the update fast-forwards. Keep G1's parent-writer exclusion, per-repo receipts and partial-promotion recovery. Divergence, dirty parent state, conflicts or failed validation need attention, not automatic force/reset/rebase. Define precisely which workflow policy authorizes promotion."
+        },
+        {
+          "id": "h_explicit_cleanup",
+          "label": "H1 — Retain initially; explicit safe cleanup",
+          "description": "Keep completed child worktrees/refs until explicit cleanup, visible under the parent. Do not remove active/provisioning/uncertain children, uncommitted/untracked changes, unpromoted commits, conflict state or integration inputs. Cleanup is retryable with durable outcomes; retain the recovery record before deleting files. Removing checkout files and expiring commit refs are separate operations. Parent archive/delete enumerates children and blocks or follows an explicitly selected stop/retain policy. Simplest first lifecycle, with disk accounting/manual housekeeping needed.",
+          "is_recommended_reason": "Protects work while promotion and restart recovery are first being validated."
+        },
+        {
+          "id": "h_retention_cleanup",
+          "label": "H2 — Automated retention-based safe cleanup",
+          "description": "Configure separate checkout/ref retention windows and preview removals. Clean only children proven inactive, clean and integrated or explicitly discard-authorized; keep logs/manifests/receipts for recovery. Failed/unpromoted work is not pruned merely for age. An expired heartbeat is not proof a process is dead. Specify desired windows in notes; no arbitrary duration is assumed. Adds lifecycle/disk-pressure automation beyond H1."
+        },
+        {
+          "id": "i_staged_plan",
+          "label": "I1 — Refine contracts, then staged full implementation",
+          "description": "Stage 0: convert selections into a reviewed minimal spec and resolve conflicting choices before code. Stage 1: VK child identity/idempotent create, frozen multi-repo inputs, readiness, selected Git mode/reconstruction, default discovery exclusion and parent detail/status. Stage 2: team/role IDs and full names, arbitrary orchestrator team selection, immutable run bindings, durable team lease, selected backlog/conflict policy and selected slot isolation. Explicitly migrate legacy unteamed runs to a default team or keep legacy mode; never reinterpret active dispatch snapshots. Stage 3: fenced integration receipts, cleanup policy and capacity integration with task-5k3. Stage 4: matching-backend acceptance before rollout. Tests must prove two teams editing the same file in separate children without contamination; simultaneous same-team submissions; team rename/name collision/stale session prevention; two-repo setup failure and restart; lost child-create response; no dispatch before ready; search/stream hiding with inclusive capacity accounting; capacity queue drain; cancellation/uncertain ownership; active-parent integration conflict; partial multi-repo promotion/replay; safe cleanup. If E2 is selected, prove concurrent same-team agents in separate slots and a deterministic join. Rust checks/generated types run in CI under current no-local-Rust policy. Split implementation into dependency-ordered beads after agreement; discussion completion is not feature completion.",
+          "is_recommended_reason": "Makes the cross-layer invariants explicit and testable without treating this discussion as implicit rollout approval."
+        },
+        {
+          "id": "i_vk_foundation",
+          "label": "I2 — Only the VK child-workspace foundation first",
+          "description": "After contract review, implement Stage 1 plus selected Git retention mode, readiness and discovery tests. Defer team/workflow scheduling, promotion automation and cleanup automation to separate reviewed beads. Existing workflows stay unchanged until an explicit migration. If detached mode is selected, its compatibility and recovery work belongs in this foundation. Useful smaller first deliverable, but does not yet satisfy arbitrary-team workflows or same-team parallel agents."
+        },
+        {
+          "id": "i_discussion_only",
+          "label": "I3 — Discussion only; revise before implementation",
+          "description": "Use selections/notes to prepare a refined spec or another discussion form. Do not implement runtime changes or schedule deployment. Leave implementation authorization unchecked. Choose this if the abstraction, Git mode, isolation unit or ownership split still needs debate."
+        }
+      ]
+    },
+    {
+      "type": "textarea",
+      "id": "additional_notes",
+      "title": "Additional notes and examples",
+      "description": "Master notes for this standalone decision. You may write A–I selections here instead of checkboxes. Explain conflicting choices or reject recommendations. Helpful examples: parallel teams only or concurrent agents inside one team; clean git branch output versus UI filtering; full team/role name syntax; parent-scoped versus global team reuse; dirty-parent input policy; repo subsets; promotion/PR rules; expected run/team counts; retention/disk limits; initialization/caches/services allowed to be shared. No numeric limit, retention duration, deployment permission or unresolved choice is inferred from a blank answer."
+    }
+  ]
+}
