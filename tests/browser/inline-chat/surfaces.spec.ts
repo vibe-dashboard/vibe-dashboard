@@ -120,10 +120,10 @@ test("workspace tasks share cached results across panes and remounts", async ({
       (request) =>
         request.path === "/dashboard/api/workspaces/workspace-1/beads/tasks",
     );
-  await expect(left.getByLabel('Total workspace tasks')).toHaveText('3');
+  await expect(left.getByLabel('Non-completed workspace tasks')).toHaveText('2');
   await left.getByRole('combobox', { name: 'Chat view' }).click();
   await page.getByRole('option', { name: 'Chat', exact: true }).click();
-  await expect(left.getByLabel('Total workspace tasks')).toHaveText('3');
+  await expect(left.getByLabel('Non-completed workspace tasks')).toHaveText('2');
   await left.getByRole("button", { name: "Workspace tasks" }).click();
   await expect(
     page.getByText("task-active · Active task", { exact: true }),
@@ -156,20 +156,21 @@ test('Chat task tracker shows updated counts and an explicit zero using the shar
   await page.goto('/');
   const left = page.getByRole('region', { name: 'Left Agent' });
   const right = page.getByRole('region', { name: 'Right Agent' });
-  await expect(left.getByLabel('Total workspace tasks')).toHaveText('3');
+  await expect(left.getByLabel('Non-completed workspace tasks')).toHaveText('2');
   await left.getByRole('combobox', { name: 'Chat view' }).click();
   await page.getByRole('option', { name: 'Chat', exact: true }).click();
   await left.getByRole('button', { name: 'Workspace tasks' }).click();
-  backend.tasks.counts = { open: 0, inProgress: 0, done: 0 };
-  backend.tasks.groups = { open: [], inProgress: [], done: [] };
+  backend.tasks.counts = { open: 0, inProgress: 0, done: 1 };
+  backend.tasks.groups = { open: [], inProgress: [], done: backend.tasks.groups.done };
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
-  await expect(left.getByLabel('Total workspace tasks')).toHaveText('0');
-  await expect(right.getByLabel('Total workspace tasks')).toHaveText('0');
+  await expect(left.getByLabel('Non-completed workspace tasks')).toHaveText('0');
+  await expect(right.getByLabel('Non-completed workspace tasks')).toHaveText('0');
+  await expect(left.getByRole('img', { name: 'All beads completed' })).toBeVisible();
   await expect(page.getByText('0 in progress', { exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
   await left.getByRole('combobox', { name: 'Chat view' }).click();
   await page.getByRole('option', { name: 'Full', exact: true }).click();
-  await expect(left.getByLabel('Total workspace tasks')).toHaveText('0');
+  await expect(left.getByLabel('Non-completed workspace tasks')).toHaveText('0');
 });
 
 test('Chat task tracker distinguishes loading and failure from a zero count', async ({ page, backend }) => {

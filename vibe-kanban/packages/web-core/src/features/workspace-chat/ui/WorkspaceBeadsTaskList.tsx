@@ -90,10 +90,10 @@ export function WorkspaceBeadsTaskList({
     );
   }, [selectedSessionId, sessions]);
 
-  const total = data
-    ? data.counts.open + data.counts.inProgress + data.counts.done
+  const nonCompletedCount = data
+    ? data.counts.open + data.counts.inProgress
     : 0;
-  const allCompleted = total > 0 && data?.counts.done === total;
+  const allCompleted = nonCompletedCount === 0 && (data?.counts.done ?? 0) > 0;
   const hasNonOpenBeads =
     data &&
     Object.values(data.groups).some((tasks) =>
@@ -145,14 +145,14 @@ export function WorkspaceBeadsTaskList({
                 className="text-xs tabular-nums"
                 aria-label={
                   data
-                    ? 'Total workspace tasks'
+                    ? 'Non-completed workspace tasks'
                     : error
                       ? 'Workspace tasks unavailable'
                       : 'Loading workspace tasks'
                 }
                 aria-live="polite"
               >
-                {data ? total : error ? '!' : '…'}
+                {data ? nonCompletedCount : error ? '!' : '…'}
               </span>
             </button>
           </PopoverTrigger>
