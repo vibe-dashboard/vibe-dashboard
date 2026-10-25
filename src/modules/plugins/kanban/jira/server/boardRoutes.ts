@@ -1,4 +1,4 @@
-import os from 'node:os';
+import { getReposRoot } from '../../../../../server/repository-root';
 import path from 'node:path';
 import type { Hono } from 'hono';
 import type { Kysely } from 'kysely';
@@ -47,7 +47,7 @@ export function registerExternalTrackerBoardRoutes(
   },
 ): void {
   const vkClient = options.vkClient ?? new VibeKanbanServerClient();
-  const reposRoot = options.reposRoot ?? defaultReposRoot();
+  const reposRoot = options.reposRoot ?? getReposRoot();
   const createJiraIssueForWorkspace = options.createJiraIssue ?? createJiraIssue;
   const upsertWorkspaceMapping = options.upsertWorkspaceMapping ?? upsertExternalIssueWorkspaceMapping;
   const siteOrigin = normalizeVdSiteOrigin(options.siteOrigin ?? process.env.SITE_ORIGIN);
@@ -735,10 +735,6 @@ function beadLinkFailedError(message: string): { code: 'bead_link_failed'; messa
     message,
     userAction: 'Verify the bead id and try again.',
   };
-}
-
-function defaultReposRoot(): string {
-  return path.join(os.homedir(), 'repos');
 }
 
 function normalizePathKey(value: string): string {

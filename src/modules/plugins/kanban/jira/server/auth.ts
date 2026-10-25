@@ -38,7 +38,7 @@ interface BetterAuthInstanceForExternalTrackers {
 
 export function createExternalTrackerAuth(database: BetterAuthDatabase): BetterAuthInstanceForExternalTrackers {
   return betterAuth({
-    appName: 'Vibe Dashboard',
+    appName: 'Alohak',
     basePath: '/dashboard/api/auth',
     database: database.sqlite,
     user: {

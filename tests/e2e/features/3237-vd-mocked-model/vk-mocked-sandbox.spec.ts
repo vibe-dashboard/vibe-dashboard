@@ -243,7 +243,7 @@ async function createVoyage(
   voyageName: string,
 ): Promise<boolean> {
   const onboardingHeading = page.getByRole('heading', {
-    name: 'Name the Voyage for this workspace.',
+    name: 'Welcome to Alohak. Let’s create your first voyage and get hacking!',
   });
   const newCraftButton = page.getByRole('button', { name: 'New Craft' }).first();
 

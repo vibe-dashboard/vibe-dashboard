@@ -196,6 +196,8 @@ ENV VK_CODEX_BINARY="/usr/local/bin/codex"
 ENV CODEX_SQLITE_LOGS="off"
 ENV VK_SETTINGS_DIRECTORY="/var/lib/vd/vk-config"
 ENV VD_BEADS_DIRECTORY="/var/lib/vd/beads"
+ENV REPOS_ROOT="/repos"
+ENV WORKTREES_ROOT="/worktrees"
 
 # Install Rust and Cargo
 ENV CARGO_HOME=/usr/local/cargo
@@ -314,12 +316,16 @@ RUN groupadd -f vkadmin && \
              /home/vkuser/.claude \
              /home/vkuser/.openclaw \
              /home/vkuser/bosun \
+             /repos \
+             /worktrees \
              /home/vkuser/repos \
              /var/tmp/vibe-kanban/worktrees \
              /var/run/tailscale \
              /var/lib/tailscale && \
     chown -R vkuser:vkuser /home/vkuser && \
     chown -R vkuser:vkuser /var/tmp/vibe-kanban && \
+    chown vkuser:vkadmin /repos /worktrees && \
+    chmod 2775 /repos /worktrees && \
     chgrp -R vkadmin /usr/local /opt /var/tmp/vibe-kanban && \
     chmod -R g+rwX /usr/local /opt /var/tmp/vibe-kanban && \
     find /usr/local /opt /var/tmp/vibe-kanban -type d -exec chmod g+s {} + && \

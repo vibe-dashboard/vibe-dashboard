@@ -20,7 +20,7 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
   webServer: {
-    command: `node ./tests/e2e/clean-state.mjs ${port} && SQLITE_DATABASE_FILE=${sqliteDatabaseFile} SERVER_PORT=${port + 1} PORT=${port} npm run dev -- --host 127.0.0.1`,
+    command: `node ./tests/e2e/clean-state.mjs ${port} && GIT_CONFIG_GLOBAL=$PWD/.e2e/git-${port}.config SQLITE_DATABASE_FILE=${sqliteDatabaseFile} SERVER_PORT=${port + 1} PORT=${port} npm run dev -- --host 127.0.0.1`,
     url: `http://127.0.0.1:${port}/kv/get-all`,
     reuseExistingServer: false,
     timeout: 120_000,

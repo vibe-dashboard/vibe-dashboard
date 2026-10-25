@@ -207,13 +207,13 @@ async function ensureGitRepo(repoPath: string) {
   if (await exists(path.join(repoPath, '.git'))) return;
   await execFileAsync('git', ['init', repoPath]);
   await execFileAsync('git', ['-C', repoPath, 'checkout', '-B', 'main']);
-  await execFileAsync('git', ['-C', repoPath, 'config', 'user.name', 'Vibe Kanban']);
+  await execFileAsync('git', ['-C', repoPath, 'config', 'user.name', 'Sandbox Test User']);
   await execFileAsync('git', [
     '-C',
     repoPath,
     'config',
     'user.email',
-    'noreply@vibekanban.com',
+    'sandbox@example.invalid',
   ]);
   await execFileAsync('git', ['-C', repoPath, 'add', '.']);
   await execFileAsync('git', [

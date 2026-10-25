@@ -23,7 +23,7 @@ const storybookTabPresets: TabPresetContribution[] = [
   },
   {
     key: 'vibe-dashboard/home',
-    title: 'Vibe Dashboard',
+    title: 'Alohak',
     description: 'Open the dashboard home view',
     mode: 'immediate',
     urlTemplate: '{{origin}}/',

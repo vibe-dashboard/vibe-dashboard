@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SEED_DIR="/opt/vibe-kanban-vscode-web-seed"
-REPO_DIR="/home/vkuser/repos/vibe-kanban-vscode-web"
+REPO_DIR="${REPOS_ROOT:-/repos}/vibe-kanban-vscode-web"
 
 if [ ! -d "$SEED_DIR" ]; then
   echo "Warning: $SEED_DIR not found, skipping repo initialization"
@@ -10,7 +10,7 @@ if [ ! -d "$SEED_DIR" ]; then
 fi
 
 if [ ! -d "$REPO_DIR/.git" ]; then
-  echo "Initializing vibe-kanban-vscode-web repository from build context"
+  echo "Initializing Alohak source checkout from build context"
   mkdir -p "$REPO_DIR"
   if getent group vkadmin > /dev/null 2>&1; then
     chown vkuser:vkadmin "$REPO_DIR" 2>/dev/null || true
@@ -24,5 +24,5 @@ if [ ! -d "$REPO_DIR/.git" ]; then
     cp -R --no-preserve=ownership "$SEED_DIR"/. "$REPO_DIR"/
   fi
 else
-  echo "Preserving existing vibe-kanban-vscode-web repository (including .git and data)"
+  echo "Preserving existing Alohak source checkout (including .git and data)"
 fi

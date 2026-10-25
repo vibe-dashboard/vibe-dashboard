@@ -1,6 +1,6 @@
 # Colima Sysbox profile
 
-This directory contains a repeatable macOS setup for running the Vibe Dashboard
+This directory contains a repeatable macOS setup for running the Alohak
 Docker app with Sysbox-backed Docker-in-Docker.
 
 ## Setup

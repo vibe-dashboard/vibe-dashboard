@@ -1,23 +1,23 @@
 #!/bin/bash
 set -euo pipefail
 
-REPO_DIR="/home/vkuser/repos/vibe-kanban-vscode-web"
-RUNTIME_DIR="/home/vkuser/repos/.vibe-dashboard-runtime"
+REPO_DIR="${REPOS_ROOT:-/repos}/vibe-kanban-vscode-web"
+RUNTIME_DIR="${REPOS_ROOT:-/repos}/.vibe-dashboard-runtime"
 RUNTIME_SEED_DIR="/opt/vibe-dashboard-package-seed"
 
 if [ ! -d "$RUNTIME_SEED_DIR" ]; then
-  echo "Missing packaged vibe-dashboard runtime seed at $RUNTIME_SEED_DIR" >&2
+  echo "Missing packaged Alohak runtime seed at $RUNTIME_SEED_DIR" >&2
   exit 1
 fi
 
 if [ ! -f "$RUNTIME_DIR/dist/node/node-entry.mjs" ]; then
-  echo "Initializing packaged vibe-dashboard runtime in $RUNTIME_DIR"
+  echo "Initializing packaged Alohak runtime in $RUNTIME_DIR"
   mkdir -p "$RUNTIME_DIR"
   cp -a "$RUNTIME_SEED_DIR"/. "$RUNTIME_DIR"/
 fi
 
 if [ -d "$REPO_DIR/data" ] && [ ! -e "$RUNTIME_DIR/data" ]; then
-  echo "Migrating vibe-dashboard data from $REPO_DIR/data to $RUNTIME_DIR/data"
+  echo "Migrating Alohak data from $REPO_DIR/data to $RUNTIME_DIR/data"
   cp -a "$REPO_DIR/data" "$RUNTIME_DIR/data"
 fi
 

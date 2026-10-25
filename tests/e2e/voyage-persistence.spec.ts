@@ -550,7 +550,7 @@ async function mockVkApi(
 test.describe('voyage persistence', () => {
   test('creates the first Voyage from recovery UI and resumes cached root URL without sessionStorage', async ({ page }) => {
     await page.goto('/');
-    await expect(page.locator('body')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Welcome to Alohak. Let’s create your first voyage and get hacking!' })).toBeVisible();
     await clearSavedVoyages(page.request);
     await page.evaluate(() => {
       sessionStorage.clear();
@@ -561,8 +561,8 @@ test.describe('voyage persistence', () => {
     const voyageName = `E2E First Voyage ${runId}`;
 
     await page.goto('/');
-    await expect(page.getByText('Create your first Voyage')).toBeVisible();
-    await expect(page.getByText('A Voyage is the named set of craft and views')).toBeVisible();
+    await expect(page.getByText('Create your first Voyage', { exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Welcome to Alohak. Let’s create your first voyage and get hacking!' })).toBeVisible();
     await expect
       .poll(async () => {
         const state = await getKvState<{ data?: Array<{ id: string }> }>(

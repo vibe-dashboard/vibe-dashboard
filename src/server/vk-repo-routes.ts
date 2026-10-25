@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
-import os from 'node:os';
+import { getReposRoot } from './repository-root';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { Hono } from 'hono';
@@ -20,7 +20,8 @@ export function registerVkRepoRoutes(
 ): void {
   const vkClient = options.vkClient ?? new VibeKanbanServerClient();
   const cloneRepo = options.cloneRepo ?? cloneGitHubRepoIntoReposRoot;
-  const reposRoot = options.reposRoot ?? defaultReposRoot();
+  const reposRoot = options.reposRoot ?? getReposRoot();
+  hono.get('/dashboard/api/repos/editor', (c) => c.redirect(`/?folder=${encodeURIComponent(reposRoot)}`));
 
   hono.post('/dashboard/api/external-trackers/vk/repos/clone', async (c) => {
     const body = await c.req.json().catch(() => undefined) as unknown;
@@ -36,13 +37,9 @@ export function registerVkRepoRoutes(
       const repo = await vkClient.registerRepo({ path: clonedPath, display_name: body.displayName });
       return c.json({ ok: true, repo });
     } catch {
-      return c.json({ ok: false, error: { code: 'vk_repo_clone_failed', message: 'Could not clone and register the GitHub repository.', userAction: 'Verify the URL, network access, and that the destination under ~/repos does not already exist.' } }, 502);
+      return c.json({ ok: false, error: { code: 'vk_repo_clone_failed', message: 'Could not clone and register the GitHub repository.', userAction: `Verify the URL, network access, and that the destination under ${reposRoot} does not already exist.` } }, 502);
     }
   });
-}
-
-function defaultReposRoot(): string {
-  return path.join(os.homedir(), 'repos');
 }
 
 function isCloneRepoRequest(value: unknown): value is { repoUrl: string; displayName?: string } {

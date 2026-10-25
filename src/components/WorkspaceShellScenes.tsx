@@ -965,7 +965,8 @@ export function CreateFirstVoyageScene({
   return (
     <div className="flex min-h-[360px] items-center justify-center bg-neutral-950 p-6 text-center text-neutral-100">
       <div className="w-full max-w-md rounded-xl border border-neutral-800 bg-neutral-900 p-6 shadow-2xl">
-        <div className="text-lg font-semibold">Create your first Voyage</div>
+        <img src="/alohak-logo.png" alt="Alohak" className="mx-auto mb-5 h-36 w-36 rounded-xl object-contain" />
+        <div className="text-lg font-semibold">Welcome to Alohak. Let’s create your first voyage and get hacking!</div>
         <p className="mt-2 text-sm text-neutral-400">
           Start a new craft or embark an existing craft to build your first Voyage.
         </p>

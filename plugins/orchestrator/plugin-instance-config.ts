@@ -2,6 +2,7 @@ import { execFile as execFileCallback } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { requireGitIdentity } from '../../src/server/git-identity.ts';
 import {
   assertPluginServiceCatalog,
   type PluginServiceCatalog,
@@ -60,7 +61,7 @@ export async function createAddInstancePluginDryRunPlan(input: {
     pluginId: input.plugin.id,
     beforePluginCount: existing.catalog.plugins.length,
     afterPluginCount: next.catalog.plugins.length,
-    gitActions: ['git init', 'git config local author defaults', `git add ${CONFIG_FILE_NAME}`, 'git commit', 'git push when requested'],
+    gitActions: ['git init', 'require configured Git identity', `git add ${CONFIG_FILE_NAME}`, 'git commit', 'git push when requested'],
   };
 }
 
@@ -81,10 +82,14 @@ export async function applyAddInstancePlugin(input: {
   }
 
   await mkdir(input.configRepoDir, { recursive: true });
+  if (!input.runCommand) {
+    await execFile('git', ['init'], { cwd: input.configRepoDir });
+    await requireGitIdentity(input.configRepoDir);
+  }
   await writeFile(configPath, `${JSON.stringify(next.catalog, null, 2)}\n`);
 
   const runCommand = input.runCommand ?? defaultCommandRunner;
-  const commitMessage = input.commitMessage ?? `Update VD plugin config for ${input.plugin.id}`;
+  const commitMessage = input.commitMessage ?? `Update Alohak plugin config for ${input.plugin.id}`;
   await commitConfigChange({
     configRepoDir: input.configRepoDir,
     commitMessage,
@@ -120,7 +125,7 @@ export async function createSetInstancePluginEnabledDryRunPlan(input: {
     pluginId: input.pluginId,
     beforeEnable: next.beforeEnable,
     afterEnable: input.enable,
-    gitActions: ['git init', 'git config local author defaults', `git add ${CONFIG_FILE_NAME}`, 'git commit', 'git push when requested'],
+    gitActions: ['git init', 'require configured Git identity', `git add ${CONFIG_FILE_NAME}`, 'git commit', 'git push when requested'],
   };
 }
 
@@ -146,10 +151,14 @@ export async function applySetInstancePluginEnabled(input: {
   }
 
   await mkdir(input.configRepoDir, { recursive: true });
+  if (!input.runCommand) {
+    await execFile('git', ['init'], { cwd: input.configRepoDir });
+    await requireGitIdentity(input.configRepoDir);
+  }
   await writeFile(configPath, `${JSON.stringify(next.catalog, null, 2)}\n`);
 
   const runCommand = input.runCommand ?? defaultCommandRunner;
-  const commitMessage = input.commitMessage ?? `Set VD plugin ${input.pluginId} ${input.enable ? 'enabled' : 'disabled'}`;
+  const commitMessage = input.commitMessage ?? `Set Alohak plugin ${input.pluginId} ${input.enable ? 'enabled' : 'disabled'}`;
   await commitConfigChange({
     configRepoDir: input.configRepoDir,
     commitMessage,
@@ -238,8 +247,6 @@ async function commitConfigChange(input: {
   runCommand: CommandRunner;
 }): Promise<void> {
   await input.runCommand('git', ['init'], { cwd: input.configRepoDir });
-  await input.runCommand('git', ['config', 'user.email', 'vd-instance@localhost'], { cwd: input.configRepoDir });
-  await input.runCommand('git', ['config', 'user.name', 'Vibe Dashboard'], { cwd: input.configRepoDir });
   await input.runCommand('git', ['add', CONFIG_FILE_NAME], { cwd: input.configRepoDir });
   await input.runCommand('git', ['commit', '-m', input.commitMessage], { cwd: input.configRepoDir });
 }

@@ -1,7 +1,7 @@
 import { SpanStatusCode, trace } from '@opentelemetry/api';
 import type { Attributes, Span } from '@opentelemetry/api';
 
-const OTEL_TRACER_NAME = 'vibe-dashboard.external-kanban';
+const OTEL_TRACER_NAME = 'alohak.external-kanban';
 const MAX_ATTRIBUTE_STRING_LENGTH = 160;
 const SENSITIVE_ATTRIBUTE_KEY = /(?:authorization|cookie|token|secret|password|apikey|api_key|api-token|email|authheader|external_view_url|originalurl|url|jql|query|filter)/i;
 

@@ -63,7 +63,7 @@ const VK_CONTENT_HASH_PATTERN = /^[0-9a-f]{64}$/i;
 const DEFAULT_VK_GH_REPO = 'vibe-dashboard/vibe-kanban';
 const DEFAULT_VK_GH_ARTIFACT_NAME = 'release-assets-linux-x64';
 const DEFAULT_VK_GH_ARCHIVE_NAME = 'vibe-kanban-linux-x64.tar.gz';
-const VIBE_DASHBOARD_CADDY_MARKER = '# Vibe Dashboard app';
+const VIBE_DASHBOARD_CADDY_MARKER = '# Alohak app';
 
 const execFileAsync = promisify(execFile);
 

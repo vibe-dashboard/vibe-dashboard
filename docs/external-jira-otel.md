@@ -1,6 +1,6 @@
 # External Jira Kanban OpenTelemetry
 
-VD has a small OpenTelemetry foundation for profiling external Jira Kanban loading. It is disabled by default and only exports safe, bounded attributes. Do not add tokens, API keys, auth headers, raw `external_view_url`, raw JQL, email addresses, cookies, or Jira filter query strings to spans.
+Alohak has a small OpenTelemetry foundation for profiling external Jira Kanban loading. It is disabled by default and only exports safe, bounded attributes. Do not add tokens, API keys, auth headers, raw `external_view_url`, raw JQL, email addresses, cookies, or Jira filter query strings to spans.
 
 ## Enable local tracing
 
@@ -16,12 +16,12 @@ OTLP HTTP exporter, useful with a local OpenTelemetry Collector or a trace backe
 
 ```bash
 VD_OTEL_ENABLED=true \
-OTEL_SERVICE_NAME=vibe-dashboard \
+OTEL_SERVICE_NAME=alohak \
 OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces \
 npm run dev
 ```
 
-`VD_OTEL_ENABLED=true` enables the SDK. Setting `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` also enables it. Use `VD_OTEL_TRACES_EXPORTER=console` for console spans; otherwise VD uses the OTLP HTTP trace exporter.
+`VD_OTEL_ENABLED=true` enables the SDK. Setting `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` also enables it. Use `VD_OTEL_TRACES_EXPORTER=console` for console spans; otherwise Alohak uses the OTLP HTTP trace exporter.
 
 ## External Jira spans
 
@@ -35,7 +35,7 @@ The external Kanban path emits focused spans around:
 - `external_jira.fetch_board_configuration` — Jira Agile board configuration fetch.
 - `external_jira.fetch_board_issue_pages` / `external_jira.fetch_project_issue_pages` — Jira pagination work.
 - `external_jira.http` — sanitized Jira HTTP child spans with endpoint family and status code, never full URL or auth headers.
-- `external_jira.decorate_workspaces` — explicit VD workspace mapping decoration.
+- `external_jira.decorate_workspaces` — explicit Alohak workspace mapping decoration.
 - `external_jira.decorate_beads` — explicit Beads task decoration.
 - `external_jira.workspace_metrics_route` — async workspace metrics endpoint latency.
 - `external_jira.workspace_metrics.summaries` and `external_jira.workspace_metrics.sessions` — VK summary/session lookups with per-source timeout isolation.
@@ -54,7 +54,7 @@ The current external Kanban performance risks identified while adding this instr
 
 ## Spot-checking a board load
 
-1. Start VD with one of the env configurations above.
+1. Start Alohak with one of the env configurations above.
 2. Open a URL like `/dashboard?external_view_url=<encoded Jira board URL>`.
 3. Inspect spans in the console or trace backend.
 4. Compare `external_jira.board_route` duration to `external_jira.adapter_fetch_board`, `external_jira.decorate_beads`, and `external_jira.workspace_metrics_route` to separate Jira latency from local decoration latency.

@@ -28,11 +28,21 @@ export default defineConfig({
     entry: './src/index.tsx',
     platforms,
     documentMeta: {
-      title: 'Vibe Kanban Workspace',
-      description: 'Workspace shell for code-server and vibe-kanban'
+      title: 'Alohak',
+      description: 'A coding workspace for voyages, craft, and AI agents'
     },
     nodeServerPort: serverPort,
-  })],
+  }), {
+    name: 'alohak-app-identity',
+    transformIndexHtml: {
+      order: 'post',
+      handler: () => [
+        { tag: 'link', attrs: { rel: 'icon', href: '/alohak-favicon.ico' }, injectTo: 'head' },
+        { tag: 'link', attrs: { rel: 'apple-touch-icon', href: '/alohak-apple-touch-icon.png' }, injectTo: 'head' },
+        { tag: 'link', attrs: { rel: 'manifest', href: '/manifest.json' }, injectTo: 'head' },
+      ],
+    },
+  }],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src'),

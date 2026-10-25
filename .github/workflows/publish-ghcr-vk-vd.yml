@@ -56,7 +56,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Resolve vibe-kanban and vibe-dashboard refs
+      - name: Resolve vibe-kanban and Alohak refs
         id: resolve
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'main' }}

@@ -28,7 +28,7 @@ const manifest: PluginManifest = createPluginManifest({
       {
         key: 'editor',
         title: 'Code Server',
-        urlTemplate: '{{origin}}/?folder=/home/vkuser/repos',
+        urlTemplate: '{{origin}}/dashboard/api/repos/editor',
         defaultTitle: 'Code Server',
         order: 20,
       },

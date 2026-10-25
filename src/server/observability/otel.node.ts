@@ -11,7 +11,7 @@ export function startVdOtel(env: Record<string, string | undefined> = process.en
 
   const exporter = createTraceExporter(env);
   sdk = new NodeSDK({
-    serviceName: env.OTEL_SERVICE_NAME || 'vibe-dashboard',
+    serviceName: env.OTEL_SERVICE_NAME || 'alohak',
     traceExporter: exporter.kind === 'console' ? new ConsoleSpanExporter() : new OTLPTraceExporter(),
   });
   sdk.start();

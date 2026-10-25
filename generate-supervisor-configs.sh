@@ -56,9 +56,9 @@ for domain in "${DOMAIN_ARRAY[@]}"; do
         if [ $DOMAIN_INDEX -gt 0 ]; then
             # Generate vibe-dashboard program
             cat >> "$OUTPUT_FILE" <<EOF
-; Vibe Dashboard for $domain
+; Alohak for $domain
 [program:vibe-dashboard-${SAFE_DOMAIN}]
-command=sh -c 'cd /home/vkuser/repos/vibe-kanban-vscode-web && npm start'
+command=npm start
 autostart=true
 autorestart=true
 stdout_logfile=/dev/fd/1
@@ -67,7 +67,7 @@ stderr_logfile=/dev/fd/2
 stderr_logfile_maxbytes=0
 environment=HOST="0.0.0.0",PORT="$DASHBOARD_PORT",HOME="/home/vkuser",XDG_CONFIG_HOME="/home/vkuser/.config",PATH="/home/vkuser/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 user=vkuser
-directory=/home/vkuser/repos/vibe-kanban-vscode-web
+directory=%(ENV_REPOS_ROOT)s/vibe-kanban-vscode-web
 
 ; Vibe Kanban for $domain
 [program:vibe-kanban-${SAFE_DOMAIN}]
@@ -80,7 +80,7 @@ stderr_logfile=/dev/fd/2
 stderr_logfile_maxbytes=0
 environment=HOST="0.0.0.0",PORT="$KANBAN_PORT",VIBE_KANBAN_VERSION="%(ENV_VIBE_KANBAN_VERSION)s",VK_SHARED_API_BASE="%(ENV_VK_SHARED_API_BASE)s",HOME="/home/vkuser",XDG_CONFIG_HOME="/home/vkuser/.config",PATH="/home/vkuser/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 user=vkuser
-directory=/home/vkuser/repos
+directory=%(ENV_REPOS_ROOT)s
 
 EOF
             echo "Created supervisor programs for $domain (dashboard:$DASHBOARD_PORT, kanban:$KANBAN_PORT)"

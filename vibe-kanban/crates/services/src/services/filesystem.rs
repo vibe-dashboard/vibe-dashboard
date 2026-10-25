@@ -106,9 +106,9 @@ impl FilesystemService {
 
         #[cfg(not(feature = "qa-mode"))]
         {
-            let base_path = path
-                .map(PathBuf::from)
-                .unwrap_or_else(Self::get_home_directory);
+            let base_path = path.map(PathBuf::from).unwrap_or_else(|| {
+                configured_repos_root().unwrap_or_else(Self::get_home_directory)
+            });
             Self::verify_directory(&base_path)?;
             self.list_git_repos_with_timeout(
                 vec![base_path],
@@ -182,6 +182,11 @@ impl FilesystemService {
 
         #[cfg(not(feature = "qa-mode"))]
         {
+            if let Some(root) = configured_repos_root() {
+                return self
+                    .list_git_repos_with_timeout(vec![root], timeout_ms, hard_timeout_ms, max_depth)
+                    .await;
+            }
             let search_strings = ["repos", "dev", "work", "code", "projects"];
             let home_dir = Self::get_home_directory();
             let mut paths: Vec<PathBuf> = search_strings
@@ -214,6 +219,9 @@ impl FilesystemService {
         };
         let skip_dirs = Self::get_directories_to_skip();
         let vibe_kanban_temp_dir = utils::path::get_vibe_kanban_temp_dir();
+        let worktrees_root = std::env::var_os("WORKTREES_ROOT")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from);
         let mut walker_builder = WalkBuilder::new(base_dir);
         walker_builder
             .follow_links(false)
@@ -230,6 +238,11 @@ impl FilesystemService {
                     }
 
                     let path = entry.path();
+                    if let Some(root) = &worktrees_root
+                        && path.starts_with(root)
+                    {
+                        return false;
+                    }
                     if !path.is_dir() {
                         return false;
                     }
@@ -319,7 +332,7 @@ impl FilesystemService {
     ) -> Result<DirectoryListResponse, FilesystemError> {
         let path = path
             .map(PathBuf::from)
-            .unwrap_or_else(Self::get_home_directory);
+            .unwrap_or_else(|| configured_repos_root().unwrap_or_else(Self::get_home_directory));
         Self::verify_directory(&path)?;
 
         let entries = fs::read_dir(&path)?;
@@ -362,4 +375,14 @@ impl FilesystemService {
             current_path: path.to_string_lossy().to_string(),
         })
     }
+}
+
+fn configured_repos_root() -> Option<PathBuf> {
+    std::env::var_os("REPOS_ROOT")
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            let root = PathBuf::from(value);
+            assert!(root.is_absolute(), "REPOS_ROOT must be an absolute path");
+            root
+        })
 }

@@ -180,9 +180,9 @@ stderr_logfile=/dev/fd/2
 stderr_logfile_maxbytes=0
 environment=HOST="0.0.0.0",PORT="%(ENV_BACKEND_PORT)s",ENABLE_VIBE_KANBAN="%(ENV_ENABLE_VIBE_KANBAN)s",VK_BUILD_VERSION_FILE="/usr/local/share/vibe-kanban-build-version",VK_SHARED_API_BASE="%(ENV_VK_SHARED_API_BASE)s",VK_ALLOWED_ORIGINS="%(ENV_VK_ALLOWED_ORIGINS)s",HOME="/home/vkuser",XDG_CONFIG_HOME="/home/vkuser/.config",PATH="/usr/local/lib/vk-bd-wrapper/bin:/var/lib/vd/plugin-bin:/var/lib/vd/toolchains/bin:/var/lib/vd/toolchains/npm/bin:/home/vkuser/.npm-global/bin:/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 user=vkuser
-directory=/home/vkuser/repos`;
+directory=%(ENV_REPOS_ROOT)s`;
 
-const VIBE_DASHBOARD_SUPERVISOR = `; vibe-dashboard
+const VIBE_DASHBOARD_SUPERVISOR = `; Alohak
 [program:vibe-dashboard]
 command=node dist/node/node-entry.mjs
 autostart=true
@@ -208,7 +208,7 @@ stderr_logfile=/dev/fd/2
 stderr_logfile_maxbytes=0
 environment=VIBE_API_URL="http://127.0.0.1:%(ENV_BACKEND_PORT)s",HOME="/home/vkuser",XDG_CONFIG_HOME="/home/vkuser/.config",PATH="/usr/local/lib/vk-bd-wrapper/bin:/var/lib/vd/plugin-bin:/var/lib/vd/toolchains/bin:/var/lib/vd/toolchains/npm/bin:/home/vkuser/.npm-global/bin:/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 user=vkuser
-directory=/home/vkuser/repos`;
+directory=%(ENV_REPOS_ROOT)s`;
 
 const PLUGIN_SERVICE_ORCHESTRATOR_SUPERVISOR = `; plugin service orchestrator (reconciles persisted per-instance plugin config into generated supervisor programs)
 [program:vd-plugin-service-orchestrator-startup]
@@ -247,7 +247,7 @@ stderr_logfile=/dev/fd/2
 stderr_logfile_maxbytes=0
 environment=HOME="/root",PATH="/usr/local/lib/vk-bd-wrapper/bin:/var/lib/vd/plugin-bin:/var/lib/vd/toolchains/bin:/var/lib/vd/toolchains/npm/bin:/home/vkuser/.npm-global/bin:/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 user=root
-directory=/home/vkuser/repos/vibe-kanban-vscode-web`;
+directory=%(ENV_REPOS_ROOT)s/vibe-kanban-vscode-web`;
 
 const PROCESS_EXPORTER_SUPERVISOR = `; process-exporter (grouped process metrics for Prometheus)
 [program:process-exporter]
@@ -372,13 +372,13 @@ export const BUILTIN_FIRST_PARTY_SERVICE_PLUGINS: FirstPartyServicePlugin[] = [
   {
     manifest: manifest({
       id: 'first-party.vibe-kanban', displayName: 'Vibe Kanban', version: 'github-release:vk-assets-${VK_COMMIT}',
-      requestedCapabilities: { vkHttpApi: 'agentPrompt', hostShell: { commands: ['/usr/local/bin/vibe-kanban'] }, codeServer: 'workspace', filesystem: [{ scope: 'repo', path: '/home/vkuser/repos', access: 'readWrite' }], network: { mode: 'ingress-and-egress', ports: ['${BACKEND_PORT}'] }, env: ['VK_SHARED_API_BASE', 'VK_ALLOWED_ORIGINS'] },
+      requestedCapabilities: { vkHttpApi: 'agentPrompt', hostShell: { commands: ['/usr/local/bin/vibe-kanban'] }, codeServer: 'workspace', filesystem: [{ scope: 'repo', path: '${REPOS_ROOT}', access: 'readWrite' }], network: { mode: 'ingress-and-egress', ports: ['${BACKEND_PORT}'] }, env: ['VK_SHARED_API_BASE', 'VK_ALLOWED_ORIGINS'] },
       components: { services: [{ id: 'vibe-kanban', runtime: 'supervisor', command: '/usr/local/bin/vibe-kanban', versionSource: { kind: 'github-release-asset', repository: 'vibe-dashboard/vibe-kanban', tag: 'vk-assets-${VK_COMMIT}', asset: 'vibe-kanban-${TARGETARCH}.tar.gz' } }] },
     }),
     privilegeTier: 'core-control-plane', bootCritical: false, supervisorPrograms: ['vibe-kanban'], supervisorConfig: VIBE_KANBAN_SUPERVISOR, installStrategy: 'github-release-asset', desiredVersion: 'github-release:vk-assets-${VK_COMMIT}', stagingRequired: true, rollbackable: true,
   },
   {
-    manifest: manifest({ id: 'first-party.vibe-dashboard', displayName: 'Vibe Dashboard', version: 'bundled', requestedCapabilities: { hostShell: { commands: ['node dist/node/node-entry.mjs'] }, network: { mode: 'ingress', ports: ['${DASHBOARD_PORT}'] } } }),
+    manifest: manifest({ id: 'first-party.vibe-dashboard', displayName: 'Alohak', version: 'bundled', requestedCapabilities: { hostShell: { commands: ['node dist/node/node-entry.mjs'] }, network: { mode: 'ingress', ports: ['${DASHBOARD_PORT}'] } } }),
     privilegeTier: 'core-control-plane', bootCritical: true, supervisorPrograms: ['vibe-dashboard'], supervisorConfig: VIBE_DASHBOARD_SUPERVISOR, installStrategy: 'bundled-runtime-artifact', desiredVersion: 'bundled', stagingRequired: true, rollbackable: true,
   },
 

@@ -2,6 +2,24 @@
 set -e
 umask 0002
 
+export REPOS_ROOT="${REPOS_ROOT:-/repos}"
+export WORKTREES_ROOT="${WORKTREES_ROOT:-/worktrees}"
+for root in "$REPOS_ROOT" "$WORKTREES_ROOT"; do
+    case "$root" in
+        /*) ;;
+        *) printf 'Repository and worktree roots must be absolute paths: %s\n' "$root" >&2; exit 1 ;;
+    esac
+done
+# Orphan cleanup owns WORKTREES_ROOT; it must not contain repositories or be /.
+resolved_repos_root="$(realpath -m "$REPOS_ROOT")"
+resolved_worktrees_root="$(realpath -m "$WORKTREES_ROOT")"
+if [ "$resolved_worktrees_root" = / ] || [ "$resolved_repos_root" = / ] ||
+   [[ "$resolved_repos_root/" == "$resolved_worktrees_root/"* ]] ||
+   [[ "$resolved_worktrees_root/" == "$resolved_repos_root/"* ]]; then
+    printf 'REPOS_ROOT and WORKTREES_ROOT must be separate, non-nested directories.\n' >&2
+    exit 1
+fi
+
 startup_log() {
     printf '%s [startup] %s\n' "$(date -Iseconds)" "$*"
 }
@@ -238,22 +256,24 @@ startup_step_end
 # runtime state.
 startup_step_begin "prepare shared runtime volume roots"
 startup_debug_path_summary /var/lib/vd
-startup_debug_path_summary /var/tmp/vibe-kanban
-ensure_shared_dir /var/lib/vd /var/tmp/vibe-kanban
+ensure_shared_dir /var/lib/vd
+ensure_vkuser_shared_dir "$WORKTREES_ROOT"
+runuser -u vkuser -- test -w "$WORKTREES_ROOT"
 startup_step_end
 
 # Initialize vibe-kanban-vscode-web repository in repos volume. The seed copy
 # runs as vkuser, so preserved repos do not need recursive permission repair
 # on every startup.
 startup_step_begin "prepare repository root directory"
-ensure_vkuser_shared_dir /home/vkuser/repos /home/vkuser/repos/vibe-kanban-vscode-web
+ensure_vkuser_shared_dir "$REPOS_ROOT" "$REPOS_ROOT/vibe-kanban-vscode-web"
+runuser -u vkuser -- test -w "$REPOS_ROOT"
 startup_step_end
 
 startup_step_begin "sync seeded repository"
 /usr/local/bin/sync-seeded-repo.sh || true
 startup_step_end
 
-startup_debug_path_summary /home/vkuser/repos/vibe-kanban-vscode-web
+startup_debug_path_summary "$REPOS_ROOT/vibe-kanban-vscode-web"
 startup_log "Skipping recursive repository permission repair; repository files are created as vkuser"
 
 # Ensure plugin runtime paths and the plugin-owned Caddy import exist before

@@ -762,6 +762,10 @@ mod tests {
     }
 
     fn init_git_repo(path: &Path) {
+        let repo = git2::Repository::init(path).unwrap();
+        let mut config = repo.config().unwrap();
+        config.set_str("user.name", "Test User").unwrap();
+        config.set_str("user.email", "test@example.com").unwrap();
         GitService::new()
             .initialize_repo_with_main_branch(path)
             .unwrap();

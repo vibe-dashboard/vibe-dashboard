@@ -61,17 +61,17 @@ process_names:
     cmdline:
       - '--service='
 
-  - name: "dashboard-node-server"
+  - name: "alohak-node-server"
     exe:
       - node
     cmdline:
       - 'dist/node/node-entry\.mjs'
 
-  - name: "dashboard-npm-start"
+  - name: "alohak-npm-start"
     cmdline:
       - 'npm start'
 
-  - name: "dashboard-shell"
+  - name: "alohak-shell"
     exe:
       - sh
       - bash

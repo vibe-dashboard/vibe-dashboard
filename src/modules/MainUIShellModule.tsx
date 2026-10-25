@@ -6,6 +6,7 @@ import { useLocation, useNavigate } from "react-router";
 import { HeroUIProvider } from "@heroui/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppLoadingScreen } from "../components/AppLoadingScreen";
+import { GitIdentityOnboarding } from "../components/GitIdentityOnboarding";
 import { WorkspaceShell } from "../components/WorkspaceShell";
 import { useSessionWorkspaceNav } from "../sessionState";
 import type { NewSessionInitialSelection } from "../sessionState";
@@ -159,9 +160,9 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
   const DashboardRoute = () => {
     const location = useLocation();
     if (hasExternalViewQueryParam(location.search)) {
-      return <ExternalKanbanDashboardRoute search={location.search} />;
+      return <GitIdentityOnboarding><ExternalKanbanDashboardRoute search={location.search} /></GitIdentityOnboarding>;
     }
-    return <WorkspaceRoute />;
+    return <GitIdentityOnboarding><WorkspaceRoute /></GitIdentityOnboarding>;
   };
 
   // Shared route component with canonical voyage query-param support
@@ -976,17 +977,16 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
       return (
         <div className="dark w-screen h-screen fixed inset-0 bg-neutral-950 text-neutral-100 flex items-center justify-center p-6">
           <div className="w-full max-w-lg rounded-2xl border border-neutral-800 bg-neutral-900 p-6 shadow-2xl">
+            <img src="/alohak-logo.png" alt="Alohak" className="mx-auto mb-5 h-36 w-36 rounded-xl object-contain" />
             <div className="text-xs font-semibold uppercase tracking-[0.2em] text-neutral-500">
               Create your first Voyage
             </div>
             <h1 className="mt-3 text-2xl font-semibold">
-              Name the Voyage for this workspace.
+              Welcome to Alohak. Let’s create your first voyage and get hacking!
             </h1>
             <p className="mt-3 text-sm leading-6 text-neutral-400">
-              A Voyage is the named set of craft and views you are working with.
-              Naming it gives the URL a stable Voyage identity, so the app can
-              restore and share this workspace without relying on hidden browser
-              state.
+              Name your voyage to save and share the craft and views you are
+              working with.
             </p>
             <p className="mt-3 text-sm leading-6 text-neutral-400">
               We will start this Voyage with{" "}
@@ -1226,13 +1226,13 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
   moduleAPI.registerRoute(
     "/dashboard/workspaces/:workspaceId",
     { hideApplicationShell: true },
-    DashboardWorkspaceRoute,
+    () => <GitIdentityOnboarding><DashboardWorkspaceRoute /></GitIdentityOnboarding>,
   );
 
   moduleAPI.registerRoute(
     "/dashboard/admin/plugins",
     { hideApplicationShell: true },
-    AdminPluginsRoute,
+    () => <GitIdentityOnboarding><AdminPluginsRoute /></GitIdentityOnboarding>,
   );
 
   return {

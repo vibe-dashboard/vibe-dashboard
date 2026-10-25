@@ -360,7 +360,7 @@ describe('VK mocked sandbox helpers', () => {
       'handle_path /vk-static/* {',
       '  reverse_proxy localhost:{$BACKEND_PORT:3007}',
       '}',
-      '# Vibe Dashboard app',
+      '# Alohak app',
       '@vibe_dashboard_assets {',
       '  path /assets/*',
       '}',
@@ -438,7 +438,7 @@ describe('VK mocked sandbox helpers', () => {
       'handle_path /vk-static/* {',
       '  reverse_proxy localhost:{$BACKEND_PORT:3007}',
       '}',
-      '# Vibe Dashboard app',
+      '# Alohak app',
       '@vibe_dashboard_assets {',
       '  path /assets/*',
       '}',
@@ -501,7 +501,7 @@ describe('VK mocked sandbox helpers', () => {
         vdCaddy: 4101,
       },
       runDir: '/tmp/run',
-      caddyfile: '# Vibe Dashboard app\nmocked sandbox caddyfile',
+      caddyfile: '# Alohak app\nmocked sandbox caddyfile',
     });
 
     expect(plan.setupCommands.map((command) => command.name)).toEqual([

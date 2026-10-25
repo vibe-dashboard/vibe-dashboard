@@ -147,6 +147,45 @@ impl Default for GitService {
     }
 }
 
+fn validate_identity_value(value: &str) -> Result<(), GitServiceError> {
+    let normalized = value.trim().to_ascii_lowercase();
+    if normalized.is_empty()
+        || [
+            "vibe kanban",
+            "vibe-kanban",
+            "vibe dashboard",
+            "vibe-dashboard",
+            "noreply@vibekanban.com",
+            "vd-instance@localhost",
+        ]
+        .contains(&normalized.as_str())
+    {
+        return Err(GitError::from_str(
+            "Configure your Git name and email during Alohak onboarding before creating commits. Repository-local user.name/user.email or author/committer overrides must also identify you.",
+        )
+        .into());
+    }
+    Ok(())
+}
+
+fn require_commit_identity(repo: &Repository) -> Result<(), GitServiceError> {
+    let config = repo.config()?;
+    for key in ["user.name", "user.email"] {
+        validate_identity_value(&config.get_string(key).unwrap_or_default())?;
+    }
+    for key in [
+        "author.name",
+        "author.email",
+        "committer.name",
+        "committer.email",
+    ] {
+        if let Ok(value) = config.get_string(key) {
+            validate_identity_value(&value)?;
+        }
+    }
+    Ok(())
+}
+
 impl GitService {
     /// Create a new GitService for the given repository path
     pub fn new() -> Self {
@@ -203,31 +242,27 @@ impl GitService {
         Ok(())
     }
 
-    /// Ensure local (repo-scoped) identity exists for CLI commits.
-    /// Sets user.name/email only if missing in the repo config.
+    /// Require a configured identity; never seed a product-owned author.
     fn ensure_cli_commit_identity(&self, repo_path: &Path) -> Result<(), GitServiceError> {
         let repo = self.open_repo(repo_path)?;
-        let cfg = repo.config()?;
-        let has_name = cfg.get_string("user.name").is_ok();
-        let has_email = cfg.get_string("user.email").is_ok();
-        if !(has_name && has_email) {
-            let mut cfg = repo.config()?;
-            cfg.set_str("user.name", "Vibe Kanban")?;
-            cfg.set_str("user.email", "noreply@vibekanban.com")?;
+        require_commit_identity(&repo)?;
+        for role in ["AUTHOR", "COMMITTER"] {
+            for field in ["NAME", "EMAIL"] {
+                if let Ok(value) = std::env::var(format!("GIT_{role}_{field}")) {
+                    validate_identity_value(&value)?;
+                }
+            }
         }
         Ok(())
     }
 
-    /// Get a signature for libgit2 commits with a safe fallback identity.
+    /// Get the configured signature; never substitute a fallback identity.
     fn signature_with_fallback<'a>(
         &self,
         repo: &'a Repository,
     ) -> Result<git2::Signature<'a>, GitServiceError> {
-        match repo.signature() {
-            Ok(sig) => Ok(sig),
-            Err(_) => git2::Signature::now("Vibe Kanban", "noreply@vibekanban.com")
-                .map_err(GitServiceError::from),
-        }
+        require_commit_identity(repo)?;
+        repo.signature().map_err(GitServiceError::from)
     }
 
     fn default_remote(
@@ -314,10 +349,10 @@ impl GitService {
             return Ok(false);
         }
 
-        git.add_all(path)
-            .map_err(|e| GitServiceError::InvalidRepository(format!("git add failed: {e}")))?;
         // Only ensure identity once we know we're about to commit
         self.ensure_cli_commit_identity(path)?;
+        git.add_all(path)
+            .map_err(|e| GitServiceError::InvalidRepository(format!("git add failed: {e}")))?;
         git.commit(path, message)
             .map_err(|e| GitServiceError::InvalidRepository(format!("git commit failed: {e}")))?;
         Ok(true)

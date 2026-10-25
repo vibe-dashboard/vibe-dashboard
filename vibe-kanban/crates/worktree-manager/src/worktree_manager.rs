@@ -509,12 +509,10 @@ impl WorktreeManager {
 
     /// Get the base directory for vibe-kanban worktrees
     pub fn get_worktree_base_dir() -> std::path::PathBuf {
-        if let Some(override_path) = WORKSPACE_DIR_OVERRIDE.get() {
-            // Always use app-owned subdirectory within custom path for safety.
-            // This ensures orphan cleanup never touches user's existing folders.
-            return override_path.join(".vibe-kanban-workspaces");
-        }
-        Self::get_default_worktree_base_dir()
+        resolve_worktrees_root(
+            std::env::var_os("WORKTREES_ROOT"),
+            WORKSPACE_DIR_OVERRIDE.get().map(PathBuf::as_path),
+        )
     }
 
     /// Get the default base directory (ignoring any override)
@@ -535,12 +533,52 @@ impl WorktreeManager {
     }
 }
 
+/// Environment roots are exact app-owned paths, without a hidden suffix.
+fn resolve_worktrees_root(configured: Option<std::ffi::OsString>, saved: Option<&Path>) -> PathBuf {
+    configured
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            let root = PathBuf::from(value);
+            assert!(
+                root.is_absolute() && root.parent().is_some(),
+                "WORKTREES_ROOT must be an absolute directory other than /"
+            );
+            root
+        })
+        .unwrap_or_else(|| {
+            saved
+                .map(|path| path.join(".vibe-kanban-workspaces"))
+                .unwrap_or_else(WorktreeManager::get_default_worktree_base_dir)
+        })
+}
+
+#[test]
+fn environment_root_is_exact_and_overrides_saved_settings() {
+    let saved = Path::new("/previous/setting");
+    assert_eq!(
+        resolve_worktrees_root(Some("/worktrees".into()), Some(saved)),
+        PathBuf::from("/worktrees")
+    );
+    assert_eq!(
+        resolve_worktrees_root(Some("/custom/.vibe-kanban-workspaces".into()), Some(saved)),
+        PathBuf::from("/custom/.vibe-kanban-workspaces")
+    );
+    assert_eq!(
+        resolve_worktrees_root(None, Some(saved)),
+        saved.join(".vibe-kanban-workspaces")
+    );
+}
+
 #[tokio::test]
 async fn create_worktree_when_repo_path_is_a_worktree() {
     use tempfile::TempDir;
     let td = TempDir::new().unwrap();
 
     let repo_path = td.path().join("repo");
+    let repo = git2::Repository::init(&repo_path).unwrap();
+    let mut config = repo.config().unwrap();
+    config.set_str("user.name", "Test User").unwrap();
+    config.set_str("user.email", "test@example.com").unwrap();
     let git_service = GitService::new();
     git_service
         .initialize_repo_with_main_branch(&repo_path)

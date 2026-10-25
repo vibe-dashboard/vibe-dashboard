@@ -1,6 +1,9 @@
-# Vibe Dashboard
+# Alohak
 
-A coding agent dashboard built on top of https://github.com/BloopAI/vibe-kanban and https://github.com/coder/code-server
+<img src="public/alohak-logo.png" alt="Alohak" width="240" />
+
+A coding workspace for voyages, craft, and AI agents, with an integrated editor,
+repository management, and agent sessions.
 
 ## Quick start
 
@@ -9,7 +12,7 @@ A coding agent dashboard built on top of https://github.com/BloopAI/vibe-kanban 
 
 A docker container will run the following:
 
-- `vibe-kanban`
+- A workspace backend for repositories, worktrees, and coding agents
 - `code-server`
 - `caddy` as the main UI entrypoint
 
@@ -33,7 +36,28 @@ Caddy forwards `port-<port>.*` subdomains to `localhost:<port>` inside the conta
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `VKVD_IMAGE_VERSION` | `latest` | Fetches image from ghcr.io/vibe-dashboard/vk-vd:${VKVD_IMAGE_VERSION:-latest}. The compose file's pull policy is set to "always", so if you want to pin a specific version, use this arg. |
+| `VKVD_IMAGE_VERSION` | `latest` | Selects the published container image version. Compose always checks for the selected image; pin this value for reproducible deployments. |
+
+#### Repository and worktree directories
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `REPOS_ROOT` | `/repos` | Absolute container path for repository discovery, cloning, and the seeded source checkout. |
+| `WORKTREES_ROOT` | `/worktrees` | Absolute, dedicated container path for generated workspaces. Used exactly, without an extra subdirectory. |
+
+Set these in the host environment or `.env` before starting Compose. The same
+values determine both application behavior and where existing repository/worktree
+volumes are mounted. Volume identities are retained. These directories must be
+separate and non-nested; worktree cleanup owns the worktree directory.
+
+The environment takes precedence over saved workspace-directory settings. For an
+existing deployment, set both roots to the exact paths required by its existing
+repositories and Git worktree metadata before recreating the container. Paths are
+not automatically migrated or rewritten.
+
+The container creates the resolved roots for `vkuser` with shared-group write
+permissions. Startup does not recursively scan or change ownership of repository
+contents. Existing incorrectly owned files need an explicit administrator repair.
 
 #### Ports
 
@@ -59,9 +83,9 @@ Caddy forwards `port-<port>.*` subdomains to `localhost:<port>` inside the conta
 | `TAILSCALE_HOSTNAME` | `vkdev` | Tailscale node hostname. |
 | `VK_ALLOWED_ORIGINS` | empty | Optional backend CORS allowlist. |
 
-#### Optional Vibe Kanban performance tracing / SigNoz
+#### Optional backend performance tracing / SigNoz
 
-Tracing is disabled by default. To export Vibe Kanban performance spans from
+Tracing is disabled by default. To export backend performance spans from
 the container to self-hosted SigNoz, set `VK_PERF_TRACING=1` and point the
 sibling OpenTelemetry Collector at the SigNoz collector endpoint reachable from
 this Docker network:
@@ -73,7 +97,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
 # Forward from the sibling collector to self-hosted SigNoz over OTLP/HTTP.
 # Use the OTLP HTTP base endpoint; do not include /v1/traces here.
 SIGNOZ_OTLP_HTTP_ENDPOINT=http://signoz-otel-collector:4318
-OTEL_SERVICE_NAME=vibe-kanban-backend
+OTEL_SERVICE_NAME=workspace-backend
 OTEL_RESOURCE_ATTRIBUTES=service.version=local-compose
 ```
 
@@ -121,12 +145,16 @@ docker compose --profile novnc exec code-vibe curl -fsS http://novnc:9222/json/v
 
 ## GitHub auth
 
-Run `gh auth login` once after first starting the container. Git is pre-configured to use `gh` as the credential helper, so no additional setup is needed.
+Run `gh auth login` once after first starting the container. Git is pre-configured
+to use `gh` as the credential helper. During Alohak onboarding, use your connected
+GitHub profile to fill in your Git name and email, or enter them manually, then
+confirm and save. Authentication and commit identity are separate: no product bot
+identity is substituted if your name or email is missing.
 
 Credentials and other per-instance XDG settings persist in the `user-config`
 volume mounted at `/home/vkuser/.config`.
 
-To set your Git identity (also persisted):
+To set your Git identity manually (also persisted):
 
 ```bash
 git config --global user.name "Your Name"

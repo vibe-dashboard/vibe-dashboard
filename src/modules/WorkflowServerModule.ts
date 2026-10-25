@@ -11,9 +11,11 @@ import { registerVkRepoRoutes } from '../server/vk-repo-routes';
 import { registerPreviewResolverRoutes } from '../server/preview-resolver-routes';
 import { workflowRegistry } from '../workflows/registry';
 import type { CachedRepoAlias } from '../workflows/github-ci';
+import { getReposRoot } from '../server/repository-root';
+import { registerGitIdentityRoutes } from '../server/git-identity';
 
 const execFileAsync = promisify(execFile);
-const reposRoot = process.env.VK_REPOS_ROOT || join(process.env.HOME || '/home/vkuser', 'repos');
+const reposRoot = getReposRoot();
 const pluginInstallRoot = process.env.VD_PLUGIN_INSTALL_ROOT || join(process.cwd(), 'plugins');
 let cachedGitRepos: CachedRepoAlias[] | null = null;
 
@@ -30,6 +32,7 @@ serverRegistry.registerServerModule((api) => {
   registerPluginAdminRoutes(api.hono);
   registerVkWorkspaceRoutes(api.hono);
   registerVkRepoRoutes(api.hono);
+  registerGitIdentityRoutes(api.hono);
   registerPreviewResolverRoutes(api.hono);
 });
 

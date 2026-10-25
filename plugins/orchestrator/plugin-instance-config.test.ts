@@ -31,7 +31,7 @@ describe('per-instance plugin config CLI', () => {
       pluginId: 'vd.beads-web',
       beforePluginCount: 0,
       afterPluginCount: 1,
-      gitActions: ['git init', 'git config local author defaults', 'git add plugins.json', 'git commit', 'git push when requested'],
+      gitActions: ['git init', 'require configured Git identity', 'git add plugins.json', 'git commit', 'git push when requested'],
     });
   });
 
@@ -67,8 +67,6 @@ describe('per-instance plugin config CLI', () => {
     await expect(readFile(join(configRepoDir, 'plugins.json'), 'utf8')).resolves.toContain('vd.beads-web');
     expect(commands).toEqual([
       'git init',
-      'git config user.email vd-instance@localhost',
-      'git config user.name Vibe Dashboard',
       'git add plugins.json',
       'git commit -m Install beads-web plugin',
     ]);
@@ -114,7 +112,7 @@ describe('per-instance plugin config CLI', () => {
       pluginId: 'vd.beads-web',
       beforeEnable: true,
       afterEnable: false,
-      gitActions: ['git init', 'git config local author defaults', 'git add plugins.json', 'git commit', 'git push when requested'],
+      gitActions: ['git init', 'require configured Git identity', 'git add plugins.json', 'git commit', 'git push when requested'],
     });
 
     await expect(readFile(join(configRepoDir, 'plugins.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
@@ -153,10 +151,8 @@ describe('per-instance plugin config CLI', () => {
       });
     expect(commands).toEqual([
       'git init',
-      'git config user.email vd-instance@localhost',
-      'git config user.name Vibe Dashboard',
       'git add plugins.json',
-      'git commit -m Set VD plugin vd.beads-web disabled',
+      'git commit -m Set Alohak plugin vd.beads-web disabled',
     ]);
   });
 

@@ -56,8 +56,9 @@ fn configure_user(repo_path: &Path, name: &str, email: &str) {
 fn init_repo_main(root: &TempDir) -> PathBuf {
     let path = root.path().join("repo");
     let s = GitService::new();
-    s.initialize_repo_with_main_branch(&path).unwrap();
+    Repository::init(&path).unwrap();
     configure_user(&path, "Test User", "test@example.com");
+    s.initialize_repo_with_main_branch(&path).unwrap();
     checkout_branch(&path, "main");
     path
 }
@@ -91,45 +92,50 @@ fn commit_empty_message_behaviour() {
     }
 }
 
-fn has_global_git_identity() -> bool {
-    if let Ok(cfg) = git2::Config::open_default() {
-        let has_name = cfg.get_string("user.name").is_ok();
-        let has_email = cfg.get_string("user.email").is_ok();
-        return has_name && has_email;
-    }
-    false
-}
-
 #[test]
-fn initialize_repo_without_user_creates_initial_commit() {
+fn initialize_repo_requires_configured_identity() {
     let td = TempDir::new().unwrap();
     let repo_path = td.path().join("repo_no_user_init");
     let s = GitService::new();
-    // No configure_user call; rely on fallback signature for initial commit
-    s.initialize_repo_with_main_branch(&repo_path).unwrap();
-    let head = s.get_head_info(&repo_path).unwrap();
-    assert_eq!(head.branch, "main");
-    assert!(!head.oid.is_empty());
-    // Verify author is set: either global identity (if configured) or fallback
-    let (name, email) = get_head_author(&repo_path);
-    if has_global_git_identity() {
-        assert!(name.is_some() && email.is_some());
-    } else {
-        assert_eq!(name.as_deref(), Some("Vibe Kanban"));
-        assert_eq!(email.as_deref(), Some("noreply@vibekanban.com"));
-    }
+    Repository::init(&repo_path).unwrap();
+    configure_user(&repo_path, "", "");
+    let error = s.initialize_repo_with_main_branch(&repo_path).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("Configure your Git name and email")
+    );
+    assert!(s.get_head_info(&repo_path).is_err());
 }
 
 #[test]
-fn commit_without_user_config_succeeds() {
+fn commit_rejects_missing_or_branded_identity_without_rewriting_config() {
     let td = TempDir::new().unwrap();
-    let repo_path = td.path().join("repo_no_user");
+    let repo_path = init_repo_main(&td);
     let s = GitService::new();
-    s.initialize_repo_with_main_branch(&repo_path).unwrap();
     write_file(&repo_path, "f.txt", "x\n");
-    // No configure_user call here
-    let res = s.commit(&repo_path, "no user config");
-    assert!(res.is_ok());
+    let original_head = s.get_head_info(&repo_path).unwrap().oid;
+    for (name, email) in [
+        ("", ""),
+        ("Vibe Kanban", "noreply@vibekanban.com"),
+        ("Vibe Dashboard", "vd-instance@localhost"),
+    ] {
+        configure_user(&repo_path, name, email);
+        assert!(s.commit(&repo_path, "must not commit").is_err());
+        assert_eq!(s.get_head_info(&repo_path).unwrap().oid, original_head);
+        let config = Repository::open(&repo_path).unwrap().config().unwrap();
+        assert_eq!(config.get_string("user.name").unwrap(), name);
+        assert_eq!(config.get_string("user.email").unwrap(), email);
+    }
+    configure_user(&repo_path, "Actual User", "actual@example.com");
+    s.commit(&repo_path, "configured identity").unwrap();
+    assert_eq!(
+        get_head_author(&repo_path),
+        (
+            Some("Actual User".into()),
+            Some("actual@example.com".into())
+        )
+    );
 }
 
 #[test]
@@ -373,17 +379,13 @@ fn worktree_diff_permission_only_change() {
 }
 
 #[test]
-fn squash_merge_libgit2_sets_author_without_user() {
-    // Verify merge_changes (libgit2 path) uses fallback author when no config exists
+fn squash_merge_libgit2_uses_configured_author() {
     use git2::Repository;
 
     let td = TempDir::new().unwrap();
-    let repo_path = td.path().join("repo_fallback_merge");
+    let repo_path = init_repo_main(&td);
     let worktree_path = td.path().join("wt_feature");
     let s = GitService::new();
-
-    // Init repo without user config
-    s.initialize_repo_with_main_branch(&repo_path).unwrap();
 
     // Create feature branch and worktree
     create_branch(&repo_path, "feature");
@@ -422,10 +424,6 @@ fn squash_merge_libgit2_sets_author_without_user() {
     let (name, email) = get_commit_author(&repo_path, &merge_sha);
     assert_ne!(name.as_deref(), Some("Other Author"));
     assert_ne!(email.as_deref(), Some("other@example.com"));
-    if has_global_git_identity() {
-        assert!(name.is_some() && email.is_some());
-    } else {
-        assert_eq!(name.as_deref(), Some("Vibe Kanban"));
-        assert_eq!(email.as_deref(), Some("noreply@vibekanban.com"));
-    }
+    assert_eq!(name.as_deref(), Some("Test User"));
+    assert_eq!(email.as_deref(), Some("test@example.com"));
 }

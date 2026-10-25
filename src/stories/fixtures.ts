@@ -193,7 +193,7 @@ export const storybookSavedSessions: SavedWorkspaceSession[] = [
 ];
 
 export const storybookRepos: Repo[] = [
-  { id: 'repo_dashboard', name: 'vibe-dashboard', display_name: 'Vibe Dashboard' },
+  { id: 'repo_dashboard', name: 'alohak', display_name: 'Alohak' },
   { id: 'repo_kanban', name: 'vibe-kanban', display_name: 'Vibe Kanban' },
 ];
 
@@ -201,16 +201,16 @@ export const storybookRepoBranches: Record<string, RepoWithBranch[]> = {
   ws_story_auth: [
     {
       id: 'repo_dashboard',
-      name: 'vibe-dashboard',
-      display_name: 'Vibe Dashboard',
+      name: 'alohak',
+      display_name: 'Alohak',
       target_branch: 'main',
     },
   ],
   ws_story_docs: [
     {
       id: 'repo_dashboard',
-      name: 'vibe-dashboard',
-      display_name: 'Vibe Dashboard',
+      name: 'alohak',
+      display_name: 'Alohak',
       target_branch: 'docs',
     },
   ],

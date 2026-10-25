@@ -37,6 +37,8 @@ services:
       CODEX_SQLITE_LOGS: ${CODEX_SQLITE_LOGS:-off}
       VK_SETTINGS_DIRECTORY: ${VK_SETTINGS_DIRECTORY:-/var/lib/vd/vk-config}
       VD_BEADS_DIRECTORY: ${VD_BEADS_DIRECTORY:-/var/lib/vd/beads}
+      WORKTREES_ROOT: ${WORKTREES_ROOT:-/worktrees}
+      REPOS_ROOT: ${REPOS_ROOT:-/repos}
 
       ENABLE_TAILSCALE: ${ENABLE_TAILSCALE:-false}
       TAILSCALE_AUTHKEY: ${TAILSCALE_AUTHKEY:-}
@@ -75,9 +77,9 @@ services:
 
     volumes:
       - docker-data:/var/lib/docker
-      - vibe-kanban-repos:/home/vkuser/repos
+      - vibe-kanban-repos:${REPOS_ROOT:-/repos}
       - vibe-kanban-data:/home/vkuser/.local/share/vibe-kanban
-      - vibe-kanban-worktrees:/var/tmp/vibe-kanban/worktrees
+      - vibe-kanban-worktrees:${WORKTREES_ROOT:-/worktrees}
       - vibe-dashboard-data:/home/vkuser/.local/share/vibe-dashboard-runtime/data
       - vibe-dashboard-plugin-data:/var/lib/vd
       - code-server-data:/home/vkuser/.local/share/code-server

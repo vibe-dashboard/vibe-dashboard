@@ -1,4 +1,4 @@
-# Colima profile for running the Vibe Dashboard Docker app with Sysbox-backed
+# Colima profile for running the Alohak Docker app with Sysbox-backed
 # Docker-in-Docker on macOS.
 #
 # Usage:

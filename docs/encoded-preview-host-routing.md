@@ -1,6 +1,6 @@
 # Encoded preview host routing
 
-Vibe Dashboard preview hosts use a first-level encoded hostname so Cloudflare TLS
+Alohak preview hosts use a first-level encoded hostname so Cloudflare TLS
 and wildcard routing only need to cover `*.vibedashboard.dev`:
 
 ```text
@@ -36,7 +36,7 @@ grammar. Advanced deployments may still set the optional `base_domain` handler
 option to restrict preview matching to one DNS suffix.
 
 Preview URL generation still needs to choose a public scheme, DNS suffix, and
-optional port. The `vk preview-url url` CLI and Vibe Dashboard internal preview
+optional port. The `vk preview-url url` CLI and Alohak internal preview
 URL route use the scheme, hostname, and port from `SITE_ORIGIN`. Override those
 for a single command or runtime by setting `SITE_ORIGIN` for that process.
 

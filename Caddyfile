@@ -75,7 +75,7 @@
 		}
 	}
 
-	# Vibe Dashboard app
+	# Alohak app
 	@vibe_dashboard_root {
 		path /
 		path /dashboard /dashboard/*
@@ -94,6 +94,7 @@
 		path /kv/*
 		path /rpc/*
 		path /assets/*
+		path /alohak-*
 	}
 
 	# Hashed assets (e.g. /assets/index-B1rC7_Az.js) are content-addressed and safe to cache indefinitely
