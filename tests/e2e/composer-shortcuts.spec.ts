@@ -69,7 +69,10 @@ test('Open Craft shortcut works from both native composers without submitting or
       await page.getByRole('option', { name: /main/ }).click();
       await create.getByRole('button', { name: 'Continue', exact: true }).click();
     }
-    await checkOpenCraftShortcut(page, createComposer, 'Keep the new workspace draft');
+    const createDraft = 'Keep the new workspace draft';
+    const selectedRepo = create.getByRole('button', { name: 'repo · main', exact: true });
+    await expect(selectedRepo).toBeVisible();
+    await checkOpenCraftShortcut(page, createComposer, createDraft);
     await createComposer.focus();
     await createComposer.press('Control+[');
     await expect(chat).toBeVisible();
@@ -81,8 +84,28 @@ test('Open Craft shortcut works from both native composers without submitting or
       await chatComposer.press('Control+]');
       await expect(create).toBeVisible({ timeout: 1500 });
     }).toPass({ timeout: 5000 });
+    await expect(createComposer).toHaveText(createDraft);
+    await expect(selectedRepo).toBeVisible();
+    await expect.poll(() => [...backend.scratches.values()].some((scratch) =>
+      scratch.payload?.type === 'DRAFT_WORKSPACE' &&
+      scratch.payload.data.message === createDraft &&
+      scratch.payload.data.repos.some((repo: { repo_id: string; target_branch: string }) =>
+        repo.repo_id === 'repo-1' && repo.target_branch === 'main'
+      )
+    )).toBe(true);
+
+    await page.reload();
+    await expect(createComposer).toHaveText(createDraft, { timeout: 60_000 });
+    await expect(selectedRepo).toBeVisible();
+    await createComposer.focus();
+    await createComposer.press('Control+[');
+    await expect(chatComposer).toHaveText('Keep the chat draft');
+    await chatComposer.focus();
+    await chatComposer.press('Control+]');
+    await expect(createComposer).toHaveText(createDraft);
+    await expect(selectedRepo).toBeVisible();
     expect(backend.requests.filter((item) => item.method === 'POST' &&
-      (item.path.endsWith('/follow-up') || item.path === '/api/workspaces'))).toEqual([]);
+      (item.path.endsWith('/follow-up') || item.path === '/api/workspaces/start'))).toEqual([]);
   } finally {
     await page.close();
     for (const [action, params] of [
