@@ -1044,7 +1044,8 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
 
     return (
       <>
-        <div className="w-screen h-screen fixed inset-0 bg-background text-foreground">
+        {/* Fixed edges follow the visible viewport; 100vh extends behind mobile browser chrome. */}
+        <div className="fixed inset-0 bg-background text-foreground">
           <WorkspaceShell
             workspace={workspace}
             session={sessionNav}
