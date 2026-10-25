@@ -9,6 +9,7 @@ import {
   PlusIcon,
 } from '@phosphor-icons/react';
 import { cn } from '../lib/cn';
+import { WORKSPACE_ATTACHMENT_PATH_PATTERN } from '../lib/workspaceAttachments';
 import { PriorityIcon, type PriorityLevel } from './PriorityIcon';
 import { KanbanBadge } from './KanbanBadge';
 import { KanbanAssignee, type KanbanAssigneeUser } from './KanbanAssignee';
@@ -99,7 +100,10 @@ function formatKanbanDescriptionPreview(
       }
     )
     .replace(
-      /(?<!!)\[([^\]]*)\]\((attachment:\/\/[^)]+|\.vibe-attachments\/[^)]+)\)/g,
+      new RegExp(
+        String.raw`(?<!!)\[([^\]]*)\]\((attachment:\/\/[^)]+|${WORKSPACE_ATTACHMENT_PATH_PATTERN}[^)]+)\)`,
+        'g'
+      ),
       (_match, label: string) => {
         const normalizedLabel = label.trim();
         return normalizedLabel

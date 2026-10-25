@@ -16,6 +16,7 @@ import { useCreateAttachments } from '@/shared/hooks/useCreateAttachments';
 import { useExecutorConfig } from '@/shared/hooks/useExecutorConfig';
 import { saveProjectRepoDefaults } from '@/shared/hooks/useProjectRepoDefaults';
 import { getSortedExecutorVariantKeys } from '@/shared/lib/executor';
+import { buildAgentPrompt } from '@/shared/lib/promptMessage';
 import {
   toPrettyCase,
   splitMessageToTitleDescription,
@@ -239,7 +240,7 @@ export function CreateChatBoxContainer({
     const data = {
       executor_config: executorConfig,
       name: title,
-      prompt: message,
+      prompt: buildAgentPrompt(message, []).prompt,
       repos: repos.map((r) => ({
         repo_id: r.id,
         target_branch: targetBranches[r.id]!,

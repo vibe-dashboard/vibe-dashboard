@@ -1,5 +1,71 @@
 import { expect, test } from './backend';
 
+for (const mode of ['queue', 'create', 'legacy'] as const) {
+  test(`attachment paths and inspection guidance reach the agent through ${mode}`, async ({
+    page,
+    backend,
+  }) => {
+    if (mode === 'legacy') backend.attachmentDirectory = '.vibe-attachments';
+    await page.goto(mode === 'create' ? '/?create' : '/');
+    if (mode === 'create') {
+      await page.getByRole('button', { name: 'Recent', exact: true }).click();
+      await page.getByText('repo', { exact: true }).click();
+      await page.getByRole('option', { name: /main/ }).click();
+      await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    }
+    const surface =
+      mode === 'create'
+        ? page.getByTestId('inline-vk-create-workspace')
+        : page.getByRole('region', { name: 'Left Agent' });
+    await expect(
+      surface.getByRole('textbox', { name: /Follow up|Markdown editor/ }).last()
+    ).toBeVisible();
+    if (mode === 'queue') {
+      await expect(surface).toContainText('History for session-1');
+      backend.stream('session-1', 'Executing');
+      await expect(surface).toContainText('Executing');
+    }
+    await surface
+      .getByRole('textbox', { name: /Follow up|Markdown editor/ })
+      .last()
+      .fill('Inspect this attachment');
+    const chooser = page.waitForEvent('filechooser');
+    await surface.getByRole('button', { name: 'Attach file' }).click();
+    await (
+      await chooser
+    ).setFiles({
+      name: 'proof.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from('proof'),
+    });
+    await expect(surface).toContainText('proof.txt');
+    const submission = page.waitForRequest(
+      (request) =>
+        request.method() === 'POST' &&
+        (mode === 'queue'
+          ? request.url().endsWith('/queue')
+          : mode === 'legacy'
+            ? request.url().endsWith('/follow-up')
+            : request.url().endsWith('/api/workspaces/start'))
+    );
+    await surface
+      .getByRole('button', {
+        name:
+          mode === 'queue' ? 'Queue' : mode === 'legacy' ? 'Send' : 'Create',
+        exact: true,
+      })
+      .click();
+    const payload = (await submission).postDataJSON();
+    const prompt = mode === 'queue' ? payload.message : payload.prompt;
+    expect(prompt).toContain(
+      `[proof.txt](${backend.attachmentDirectory}/proof.txt)`
+    );
+    expect(prompt).toContain(`stored in \`${backend.attachmentDirectory}/\``);
+    expect(prompt).toContain("relative to your session's working directory");
+    expect(prompt).toContain('Open the linked attachment paths');
+  });
+}
+
 test('approval subscriptions remain bounded while rows mount and panes switch or unmount', async ({
   page,
   backend,
@@ -19,10 +85,10 @@ test('approval subscriptions remain bounded while rows mount and panes switch or
   backend.approval('session-1');
   backend.approval('session-2');
   await expect(
-    left.getByRole('button', { name: 'Approve', exact: true }),
+    left.getByRole('button', { name: 'Approve', exact: true })
   ).toBeVisible();
   await expect(
-    right.getByRole('button', { name: 'Approve', exact: true }),
+    right.getByRole('button', { name: 'Approve', exact: true })
   ).toBeVisible();
   await expect.poll(connections).toBe(2);
   await page.getByRole('button', { name: 'Unmount left', exact: true }).click();
@@ -31,7 +97,7 @@ test('approval subscriptions remain bounded while rows mount and panes switch or
   await expect(right).toContainText('Approval response received');
   await page.getByRole('button', { name: 'Mount left', exact: true }).click();
   await expect(
-    left.getByRole('button', { name: 'Approve', exact: true }),
+    left.getByRole('button', { name: 'Approve', exact: true })
   ).toBeVisible();
   await expect.poll(connections).toBe(2);
   await left.getByRole('button', { name: 'Approve', exact: true }).click();
@@ -65,33 +131,31 @@ for (const mode of ['agent', 'create'] as const) {
       canvas.width = 2;
       canvas.height = 2;
       const image = await new Promise<Blob>((resolve) =>
-        canvas.toBlob((blob) => resolve(blob!), 'image/png'),
+        canvas.toBlob((blob) => resolve(blob!), 'image/png')
       );
       await navigator.clipboard.write([
         new ClipboardItem({ 'image/png': image }),
       ]);
     });
     const upload = page.waitForRequest((request) =>
-      request.url().includes('/attachments/upload'),
+      request.url().includes('/attachments/upload')
     );
     await editor.focus();
     await page.keyboard.press('Control+v');
     expect((await upload).postDataBuffer()?.toString('latin1')).toContain(
-      'image/png',
+      'image/png'
     );
     await expect(surface).toContainText('proof.txt');
     await expect(editor).toContainText(`Keep ${mode} draft`);
     expect(
       backend.requests.filter((request) =>
-        request.path.endsWith('/attachments/upload'),
-      ),
+        request.path.endsWith('/attachments/upload')
+      )
     ).toHaveLength(1);
     if (mode === 'agent') {
       const right = page.getByRole('region', { name: 'Right Agent' });
       await expect(
-        right
-          .getByRole('textbox', { name: /Follow up|Markdown editor/ })
-          .last(),
+        right.getByRole('textbox', { name: /Follow up|Markdown editor/ }).last()
       ).toBeEmpty();
     }
   });

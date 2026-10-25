@@ -57,6 +57,7 @@ export { expect };
 
 export class InlineChatBackend {
   attachmentName = 'proof.txt';
+  attachmentDirectory = '.alohak-attachments';
   attachmentMime = 'text/plain';
   discoveryDelayMs = 0;
   metadataDelayMs = 0;
@@ -624,7 +625,7 @@ export class InlineChatBackend {
     if (path.endsWith('/attachments/upload'))
       return reply({
         id: 'attachment-1',
-        file_path: `.vibe-attachments/${this.attachmentName}`,
+        file_path: `${this.attachmentDirectory}/${this.attachmentName}`,
         original_name: this.attachmentName,
         mime_type: this.attachmentMime,
         size_bytes: 5,
@@ -636,7 +637,7 @@ export class InlineChatBackend {
       return reply({
         exists: true,
         file_name: this.attachmentName,
-        path: `.vibe-attachments/${this.attachmentName}`,
+        path: `${this.attachmentDirectory}/${this.attachmentName}`,
         size_bytes: 5,
         format: this.attachmentName.split('.').pop(),
         proxy_url: '/api/attachments/attachment-1/file',

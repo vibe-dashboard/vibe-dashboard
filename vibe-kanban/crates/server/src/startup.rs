@@ -449,7 +449,7 @@ async fn migrate_legacy_attachment_directories(
     for base_path in collect_attachment_migration_paths(deployment).await? {
         stats.merge(migrate_legacy_directory(
             &base_path.join(".vibe-images"),
-            &base_path.join(utils::path::VIBE_ATTACHMENTS_DIR),
+            &base_path.join(utils::path::LEGACY_ATTACHMENTS_DIR),
             true,
         ));
     }

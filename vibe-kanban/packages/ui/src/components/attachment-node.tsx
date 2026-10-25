@@ -5,6 +5,10 @@ import { NodeKey, SerializedLexicalNode, Spread, $getNodeByKey } from 'lexical';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { Download, File, HelpCircle, X } from 'lucide-react';
 import {
+  isWorkspaceAttachmentPath,
+  WORKSPACE_ATTACHMENT_PATH_PATTERN,
+} from '../lib/workspaceAttachments';
+import {
   useWorkspaceId,
   useSessionId,
   useLocalAttachments,
@@ -101,7 +105,7 @@ function useAttachmentMetadata(
   src: string,
   localAttachments: LocalAttachmentMetadata[]
 ) {
-  const isWorkspaceAttachment = src.startsWith('.vibe-attachments/');
+  const isWorkspaceAttachment = isWorkspaceAttachmentPath(src);
 
   const localAttachment = useMemo(
     () => localAttachments.find((attachment) => attachment.path === src),
@@ -169,7 +173,7 @@ export function createAttachmentNode(options: CreateAttachmentNodeOptions) {
     const localAttachments = useLocalAttachments();
     const [editor] = useLexicalComposerContext();
 
-    const isWorkspaceAttachment = src.startsWith('.vibe-attachments/');
+    const isWorkspaceAttachment = isWorkspaceAttachmentPath(src);
     const isPendingAttachment = src.startsWith('pending-attachment://');
     const isAttachment = isPendingAttachment || src.startsWith('attachment://');
     const attachmentId =
@@ -316,8 +320,9 @@ export function createAttachmentNode(options: CreateAttachmentNodeOptions) {
     type: 'attachment',
     serialization: {
       format: 'inline',
-      pattern:
-        /(?<!!)\[([^\]]+)\]\((attachment:\/\/[^)]+|pending-attachment:\/\/[^)]+|\.vibe-attachments\/[^)]+)\)/,
+      pattern: new RegExp(
+        String.raw`(?<!!)\[([^\]]+)\]\((attachment:\/\/[^)]+|pending-attachment:\/\/[^)]+|${WORKSPACE_ATTACHMENT_PATH_PATTERN}[^)]+)\)`
+      ),
       trigger: ')',
       serialize: (data) => `[${data.label}](${data.src})`,
       deserialize: (match) => ({ src: match[2], label: match[1] }),

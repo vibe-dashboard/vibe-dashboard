@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { NodeKey, SerializedLexicalNode, Spread, $getNodeByKey } from 'lexical';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { Download, File, HelpCircle, Loader2, X } from 'lucide-react';
+import { isWorkspaceAttachmentPath } from '../lib/workspaceAttachments';
 import {
   useWorkspaceId,
   useSessionId,
@@ -132,7 +133,7 @@ function useImageMetadata(
   src: string,
   localAttachments: LocalAttachmentMetadata[]
 ) {
-  const isVibeImage = src.startsWith('.vibe-attachments/');
+  const isVibeImage = isWorkspaceAttachmentPath(src);
 
   const localImage = useMemo(
     () => localAttachments.find((attachment) => attachment.path === src),
@@ -202,7 +203,7 @@ export function createImageNode(options: CreateImageNodeOptions) {
     const localAttachments = useLocalAttachments();
     const [editor] = useLexicalComposerContext();
 
-    const isVibeImage = src.startsWith('.vibe-attachments/');
+    const isVibeImage = isWorkspaceAttachmentPath(src);
     const isPendingAttachment = src.startsWith('pending-attachment://');
     const isAttachment = isPendingAttachment || src.startsWith('attachment://');
     const attachmentId =

@@ -66,7 +66,12 @@ test('an uploaded attachment is delivered in the follow-up prompt', async ({
         backend.requests.find((request) => request.path.endsWith('/follow-up'))
           ?.body.prompt,
     )
-    .toContain('.vibe-attachments/proof.txt');
+    .toContain('.alohak-attachments/proof.txt');
+  const prompt = backend.requests.find((request) =>
+    request.path.endsWith('/follow-up'),
+  )?.body.prompt;
+  expect(prompt).toContain('stored in `.alohak-attachments/`');
+  expect(prompt).toContain('Open the linked attachment paths');
 });
 
 test('workspace tasks show counts and housekeeping reaches the chosen session', async ({
