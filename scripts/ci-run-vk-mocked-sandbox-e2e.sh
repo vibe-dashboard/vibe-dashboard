@@ -10,10 +10,21 @@ cleanup() {
     kill -TERM "$sandbox_pid" 2>/dev/null || true
     wait "$sandbox_pid" 2>/dev/null || true
   fi
+  if [[ -n "${sandbox_git_config:-}" ]]; then
+    rm -f "$sandbox_git_config"
+  fi
 }
 trap cleanup EXIT
 
 mkdir -p "$RUN_DIR"
+
+# The dashboard checks instance-wide identity before showing voyages. Keep this
+# test identity isolated from the developer/runner's own global Git config and
+# share it with fixture setup, the dashboard, and the VK backend.
+sandbox_git_config="$(mktemp)"
+export GIT_CONFIG_GLOBAL="$sandbox_git_config"
+git config --global user.name 'Sandbox Test User'
+git config --global user.email 'sandbox-test@example.invalid'
 
 npm run e2e:vk-mocked-sandbox:reset -- --variant basic-seeded
 
