@@ -80,6 +80,15 @@ textarea {
   font-size: 16px;
 }
 
+@media (max-width: 767px) {
+  :is([data-testid="inline-vk-agent-chat"], [data-testid="inline-vk-create-workspace"]) .wysiwyg:has([contenteditable="true"]),
+  :is([data-testid="inline-vk-agent-chat"], [data-testid="inline-vk-create-workspace"]) .wysiwyg [contenteditable="true"],
+  :is([data-testid="inline-vk-agent-chat"], [data-testid="inline-vk-create-workspace"]) .wysiwyg [contenteditable="true"] + div {
+    font-size: 14px;
+    line-height: 1.5;
+  }
+}
+
 /* Hide scrollbars in iframes container */
 .iframe-container::-webkit-scrollbar {
   display: none;
