@@ -1,6 +1,6 @@
-# Alohak
-
-<img src="public/alohak-logo.png" alt="Alohak" width="240" />
+<p align="center">
+  <img src="public/alohak-logo.png" alt="Alohak" width="240" />
+</p>
 
 A coding workspace for voyages, craft, and AI agents, with an integrated editor,
 repository management, and agent sessions.
