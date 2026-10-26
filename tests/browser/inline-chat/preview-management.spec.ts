@@ -7,7 +7,7 @@ test('preview scripts can be edited, restarted, streamed and deleted from the sl
   await page.goto('/');
   const left = page.getByRole('region', { name: 'Left Agent' });
   await left.getByRole('button', { name: 'Preview slots' }).click();
-  await left
+  await page
     .getByRole('menuitem', { name: 'Edit Application preview', exact: true })
     .click();
   const edit = page.getByRole('dialog', {
@@ -24,14 +24,14 @@ test('preview scripts can be edited, restarted, streamed and deleted from the sl
   await expect
     .poll(() => backend.previewCommand)
     .toBe('npm run dev -- --host 0.0.0.0');
-  await left
+  await page
     .getByRole('menuitem', { name: 'Restart Application preview', exact: true })
     .click();
-  await expect(left.getByRole('status')).toHaveText(
+  await expect(page.getByRole('menu', { name: 'Preview slots' }).getByRole('status')).toHaveText(
     'Restarted Application preview.',
   );
   expect(backend.previewRestarts).toBe(1);
-  await left
+  await page
     .getByRole('menuitem', {
       name: 'Logs for Application preview',
       exact: true,
@@ -48,7 +48,7 @@ test('preview scripts can be edited, restarted, streamed and deleted from the sl
   );
   await logs.getByRole('button', { name: 'Close', exact: true }).click();
   await left.getByRole('button', { name: 'Preview slots' }).click();
-  await left
+  await page
     .getByRole('menuitem', { name: 'Edit Application preview', exact: true })
     .click();
   await expect(
@@ -58,7 +58,7 @@ test('preview scripts can be edited, restarted, streamed and deleted from the sl
     .getByRole('button', { name: 'Delete preview slot', exact: true })
     .click();
   await expect(edit).toHaveCount(0);
-  await expect(left.getByRole('menu')).toContainText(
+  await expect(page.getByRole('menu', { name: 'Preview slots' })).toContainText(
     'No preview slots configured',
   );
   expect(backend.previewSlotDeleted).toBe(true);
@@ -96,7 +96,7 @@ test('failed actions preserve script edits and stopped slots show a logs empty s
   await page.goto('/');
   const left = page.getByRole('region', { name: 'Left Agent' });
   await left.getByRole('button', { name: 'Preview slots' }).click();
-  await left
+  await page
     .getByRole('menuitem', { name: 'Edit Application preview', exact: true })
     .click();
   const edit = page.getByRole('dialog', {
@@ -112,17 +112,17 @@ test('failed actions preserve script edits and stopped slots show a logs empty s
   ).toHaveValue('unsaved script');
   await edit.getByRole('button', { name: 'Cancel', exact: true }).click();
   await left.getByRole('button', { name: 'Preview slots' }).click();
-  await left
+  await page
     .getByRole('menuitem', { name: 'Restart Application preview', exact: true })
     .click();
-  await expect(left.getByRole('status')).toHaveText('Restart failed');
+  await expect(page.getByRole('menu', { name: 'Preview slots' }).getByRole('status')).toHaveText('Restart failed');
   await expect(
-    left.getByRole('menuitem', {
+    page.getByRole('menuitem', {
       name: 'Restart Application preview',
       exact: true,
     }),
   ).toBeEnabled();
-  await left
+  await page
     .getByRole('menuitem', {
       name: 'Logs for Application preview',
       exact: true,

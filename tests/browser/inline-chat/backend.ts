@@ -63,6 +63,8 @@ export class InlineChatBackend {
   metadataDelayMs = 0;
   discoveryError: string | null = null;
   discoveryModelAName = 'Model A';
+  additionalModelCount = 0;
+  slashCommands: Array<{ name: string; description: string }> = [];
   discoveryConnections: string[] = [];
   previewCommand = 'npm run preview';
   previewSlotDeleted = false;
@@ -221,12 +223,17 @@ export class InlineChatBackend {
                     { id: 'high', label: 'High', is_default: false },
                   ],
                 },
+                ...Array.from({ length: this.additionalModelCount }, (_, index) => ({
+                  id: `extra-model-${index}`,
+                  name: `Extra model ${index}`,
+                  reasoning_options: [],
+                })),
               ],
               default_model: 'model-a',
               agents: [],
               permissions: ['AUTO', 'SUPERVISED', 'PLAN'],
             },
-            slash_commands: [],
+            slash_commands: this.slashCommands,
             loading_models: false,
             loading_agents: false,
             loading_slash_commands: false,

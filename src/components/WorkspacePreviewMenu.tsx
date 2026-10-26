@@ -7,6 +7,11 @@ import {
   IconTerminal2,
 } from '@tabler/icons-react';
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@vibe/ui/components/Popover';
+import {
   PreviewSlotDialog,
   previewSlotApiPath,
   previewSlotRequest,
@@ -63,22 +68,6 @@ export function WorkspacePreviewMenu({
     void refresh();
   }, [refresh]);
 
-  useEffect(() => {
-    if (!isOpen) return undefined;
-    const closeOnPointerDown = (event: PointerEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) setIsOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setIsOpen(false);
-    };
-    document.addEventListener('pointerdown', closeOnPointerDown);
-    document.addEventListener('keydown', closeOnEscape);
-    return () => {
-      document.removeEventListener('pointerdown', closeOnPointerDown);
-      document.removeEventListener('keydown', closeOnEscape);
-    };
-  }, [isOpen]);
-
   const slots = enabledPreviewSlots(data);
 
   async function restartSlot(slot: PreviewSlot) {
@@ -103,127 +92,141 @@ export function WorkspacePreviewMenu({
   }
 
   return (
-    <div ref={menuRef} className="relative">
-      <button
-        type="button"
-        aria-label="Preview slots"
-        aria-haspopup="menu"
-        aria-expanded={isOpen}
-        onClick={() => setIsOpen((open) => !open)}
-        className="flex cursor-pointer items-center text-default-500 transition-colors hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-focus"
-      >
-        <IconWorld className="size-icon-base" aria-hidden="true" />
-      </button>
-      {isOpen ? (
-        <div
-          role="menu"
-          className="absolute bottom-full right-0 z-[10000] mb-half max-h-[60vh] min-w-64 overflow-y-auto rounded-sm border border-divider bg-content1 py-half shadow-md"
-        >
-          <div className="px-base py-half text-xs font-medium text-default-500">
-            Preview slots
-          </div>
-          {isLoading ? <MenuStatus>Loading…</MenuStatus> : null}
-          {!isLoading && error ? (
-            <MenuButton onClick={() => void refresh()}>
-              {error} — Retry
-            </MenuButton>
-          ) : null}
-          {!isLoading && !error && slots.length === 0 ? (
-            <MenuStatus>No preview slots configured</MenuStatus>
-          ) : null}
-          {notice ? (
-            <div role="status" className="px-base py-half text-sm text-foreground">
-              {notice}
+    <Popover open={isOpen} onOpenChange={setIsOpen}>
+      <div ref={menuRef} className="relative">
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            aria-label="Preview slots"
+            aria-haspopup="menu"
+            aria-expanded={isOpen}
+            className="flex cursor-pointer items-center text-default-500 transition-colors hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-focus"
+          >
+            <IconWorld className="size-icon-base" aria-hidden="true" />
+          </button>
+        </PopoverTrigger>
+        {isOpen ? (
+          <PopoverContent
+            role="menu"
+            aria-label="Preview slots"
+            side="top"
+            align="end"
+            className="max-h-[60vh] min-w-64 overflow-y-auto py-half"
+          >
+            <div className="px-base py-half text-xs font-medium text-default-500">
+              Preview slots
             </div>
-          ) : null}
-          {!isLoading && !error
-            ? slots.map((slot) => (
-                <div
-                  key={slot.id}
-                  className="mx-half flex items-center gap-half"
-                >
-                  <a
-                    role="menuitem"
-                    href={data?.preview_urls?.[slot.id]}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-disabled={!data?.preview_urls?.[slot.id]}
-                    className="flex min-w-0 flex-1 items-center gap-base rounded-sm px-base py-half text-left text-sm text-foreground hover:bg-content2 focus:bg-content2 focus:outline-none"
+            {isLoading ? <MenuStatus>Loading…</MenuStatus> : null}
+            {!isLoading && error ? (
+              <MenuButton onClick={() => void refresh()}>
+                {error} — Retry
+              </MenuButton>
+            ) : null}
+            {!isLoading && !error && slots.length === 0 ? (
+              <MenuStatus>No preview slots configured</MenuStatus>
+            ) : null}
+            {notice ? (
+              <div
+                role="status"
+                className="px-base py-half text-sm text-foreground"
+              >
+                {notice}
+              </div>
+            ) : null}
+            {!isLoading && !error
+              ? slots.map((slot) => (
+                  <div
+                    key={slot.id}
+                    className="mx-half flex items-center gap-half"
                   >
-                    <ArrowSquareOutIcon className="size-icon-xs shrink-0" />
-                    <span className="min-w-0">
-                      <span className="block truncate">{slot.title}</span>
-                      <span className="block truncate text-xs text-default-500">
-                        {slot.repo_id} · {slot.slot_slug}
+                    <a
+                      role="menuitem"
+                      href={data?.preview_urls?.[slot.id]}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-disabled={!data?.preview_urls?.[slot.id]}
+                      className="flex min-w-0 flex-1 items-center gap-base rounded-sm px-base py-half text-left text-sm text-foreground hover:bg-content2 focus:bg-content2 focus:outline-none"
+                    >
+                      <ArrowSquareOutIcon className="size-icon-xs shrink-0" />
+                      <span className="min-w-0">
+                        <span className="block truncate">{slot.title}</span>
+                        <span className="block truncate text-xs text-default-500">
+                          {slot.repo_id} · {slot.slot_slug}
+                        </span>
                       </span>
-                    </span>
-                  </a>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    aria-label={`Edit ${slot.title}`}
-                    title="Edit script"
-                    disabled={pendingSlotId !== null}
-                    onClick={() => openDialog('edit', slot)}
-                    className="shrink-0 rounded-sm p-half text-default-500 hover:bg-content2 hover:text-foreground disabled:opacity-50"
-                  >
-                    <IconPencil className="size-icon-xs" />
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    aria-label={`Restart ${slot.title}`}
-                    title="Restart server"
-                    disabled={pendingSlotId !== null}
-                    onClick={() => void restartSlot(slot)}
-                    className="shrink-0 rounded-sm p-half text-default-500 hover:bg-content2 hover:text-foreground disabled:opacity-50"
-                  >
-                    <IconRefresh
-                      className={`size-icon-xs ${pendingSlotId === slot.id ? 'animate-spin' : ''}`}
-                    />
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    aria-label={`Logs for ${slot.title}`}
-                    title="Server logs"
-                    disabled={pendingSlotId !== null}
-                    onClick={() => openDialog('logs', slot)}
-                    className="shrink-0 rounded-sm p-half text-default-500 hover:bg-content2 hover:text-foreground disabled:opacity-50"
-                  >
-                    <IconTerminal2 className="size-icon-xs" />
-                  </button>
-                </div>
-              ))
-            : null}
-          <div className="my-half border-t border-divider" />
-          <MenuButton onClick={onConfigure}>
-            <GearIcon className="size-icon-xs shrink-0" />
-            Configure preview slots
-          </MenuButton>
-        </div>
-      ) : null}
-      {dialog ? (
-        <PreviewSlotDialog
-          key={`${workspaceId}:${dialog.slot.id}:${dialog.kind}`}
-          workspaceId={workspaceId}
-          slot={dialog.slot}
-          kind={dialog.kind}
-          config={data?.run_configs.find(
-            (config) => config.id === dialog.slot.run_config_id,
-          )}
-          onClose={() => {
-            setDialog(null);
-            menuRef.current?.querySelector('button')?.focus();
-          }}
-          onChanged={(message) => {
-            setNotice(message);
-            setIsOpen(true);
-            void refresh();
-          }}
-        />
-      ) : null}
-    </div>
+                    </a>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      aria-label={`Edit ${slot.title}`}
+                      title="Edit script"
+                      disabled={pendingSlotId !== null}
+                      onClick={() => openDialog('edit', slot)}
+                      className="shrink-0 rounded-sm p-half text-default-500 hover:bg-content2 hover:text-foreground disabled:opacity-50"
+                    >
+                      <IconPencil className="size-icon-xs" />
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      aria-label={`Restart ${slot.title}`}
+                      title="Restart server"
+                      disabled={pendingSlotId !== null}
+                      onClick={() => void restartSlot(slot)}
+                      className="shrink-0 rounded-sm p-half text-default-500 hover:bg-content2 hover:text-foreground disabled:opacity-50"
+                    >
+                      <IconRefresh
+                        className={`size-icon-xs ${pendingSlotId === slot.id ? 'animate-spin' : ''}`}
+                      />
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      aria-label={`Logs for ${slot.title}`}
+                      title="Server logs"
+                      disabled={pendingSlotId !== null}
+                      onClick={() => openDialog('logs', slot)}
+                      className="shrink-0 rounded-sm p-half text-default-500 hover:bg-content2 hover:text-foreground disabled:opacity-50"
+                    >
+                      <IconTerminal2 className="size-icon-xs" />
+                    </button>
+                  </div>
+                ))
+              : null}
+            <div className="my-half border-t border-divider" />
+            <MenuButton
+              onClick={() => {
+                setIsOpen(false);
+                onConfigure();
+              }}
+            >
+              <GearIcon className="size-icon-xs shrink-0" />
+              Configure preview slots
+            </MenuButton>
+          </PopoverContent>
+        ) : null}
+        {dialog ? (
+          <PreviewSlotDialog
+            key={`${workspaceId}:${dialog.slot.id}:${dialog.kind}`}
+            workspaceId={workspaceId}
+            slot={dialog.slot}
+            kind={dialog.kind}
+            config={data?.run_configs.find(
+              (config) => config.id === dialog.slot.run_config_id,
+            )}
+            onClose={() => {
+              setDialog(null);
+              menuRef.current?.querySelector('button')?.focus();
+            }}
+            onChanged={(message) => {
+              setNotice(message);
+              setIsOpen(true);
+              void refresh();
+            }}
+          />
+        ) : null}
+      </div>
+    </Popover>
   );
 }
 
@@ -247,7 +250,9 @@ function MenuButton({
 }
 
 function MenuStatus({ children }: { children: React.ReactNode }) {
-  return <div className="px-base py-half text-sm text-default-500">{children}</div>;
+  return (
+    <div className="px-base py-half text-sm text-default-500">{children}</div>
+  );
 }
 
 function errorMessage(error: unknown): string {

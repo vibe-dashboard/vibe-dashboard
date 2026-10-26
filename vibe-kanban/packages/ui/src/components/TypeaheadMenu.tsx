@@ -8,6 +8,11 @@ import {
   type MouseEvent,
   type CSSProperties,
 } from 'react';
+import {
+  ComposerSheetHeader,
+  ComposerSheetOwner,
+  useComposerSheet,
+} from './ComposerSheet';
 
 // --- Headless Compound Components ---
 
@@ -150,6 +155,7 @@ function TypeaheadMenuRoot({
   onClickOutside,
   children,
 }: TypeaheadMenuProps) {
+  const sheet = useComposerSheet();
   const menuRef = useRef<HTMLDivElement>(null);
   const [placement, setPlacement] = useState<TypeaheadPlacement | null>(null);
 
@@ -250,13 +256,27 @@ function TypeaheadMenuRoot({
         } as CSSProperties);
 
   return (
-    <div
-      ref={menuRef}
-      style={style}
-      className="z-[10000] w-auto min-w-80 max-w-full p-0 overflow-hidden bg-content1 text-foreground border border-divider rounded-sm shadow-md flex flex-col"
+    <ComposerSheetOwner
+      open
+      onOpenChange={() => {
+        onClickOutside?.();
+        editorEl?.focus({ preventScroll: true });
+      }}
     >
-      {children}
-    </div>
+      <div
+        ref={menuRef}
+        data-composer-sheet={sheet.mobile ? '' : undefined}
+        style={
+          sheet.mobile
+            ? { ...style, ...sheet.style, visibility: 'visible' }
+            : style
+        }
+        className="z-[10000] w-auto min-w-80 max-w-full p-0 overflow-hidden bg-content1 text-foreground border border-divider rounded-sm shadow-md flex flex-col"
+      >
+        <ComposerSheetHeader preserveFocus />
+        {children}
+      </div>
+    </ComposerSheetOwner>
   );
 }
 
@@ -366,6 +386,7 @@ function TypeaheadMenuItemComponent({
   return (
     <div
       ref={ref}
+      data-typeahead-item=""
       className={`px-base py-half rounded-sm cursor-pointer text-sm transition-colors ${
         isSelected
           ? 'bg-content2 text-foreground'

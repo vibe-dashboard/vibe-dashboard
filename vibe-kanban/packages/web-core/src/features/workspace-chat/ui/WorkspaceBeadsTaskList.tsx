@@ -13,6 +13,13 @@ import {
   PopoverTrigger,
 } from '@vibe/ui/components/Popover';
 import { Tooltip } from '@vibe/ui/components/Tooltip';
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@vibe/ui/components/Select';
 
 const HOUSEKEEPING_MESSAGE = "Please do housekeeping on this workspace's beads";
 const TASK_POLL_INTERVAL_MS = 20_000;
@@ -159,6 +166,7 @@ export function WorkspaceBeadsTaskList({
         </span>
       </Tooltip>
       <PopoverContent
+        aria-label="Workspace tasks"
         align="end"
         side="top"
         className="flex w-[25rem] max-w-[calc(100vw-2rem)] max-h-[min(80vh,var(--radix-popover-content-available-height))] flex-col overflow-hidden"
@@ -244,29 +252,31 @@ export function WorkspaceBeadsTaskList({
               Housekeeping session
             </label>
             <div className="flex gap-base">
-              <select
-                id="workspace-beads-housekeeping-session"
-                className="min-w-0 flex-1 rounded border border-divider/30 bg-background px-2 py-1 text-sm text-foreground"
+              <Select
                 value={selectedHousekeepingSessionId}
-                onChange={(event) =>
-                  setSelectedHousekeepingSessionId(event.target.value)
-                }
+                onValueChange={setSelectedHousekeepingSessionId}
+                disabled={sessions.length === 0}
               >
-                {sessions.length === 0 ? (
-                  <option value="">No sessions yet</option>
-                ) : (
-                  sessions.map((session, index) => (
-                    <option key={session.id} value={session.id}>
+                <SelectTrigger
+                  id="workspace-beads-housekeeping-session"
+                  aria-label="Housekeeping session"
+                  className="h-auto min-w-0 flex-1 rounded px-2 py-1"
+                >
+                  <SelectValue placeholder="No sessions yet" />
+                </SelectTrigger>
+                <SelectContent aria-label="Housekeeping session">
+                  {sessions.map((session, index) => (
+                    <SelectItem key={session.id} value={session.id}>
                       {session.name ||
                         (session.id === selectedSessionId
                           ? 'Current session'
                           : index === 0
                             ? 'Latest session'
                             : new Date(session.created_at).toLocaleString())}
-                    </option>
-                  ))
-                )}
-              </select>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <button
                 type="button"
                 onClick={handleHousekeeping}

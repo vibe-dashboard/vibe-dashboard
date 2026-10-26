@@ -96,6 +96,7 @@ export function TodoProgressPopup({
         </span>
       </Tooltip>
       <PopoverContent
+        aria-label={t('todoPopup.title')}
         align="end"
         className="w-80 max-h-[min(75vh,var(--radix-popover-content-available-height))] flex flex-col"
       >

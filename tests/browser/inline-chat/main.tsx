@@ -103,7 +103,7 @@ function Harness() {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 360px), 1fr))',
           height: '94vh',
           gap: 12,
         }}

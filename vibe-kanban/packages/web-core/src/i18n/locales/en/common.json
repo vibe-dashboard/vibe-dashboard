@@ -2,6 +2,12 @@
   "editorNames": {
     "custom": "Custom"
   },
+  "turnNavigation": {
+    "title": "Your Messages",
+    "count_one": "{{count}} turn",
+    "count_other": "{{count}} turns",
+    "number": "#{{number}}"
+  },
   "buttons": {
     "save": "Save",
     "cancel": "Cancel",

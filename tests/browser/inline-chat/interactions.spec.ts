@@ -94,7 +94,8 @@ test('workspace tasks show counts and housekeeping reaches the chosen session', 
   await expect(
     page.getByRole('link', { name: /form/i }).first(),
   ).toHaveAttribute('href', /task-active/);
-  await page.getByLabel('Housekeeping session').selectOption('session-2');
+  await page.getByRole('combobox', { name: 'Housekeeping session' }).click();
+  await page.getByRole('option', { name: 'session-2', exact: true }).click();
   await page
     .getByRole('button', { name: 'Request housekeeping', exact: true })
     .click();
@@ -260,13 +261,13 @@ test('preview menu opens the canonical URL and delegates configuration to its ho
   const left = page.getByRole('region', { name: 'Left Agent' });
   await left.getByRole('button', { name: 'Preview slots' }).click();
   await expect(
-    left.getByRole('menuitem', { name: /Disabled preview/ }),
+    page.getByRole('menuitem', { name: /Disabled preview/ }),
   ).toHaveCount(0);
   const triggerBox = await left.getByRole('button', { name: 'Preview slots' }).boundingBox();
-  const menuBox = await left.getByRole('menu').boundingBox();
+  const menuBox = await page.getByRole('menu', { name: 'Preview slots' }).boundingBox();
   expect(menuBox!.y + menuBox!.height).toBeLessThanOrEqual(triggerBox!.y);
   const popup = page.waitForEvent('popup');
-  await left.getByRole('menuitem', { name: /^Application preview/ }).click();
+  await page.getByRole('menuitem', { name: /^Application preview/ }).click();
   const preview = await popup;
   await expect(preview).toHaveURL(
     'http://127.0.0.1:5189/preview.html?slot=slot-1',
@@ -275,7 +276,7 @@ test('preview menu opens the canonical URL and delegates configuration to its ho
     preview.getByRole('heading', { name: 'Preview response' }),
   ).toBeVisible();
   await preview.close();
-  await left.getByRole('menuitem', { name: 'Configure preview slots' }).click();
+  await page.getByRole('menuitem', { name: 'Configure preview slots' }).click();
   await expect(
     page.getByText('Configure requested for workspace-1'),
   ).toBeVisible();
