@@ -15,96 +15,7 @@ import { cn } from '../lib/cn';
 import { ToolStatusDot, type ToolStatusLike } from './ToolStatusDot';
 import '../styles/diff-style-overrides.css';
 
-/**
- * CSS overrides for @pierre/diffs to match our app's theme.
- * Injected via unsafeCSS which applies at @layer unsafe (highest priority).
- */
-const PIERRE_DIFFS_THEME_CSS = `
-  [data-separator="line-info"][data-separator-first] {
-    padding-top: 4px;
-  }
-  [data-separator="line-info"][data-separator-last] {
-    padding-bottom: 4px;
-  }
-
-  [data-disable-line-numbers][data-indicators='classic'] [data-column-content] {
-    padding-inline-start: calc(2ch + 1ch);
-  }
-  [data-disable-line-numbers][data-indicators='classic'] [data-line-type='change-addition'] [data-column-content]::before,
-  [data-disable-line-numbers][data-indicators='classic'] [data-line-type='change-deletion'] [data-column-content]::before {
-    left: 1ch;
-  }
-
-  /* Show scrollbar only on hover */
-  [data-code] {
-    padding-bottom: 0 !important;
-  }
-  [data-code]::-webkit-scrollbar {
-    height: 8px !important;
-    background: transparent !important;
-  }
-  [data-code]::-webkit-scrollbar-track {
-    background: transparent !important;
-  }
-  [data-code]::-webkit-scrollbar-thumb {
-    background-color: transparent !important;
-    border-radius: 4px !important;
-  }
-  [data-code]:hover::-webkit-scrollbar-thumb {
-    background-color: hsl(var(--text-low) / 0.3) !important;
-  }
-
-  /* Light theme overrides */
-  [data-diff][data-theme-type='light'] {
-    --diffs-gap-style: none !important;
-    
-    /* Background colors - use standard CSS variables */
-    --diffs-light-bg: hsl(var(--bg-primary)) !important;
-    --diffs-bg-context-override: hsl(var(--bg-primary)) !important;
-    --diffs-bg-separator-override: hsl(var(--bg-primary)) !important;
-    
-    /* Addition colors - soft green matching old design */
-    --diffs-light-addition-color: hsl(160, 77%, 35%) !important;
-    --diffs-bg-addition-override: hsl(160, 77%, 88%) !important;
-    --diffs-bg-addition-number-override: hsl(160, 77%, 85%) !important;
-    --diffs-bg-addition-hover-override: hsl(160, 77%, 82%) !important;
-    
-    /* Deletion colors - soft red matching old design */
-    --diffs-light-deletion-color: hsl(10, 100%, 40%) !important;
-    --diffs-bg-deletion-override: hsl(10, 100%, 90%) !important;
-    --diffs-bg-deletion-number-override: hsl(10, 100%, 87%) !important;
-    --diffs-bg-deletion-hover-override: hsl(10, 100%, 84%) !important;
-    
-    /* Line numbers */
-    --diffs-fg-number-override: hsl(var(--text-low)) !important;
-  }
-
-  /* Dark theme overrides */
-  [data-diff][data-theme-type='dark'] {
-    --diffs-gap-style: none !important;
-    
-    /* Background colors - use standard CSS variables */
-    --diffs-dark-bg: hsl(var(--bg-panel)) !important;
-    --diffs-bg-context-override: hsl(var(--bg-panel)) !important;
-    --diffs-bg-separator-override: hsl(var(--bg-panel)) !important;
-    --diffs-bg-hover-override: hsl(0, 0%, 22%) !important;
-    
-    /* Addition colors - dark green */
-    --diffs-dark-addition-color: hsl(130, 50%, 50%) !important;
-    --diffs-bg-addition-override: hsl(130, 30%, 20%) !important;
-    --diffs-bg-addition-number-override: hsl(130, 30%, 18%) !important;
-    --diffs-bg-addition-hover-override: hsl(130, 30%, 25%) !important;
-    
-    /* Deletion colors - dark red */
-    --diffs-dark-deletion-color: hsl(12, 50%, 55%) !important;
-    --diffs-bg-deletion-override: hsl(12, 30%, 18%) !important;
-    --diffs-bg-deletion-number-override: hsl(12, 30%, 16%) !important;
-    --diffs-bg-deletion-hover-override: hsl(12, 30%, 23%) !important;
-    
-    /* Line numbers */
-    --diffs-fg-number-override: hsl(var(--text-low)) !important;
-  }
-`;
+import { PIERRE_DIFFS_THEME_CSS } from '../styles/pierreDiffTheme';
 
 // Discriminated union for input format flexibility
 export type DiffInput =
@@ -285,7 +196,7 @@ export function DiffViewCard({
       {/* Header */}
       <div
         className={cn(
-          'flex items-center bg-panel p-base w-full',
+          'flex items-center bg-content1 p-base w-full',
           onToggle && 'cursor-pointer'
         )}
         onClick={onToggle}
@@ -300,7 +211,7 @@ export function DiffViewCard({
               />
             )}
           </span>
-          <span className="text-sm text-normal truncate font-ibm-plex-mono">
+          <span className="text-sm text-foreground truncate font-ibm-plex-mono">
             {filePath}
           </span>
           {hasStats && (
@@ -310,7 +221,7 @@ export function DiffViewCard({
               )}
               {additions > 0 && deletions > 0 && ' '}
               {deletions > 0 && (
-                <span className="text-error">-{deletions}</span>
+                <span className="text-danger">-{deletions}</span>
               )}
             </span>
           )}
@@ -318,7 +229,7 @@ export function DiffViewCard({
         {onToggle && (
           <CaretDownIcon
             className={cn(
-              'size-icon-xs shrink-0 text-low transition-transform',
+              'size-icon-xs shrink-0 text-default-500 transition-transform',
               !expanded && '-rotate-90'
             )}
           />
@@ -383,7 +294,7 @@ export function DiffViewBody({
 
   if (!isValid) {
     return (
-      <div className="px-base pb-base text-xs font-ibm-plex-mono text-low">
+      <div className="px-base pb-base text-xs font-ibm-plex-mono text-default-500">
         {invalidMessage ?? t('conversation.unableToRenderDiff')}
       </div>
     );

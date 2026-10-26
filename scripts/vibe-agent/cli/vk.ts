@@ -682,28 +682,6 @@ function requireWorkspaceId(value: string | undefined, usage: string): string {
   return value;
 }
 
-function optionalEnvString(name: string): string | undefined {
-  const value = process.env[name]?.trim();
-  return value || undefined;
-}
-
-function previewUrlDefaultsFromSiteOrigin(): { baseDomain: string; urlScheme: 'http' | 'https' } | undefined {
-  const siteOrigin = optionalEnvString('SITE_ORIGIN');
-  if (!siteOrigin) return undefined;
-  try {
-    const url = new URL(siteOrigin);
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') return undefined;
-    const baseDomain = url.host || undefined;
-    if (!baseDomain) return undefined;
-    return {
-      baseDomain,
-      urlScheme: url.protocol === 'http:' ? 'http' : 'https',
-    };
-  } catch {
-    return undefined;
-  }
-}
-
 function parseRunConfigKind(value: string | undefined): RunConfigKind {
   const kind = value ?? 'long_running';
   if (kind === 'long_running' || kind === 'one_shot' || kind === 'test') {
@@ -749,7 +727,7 @@ async function commandPreviewUrl(positional: string[], flags: FlagMap) {
         printPreviewSlot(slot);
         const urlParts = data.preview_url_parts.find(parts => parts.previewSlotId === slot.id);
         if (urlParts) {
-          console.log(`Host Parts:   ${urlParts.workspaceToken}-${urlParts.repoSlug}-${urlParts.slotSlug}-<customerSlug>`);
+          console.log(`Routing key:  ${urlParts.workspaceToken}-${urlParts.repoSlug}-${urlParts.slotSlug}`);
         }
         console.log('');
       }
@@ -819,32 +797,38 @@ async function commandPreviewUrl(positional: string[], flags: FlagMap) {
       printPreviewSlot(slot);
       console.log('');
       console.log('To get its URL:');
-      console.log(`  vk preview-url url ${workspaceId} ${slot.id} --customer <customer-slug>`);
+      console.log(`  vk preview-url url ${workspaceId} ${slot.id}`);
       break;
     }
 
     case 'url': {
       const workspaceId = requireWorkspaceId(
         positional[1],
-        'Usage: vk preview-url url <workspace-id> <preview-slot-id> --customer <customer-slug> [--json]',
+        'Usage: vk preview-url url <workspace-id> <preview-slot-id> [--json]',
       );
       const previewSlotId = positional[2] ?? getFlagString(flags, 'slot-id') ?? getFlagString(flags, 'preview-slot-id');
-      const customerSlug = getFlagString(flags, 'customer') ?? getFlagString(flags, 'customer-slug');
-      const previewUrlDefaults = previewUrlDefaultsFromSiteOrigin();
-      if (!previewSlotId || !customerSlug) {
-        console.error('Usage: vk preview-url url <workspace-id> <preview-slot-id> --customer <customer-slug> [--json]');
+      if (!previewSlotId) {
+        console.error('Usage: vk preview-url url <workspace-id> <preview-slot-id> [--json]');
         process.exit(1);
       }
-      const response = await service.getPreviewSlotUrl(workspaceId, previewSlotId, {
-        customerSlug,
-        baseDomain: previewUrlDefaults?.baseDomain,
-        urlScheme: previewUrlDefaults?.urlScheme,
-      });
+      const response = await service.getPreviewSlotUrl(workspaceId, previewSlotId);
       if (flags.json === true) {
         console.log(JSON.stringify(response, null, 2));
         return;
       }
       console.log(response.url);
+      break;
+    }
+
+    case 'delete-run-config':
+    case 'delete-slot': {
+      const usage = `Usage: vk preview-url ${subcommand} <workspace-id> <${subcommand === 'delete-slot' ? 'preview-slot-id' : 'run-config-id'}> [--json]`;
+      const workspaceId = requireWorkspaceId(positional[1], usage);
+      const id = positional[2];
+      if (!id) throw new Error(usage);
+      if (subcommand === 'delete-slot') await service.deletePreviewSlot(workspaceId, id);
+      else await service.deleteRunConfig(workspaceId, id);
+      console.log(flags.json === true ? JSON.stringify({ deleted: true }) : `Deleted ${subcommand === 'delete-slot' ? 'preview slot' : 'run config'} ${id}`);
       break;
     }
 
@@ -919,7 +903,9 @@ async function commandPreviewUrl(positional: string[], flags: FlagMap) {
       console.error('  vk preview-url list <workspace-id> [--json]');
       console.error('  vk preview-url upsert-run-config <workspace-id> --repo <repo-id> --slug web --name Web --command "npm run dev"');
       console.error('  vk preview-url upsert-slot <workspace-id> --repo <repo-id> --run-config <run-config-id> --slot web --title Web');
-      console.error('  vk preview-url url <workspace-id> <preview-slot-id> --customer <customer-slug>');
+      console.error('  vk preview-url url <workspace-id> <preview-slot-id>');
+      console.error('  vk preview-url delete-slot <workspace-id> <preview-slot-id>');
+      console.error('  vk preview-url delete-run-config <workspace-id> <run-config-id>');
       console.error('  vk preview-url start-slot <workspace-id> <preview-slot-id> [--json]');
       process.exit(1);
   }
@@ -1155,7 +1141,9 @@ function printHelp() {
   console.log('  workspace-repos <workspace-id> [--json]    List repos attached to workspace');
   console.log('  dev-script get <repo-id> [--json]          Show repo dev server script');
   console.log('  preview-url list <workspace-id> [--json]   List Preview URL run configs and slots');
-  console.log('  preview-url url <workspace-id> <slot-id> --customer <slug>  Print canonical preview URL');
+  console.log('  preview-url url <workspace-id> <slot-id>                    Print canonical preview URL');
+  console.log('  preview-url delete-slot <workspace-id> <slot-id>             Delete a preview slot');
+  console.log('  preview-url delete-run-config <workspace-id> <run-config-id> Delete an unlinked run config');
   console.log('  sessions <workspace-id>                    List sessions for workspace');
   console.log('  status <workspace-id>...                   Get workspace status summary');
   console.log('  processes <session-id>                     List execution processes');

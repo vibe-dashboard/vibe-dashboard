@@ -174,9 +174,9 @@ export function DashboardWorkspaceRoute() {
   }, [actions, intl, navigate, pluginRegistryState, savedVoyages, workspace, workspaceId]);
 
   return (
-    <div className="dark fixed inset-0 flex items-center justify-center bg-neutral-950 p-6 text-neutral-100">
-      <div className="max-w-md rounded-2xl border border-neutral-800 bg-neutral-900 p-6 shadow-2xl">
-        <div className="text-xs font-semibold uppercase tracking-[0.2em] text-neutral-500">
+    <div className="fixed inset-0 flex items-center justify-center bg-background p-6 text-foreground">
+      <div className="max-w-md rounded-2xl border border-divider/30 bg-content1 p-6 shadow-2xl">
+        <div className="text-xs font-semibold uppercase tracking-[0.2em] text-default-500">
           <FormattedMessage
             defaultMessage="VD workspace link"
             description="Eyebrow label for a shared VD workspace link status page."
@@ -189,11 +189,11 @@ export function DashboardWorkspaceRoute() {
             <FormattedMessage {...dashboardWorkspaceRouteMessages.workspaceLinkUnavailable} />
           )}
         </h1>
-        <p className="mt-2 text-sm text-neutral-300">{message}</p>
+        <p className="mt-2 text-sm text-default-500">{message}</p>
         {status === 'error' ? (
           <button
             type="button"
-            className="mt-4 rounded-lg border border-neutral-700 px-4 py-2 text-sm text-neutral-100 hover:bg-neutral-800"
+            className="mt-4 rounded-lg border border-divider/30 px-4 py-2 text-sm text-foreground hover:bg-content2"
             onClick={() => navigate('/dashboard', { replace: true })}
           >
             <FormattedMessage

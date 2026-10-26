@@ -5,7 +5,7 @@ const meta: Meta<typeof AppLoadingScreen> = {
   title: 'Components/AppLoadingScreen',
   component: AppLoadingScreen,
   args: {
-    className: 'h-64 w-full rounded-xl border border-neutral-800',
+    className: 'h-64 w-full rounded-xl border border-divider/30',
   },
 } satisfies Meta<typeof AppLoadingScreen>;
 

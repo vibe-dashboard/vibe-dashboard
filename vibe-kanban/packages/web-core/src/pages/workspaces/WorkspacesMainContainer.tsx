@@ -37,6 +37,7 @@ function ChatBoxWithDiffStats({
   isNewSessionMode,
   chatViewMode,
   chatViewModeSelector,
+  workspacePreview,
   sessions,
   onSelectSession,
   onStartNewSession,
@@ -44,12 +45,17 @@ function ChatBoxWithDiffStats({
   onScrollToBottom,
   onScrollToUserMessage,
   getActiveTurnPatchKey,
+  disableViewCode,
+  onViewDiffs,
+  surfaceId,
+  showOpenInIdeAction,
 }: {
   session: Session | undefined;
   workspaceId: string | undefined;
   isNewSessionMode: boolean;
   chatViewMode: ChatViewMode;
   chatViewModeSelector?: ReactNode;
+  workspacePreview?: ReactNode;
   sessions: Session[];
   onSelectSession: (sessionId: string) => void;
   onStartNewSession: () => void;
@@ -57,6 +63,10 @@ function ChatBoxWithDiffStats({
   onScrollToBottom: (behavior?: 'auto' | 'smooth') => void;
   onScrollToUserMessage: (patchKey: string) => void;
   getActiveTurnPatchKey: () => string | null;
+  disableViewCode: boolean;
+  onViewDiffs?: () => void;
+  surfaceId?: string;
+  showOpenInIdeAction: boolean;
 }) {
   const diffStats = useDiffStats();
 
@@ -84,7 +94,11 @@ function ChatBoxWithDiffStats({
       linesRemoved={diffStats.lines_removed}
       chatViewMode={chatViewMode}
       chatViewModeSelector={chatViewModeSelector}
-      disableViewCode={false}
+      workspacePreview={workspacePreview}
+      disableViewCode={disableViewCode}
+      onViewDiffs={onViewDiffs}
+      surfaceId={surfaceId}
+      showOpenInIdeAction={showOpenInIdeAction}
       showOpenWorkspaceButton={false}
       onScrollToPreviousMessage={onScrollToPreviousMessage}
       onScrollToBottom={onScrollToBottom}
@@ -111,6 +125,12 @@ interface WorkspacesMainContainerProps {
   onStartNewSession: () => void;
   chatViewMode?: ChatViewMode;
   chatViewModeSelector?: ReactNode;
+  workspacePreview?: ReactNode;
+  showContextBar?: boolean;
+  disableViewCode?: boolean;
+  onViewDiffs?: () => void;
+  surfaceId?: string;
+  showOpenInIdeAction?: boolean;
 }
 
 export const WorkspacesMainContainer = forwardRef<
@@ -130,6 +150,12 @@ export const WorkspacesMainContainer = forwardRef<
     onStartNewSession,
     chatViewMode = 'full',
     chatViewModeSelector,
+    workspacePreview,
+    showContextBar = true,
+    disableViewCode = false,
+    onViewDiffs,
+    surfaceId,
+    showOpenInIdeAction = false,
   },
   ref
 ) {
@@ -248,6 +274,7 @@ export const WorkspacesMainContainer = forwardRef<
       isNewSessionMode={isNewSessionMode}
       chatViewMode={chatViewMode}
       chatViewModeSelector={chatViewModeSelector}
+      workspacePreview={workspacePreview}
       sessions={sessions}
       onSelectSession={onSelectSession}
       onStartNewSession={onStartNewSession}
@@ -255,11 +282,15 @@ export const WorkspacesMainContainer = forwardRef<
       onScrollToBottom={handleScrollToBottom}
       onScrollToUserMessage={handleScrollToUserMessage}
       getActiveTurnPatchKey={handleGetActiveTurnPatchKey}
+      disableViewCode={disableViewCode}
+      onViewDiffs={onViewDiffs}
+      surfaceId={surfaceId}
+      showOpenInIdeAction={showOpenInIdeAction}
     />
   );
 
   const contextBarContent =
-    workspaceWithSession && chatViewMode === 'full' ? (
+    showContextBar && workspaceWithSession && chatViewMode === 'full' ? (
       <ContextBarContainer containerRef={containerRef} />
     ) : null;
 

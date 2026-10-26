@@ -158,7 +158,7 @@ export function SlashCommandTypeaheadPlugin({
             ) : options.length === 0 && !showLoadingRow ? null : (
               <TypeaheadMenu.ScrollArea>
                 {showLoadingRow && (
-                  <div className="px-base py-half text-sm text-low select-none">
+                  <div className="px-base py-half text-sm text-default-500 select-none">
                     {loadingText}
                   </div>
                 )}
@@ -179,7 +179,7 @@ export function SlashCommandTypeaheadPlugin({
                         </span>
                       </div>
                       {details && (
-                        <div className="text-xs text-low truncate">
+                        <div className="text-xs text-default-500 truncate">
                           {details}
                         </div>
                       )}

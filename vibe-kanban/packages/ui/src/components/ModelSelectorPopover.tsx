@@ -294,9 +294,9 @@ function ProviderAccordion({
                   sticky={provider.id === activeProviderId}
                   className={cn(
                     'group gap-2 px-base py-half rounded-sm',
-                    'text-sm font-medium text-low',
-                    'hover:bg-secondary/60 transition-colors',
-                    'focus:outline-none focus-visible:ring-1 focus-visible:ring-brand'
+                    'text-sm font-medium text-default-500',
+                    'hover:bg-content2/60 transition-colors',
+                    'focus:outline-none focus-visible:ring-1 focus-visible:ring-focus'
                   )}
                 >
                   <ModelProviderIcon
@@ -308,7 +308,7 @@ function ProviderAccordion({
                   </span>
                   <CaretDownIcon
                     className={cn(
-                      'size-icon-2xs text-low transition-transform',
+                      'size-icon-2xs text-default-500 transition-transform',
                       'group-data-[state=open]:rotate-180'
                     )}
                     weight="bold"
@@ -345,10 +345,10 @@ function ProviderAccordion({
             className={cn(
               'group flex items-center rounded-sm mx-half',
               'transition-colors duration-100',
-              'focus-within:bg-secondary',
+              'focus-within:bg-content2',
               isDefaultSelected
-                ? 'bg-secondary text-high'
-                : cn('text-normal', 'hover:bg-secondary/60')
+                ? 'bg-content2 text-foreground'
+                : cn('text-foreground', 'hover:bg-content2/60')
             )}
           >
             <button
@@ -356,7 +356,7 @@ function ProviderAccordion({
               onClick={() => onSelectDefault?.()}
               className={cn(
                 'flex-1 min-w-0 py-half pl-base pr-half text-left',
-                'focus:outline-none focus-visible:ring-1 focus-visible:ring-brand'
+                'focus:outline-none focus-visible:ring-1 focus-visible:ring-focus'
               )}
             >
               <span
@@ -473,15 +473,15 @@ export function ModelSelectorPopover({
       >
         <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
           {error && (
-            <div className="px-base py-half bg-red-500/10 border-b border-red-500/20">
-              <span className="text-sm text-red-600">{error}</span>
+            <div className="px-base py-half bg-danger/10 border-b border-danger/20">
+              <span className="text-sm text-danger">{error}</span>
             </div>
           )}
           <DropdownMenuLabel>{t('modelSelector.model')}</DropdownMenuLabel>
           <div className="flex flex-col flex-1 min-h-0 min-w-0">
             {content}
             {showSearch && (
-              <div className="border-t border-border">
+              <div className="border-t border-divider">
                 <DropdownMenuSearchInput
                   placeholder="Filter by provider, name or ID..."
                   value={searchQuery}

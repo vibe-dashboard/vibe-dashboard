@@ -27,7 +27,7 @@ export function ToolStatusDot({ status, className }: ToolStatusDotProps) {
         className={cn(
           'size-1.5 rounded-full',
           isSuccess && 'bg-success',
-          isError && 'bg-error',
+          isError && 'bg-danger',
           isPending && 'bg-text-low'
         )}
       />

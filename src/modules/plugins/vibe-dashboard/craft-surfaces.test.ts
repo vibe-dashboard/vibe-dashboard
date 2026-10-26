@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createEffectiveWorkspaceWithCraftSurfaces,
   filterEphemeralCraftSurfaceActiveItems,
+  getEffectivePairs,
+  getEffectiveTabs,
   isEphemeralCraftSurfaceTab,
   stripEphemeralCraftSurfaceSessionRefs,
   stripEphemeralCraftSurfaceTabsFromWorkspace,
@@ -54,7 +56,7 @@ const surfaces: RegisteredCraftSurfaceContribution[] = [
 ];
 
 describe("dynamic Craft surfaces", () => {
-  it("derives Agent, Code, Beads, Forms, and built-in split pairs from Craft workspace metadata", () => {
+  it("derives Agent, Code, Diff, Beads, Forms, and built-in split pairs from Craft workspace metadata", () => {
     const effective = createEffectiveWorkspaceWithCraftSurfaces({
       workspace: {
         ...workspace,
@@ -80,17 +82,26 @@ describe("dynamic Craft surfaces", () => {
       effective.tabGroups[0]!.tabs.map((tab) => [tab.id, tab.title, tab.url]),
     ).toEqual([
       ["agent", "Agent", "https://vd.example.test/workspaces/workspace_1"],
+      ["agent-2", "Agent 2", "https://vd.example.test/workspaces/workspace_1"],
       [
         "code",
         "Code",
         "https://vd.example.test/?folder=%2Fhome%2Fvkuser%2Frepos%2Fapp",
+      ],
+      [
+        "diff",
+        "Diffs",
+        "internal://diff?workspaceId=workspace_1&workspaceDir=%2Fhome%2Fvkuser%2Frepos%2Fapp",
       ],
       ["beads", "Beads", "https://beads-web.vd.example.test"],
       ["forms", "Forms", "https://vd.example.test/dashboard/forms?workspace=workspace_1"],
     ]);
     expect(effective.tabGroups[0]!.pairs).toEqual([
       { id: "agent+code", tabIds: ["agent", "code"], ratios: [50, 50] },
+      { id: "agent+diff", tabIds: ["agent", "diff"], ratios: [50, 50] },
+      { id: "agent-2+diff", tabIds: ["agent-2", "diff"], ratios: [50, 50] },
       { id: "agent+beads", tabIds: ["agent", "beads"], ratios: [50, 50] },
+      { id: "agent+agent-2", tabIds: ["agent", "agent-2"], ratios: [50, 50] },
     ]);
   });
 
@@ -189,6 +200,136 @@ describe("dynamic Craft surfaces", () => {
     ).toBe("https://vd.example.test/dashboard/forms?workspace=workspace_1&bead=vkvw-123");
   });
 
+  it("keeps custom pairs that reference generated craft-surface tabs", () => {
+    const effective = createEffectiveWorkspaceWithCraftSurfaces({
+      workspace: {
+        ...workspace,
+        tabGroups: [
+          {
+            id: "craft_workspace",
+            label: "Workspace Craft",
+            workspace: {
+              workspaceId: "workspace_1",
+              workspaceDir: "/home/vkuser/repos/app",
+            },
+            tabs: [
+              {
+                id: "tab_custom",
+                title: "Custom",
+                url: "https://example.test",
+              },
+            ],
+            pairs: [
+              {
+                id: "surface+custom",
+                tabIds: [
+                  "craft-surface:craft_workspace:app.example.notes/notes",
+                  "tab_custom",
+                ],
+                ratios: [50, 50],
+              },
+            ],
+            order: 0,
+          },
+        ],
+      },
+      craftSurfaces: [surfaces[0]!],
+      origin: "https://vd.example.test",
+    });
+
+    expect(effective.tabGroups[0]!.pairs).toEqual(
+      expect.arrayContaining([
+        {
+          id: "surface+custom",
+          tabIds: [
+            "craft-surface:craft_workspace:app.example.notes/notes",
+            "tab_custom",
+          ],
+          ratios: [50, 50],
+        },
+      ]),
+    );
+    expect(getEffectivePairs(effective.tabGroups[0]!)).toEqual(
+      expect.arrayContaining([
+        {
+          id: "surface+custom",
+          tabIds: [
+            "craft-surface:craft_workspace:app.example.notes/notes",
+            "tab_custom",
+          ],
+          ratios: [50, 50],
+        },
+      ]),
+    );
+    expect(getEffectiveTabs(effective.tabGroups[0]!).map((tab) => tab.id)).toEqual(
+      expect.arrayContaining([
+        "craft-surface:craft_workspace:app.example.notes/notes",
+        "tab_custom",
+      ]),
+    );
+    const tabsById = new Map(
+      getEffectiveTabs(effective.tabGroups[0]!).map((tab) => [tab.id, tab]),
+    );
+    const pair = getEffectivePairs(effective.tabGroups[0]!).find(
+      (candidate) => candidate.id === "surface+custom",
+    );
+    expect(pair?.tabIds.map((tabId) => tabsById.get(tabId)?.title)).toEqual([
+      "Notes",
+      "Custom",
+    ]);
+  });
+
+  it("drops stale craft-surface pairs during explicit surface regeneration", () => {
+    const staleSurfaceTabId =
+      "craft-surface:craft_workspace:app.example.notes/notes";
+    const effective = createEffectiveWorkspaceWithCraftSurfaces({
+      workspace: {
+        ...workspace,
+        tabGroups: [
+          {
+            id: "craft_workspace",
+            label: "Workspace Craft",
+            tabs: [
+              {
+                id: staleSurfaceTabId,
+                title: "Stale Notes",
+                url: "https://stale.example.test",
+                ephemeral: {
+                  kind: "craft-surface",
+                  pluginId: "app.example.notes",
+                  surfaceKey: "app.example.notes/notes",
+                  sourceKey: "notes",
+                },
+              },
+              {
+                id: "tab_custom",
+                title: "Custom",
+                url: "https://example.test",
+              },
+            ],
+            pairs: [
+              {
+                id: "surface+custom",
+                tabIds: [staleSurfaceTabId, "tab_custom"],
+                ratios: [50, 50],
+              },
+            ],
+            order: 0,
+          },
+        ],
+      },
+      craftSurfaces: [],
+      origin: "https://vd.example.test",
+    });
+
+    expect(effective.tabGroups[0]!.tabs.map((tab) => tab.id)).not.toContain(
+      staleSurfaceTabId,
+    );
+    expect(effective.tabGroups[0]!.pairs.map((pair) => pair.id)).not.toContain(
+      "surface+custom",
+    );
+  });
+
   it("derives built-in workspace tabs from the current localhost origin", () => {
     const effective = createEffectiveWorkspaceWithCraftSurfaces({
       workspace: {
@@ -215,10 +356,16 @@ describe("dynamic Craft surfaces", () => {
       effective.tabGroups[0]!.tabs.map((tab) => [tab.id, tab.title, tab.url]),
     ).toEqual([
       ["agent", "Agent", "http://localhost:3001/workspaces/workspace_1"],
+      ["agent-2", "Agent 2", "http://localhost:3001/workspaces/workspace_1"],
       [
         "code",
         "Code",
         "http://localhost:3001/?folder=%2Fhome%2Fvkuser%2Frepos%2Fapp",
+      ],
+      [
+        "diff",
+        "Diffs",
+        "internal://diff?workspaceId=workspace_1&workspaceDir=%2Fhome%2Fvkuser%2Frepos%2Fapp",
       ],
       ["beads", "Beads", "http://beads-web.localhost:3001"],
       ["forms", "Forms", "http://localhost:3001/dashboard/forms?workspace=workspace_1"],
@@ -253,10 +400,16 @@ describe("dynamic Craft surfaces", () => {
         effective.tabGroups[0]!.tabs.map((tab) => [tab.id, tab.title, tab.url]),
       ).toEqual([
         ["agent", "Agent", "http://localhost:4100/workspaces/workspace_1"],
+        ["agent-2", "Agent 2", "http://localhost:4100/workspaces/workspace_1"],
         [
           "code",
           "Code",
           "http://localhost:4100/?folder=%2Fhome%2Fvkuser%2Frepos%2Fapp",
+        ],
+        [
+          "diff",
+          "Diffs",
+          "internal://diff?workspaceId=workspace_1&workspaceDir=%2Fhome%2Fvkuser%2Frepos%2Fapp",
         ],
         ["beads", "Beads", "http://beads-web.localhost:4101"],
         ["forms", "Forms", "http://localhost:4101/dashboard/forms?workspace=workspace_1"],

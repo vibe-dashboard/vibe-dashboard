@@ -38,6 +38,7 @@ import { serverRegistry } from 'springboard/server/register';
 import { createNodeBeadsClient, type ListWorkspaceBeadsResult, type PendingBeadsFormQueueResult } from '../lib/beadsClient.node';
 import { loadBeadsFormsFromFolder, tryAppendBeadsFormPreviewResponse } from '../lib/beadsFormFolder.node';
 import { registerBeadsFormMediaRoutes } from '../server/beads-form-media-routes';
+import { registerWorkspaceTaskRoutes } from '../server/workspace-task-routes';
 import { VibeKanbanServerClient } from '../server/vk-client';
 // @platform end
 
@@ -137,6 +138,7 @@ function vkClient() {
 // @platform "node"
 serverRegistry.registerServerModule((api) => {
   registerBeadsFormMediaRoutes(api.hono);
+  registerWorkspaceTaskRoutes(api.hono);
 });
 // @platform end
 

@@ -21,10 +21,10 @@ function getStatusIcon(status?: string | null) {
   if (s === 'completed')
     return <Check aria-hidden className="size-icon-sm text-success" />;
   if (s === 'in_progress' || s === 'in-progress')
-    return <CircleDot aria-hidden className="size-icon-sm text-blue-500" />;
+    return <CircleDot aria-hidden className="size-icon-sm text-primary" />;
   if (s === 'cancelled')
-    return <Circle aria-hidden className="size-icon-sm text-gray-400" />;
-  return <Circle aria-hidden className="size-icon-sm text-muted-foreground" />;
+    return <Circle aria-hidden className="size-icon-sm text-default-500" />;
+  return <Circle aria-hidden className="size-icon-sm text-default-500" />;
 }
 
 export function TodoProgressPopup({
@@ -75,8 +75,8 @@ export function TodoProgressPopup({
           <PopoverTrigger asChild>
             <button
               className={cn(
-                'flex items-center justify-center text-low hover:text-normal transition-colors',
-                'focus:outline-none focus-visible:ring-1 focus-visible:ring-brand',
+                'flex items-center justify-center text-default-500 hover:text-foreground transition-colors',
+                'focus:outline-none focus-visible:ring-1 focus-visible:ring-focus',
                 className
               )}
               aria-label={t('todoPopup.title')}
@@ -85,7 +85,7 @@ export function TodoProgressPopup({
                 <ListChecksIcon className="size-icon-base" />
                 {/* Progress indicator dot - only shown when there are todos */}
                 {percentage < 100 && (
-                  <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-blue-500" />
+                  <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-primary" />
                 )}
                 {percentage === 100 && (
                   <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-success" />
@@ -102,10 +102,10 @@ export function TodoProgressPopup({
         <div className="flex flex-col gap-base min-h-0">
           {/* Header with progress */}
           <div className="flex items-center justify-between shrink-0">
-            <h4 className="text-sm font-medium text-normal">
+            <h4 className="text-sm font-medium text-foreground">
               {t('todoPopup.title')}
             </h4>
-            <span className="text-xs text-low">
+            <span className="text-xs text-default-500">
               {t('todoPopup.progress', { completed, total })}
             </span>
           </div>
@@ -115,7 +115,7 @@ export function TodoProgressPopup({
             <div
               className={cn(
                 'h-full transition-all duration-300 rounded-full',
-                percentage === 100 ? 'bg-success' : 'bg-blue-500'
+                percentage === 100 ? 'bg-success' : 'bg-primary'
               )}
               style={{ width: `${percentage}%` }}
             />
@@ -131,9 +131,9 @@ export function TodoProgressPopup({
                 <span className="mt-0.5 size-icon-sm flex items-center justify-center shrink-0">
                   {getStatusIcon(todo.status)}
                 </span>
-                <span className="text-sm leading-5 break-words text-normal">
+                <span className="text-sm leading-5 break-words text-foreground">
                   {todo.status?.toLowerCase() === 'cancelled' ? (
-                    <s className="text-gray-400">{todo.content}</s>
+                    <s className="text-default-500">{todo.content}</s>
                   ) : (
                     todo.content
                   )}

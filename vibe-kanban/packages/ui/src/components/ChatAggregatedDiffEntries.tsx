@@ -144,13 +144,15 @@ function DiffEntry({
     (writeAdditions !== undefined && writeAdditions > 0);
 
   return (
-    <div className="border-t border-muted/50 first:border-t-0">
-      <div className="flex items-center p-base bg-muted/10">
+    <div className="border-t border-divider/50 first:border-t-0">
+      <div className="flex items-center p-base bg-content2/10">
         <div className="flex-1 flex items-center gap-base min-w-0">
           <span className="relative shrink-0">
             {status && <ToolStatusDot status={status} className="size-2" />}
           </span>
-          <span className="text-sm text-low">{getActionLabel(change)}</span>
+          <span className="text-sm text-default-500">
+            {getActionLabel(change)}
+          </span>
           {hasStats && (
             <span className="text-sm shrink-0">
               {(additions ?? writeAdditions) !== undefined &&
@@ -164,7 +166,7 @@ function DiffEntry({
                 deletions > 0 &&
                 ' '}
               {deletions !== undefined && deletions > 0 && (
-                <span className="text-error">-{deletions}</span>
+                <span className="text-danger">-{deletions}</span>
               )}
             </span>
           )}
@@ -252,14 +254,14 @@ export function ChatAggregatedDiffEntries({
     <div
       className={cn(
         'rounded-sm border overflow-hidden',
-        isDenied && 'border-error bg-error/10',
+        isDenied && 'border-danger bg-danger/10',
         className
       )}
     >
       <div
         className={cn(
           'flex items-center p-base w-full',
-          isDenied ? 'bg-error/20' : 'bg-panel',
+          isDenied ? 'bg-danger/20' : 'bg-content1',
           'cursor-pointer'
         )}
         onClick={handleClick}
@@ -288,8 +290,8 @@ export function ChatAggregatedDiffEntries({
               />
             )}
           </span>
-          <span className="text-sm text-normal truncate">{filePath}</span>
-          <span className="text-xs text-low shrink-0">
+          <span className="text-sm text-foreground truncate">{filePath}</span>
+          <span className="text-xs text-default-500 shrink-0">
             · {entries.length} {entries.length === 1 ? 'edit' : 'edits'}
           </span>
           {!isVSCode && onOpenInChanges && (
@@ -299,7 +301,7 @@ export function ChatAggregatedDiffEntries({
                 e.stopPropagation();
                 onOpenInChanges();
               }}
-              className="shrink-0 p-0.5 rounded hover:bg-muted text-low hover:text-normal transition-colors"
+              className="shrink-0 p-0.5 rounded hover:bg-content2 text-default-500 hover:text-foreground transition-colors"
               title={t('conversation.viewInChangesPanel')}
             >
               <ArrowSquareUpRightIcon className="size-icon-xs" />
@@ -312,7 +314,7 @@ export function ChatAggregatedDiffEntries({
               )}
               {totalStats.additions > 0 && totalStats.deletions > 0 && ' '}
               {totalStats.deletions > 0 && (
-                <span className="text-error">-{totalStats.deletions}</span>
+                <span className="text-danger">-{totalStats.deletions}</span>
               )}
             </span>
           )}
@@ -320,7 +322,7 @@ export function ChatAggregatedDiffEntries({
         {!isVSCode && (
           <CaretDownIcon
             className={cn(
-              'size-icon-xs shrink-0 text-low transition-transform',
+              'size-icon-xs shrink-0 text-default-500 transition-transform',
               !expanded && '-rotate-90'
             )}
           />

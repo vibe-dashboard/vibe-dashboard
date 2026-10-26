@@ -45,7 +45,7 @@ export function ExternalLinearBoardLoader({ externalViewUrl }: { externalViewUrl
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-neutral-950 text-neutral-100">
+      <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
         <Spinner color="primary" label="Loading Linear issues…" />
       </div>
     );
@@ -84,11 +84,11 @@ export function ExternalLinearBoardContent({ boardView }: { boardView: ExternalL
   };
 
   const sidePanel = sidePanelWorkspaceId ? (
-    <aside className="min-h-[60vh] border-t border-neutral-800 bg-neutral-950 lg:border-l lg:border-t-0 lg:min-w-[360px] lg:basis-[36vw]">
-      <div className="flex items-center justify-between border-b border-neutral-800 p-3">
+    <aside className="min-h-[60vh] border-t border-divider/30 bg-background lg:border-l lg:border-t-0 lg:min-w-[360px] lg:basis-[36vw]">
+      <div className="flex items-center justify-between border-b border-divider/30 p-3">
         <div>
-          <p className="text-xs uppercase tracking-wide text-neutral-500">VK workspace</p>
-          <p className="text-sm font-medium text-neutral-100">{sidePanelWorkspaceId}</p>
+          <p className="text-xs uppercase tracking-wide text-default-500">VK workspace</p>
+          <p className="text-sm font-medium text-foreground">{sidePanelWorkspaceId}</p>
         </div>
         <Button size="sm" variant="flat" onPress={() => setSidePanelWorkspaceId(undefined)}>Close</Button>
       </div>
@@ -125,7 +125,7 @@ export function ExternalLinearBoardContent({ boardView }: { boardView: ExternalL
           boardView={displayBoardView}
           card={sortedCards[0]}
           providerLabel="Linear"
-          providerColorClassName="bg-purple-500/15 text-purple-200"
+          providerColorClassName="bg-secondary/15 text-secondary"
           openInProviderLabel="Open in Linear"
           metadataItems={linearMetadataItems(sortedCards[0])}
           onCreateWorkspace={(card) => setWorkspaceCreateCard(card)}
@@ -179,11 +179,11 @@ function ExternalLinearBoardHeader({ boardView }: { boardView: ExternalLinearBoa
     <header className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
       <div>
         <div className="flex flex-wrap items-center gap-2">
-          <Chip size="sm" variant="flat" className="bg-purple-500/15 text-purple-200">Linear</Chip>
-          <Chip size="sm" variant="flat" className="bg-neutral-800 text-neutral-300">Read-only</Chip>
+          <Chip size="sm" variant="flat" className="bg-secondary/15 text-secondary">Linear</Chip>
+          <Chip size="sm" variant="flat" className="bg-content2 text-foreground">Read-only</Chip>
         </div>
-        <h1 className="mt-3 text-2xl font-semibold text-neutral-50">{boardView.board.name ?? 'Linear issues'}</h1>
-        <p className="mt-1 text-sm text-neutral-400">{boardView.pagination.issueCount} issues fetched live from {boardView.siteHostname}</p>
+        <h1 className="mt-3 text-2xl font-semibold text-foreground">{boardView.board.name ?? 'Linear issues'}</h1>
+        <p className="mt-1 text-sm text-default-500">{boardView.pagination.issueCount} issues fetched live from {boardView.siteHostname}</p>
       </div>
       <Button as="a" href={boardView.sourceUrl} target="_blank" rel="noreferrer" variant="flat" className="w-fit">Open in Linear</Button>
     </header>
@@ -249,7 +249,7 @@ function ExternalLinearCard({
     <div
       role="button"
       tabIndex={0}
-      className="w-full rounded-xl border border-neutral-800 bg-neutral-950 p-3 text-left transition hover:border-purple-500/60 focus:outline-none focus:ring-2 focus:ring-purple-400"
+      className="w-full rounded-xl border border-divider/30 bg-background p-3 text-left transition hover:border-secondary/60 focus:outline-none focus:ring-2 focus:ring-focus"
       onClick={() => onSelect(card)}
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget) return;
@@ -260,10 +260,10 @@ function ExternalLinearCard({
       }}
     >
       <div className="flex items-start justify-between gap-3">
-        <span className="font-mono text-xs text-purple-200">{card.key}</span>
+        <span className="font-mono text-xs text-secondary">{card.key}</span>
       </div>
-      <p className="mt-2 text-sm font-medium text-neutral-100">{card.title}</p>
-      <div className="mt-3 flex flex-wrap gap-2 text-xs text-neutral-400">
+      <p className="mt-2 text-sm font-medium text-foreground">{card.title}</p>
+      <div className="mt-3 flex flex-wrap gap-2 text-xs text-default-500">
         {card.statusName ? <span>{card.statusName}</span> : null}
         {taskCount > 0 ? <span>{taskCount} {taskCount === 1 ? 'task' : 'tasks'}</span> : null}
       </div>
@@ -280,7 +280,7 @@ function ExternalLinearCard({
             Open Workspace
           </Button>
         ) : (
-          <Chip size="sm" variant="flat" className="bg-neutral-800 text-neutral-400">No workspace</Chip>
+          <Chip size="sm" variant="flat" className="bg-content2 text-default-500">No workspace</Chip>
         )}
       </div>
     </div>
@@ -302,7 +302,7 @@ function ExternalLinearListRow({
     <div
       role="button"
       tabIndex={0}
-      className="flex w-full flex-col gap-3 rounded-xl border border-neutral-800 bg-neutral-950 p-3 text-left transition hover:border-purple-500/60 focus:outline-none focus:ring-2 focus:ring-purple-400 sm:flex-row sm:items-center sm:justify-between"
+      className="flex w-full flex-col gap-3 rounded-xl border border-divider/30 bg-background p-3 text-left transition hover:border-secondary/60 focus:outline-none focus:ring-2 focus:ring-focus sm:flex-row sm:items-center sm:justify-between"
       onClick={() => onSelect(card)}
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget) return;
@@ -314,11 +314,11 @@ function ExternalLinearListRow({
     >
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-mono text-xs font-semibold text-purple-200">{card.key}</span>
-          {card.statusName ? <Chip size="sm" variant="flat" className="bg-neutral-800 text-neutral-300">{card.statusName}</Chip> : null}
-          {taskCount > 0 ? <span className="text-xs text-neutral-400">{taskCount} {taskCount === 1 ? 'task' : 'tasks'}</span> : null}
+          <span className="font-mono text-xs font-semibold text-secondary">{card.key}</span>
+          {card.statusName ? <Chip size="sm" variant="flat" className="bg-content2 text-foreground">{card.statusName}</Chip> : null}
+          {taskCount > 0 ? <span className="text-xs text-default-500">{taskCount} {taskCount === 1 ? 'task' : 'tasks'}</span> : null}
         </div>
-        <p className="mt-1 truncate text-sm font-medium text-neutral-100">{card.title}</p>
+        <p className="mt-1 truncate text-sm font-medium text-foreground">{card.title}</p>
       </div>
       <div className="shrink-0">
         {workspace ? (
@@ -333,7 +333,7 @@ function ExternalLinearListRow({
             Open Workspace
           </Button>
         ) : (
-          <Chip size="sm" variant="flat" className="bg-neutral-800 text-neutral-400">No workspace</Chip>
+          <Chip size="sm" variant="flat" className="bg-content2 text-default-500">No workspace</Chip>
         )}
       </div>
     </div>
@@ -360,11 +360,11 @@ function ExternalLinearIssueDrawer({
   onOpenWorkspacePanel: (workspace: ExternalKanbanRelatedWorkspaceDto) => void;
 }) {
   return (
-    <Drawer isOpen={Boolean(card)} onOpenChange={(open) => { if (!open) onClose(); }} placement="right" size="2xl" classNames={{ base: 'w-full max-w-full sm:max-w-2xl bg-neutral-950 text-neutral-100' }}>
+    <Drawer isOpen={Boolean(card)} onOpenChange={(open) => { if (!open) onClose(); }} placement="right" size="2xl" classNames={{ base: 'w-full max-w-full sm:max-w-2xl bg-background text-foreground' }}>
       <DrawerContent>
         {card ? (
           <DrawerBody className="min-h-0 overflow-y-auto p-0">
-            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-neutral-800 bg-neutral-950/95 p-3 backdrop-blur">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-divider/30 bg-background/95 p-3 backdrop-blur">
               <div className="flex items-center gap-2">
                 <Button size="sm" variant="flat" isDisabled={!canGoPrevious} onPress={onPrevious} aria-label="Previous issue">←</Button>
                 <Button size="sm" variant="flat" isDisabled={!canGoNext} onPress={onNext} aria-label="Next issue">→</Button>
@@ -373,9 +373,9 @@ function ExternalLinearIssueDrawer({
             </div>
             <div className="space-y-6 p-5">
               <div>
-                <Chip size="sm" variant="flat" className="bg-purple-500/15 text-purple-200">{card.key}</Chip>
-                <h2 className="mt-3 text-2xl font-semibold text-neutral-50">{card.title}</h2>
-                <p className="mt-2 text-sm text-neutral-400">{card.statusName ?? 'No status'} · {boardView.board.name ?? 'Linear issues'}</p>
+                <Chip size="sm" variant="flat" className="bg-secondary/15 text-secondary">{card.key}</Chip>
+                <h2 className="mt-3 text-2xl font-semibold text-foreground">{card.title}</h2>
+                <p className="mt-2 text-sm text-default-500">{card.statusName ?? 'No status'} · {boardView.board.name ?? 'Linear issues'}</p>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Detail label="Assignee" value={card.assignee?.displayName ?? 'Unassigned'} />
@@ -384,25 +384,25 @@ function ExternalLinearIssueDrawer({
                 <Detail label="Labels" value={card.labels.length > 0 ? card.labels.join(', ') : 'No labels'} />
               </div>
               <section>
-                <h3 className="text-sm font-semibold text-neutral-200">Related tasks</h3>
+                <h3 className="text-sm font-semibold text-foreground">Related tasks</h3>
                 {card.relatedBeads?.length ? (
                   <ul className="mt-2 space-y-2">
-                    {card.relatedBeads.map((task) => <li key={task.id} className="rounded-lg border border-neutral-800 p-2 text-sm">{task.title} <span className="text-neutral-500">({task.status ?? 'unknown'})</span></li>)}
+                    {card.relatedBeads.map((task) => <li key={task.id} className="rounded-lg border border-divider/30 p-2 text-sm">{task.title} <span className="text-default-500">({task.status ?? 'unknown'})</span></li>)}
                   </ul>
-                ) : <p className="mt-2 text-sm text-neutral-500">No linked tasks.</p>}
+                ) : <p className="mt-2 text-sm text-default-500">No linked tasks.</p>}
               </section>
               <section>
-                <h3 className="text-sm font-semibold text-neutral-200">Related workspaces</h3>
+                <h3 className="text-sm font-semibold text-foreground">Related workspaces</h3>
                 {card.relatedWorkspaces?.length ? (
                   <div className="mt-2 space-y-2">
                     {card.relatedWorkspaces.map((workspace) => (
-                      <div key={workspace.workspaceId} className="flex items-center justify-between rounded-lg border border-neutral-800 p-2">
+                      <div key={workspace.workspaceId} className="flex items-center justify-between rounded-lg border border-divider/30 p-2">
                         <span className="text-sm">{workspace.displayName ?? workspace.workspaceId}</span>
                         <Button size="sm" variant="flat" onPress={() => onOpenWorkspacePanel(workspace)}>Open Workspace</Button>
                       </div>
                     ))}
                   </div>
-                ) : <p className="mt-2 text-sm text-neutral-500">No linked workspace.</p>}
+                ) : <p className="mt-2 text-sm text-default-500">No linked workspace.</p>}
               </section>
               <Button as="a" href={card.url} target="_blank" rel="noreferrer" color="primary" variant="flat">Open in Linear</Button>
             </div>
@@ -415,22 +415,22 @@ function ExternalLinearIssueDrawer({
 
 function Detail({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-neutral-800 p-3">
-      <p className="text-xs uppercase tracking-wide text-neutral-500">{label}</p>
-      <p className="mt-1 text-sm text-neutral-200">{value}</p>
+    <div className="rounded-lg border border-divider/30 p-3">
+      <p className="text-xs uppercase tracking-wide text-default-500">{label}</p>
+      <p className="mt-1 text-sm text-foreground">{value}</p>
     </div>
   );
 }
 
 function ExternalLinearMessage({ title, message, action, compact = false }: { title: string; message: string; action?: string; compact?: boolean }) {
   return (
-    <div className={compact ? '' : 'flex min-h-screen items-center justify-center bg-neutral-950 p-6 text-neutral-100'}>
-      <Card className="border border-neutral-800 bg-neutral-900">
+    <div className={compact ? '' : 'flex min-h-screen items-center justify-center bg-background p-6 text-foreground'}>
+      <Card className="border border-divider/30 bg-content1">
         <CardBody className="gap-3 p-6">
-          <Chip size="sm" variant="flat" className="w-fit bg-purple-500/15 text-purple-200">Linear</Chip>
-          <h1 className="text-xl font-semibold text-neutral-50">{title}</h1>
-          <p className="text-sm text-neutral-300">{message}</p>
-          {action ? <p className="text-sm text-neutral-500">{action}</p> : null}
+          <Chip size="sm" variant="flat" className="w-fit bg-secondary/15 text-secondary">Linear</Chip>
+          <h1 className="text-xl font-semibold text-foreground">{title}</h1>
+          <p className="text-sm text-default-500">{message}</p>
+          {action ? <p className="text-sm text-default-500">{action}</p> : null}
         </CardBody>
       </Card>
     </div>

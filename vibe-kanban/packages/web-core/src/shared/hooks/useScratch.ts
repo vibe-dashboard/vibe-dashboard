@@ -1,4 +1,6 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
+import { skipToken, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useHostId } from '@/shared/providers/HostIdProvider';
 import { useJsonPatchWsStream } from '@/shared/hooks/useJsonPatchWsStream';
 import { useAppRuntime } from '@/shared/hooks/useAppRuntime';
 import { useLocalStorageScratch } from '@/shared/hooks/useLocalStorageScratch';
@@ -43,6 +45,17 @@ export const useScratch = (
 ): UseScratchResult => {
   const runtime = useAppRuntime();
   const isRemote = runtime === 'remote';
+  const hostId = useHostId();
+  const queryClient = useQueryClient();
+  const queryKey = useMemo(
+    () => ['scratch', hostId, scratchType, id] as const,
+    [hostId, scratchType, id]
+  );
+  const { data: cachedScratch } = useQuery<Scratch | null>({
+    queryKey,
+    queryFn: skipToken,
+    gcTime: 30 * 60_000,
+  });
 
   // --- localStorage path (remote-web) ---
   const localResult = useLocalStorageScratch(scratchType, id, {
@@ -62,14 +75,25 @@ export const useScratch = (
     useJsonPatchWsStream<ScratchState>(endpoint, serverEnabled, initialData);
 
   // Treat deleted scratches as null
-  const rawScratch = data?.scratch as (Scratch & { deleted?: boolean }) | null;
+  const rawScratch = (
+    serverEnabled ? (isInitialized ? data?.scratch : cachedScratch) : null
+  ) as (Scratch & { deleted?: boolean }) | null | undefined;
   const scratch = rawScratch?.deleted ? null : rawScratch;
+
+  useEffect(() => {
+    if (serverEnabled && isInitialized)
+      queryClient.setQueryData(queryKey, data?.scratch ?? null);
+  }, [serverEnabled, isInitialized, queryClient, queryKey, data]);
 
   const updateScratchForId = useCallback(
     async (targetId: string, update: UpdateScratch) => {
       await scratchApi.update(scratchType, targetId, update);
+      queryClient.setQueryData<Scratch | null>(
+        ['scratch', hostId, scratchType, targetId],
+        (old) => (old ? { ...old, ...update } : old)
+      );
     },
-    [scratchType]
+    [scratchType, hostId, queryClient]
   );
 
   const updateScratch = useCallback(
@@ -82,8 +106,12 @@ export const useScratch = (
   const deleteScratchForId = useCallback(
     async (targetId: string) => {
       await scratchApi.delete(scratchType, targetId);
+      queryClient.setQueryData(
+        ['scratch', hostId, scratchType, targetId],
+        null
+      );
     },
-    [scratchType]
+    [scratchType, hostId, queryClient]
   );
 
   const deleteScratch = useCallback(async () => {
@@ -93,7 +121,7 @@ export const useScratch = (
   const isLoading = !isInitialized && !error;
 
   const serverResult: UseScratchResult = {
-    scratch,
+    scratch: scratch ?? null,
     isLoading,
     isConnected,
     error,

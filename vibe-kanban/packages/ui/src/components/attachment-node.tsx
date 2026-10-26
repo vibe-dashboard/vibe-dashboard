@@ -5,6 +5,10 @@ import { NodeKey, SerializedLexicalNode, Spread, $getNodeByKey } from 'lexical';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { Download, File, HelpCircle, X } from 'lucide-react';
 import {
+  isWorkspaceAttachmentPath,
+  WORKSPACE_ATTACHMENT_PATH_PATTERN,
+} from '../lib/workspaceAttachments';
+import {
   useWorkspaceId,
   useSessionId,
   useLocalAttachments,
@@ -101,7 +105,7 @@ function useAttachmentMetadata(
   src: string,
   localAttachments: LocalAttachmentMetadata[]
 ) {
-  const isWorkspaceAttachment = src.startsWith('.vibe-attachments/');
+  const isWorkspaceAttachment = isWorkspaceAttachmentPath(src);
 
   const localAttachment = useMemo(
     () => localAttachments.find((attachment) => attachment.path === src),
@@ -169,7 +173,7 @@ export function createAttachmentNode(options: CreateAttachmentNodeOptions) {
     const localAttachments = useLocalAttachments();
     const [editor] = useLexicalComposerContext();
 
-    const isWorkspaceAttachment = src.startsWith('.vibe-attachments/');
+    const isWorkspaceAttachment = isWorkspaceAttachmentPath(src);
     const isPendingAttachment = src.startsWith('pending-attachment://');
     const isAttachment = isPendingAttachment || src.startsWith('attachment://');
     const attachmentId =
@@ -254,14 +258,14 @@ export function createAttachmentNode(options: CreateAttachmentNodeOptions) {
 
     const icon =
       isWorkspaceAttachment || isAttachment ? (
-        <File className="w-5 h-5 text-muted-foreground" />
+        <File className="w-5 h-5 text-default-500" />
       ) : (
-        <HelpCircle className="w-5 h-5 text-muted-foreground" />
+        <HelpCircle className="w-5 h-5 text-default-500" />
       );
 
     return (
       <span
-        className="group relative inline-flex items-center gap-1.5 pl-1.5 pr-5 py-1 ml-0.5 mr-0.5 bg-muted rounded border cursor-pointer border-border hover:border-muted-foreground transition-colors align-bottom"
+        className="group relative inline-flex items-center gap-1.5 pl-1.5 pr-5 py-1 ml-0.5 mr-0.5 bg-content2 rounded border cursor-pointer border-divider hover:border-primary transition-colors align-bottom"
         onClick={(event) => {
           openUrl(event).catch((error) => {
             console.error('Failed to open attachment:', error);
@@ -271,15 +275,15 @@ export function createAttachmentNode(options: CreateAttachmentNodeOptions) {
         role="button"
         tabIndex={0}
       >
-        <span className="w-10 h-10 flex items-center justify-center bg-muted rounded flex-shrink-0">
+        <span className="w-10 h-10 flex items-center justify-center bg-content2 rounded flex-shrink-0">
           {icon}
         </span>
         <span className="flex flex-col min-w-0">
-          <span className="text-xs text-muted-foreground truncate max-w-[120px]">
+          <span className="text-xs text-default-500 truncate max-w-[120px]">
             {displayName}
           </span>
           {metadataLine && (
-            <span className="text-[10px] text-muted-foreground/70 truncate max-w-[120px]">
+            <span className="text-[10px] text-default-500/70 truncate max-w-[120px]">
               {metadataLine}
             </span>
           )}
@@ -287,7 +291,7 @@ export function createAttachmentNode(options: CreateAttachmentNodeOptions) {
         {editor.isEditable() && (
           <button
             onClick={handleDelete}
-            className="absolute top-1 right-1 w-4 h-4 rounded-full bg-foreground/70 hover:bg-destructive flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+            className="absolute top-1 right-1 w-4 h-4 rounded-full bg-content1 hover:bg-danger flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
             aria-label={t('kanban.removeImage')}
             type="button"
           >
@@ -316,8 +320,9 @@ export function createAttachmentNode(options: CreateAttachmentNodeOptions) {
     type: 'attachment',
     serialization: {
       format: 'inline',
-      pattern:
-        /(?<!!)\[([^\]]+)\]\((attachment:\/\/[^)]+|pending-attachment:\/\/[^)]+|\.vibe-attachments\/[^)]+)\)/,
+      pattern: new RegExp(
+        String.raw`(?<!!)\[([^\]]+)\]\((attachment:\/\/[^)]+|pending-attachment:\/\/[^)]+|${WORKSPACE_ATTACHMENT_PATH_PATTERN}[^)]+)\)`
+      ),
       trigger: ')',
       serialize: (data) => `[${data.label}](${data.src})`,
       deserialize: (match) => ({ src: match[2], label: match[1] }),

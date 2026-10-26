@@ -325,8 +325,8 @@ export function AddTabModal({
   return (
     <>
       <Modal isOpen={isOpen} onClose={handleClose} size="sm" backdrop="blur">
-        <ModalContent className="bg-neutral-900 border border-neutral-800 text-neutral-100">
-          <ModalHeader className="text-sm border-b border-neutral-800 text-white">
+        <ModalContent className="bg-content1 border border-divider text-foreground">
+          <ModalHeader className="text-sm border-b border-divider text-foreground">
             {showTabGroupInput ? "New Craft" : "Add View"}
           </ModalHeader>
           <ModalBody>
@@ -339,9 +339,9 @@ export function AddTabModal({
                   <ListboxItem
                     key={entry.key}
                     description={entry.description}
-                    className="text-neutral-100"
+                    className="text-foreground"
                     classNames={{
-                      description: "text-neutral-400",
+                      description: "text-default-500",
                     }}
                   >
                     {entry.title}
@@ -362,9 +362,9 @@ export function AddTabModal({
                   }}
                   classNames={{
                     inputWrapper:
-                      "bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800",
-                    input: "text-white",
-                    label: "text-neutral-300",
+                      "bg-content2 border-divider data-[hover=true]:bg-content2 group-data-[focus=true]:bg-content2",
+                    input: "text-foreground",
+                    label: "text-foreground",
                   }}
                 />
               </div>
@@ -379,9 +379,9 @@ export function AddTabModal({
                   autoFocus
                   classNames={{
                     inputWrapper:
-                      "bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800",
-                    input: "text-white",
-                    label: "text-neutral-300",
+                      "bg-content2 border-divider data-[hover=true]:bg-content2 group-data-[focus=true]:bg-content2",
+                    input: "text-foreground",
+                    label: "text-foreground",
                   }}
                 />
                 <Input
@@ -395,21 +395,21 @@ export function AddTabModal({
                   }}
                   classNames={{
                     inputWrapper:
-                      "bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800",
-                    input: "text-white",
-                    label: "text-neutral-300",
+                      "bg-content2 border-divider data-[hover=true]:bg-content2 group-data-[focus=true]:bg-content2",
+                    input: "text-foreground",
+                    label: "text-foreground",
                   }}
                 />
               </div>
             )}
           </ModalBody>
           {showCustom && (
-            <ModalFooter className="border-t border-neutral-800">
+            <ModalFooter className="border-t border-divider">
               <Button
                 size="sm"
                 variant="flat"
                 onPress={() => setShowCustom(false)}
-                className="bg-neutral-800 text-neutral-200"
+                className="bg-content2 text-foreground"
               >
                 Back
               </Button>
@@ -419,12 +419,12 @@ export function AddTabModal({
             </ModalFooter>
           )}
           {showTabGroupInput && (
-            <ModalFooter className="border-t border-neutral-800">
+            <ModalFooter className="border-t border-divider">
               <Button
                 size="sm"
                 variant="flat"
                 onPress={() => setShowTabGroupInput(false)}
-                className="bg-neutral-800 text-neutral-200"
+                className="bg-content2 text-foreground"
               >
                 Back
               </Button>

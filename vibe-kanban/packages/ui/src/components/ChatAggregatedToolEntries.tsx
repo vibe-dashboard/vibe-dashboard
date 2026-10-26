@@ -23,6 +23,7 @@ interface ChatAggregatedToolEntriesProps {
   icon?: React.ElementType;
   className?: string;
   onViewContent?: (index: number) => void;
+  renderEntry?: (index: number) => React.ReactNode;
 }
 
 export function ChatAggregatedToolEntries({
@@ -36,16 +37,18 @@ export function ChatAggregatedToolEntries({
   icon: Icon = ListMagnifyingGlassIcon,
   className,
   onViewContent,
+  renderEntry,
 }: ChatAggregatedToolEntriesProps) {
   if (entries.length === 0) return null;
 
   // If only one entry, don't aggregate
   if (entries.length === 1) {
+    if (renderEntry) return <>{renderEntry(0)}</>;
     const entry = entries[0];
     return (
       <div
         className={cn(
-          'flex items-center gap-base text-sm text-low',
+          'flex items-center gap-base text-sm text-default-500',
           onViewContent && 'cursor-pointer',
           className
         )}
@@ -94,7 +97,7 @@ export function ChatAggregatedToolEntries({
     <div className={cn('flex flex-col', className)}>
       {/* Header row - clickable to expand/collapse */}
       <div
-        className="flex items-center gap-base text-sm text-low cursor-pointer group"
+        className="flex items-center gap-base text-sm text-default-500 cursor-pointer group"
         onClick={onToggle}
         onMouseEnter={() => onHoverChange(true)}
         onMouseLeave={() => onHoverChange(false)}
@@ -128,28 +131,32 @@ export function ChatAggregatedToolEntries({
       {/* Expanded content */}
       {expanded && (
         <div className="ml-6 pt-1 flex flex-col gap-0.5">
-          {entries.map((entry, index) => (
-            <div
-              key={entry.expansionKey}
-              className={cn(
-                'flex items-center gap-base text-sm text-low pl-base',
-                onViewContent && 'cursor-pointer hover:text-normal'
-              )}
-              onClick={onViewContent ? () => onViewContent(index) : undefined}
-              role={onViewContent ? 'button' : undefined}
-            >
-              <span className="relative shrink-0 pt-0.5">
-                <Icon className="size-icon-base" />
-                {entry.status && (
-                  <ToolStatusDot
-                    status={entry.status}
-                    className="absolute -bottom-0.5 -left-0.5"
-                  />
+          {entries.map((entry, index) =>
+            renderEntry ? (
+              <div key={entry.expansionKey}>{renderEntry(index)}</div>
+            ) : (
+              <div
+                key={entry.expansionKey}
+                className={cn(
+                  'flex items-center gap-base text-sm text-default-500 pl-base',
+                  onViewContent && 'cursor-pointer hover:text-foreground'
                 )}
-              </span>
-              <span className="truncate">{entry.summary}</span>
-            </div>
-          ))}
+                onClick={onViewContent ? () => onViewContent(index) : undefined}
+                role={onViewContent ? 'button' : undefined}
+              >
+                <span className="relative shrink-0 pt-0.5">
+                  <Icon className="size-icon-base" />
+                  {entry.status && (
+                    <ToolStatusDot
+                      status={entry.status}
+                      className="absolute -bottom-0.5 -left-0.5"
+                    />
+                  )}
+                </span>
+                <span className="truncate">{entry.summary}</span>
+              </div>
+            )
+          )}
         </div>
       )}
     </div>

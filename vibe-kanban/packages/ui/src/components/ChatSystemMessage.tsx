@@ -17,7 +17,7 @@ export function ChatSystemMessage({
   return (
     <div
       className={cn(
-        'flex items-start gap-base text-sm text-low cursor-pointer',
+        'flex items-start gap-base text-sm text-default-500 cursor-pointer',
         className
       )}
       onClick={onToggle}

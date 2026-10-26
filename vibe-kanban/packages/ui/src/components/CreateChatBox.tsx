@@ -148,7 +148,7 @@ export function CreateChatBox<TExecutor extends string = string>({
       onClick={onEditRepos}
       title={repoSummaryTitle}
       disabled={isDisabled}
-      className="max-w-[320px] truncate text-sm text-normal hover:text-high disabled:cursor-not-allowed disabled:opacity-50"
+      className="max-w-[320px] truncate text-sm text-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
     >
       {repoSummaryLabel}
     </button>
@@ -182,9 +182,9 @@ export function CreateChatBox<TExecutor extends string = string>({
       error={error}
       visualVariant={VisualVariant.NORMAL}
       dropzone={dropzone}
-      modelSelector={isMinimalZen ? undefined : modelSelector}
+      modelSelector={chatViewMode === 'full' ? modelSelector : undefined}
       headerLeft={
-        isMinimalZen ? undefined : (
+        chatViewMode !== 'full' ? undefined : (
           <>
             {agentIcon}
             <ToolbarDropdown label={executorLabel} disabled={isDisabled}>
@@ -202,7 +202,7 @@ export function CreateChatBox<TExecutor extends string = string>({
               ))}
             </ToolbarDropdown>
             {saveAsDefault?.visible && (
-              <label className="ml-2 flex cursor-pointer items-center gap-1.5 text-sm text-low">
+              <label className="ml-2 flex cursor-pointer items-center gap-1.5 text-sm text-default-500">
                 <Checkbox
                   checked={saveAsDefault.checked}
                   onCheckedChange={saveAsDefault.onChange}
@@ -215,7 +215,7 @@ export function CreateChatBox<TExecutor extends string = string>({
           </>
         )
       }
-      headerRight={undefined}
+      headerRight={chatViewModeSelector}
       footerLeft={
         <>
           {!isMinimalZen && (
@@ -237,20 +237,19 @@ export function CreateChatBox<TExecutor extends string = string>({
             </>
           )}
           {repoSummaryNode}
-          {chatViewModeSelector}
           {linkedIssue && (
             <div
-              className="inline-flex items-center gap-half whitespace-nowrap text-sm text-low"
+              className="inline-flex items-center gap-half whitespace-nowrap text-sm text-default-500"
               title={linkedIssue.title}
             >
-              <span className="font-mono text-xs text-normal">
+              <span className="font-mono text-xs text-foreground">
                 {linkedIssue.simpleId}
               </span>
               <button
                 type="button"
                 onClick={linkedIssue.onRemove}
                 disabled={isDisabled}
-                className="inline-flex items-center text-low transition-colors hover:text-error disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center text-default-500 transition-colors hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
                 aria-label={`Remove link to ${linkedIssue.simpleId}`}
               >
                 <XIcon className="size-icon-xs" weight="bold" />

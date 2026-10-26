@@ -134,61 +134,61 @@ export function ExternalWorkspaceCreateDialog({
   const availableRepos = options?.repos.filter((candidate) => !selectedRepos.some((repo) => repo.path === candidate.path)) ?? [];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center" role="dialog" aria-modal="true" aria-label={`Create VK workspace for ${card.key}`}>
-      <div className="max-h-[90dvh] w-full max-w-3xl overflow-y-auto rounded-xl border border-neutral-800 bg-neutral-950 p-5 text-neutral-100 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-overlay/60 p-4 sm:items-center" role="dialog" aria-modal="true" aria-label={`Create VK workspace for ${card.key}`}>
+      <div className="max-h-[90dvh] w-full max-w-3xl overflow-y-auto rounded-xl border border-divider/30 bg-background p-5 text-foreground shadow-2xl">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300">Create VK workspace</div>
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-success">Create VK workspace</div>
             <h2 className="mt-2 text-xl font-semibold">{card.key}: {card.title}</h2>
-            <p className="mt-1 text-sm text-neutral-400">Select one or more repos from ~/repos and start a VK workspace for this issue.</p>
+            <p className="mt-1 text-sm text-default-500">Select one or more repos from ~/repos and start a VK workspace for this issue.</p>
           </div>
-          <button type="button" className="rounded border border-neutral-800 px-2 py-1 text-sm hover:bg-neutral-900" onClick={onClose}>Close</button>
+          <button type="button" className="rounded border border-divider/30 px-2 py-1 text-sm hover:bg-content1" onClick={onClose}>Close</button>
         </div>
 
-        {loading ? <p className="mt-4 text-sm text-neutral-400">Loading VK workspace options…</p> : null}
-        {error ? <div role="alert" className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-100">{error}</div> : null}
+        {loading ? <p className="mt-4 text-sm text-default-500">Loading VK workspace options…</p> : null}
+        {error ? <div role="alert" className="mt-4 rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger">{error}</div> : null}
 
-        <label className="mt-4 block text-sm font-medium text-neutral-200">
+        <label className="mt-4 block text-sm font-medium text-foreground">
           Prompt
-          <textarea className="mt-2 min-h-24 w-full rounded-lg border border-neutral-800 bg-neutral-900 p-3 text-sm text-neutral-100" value={prompt} onChange={(event) => setPrompt(event.target.value)} />
+          <textarea className="mt-2 min-h-24 w-full rounded-lg border border-divider/30 bg-content1 p-3 text-sm text-foreground" value={prompt} onChange={(event) => setPrompt(event.target.value)} />
         </label>
 
-        <label className="mt-4 block text-sm font-medium text-neutral-200">
+        <label className="mt-4 block text-sm font-medium text-foreground">
           Executor
-          <select className="mt-2 w-full rounded-lg border border-neutral-800 bg-neutral-900 p-2 text-sm text-neutral-100" value={executorConfig.executor} onChange={(event) => setExecutorConfig({ executor: event.target.value as VkExecutorConfigDto['executor'] })}>
+          <select className="mt-2 w-full rounded-lg border border-divider/30 bg-content1 p-2 text-sm text-foreground" value={executorConfig.executor} onChange={(event) => setExecutorConfig({ executor: event.target.value as VkExecutorConfigDto['executor'] })}>
             {(options?.executors.length ? options.executors : [executorConfig.executor]).map((executor) => <option key={executor} value={executor}>{executor}</option>)}
           </select>
         </label>
 
         <section className="mt-5 grid gap-4 md:grid-cols-2">
           <div>
-            <h3 className="text-sm font-semibold text-neutral-200">Available repos under ~/repos</h3>
-            <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-neutral-800">
-              {availableRepos.length === 0 ? <p className="p-3 text-sm text-neutral-500">No repositories found.</p> : null}
+            <h3 className="text-sm font-semibold text-foreground">Available repos under ~/repos</h3>
+            <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-divider/30">
+              {availableRepos.length === 0 ? <p className="p-3 text-sm text-default-500">No repositories found.</p> : null}
               {availableRepos.map((repo) => (
-                <button key={repo.path} type="button" className="block w-full border-b border-neutral-900 px-3 py-2 text-left text-sm hover:bg-neutral-900" onClick={() => addRepo(repo)}>
-                  <span className="font-medium text-neutral-100">{repo.name}</span>
-                  <span className="block truncate text-xs text-neutral-500">{repo.path}</span>
+                <button key={repo.path} type="button" className="block w-full border-b border-divider/30 px-3 py-2 text-left text-sm hover:bg-content1" onClick={() => addRepo(repo)}>
+                  <span className="font-medium text-foreground">{repo.name}</span>
+                  <span className="block truncate text-xs text-default-500">{repo.path}</span>
                 </button>
               ))}
             </div>
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-neutral-200">Selected repositories</h3>
+            <h3 className="text-sm font-semibold text-foreground">Selected repositories</h3>
             <div className="mt-2 space-y-2">
-              {selectedRepos.length === 0 ? <p className="rounded-lg border border-dashed border-neutral-800 p-3 text-sm text-neutral-500">Select at least one repository.</p> : null}
+              {selectedRepos.length === 0 ? <p className="rounded-lg border border-dashed border-divider/30 p-3 text-sm text-default-500">Select at least one repository.</p> : null}
               {selectedRepos.map((repo) => (
-                <div key={repo.path} className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-3">
+                <div key={repo.path} className="rounded-lg border border-divider/30 bg-content1/70 p-3">
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium">{repo.name}</div>
-                      <div className="truncate text-xs text-neutral-500">{repo.path}</div>
+                      <div className="truncate text-xs text-default-500">{repo.path}</div>
                     </div>
-                    <button type="button" className="text-xs text-neutral-400 hover:text-neutral-100" onClick={() => setSelectedRepos((repos) => repos.filter((candidate) => candidate.path !== repo.path))}>Remove</button>
+                    <button type="button" className="text-xs text-default-500 hover:text-foreground" onClick={() => setSelectedRepos((repos) => repos.filter((candidate) => candidate.path !== repo.path))}>Remove</button>
                   </div>
-                  <label className="mt-2 block text-xs text-neutral-400">
+                  <label className="mt-2 block text-xs text-default-500">
                     Target branch
-                    <select className="mt-1 w-full rounded border border-neutral-800 bg-neutral-950 p-2 text-sm text-neutral-100" disabled={repo.loading} value={repo.targetBranch} onChange={(event) => setSelectedRepos((repos) => repos.map((candidate) => candidate.path === repo.path ? { ...candidate, targetBranch: event.target.value } : candidate))}>
+                    <select className="mt-1 w-full rounded border border-divider/30 bg-background p-2 text-sm text-foreground" disabled={repo.loading} value={repo.targetBranch} onChange={(event) => setSelectedRepos((repos) => repos.map((candidate) => candidate.path === repo.path ? { ...candidate, targetBranch: event.target.value } : candidate))}>
                       {repo.loading ? <option value={repo.targetBranch}>Loading branches…</option> : repo.branches.map((branch) => <option key={branch.name} value={branch.name}>{branch.name}</option>)}
                     </select>
                   </label>
@@ -199,8 +199,8 @@ export function ExternalWorkspaceCreateDialog({
         </section>
 
         <div className="mt-5 flex justify-end gap-2">
-          <button type="button" className="rounded-lg border border-neutral-800 px-3 py-2 text-sm hover:bg-neutral-900" onClick={onClose}>Cancel</button>
-          <button type="button" className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50" disabled={submitting || !prompt.trim() || selectedRepos.some((repo) => repo.loading) || selectedRepos.length === 0} onClick={createWorkspace}>Create workspace</button>
+          <button type="button" className="rounded-lg border border-divider/30 px-3 py-2 text-sm hover:bg-content1" onClick={onClose}>Cancel</button>
+          <button type="button" className="rounded-lg border border-success/40 bg-success/10 px-3 py-2 text-sm text-success hover:bg-success/20 disabled:cursor-not-allowed disabled:opacity-50" disabled={submitting || !prompt.trim() || selectedRepos.some((repo) => repo.loading) || selectedRepos.length === 0} onClick={createWorkspace}>Create workspace</button>
         </div>
       </div>
     </div>

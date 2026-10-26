@@ -102,7 +102,7 @@ function ComponentInfoComponent({
       <Tooltip>
         <TooltipTrigger asChild>
           <span
-            className="inline-flex items-center gap-half px-half bg-muted rounded-sm border border-border text-xs font-ibm-plex-mono text-muted-foreground cursor-default select-none hover:border-muted-foreground transition-colors"
+            className="inline-flex items-center gap-half px-half bg-content2 rounded-sm border border-divider text-xs font-ibm-plex-mono text-default-500 cursor-default select-none hover:border-primary transition-colors"
             onDoubleClick={onDoubleClickEdit}
           >
             {badgeLabel}
@@ -111,39 +111,39 @@ function ComponentInfoComponent({
         <TooltipContent
           side="top"
           className="max-w-[400px] px-plusfifty py-base"
-          style={{ backgroundColor: 'hsl(var(--bg-panel))' }}
+          style={{ backgroundColor: 'hsl(var(--heroui-content1))' }}
         >
           <div className="flex flex-col gap-half">
             <div className="flex items-center gap-base">
               <span className="text-sm text-foreground">{data.component}</span>
-              <span className="text-xs text-muted-foreground bg-muted px-half rounded-sm">
+              <span className="text-xs text-default-500 bg-content2 px-half rounded-sm">
                 {data.framework}
               </span>
             </div>
 
             {fileLine && (
-              <span className="text-xs font-ibm-plex-mono text-muted-foreground break-all leading-relaxed">
+              <span className="text-xs font-ibm-plex-mono text-default-500 break-all leading-relaxed">
                 {fileLine}
               </span>
             )}
 
             {data.cssClass && (
-              <span className="text-xs font-ibm-plex-mono text-muted-foreground break-all">
+              <span className="text-xs font-ibm-plex-mono text-default-500 break-all">
                 {data.cssClass}
               </span>
             )}
 
             {stackBreadcrumb && (
-              <div className="border-t border-border pt-half">
-                <span className="text-xs text-muted-foreground leading-relaxed break-words">
+              <div className="border-t border-divider pt-half">
+                <span className="text-xs text-default-500 leading-relaxed break-words">
                   {stackBreadcrumb}
                 </span>
               </div>
             )}
 
             {data.htmlPreview && (
-              <div className="border-t border-border pt-half">
-                <pre className="text-xs font-ibm-plex-mono text-muted-foreground whitespace-pre overflow-x-auto max-h-[120px] overflow-y-auto leading-relaxed">
+              <div className="border-t border-divider pt-half">
+                <pre className="text-xs font-ibm-plex-mono text-default-500 whitespace-pre overflow-x-auto max-h-[120px] overflow-y-auto leading-relaxed">
                   {data.htmlPreview}
                 </pre>
               </div>

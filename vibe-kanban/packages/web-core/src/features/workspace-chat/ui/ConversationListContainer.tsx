@@ -673,7 +673,7 @@ export const ConversationList = forwardRef<
       <div className="relative h-full overflow-hidden">
         {showLoader && (
           <div className="absolute inset-0 flex items-center justify-center z-10">
-            <SpinnerIcon className="size-6 animate-spin text-low" />
+            <SpinnerIcon className="size-6 animate-spin text-default-500" />
           </div>
         )}
         <div
@@ -684,7 +684,7 @@ export const ConversationList = forwardRef<
           {showHistoryStatus && (
             <div className="pointer-events-none absolute left-0 right-0 top-2 z-10 px-double">
               {isLoadingHistory ? (
-                <div className="rounded border bg-panel px-double py-3">
+                <div className="rounded border border-divider bg-content1 px-double py-3">
                   <div className="flex flex-col items-center gap-2">
                     <div className="flex w-full flex-col gap-1.5">
                       <div className="flex items-center gap-2">
@@ -702,7 +702,7 @@ export const ConversationList = forwardRef<
                         />
                       </div>
                     </div>
-                    <span className="text-xs text-low">
+                    <span className="text-xs text-default-500">
                       {t('conversation.loadingEarlierMessages')}
                     </span>
                   </div>

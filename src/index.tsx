@@ -13,6 +13,8 @@ import {
   BUILT_IN_AGENT_CODE_PAIR_ID,
   BUILT_IN_AGENT_TAB_ID,
   BUILT_IN_FORMS_TAB_ID,
+  getEffectivePairs,
+  getEffectiveTabs,
   isEphemeralCraftSurfaceTabId,
   migrateWorkspaceBuiltInTabs,
 } from "./modules/plugins/vibe-dashboard/craft-surfaces";
@@ -36,7 +38,9 @@ import "./modules/plugins/kanban/jira/serverModule";
 import "./modules/plugins/kanban/linear/serverModule";
 // @platform end
 
+import "./modules/GitDiffModule";
 import "./modules/BeadsFormModule";
+import "./modules/ThemesModule";
 
 const WORKSPACE_CREATE_PATH = "/workspaces";
 const WORKSPACE_CREATE_TAB_TITLE = "Create Workspace";
@@ -139,14 +143,14 @@ function getActiveItemIdForViewIds(
   const tabGroup = workspace.tabGroups.find((entry) => entry.id === tabGroupId);
   if (!tabGroup) return "";
   if (viewIds.length > 1) {
-    const pair = tabGroup.pairs.find(
+    const pair = getEffectivePairs(tabGroup).find(
       (entry) =>
         entry.tabIds.length === viewIds.length &&
         entry.tabIds.every((tabId, index) => tabId === viewIds[index]),
     );
     if (pair) return pair.id;
   }
-  if (viewIds[0] && tabGroup.tabs.some((tab) => tab.id === viewIds[0])) {
+  if (viewIds[0] && getEffectiveTabs(tabGroup).some((tab) => tab.id === viewIds[0])) {
     return viewIds[0];
   }
   if (viewIds[0] && tabGroup.workspace?.workspaceId) {
@@ -247,12 +251,10 @@ function createSavedSessionFromVoyageEntry({
   workspace,
   name,
   voyageEntry,
-  activeItemId,
 }: {
   workspace: WorkspaceState;
   name: string;
   voyageEntry: VoyageEntry;
-  activeItemId?: string;
 }): SavedWorkspaceSession | undefined {
   const trimmedName = name.trim();
   if (!trimmedName || trimmedName.toLowerCase() === "home") return undefined;
@@ -271,13 +273,13 @@ function createSavedSessionFromVoyageEntry({
 
   const id = createWorkspaceSessionId();
   const now = new Date().toISOString();
-  const resolvedActiveItemId =
-    activeItemId ||
-    getActiveItemIdForViewIds(
-      workspace,
-      normalizedEntry.tabGroupId,
-      normalizedEntry.viewIds,
-    );
+  // The entry's selected views are authoritative. A client navigation hint can
+  // refer to an unrelated generated Craft surface while navigation is settling.
+  const resolvedActiveItemId = getActiveItemIdForViewIds(
+    workspace,
+    normalizedEntry.tabGroupId,
+    normalizedEntry.viewIds,
+  );
 
   return {
     id,
@@ -596,11 +598,13 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
     repairSavedVoyagesForCurrentWorkspace();
   }
 
-  const currentWorkspace = workspaceState.getState();
-  const builtInMigratedWorkspace =
-    migrateWorkspaceBuiltInTabs(currentWorkspace);
-  if (builtInMigratedWorkspace !== currentWorkspace) {
-    workspaceState.setState(builtInMigratedWorkspace);
+  if (moduleAPI.deps.core.isMaestro()) {
+    const currentWorkspace = workspaceState.getState();
+    const builtInMigratedWorkspace =
+      migrateWorkspaceBuiltInTabs(currentWorkspace);
+    if (builtInMigratedWorkspace !== currentWorkspace) {
+      workspaceState.setState(builtInMigratedWorkspace);
+    }
   }
 
   const actions = moduleAPI.createActions({
@@ -1122,6 +1126,7 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
 
     openVKWorkspaceInSavedSession: async (args: {
       sessionId: string;
+      select?: boolean;
       taskAttemptId: string;
       name: string;
       containerRef: string;
@@ -1182,9 +1187,11 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         target.voyageEntries = existingEntry
           ? target.voyageEntries
           : [...target.voyageEntries, activeEntry];
-        target.activeVoyageEntryId = activeEntry.id;
-        target.activeSpaceId = selection!.spaceId;
-        target.activeTabGroupId = selection!.tabGroupId;
+        if (args.select !== false) {
+          target.activeVoyageEntryId = activeEntry.id;
+          target.activeSpaceId = selection!.spaceId;
+          target.activeTabGroupId = selection!.tabGroupId;
+        }
         target.activeItemsByVoyageEntryId = {
           ...target.activeItemsByVoyageEntryId,
           [activeEntry.id]: activeItemId,
@@ -1339,7 +1346,6 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         workspace,
         name: args.name,
         voyageEntry: args.voyageEntry,
-        activeItemId: args.activeItemId,
       });
       if (!targetSession) return undefined;
 
@@ -1748,11 +1754,11 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           workspace.spaces.find((space) =>
             space.tabGroupIds.includes(movedEntry.tabGroupId),
           )?.id || target.activeSpaceId;
-        const activeItemId =
-          args.activeItemId ||
-          source.activeItemsByVoyageEntryId[sourceEntry.id] ||
-          movedEntry.viewIds[0] ||
-          "";
+        const activeItemId = getActiveItemIdForViewIds(
+          workspace,
+          movedEntry.tabGroupId,
+          movedEntry.viewIds,
+        );
 
         const repairedSource = repairSavedSessionForWorkspace(
           {

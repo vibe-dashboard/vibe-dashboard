@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { constants } from 'node:fs';
+import { constants, existsSync } from 'node:fs';
 import {
   access,
   copyFile,
@@ -34,9 +34,7 @@ const execFileAsync = promisify(execFile);
 const repoRoot = process.cwd();
 const workspaceRoot = path.resolve(repoRoot, '..');
 const configuredVkCheckout = process.env.VK_CHECKOUT?.trim();
-const vkRoot = configuredVkCheckout
-  ? path.resolve(workspaceRoot, configuredVkCheckout)
-  : path.join(repoRoot, 'vibe-kanban');
+const vkRoot = resolveVkRoot(configuredVkCheckout);
 const fixtureRoot = path.join(
   repoRoot,
   'tests/e2e/fixtures/vk-mocked-sandbox',
@@ -72,6 +70,15 @@ const generatedVkDevAssetFiles = [
 const fixtureVkDevAssetFiles = generatedVkDevAssetFiles.filter(
   (fileName) => fileName !== 'server_ed25519_signing_key',
 );
+
+function resolveVkRoot(configuredPath: string | undefined): string {
+  if (!configuredPath) return path.join(repoRoot, 'vibe-kanban');
+  if (path.isAbsolute(configuredPath)) return configuredPath;
+
+  const repoRelativePath = path.resolve(repoRoot, configuredPath);
+  const workspaceRelativePath = path.resolve(workspaceRoot, configuredPath);
+  return existsSync(repoRelativePath) ? repoRelativePath : workspaceRelativePath;
+}
 
 function usage(): never {
   console.error(`Usage:
@@ -331,9 +338,12 @@ async function snapshotVariant(variant: Variant, force: boolean) {
 
   if (variant === 'basic-seeded') {
     await copyFile(vdDbPath, path.join(fixtureDir, 'vd/kv.db'));
+    const activeVkAssetsPath = process.env.VK_MOCKED_VK_BACKEND === 'ci-release'
+      ? vkReleaseDataPath
+      : vkDevAssetsPath;
     for (const fileName of fixtureVkDevAssetFiles) {
       await copyFileIfExists(
-        path.join(vkDevAssetsPath, fileName),
+        path.join(activeVkAssetsPath, fileName),
         path.join(fixtureDir, 'vk/dev_assets', fileName),
       );
     }
@@ -342,8 +352,9 @@ async function snapshotVariant(variant: Variant, force: boolean) {
       runtimeRepoPath,
       canonicalRepoPath,
     );
-    if (await exists(vkSessionLogsPath)) {
-      await cp(vkSessionLogsPath, path.join(fixtureDir, 'vk/dev_assets/sessions'), {
+    const activeSessionLogsPath = path.join(activeVkAssetsPath, 'sessions');
+    if (await exists(activeSessionLogsPath)) {
+      await cp(activeSessionLogsPath, path.join(fixtureDir, 'vk/dev_assets/sessions'), {
         recursive: true,
       });
     }

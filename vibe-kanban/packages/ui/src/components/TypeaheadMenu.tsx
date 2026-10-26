@@ -253,7 +253,7 @@ function TypeaheadMenuRoot({
     <div
       ref={menuRef}
       style={style}
-      className="z-[10000] w-auto min-w-80 max-w-full p-0 overflow-hidden bg-panel border border-border rounded-sm shadow-md flex flex-col"
+      className="z-[10000] w-auto min-w-80 max-w-full p-0 overflow-hidden bg-content1 text-foreground border border-divider rounded-sm shadow-md flex flex-col"
     >
       {children}
     </div>
@@ -269,9 +269,9 @@ function TypeaheadMenuHeader({
 }) {
   return (
     <div
-      className={`px-base py-half border-b border-border ${className ?? ''}`}
+      className={`px-base py-half border-b border-divider ${className ?? ''}`}
     >
-      <div className="flex items-center gap-half text-xs font-medium text-low">
+      <div className="flex items-center gap-half text-xs font-medium text-default-500">
         {children}
       </div>
     </div>
@@ -291,7 +291,7 @@ function TypeaheadMenuScrollArea({ children }: { children: ReactNode }) {
 
 function TypeaheadMenuSectionHeader({ children }: { children: ReactNode }) {
   return (
-    <div className="px-base py-half text-xs font-medium text-low">
+    <div className="px-base py-half text-xs font-medium text-default-500">
       {children}
     </div>
   );
@@ -302,7 +302,9 @@ function TypeaheadMenuDivider() {
 }
 
 function TypeaheadMenuEmpty({ children }: { children: ReactNode }) {
-  return <div className="px-base py-half text-sm text-low">{children}</div>;
+  return (
+    <div className="px-base py-half text-sm text-default-500">{children}</div>
+  );
 }
 
 interface TypeaheadMenuActionProps {
@@ -319,7 +321,7 @@ function TypeaheadMenuAction({
   return (
     <button
       type="button"
-      className="w-full px-base py-half text-left text-sm text-low hover:bg-secondary hover:text-high transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+      className="w-full px-base py-half text-left text-sm text-default-500 hover:bg-content2 hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       onClick={onClick}
       disabled={disabled}
     >
@@ -365,7 +367,9 @@ function TypeaheadMenuItemComponent({
     <div
       ref={ref}
       className={`px-base py-half rounded-sm cursor-pointer text-sm transition-colors ${
-        isSelected ? 'bg-secondary text-high' : 'hover:bg-secondary text-normal'
+        isSelected
+          ? 'bg-content2 text-foreground'
+          : 'hover:bg-content2 text-foreground'
       }`}
       onMouseMove={handleMouseMove}
       onClick={onClick}

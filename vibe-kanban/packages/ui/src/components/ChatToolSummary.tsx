@@ -69,12 +69,24 @@ export const ChatToolSummary = forwardRef<
   return (
     <div
       className={cn(
-        'flex items-center gap-base text-sm text-low',
+        'flex items-center gap-base text-sm text-default-500',
         isClickable && 'cursor-pointer',
         className
       )}
       onClick={isClickable ? handleClick : undefined}
       role={isClickable ? 'button' : undefined}
+      tabIndex={isClickable ? 0 : undefined}
+      aria-expanded={isClickable ? expanded : undefined}
+      onKeyDown={
+        isClickable
+          ? (event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                handleClick();
+              }
+            }
+          : undefined
+      }
     >
       <span className="relative shrink-0 pt-0.5">
         <Icon className="size-icon-base" />

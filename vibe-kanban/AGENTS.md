@@ -1,8 +1,14 @@
 # Repository Guidelines
 
+## Active Frontend Development
+- `packages/local-web/` is reference-only. Do not use the original VK local-web application for development, implement new UI features or fixes there, or use it as the acceptance surface for VD changes.
+- Develop and validate the frontend in the parent Vibe Dashboard application. The active inline chat/create-workspace surfaces use `packages/inline-chat/`, shared `packages/web-core/` and `packages/ui/` components, and the parent application's `src/` integration.
+- Run `npm run dev` from the parent VD repository root. For integrated VK server testing, use `npm run dev:vk-mocked-sandbox:ci-release` from that same root with remotely built VK runtime assets.
+- Consult local-web source and its guides only to understand historical behavior or find reusable code to adapt into the active surfaces.
+
 ## Project Structure & Module Organization
 - `crates/`: Rust workspace crates — `server` (API + bins), `db` (SQLx models/migrations), `executors`, `services`, `utils`, `git` (Git operations), `api-types` (shared API types for local + remote), `review` (PR review tool), `deployment`, `local-deployment`, `remote`.
-- `packages/local-web/`: Local React + TypeScript app entrypoint (Vite, Tailwind). Shell source in `packages/local-web/src`.
+- `packages/local-web/`: Original standalone VK frontend; reference-only for VD development.
 - `packages/remote-web/`: Remote deployment frontend entrypoint.
 - `packages/web-core/`: Shared React + TypeScript frontend library used by local + remote web (`packages/web-core/src`).
 - `shared/`: Generated TypeScript types (`shared/types.ts`, `shared/remote-types.ts`) and agent tool schemas (`shared/schemas/`). Do not edit generated files directly.
@@ -14,7 +20,7 @@
 ### Crate-specific guides
 - [`crates/remote/AGENTS.md`](crates/remote/AGENTS.md) — Remote server architecture, ElectricSQL integration, mutation patterns, environment variables.
 - [`docs/AGENTS.md`](docs/AGENTS.md) — Mintlify documentation writing guidelines and component reference.
-- [`packages/local-web/AGENTS.md`](packages/local-web/AGENTS.md) — Web app design system styling guidelines.
+- [`packages/local-web/AGENTS.md`](packages/local-web/AGENTS.md) — Historical web app design system guidelines; reference-only.
 
 ## Managing Shared Types Between Rust and TypeScript
 
@@ -27,9 +33,9 @@ Do not manually edit shared/remote-types.ts, instead edit crates/remote/src/bin/
 
 ## Build, Test, and Development Commands
 - Install: `pnpm i`
-- Run dev (web app + backend with ports auto-assigned): `pnpm run dev`
+- Frontend development: `npm run dev` from the parent VD repository root.
 - Backend (watch): `pnpm run backend:dev:watch`
-- Web app (dev): `pnpm run local-web:dev`
+- Integrated frontend/server testing: `npm run dev:vk-mocked-sandbox:ci-release` from the parent VD repository root.
 - Type checks: `pnpm run check` (frontend + all backend Rust workspaces) and `pnpm run backend:check` (all backend Rust workspaces, including `crates/remote`)
 - Rust tests: `cargo test --workspace`
 - Generate TS types from Rust: `pnpm run generate-types` (or `generate-types:check` in CI)
