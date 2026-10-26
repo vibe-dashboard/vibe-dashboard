@@ -402,8 +402,16 @@ jobs:
     needs: [vk-prepare, vk-build-binaries]
     if: needs.vk-prepare.outputs.assets_exist != 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # A cross-repository token may need up to an hour for its API quota to reset.
+    timeout-minutes: 70
     steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.vk-prepare.outputs.checkout_ref }}
+
+      - name: Test release publisher
+        run: bash .github/scripts/test-publish-vk-release.sh
+
       - name: Download packaged artifacts
         uses: actions/download-artifact@v7
         with:
@@ -514,33 +522,7 @@ jobs:
           RELEASE_TAG: ${{ needs.vk-prepare.outputs.release_tag }}
           RELEASE_NAME: ${{ needs.vk-prepare.outputs.release_name }}
           RELEASE_BODY: ${{ needs.vk-prepare.outputs.release_body }}
-        run: |
-          set -euo pipefail
-
-          if [[ -z "${GH_TOKEN:-}" ]]; then
-            echo "Missing VK_RELEASE_REPOSITORY_TOKEN secret; cannot publish ${VK_ASSET_REPOSITORY} releases." >&2
-            exit 1
-          fi
-
-          printf '%s\n' "$RELEASE_BODY" > release-body.md
-
-          if gh release view "$RELEASE_TAG" --repo "$VK_ASSET_REPOSITORY" >/dev/null 2>&1; then
-            gh release edit "$RELEASE_TAG" \
-              --repo "$VK_ASSET_REPOSITORY" \
-              --title "$RELEASE_NAME" \
-              --notes-file release-body.md \
-              --prerelease
-          else
-            gh release create "$RELEASE_TAG" \
-              --repo "$VK_ASSET_REPOSITORY" \
-              --title "$RELEASE_NAME" \
-              --notes-file release-body.md \
-              --prerelease
-          fi
-
-          gh release upload "$RELEASE_TAG" release-assets/* \
-            --repo "$VK_ASSET_REPOSITORY" \
-            --clobber
+        run: bash .github/scripts/publish-vk-release.sh
 
   ensure-vk-assets:
     needs: [vk-prepare, vk-publish-assets]
