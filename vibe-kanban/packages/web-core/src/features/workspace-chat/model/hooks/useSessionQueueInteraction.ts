@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { queueApi } from '@/shared/lib/api';
+import { getUserVisiblePrompt } from '@/shared/lib/promptMessage';
 import type { ExecutorConfig, QueueStatus } from 'shared/types';
 
 interface UseSessionQueueInteractionOptions {
@@ -51,7 +52,9 @@ export function useSessionQueueInteraction({
   const queuedMessageData = isQueued
     ? (queueStatus as Extract<QueueStatus, { status: 'queued' }>).message
     : null;
-  const queuedMessage = queuedMessageData?.data.message ?? null;
+  const queuedMessage = queuedMessageData
+    ? getUserVisiblePrompt(queuedMessageData.data.message)
+    : null;
   const queuedConfig: ExecutorConfig | null =
     queuedMessageData?.data.executor_config ?? null;
 

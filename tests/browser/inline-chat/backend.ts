@@ -56,6 +56,7 @@ export const test = base.extend<{ backend: InlineChatBackend }>({
 export { expect };
 
 export class InlineChatBackend {
+  initialPrompt = 'Initial prompt';
   attachmentName = 'proof.txt';
   attachmentDirectory = '.alohak-attachments';
   attachmentMime = 'text/plain';
@@ -312,7 +313,7 @@ export class InlineChatBackend {
       executor_action: {
         typ: {
           type: 'CodingAgentInitialRequest',
-          prompt: 'Initial prompt',
+          prompt: this.initialPrompt,
           executor_config: config,
           working_dir: null,
         },

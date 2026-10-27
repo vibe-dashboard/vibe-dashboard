@@ -12,6 +12,7 @@ import {
 } from 'shared/types';
 import type { WorkspaceWithSession } from '@/shared/types/attempt';
 import { parseDiffStats } from '@/shared/lib/diffStatsParser';
+import { getUserVisiblePrompt } from '@/shared/lib/promptMessage';
 import {
   usePersistedExpanded,
   type PersistKey,
@@ -707,7 +708,7 @@ function GenericToolApprovalEntry({
  * User message entry with expandable content
  */
 function UserMessageEntry({
-  content,
+  content: rawContent,
   expansionKey,
   workspaceId,
   sessionId,
@@ -723,6 +724,7 @@ function UserMessageEntry({
   executorCanFork: boolean;
   resetAction: UseResetProcessResult;
 }) {
+  const content = getUserVisiblePrompt(rawContent);
   const [expanded, toggle] = usePersistedExpanded(`user:${expansionKey}`, true);
   const { startEdit, isEntryGreyed, isInEditMode } = useMessageEditContext();
   const { resetProcess, canResetProcess, isResetPending } = resetAction;

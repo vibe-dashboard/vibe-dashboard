@@ -1,5 +1,22 @@
 import { expect, test } from './backend';
 
+for (const directory of ['.vibe-attachments', '.alohak-attachments']) {
+  test(`attachment messages keep agent-only guidance out of chat for ${directory}`, async ({
+    page,
+    backend,
+  }) => {
+    const message = `Inspect the attached notes.\n\n[proof.txt](${directory}/proof.txt)`;
+    backend.initialPrompt = `${message}\n\nUser attachments are stored in \`${directory}/\` relative to your session's working directory. Open the linked attachment paths above to inspect their contents. For image attachments, use your image-viewing tool to inspect the image itself.`;
+    backend.stream('session-1', 'History for session-1');
+    await page.goto('/');
+    const left = page.getByRole('region', { name: 'Left Agent' });
+    await expect(left.getByText('Inspect the attached notes.')).toBeVisible();
+    await expect(left.getByText('proof.txt', { exact: true })).toBeVisible();
+    await expect(left).not.toContainText('User attachments are stored in');
+    await expect(left).not.toContainText('use your image-viewing tool');
+  });
+}
+
 test('model and permission selections are sent with the intended session', async ({
   page,
   backend,
@@ -121,7 +138,7 @@ test('running execution supports queue, cancellation and stop', async ({
   await left
     .getByRole('textbox', { name: /Follow up|Markdown editor/ })
     .last()
-    .fill('Run this next');
+    .fill('Run this next [notes](.vibe-attachments/notes.txt)');
   await left.getByRole('button', { name: 'Queue', exact: true }).click();
   await expect
     .poll(() =>
@@ -132,6 +149,16 @@ test('running execution supports queue, cancellation and stop', async ({
       ),
     )
     .toBe(true);
+  const queuedPrompt = backend.requests.find(
+    (request) =>
+      request.path === '/api/sessions/session-1/queue' &&
+      request.method === 'POST',
+  )?.body.message;
+  expect(queuedPrompt).toContain('User attachments are stored in');
+  await expect(left.getByRole('textbox', { name: 'Markdown editor' })).toContainText(
+    'Run this next',
+  );
+  await expect(left).not.toContainText('User attachments are stored in');
   await left.getByRole('button', { name: /Cancel.*queue/i }).click();
   await expect
     .poll(() =>

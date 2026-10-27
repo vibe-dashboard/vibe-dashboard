@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAgentPrompt } from './promptMessage';
+import { buildAgentPrompt, getUserVisiblePrompt } from './promptMessage';
 
 describe('attachment prompt delivery', () => {
   it.each(['.alohak-attachments', '.vibe-attachments'])(
@@ -37,5 +37,39 @@ describe('attachment prompt delivery', () => {
       prompt: command,
       isSlashCommand: true,
     });
+  });
+});
+
+describe('user-visible attachment messages', () => {
+  it.each(['.alohak-attachments', '.vibe-attachments'])(
+    'shows the original message and attachment links for %s',
+    (directory) => {
+      const message = `Please inspect this image.\n\n![screen.png](${directory}/screen.png)`;
+      const { prompt } = buildAgentPrompt(message, []);
+
+      expect(getUserVisiblePrompt(prompt)).toBe(message);
+    }
+  );
+
+  it('shows both old and new attachment links with review context', () => {
+    const message =
+      '[old](.vibe-attachments/old.txt)\n[new](.alohak-attachments/new.txt)';
+    const { prompt } = buildAgentPrompt(message, ['Review context']);
+
+    expect(getUserVisiblePrompt(prompt)).toBe(`Review context\n\n${message}`);
+  });
+
+  it('renders persisted legacy prompts as the original user message', () => {
+    const message = '![photo](.vibe-attachments/photo.png)';
+    const legacyPrompt = `${message}\n\nUser attachments are stored in \`.vibe-attachments/\` relative to your session's working directory. Open the linked attachment paths above to inspect their contents. For image attachments, use your image-viewing tool to inspect the image itself.`;
+
+    expect(getUserVisiblePrompt(legacyPrompt)).toBe(message);
+  });
+
+  it('preserves ordinary text and formatting verbatim', () => {
+    const message =
+      '  Please explain attachments.\n\nUser attachments are stored in a folder I chose.\n\n```txt\nkeep this\n```\n';
+
+    expect(getUserVisiblePrompt(message)).toBe(message);
   });
 });
