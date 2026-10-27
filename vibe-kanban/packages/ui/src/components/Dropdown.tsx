@@ -16,6 +16,7 @@ import {
   useComposerOverlayState,
   useComposerSheet,
   useComposerSheetToggle,
+  useComposerSheetLayer,
 } from './ComposerSheet';
 
 function DropdownMenu(
@@ -171,6 +172,7 @@ const DropdownMenuSubContent = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubContent>
 >(({ className, children, style, ...props }, ref) => {
   const sheet = useComposerSheet();
+  const layer = useComposerSheetLayer();
   return (
     <DropdownMenuPrimitive.Portal>
       <div style={{ display: 'contents' }}>
@@ -191,6 +193,10 @@ const DropdownMenuSubContent = React.forwardRef<
             className
           )}
           {...props}
+          onEscapeKeyDown={(event) => {
+            props.onEscapeKeyDown?.(event);
+            layer.onEscapeKeyDown(event);
+          }}
         >
           <ComposerSheetHeader menu />
           {children}
@@ -207,6 +213,7 @@ const DropdownMenuContent = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content>
 >(({ className, children, style, sideOffset = 4, ...props }, ref) => {
   const sheet = useComposerSheet();
+  const layer = useComposerSheetLayer();
   return (
     <DropdownMenuPrimitive.Portal>
       <div style={{ display: 'contents' }}>
@@ -229,6 +236,10 @@ const DropdownMenuContent = React.forwardRef<
             className
           )}
           {...props}
+          onEscapeKeyDown={(event) => {
+            props.onEscapeKeyDown?.(event);
+            layer.onEscapeKeyDown(event);
+          }}
         >
           <ComposerSheetHeader menu />
           {children}

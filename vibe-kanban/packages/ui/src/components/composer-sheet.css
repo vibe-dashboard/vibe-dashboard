@@ -66,3 +66,45 @@
 [data-composer-sheet-header] {
   min-height: 16px;
 }
+
+.composer-tool > * {
+  width: 100%;
+}
+
+.composer-tool button {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px;
+  border-radius: 4px;
+}
+
+.composer-tool button::after {
+  content: var(--composer-tool-label);
+  text-align: left;
+  font-size: 14px;
+}
+
+[data-composer='compact'] [data-composer-header] button,
+[data-composer='compact'] [data-composer-header] [role='combobox'],
+[data-composer='compact'] [data-composer-footer] button {
+  min-height: 44px;
+}
+
+[data-composer='compact'] [data-composer-footer] button:has(> svg:only-child) {
+  min-width: 44px;
+}
+
+[data-composer='compact'] [data-composer-footer] > div:last-child {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+[data-composer='compact'] [data-composer-footer] > div:first-child {
+  flex: 0 0 auto;
+}

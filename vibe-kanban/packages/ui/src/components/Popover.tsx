@@ -11,6 +11,7 @@ import {
   ComposerSheetHeader,
   useComposerOverlayState,
   useComposerSheet,
+  useComposerSheetLayer,
 } from './ComposerSheet';
 
 function Popover(
@@ -44,6 +45,7 @@ const PopoverContent = forwardRef<
     ref
   ) => {
     const sheet = useComposerSheet();
+    const layer = useComposerSheetLayer();
     return (
       <PopoverPrimitive.Portal>
         <div style={{ display: 'contents' }}>
@@ -71,6 +73,21 @@ const PopoverContent = forwardRef<
               className
             )}
             {...props}
+            onEscapeKeyDown={(event) => {
+              props.onEscapeKeyDown?.(event);
+              layer.onEscapeKeyDown(event);
+            }}
+            onInteractOutside={(event) => {
+              props.onInteractOutside?.(event);
+              if (
+                sheet.mobile &&
+                (layer.hasOpenChild ||
+                  (event.target as HTMLElement)?.closest?.(
+                    '[data-composer-sheet]'
+                  ))
+              )
+                event.preventDefault();
+            }}
             onOpenAutoFocus={sheet.mobile ? undefined : props.onOpenAutoFocus}
           >
             <ComposerSheetHeader />

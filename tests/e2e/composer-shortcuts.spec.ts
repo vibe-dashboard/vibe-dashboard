@@ -105,8 +105,9 @@ test('Open Craft shortcut works from both native composers without submitting or
     await expect(createComposer).toHaveText(createDraft);
     await expect(selectedRepo).toBeVisible();
     await page.setViewportSize({ width: 390, height: 844 });
-    for (const name of ['Custom', 'Model A', 'Permissions', 'Opencode']) {
-      const trigger = create.getByRole('button', { name, exact: true });
+    for (const name of ['Preset', 'Model A', 'Permissions', 'Opencode']) {
+      await create.getByRole('button', { name: 'Composer settings', exact: true }).click();
+      const trigger = page.getByRole('button', { name, exact: true });
       await trigger.click();
       const sheet = page.locator('[data-composer-sheet]').last();
       await expect(sheet).toBeVisible();
@@ -116,6 +117,7 @@ test('Open Craft shortcut works from both native composers without submitting or
       }).toEqual({ x: 0, width: 390, bottom: 844 });
       await page.keyboard.press('Escape');
       await expect(trigger).toBeFocused();
+      await page.keyboard.press('Escape');
       await expect(createComposer).toHaveText(createDraft);
       await expect(selectedRepo).toBeVisible();
     }
@@ -123,7 +125,9 @@ test('Open Craft shortcut works from both native composers without submitting or
     await createComposer.press('Control+[');
     await expect(chatComposer).toHaveText('Keep the chat draft');
     for (const name of ['Model A', 'Permissions', 'session-1', 'Preview slots']) {
-      const trigger = chat.getByRole('button', { name, exact: true });
+      const parent = name === 'session-1' ? null : name === 'Preview slots' ? 'Composer tools' : 'Composer settings';
+      if (parent) await chat.getByRole('button', { name: parent, exact: true }).click();
+      const trigger = page.getByRole('button', { name, exact: true });
       await trigger.click();
       const sheet = page.locator('[data-composer-sheet]').last();
       await expect(sheet).toBeVisible();
@@ -133,6 +137,7 @@ test('Open Craft shortcut works from both native composers without submitting or
       }).toEqual({ x: 0, width: 390, bottom: 844 });
       await page.keyboard.press('Escape');
       await expect(trigger).toBeFocused();
+      if (parent) await page.keyboard.press('Escape');
       await expect(chatComposer).toHaveText('Keep the chat draft');
     }
     expect(backend.requests.filter((item) => item.method === 'POST' &&

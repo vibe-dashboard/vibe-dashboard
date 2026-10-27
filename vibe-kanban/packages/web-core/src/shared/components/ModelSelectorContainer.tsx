@@ -35,6 +35,7 @@ import { useUserSystem } from '@/shared/hooks/useUserSystem';
 import { getResolvedTheme, useTheme } from '@/shared/hooks/useTheme';
 import { useModelSelectorConfig } from '@/shared/hooks/useExecutorDiscovery';
 import { ModelSelectorPopover } from '@vibe/ui/components/ModelSelectorPopover';
+import { useComposerSheet } from '@vibe/ui/components/ComposerSheet';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -70,6 +71,7 @@ export function ModelSelectorContainer({
   presetOptions,
 }: ModelSelectorContainerProps) {
   const { t } = useTranslation('common');
+  const { mobile } = useComposerSheet();
   const { theme } = useTheme();
   const resolvedTheme = getResolvedTheme(theme);
   const [isOpen, setIsOpen] = useState(false);
@@ -456,10 +458,12 @@ export function ModelSelectorContainer({
       <DropdownMenu>
         <DropdownMenuTriggerButton
           size="sm"
-          icon={SlidersHorizontalIcon}
-          aria-label={t('modelSelector.custom')}
+          icon={mobile ? undefined : SlidersHorizontalIcon}
+          aria-label={t(
+            mobile ? 'modelSelector.preset' : 'modelSelector.custom'
+          )}
           label={
-            resolvedPreset?.toLowerCase() !== 'default'
+            mobile || resolvedPreset?.toLowerCase() !== 'default'
               ? presetLabel
               : undefined
           }
@@ -526,6 +530,7 @@ export function ModelSelectorContainer({
           <DropdownMenuTriggerButton
             size="sm"
             icon={permissionIcon}
+            label={mobile ? permissionMeta?.label : undefined}
             aria-label={t('modelSelector.permissions')}
             showCaret={false}
           />

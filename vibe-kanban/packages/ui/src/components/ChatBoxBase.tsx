@@ -3,7 +3,8 @@ import { ImageIcon } from '@phosphor-icons/react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../lib/cn';
 import { Toolbar } from './Toolbar';
-import { ComposerOverlays } from './ComposerSheet';
+import { ComposerOverlays, useComposerSheet } from './ComposerSheet';
+import { ComposerControls } from './ComposerControls';
 
 export enum VisualVariant {
   NORMAL = 'NORMAL',
@@ -54,13 +55,28 @@ interface ChatBoxBaseProps {
 
   // Dropzone props for drag-and-drop image uploads
   dropzone?: DropzoneProps;
+
+  mobileControls?: {
+    headerLeft?: ReactNode;
+    settings?: ReactNode;
+    tools?: ReactNode;
+    footerLeft?: ReactNode;
+  };
 }
 
 /**
  * Base chat box layout component.
  * Provides shared structure for CreateChatBox and SessionChatBox.
  */
-export function ChatBoxBase({
+export function ChatBoxBase(props: ChatBoxBaseProps) {
+  return (
+    <ComposerOverlays>
+      <ChatBoxLayout {...props} />
+    </ComposerOverlays>
+  );
+}
+
+function ChatBoxLayout({
   editor,
   error,
   headerRight,
@@ -73,84 +89,125 @@ export function ChatBoxBase({
   visualVariant,
   isRunning,
   dropzone,
+  mobileControls,
 }: ChatBoxBaseProps) {
   const { t } = useTranslation(['common', 'tasks']);
 
   const isDragActive = dropzone?.isDragActive ?? false;
-  const hasHeaderContent = Boolean(headerLeft || headerRight);
+  const { mobile } = useComposerSheet();
+  const compact = mobile && !!mobileControls;
+  const visibleHeaderLeft = compact ? mobileControls.headerLeft : headerLeft;
+  const hasHeaderContent = Boolean(visibleHeaderLeft || headerRight);
 
   return (
-    <ComposerOverlays>
-      <div
-        {...(dropzone?.getRootProps() ?? {})}
-        className={cn(
-          'relative flex w-chat max-w-full flex-col rounded-sm border border-divider bg-content1',
-          (visualVariant === VisualVariant.FEEDBACK ||
-            visualVariant === VisualVariant.EDIT ||
-            visualVariant === VisualVariant.PLAN) &&
-            'border-primary bg-primary/10',
-          isRunning && 'chat-box-running'
-        )}
-      >
-        {dropzone && <input {...dropzone.getInputProps()} />}
+    <div
+      data-composer={compact ? 'compact' : 'standard'}
+      {...(dropzone?.getRootProps() ?? {})}
+      className={cn(
+        'relative flex w-chat max-w-full flex-col rounded-sm border border-divider bg-content1',
+        (visualVariant === VisualVariant.FEEDBACK ||
+          visualVariant === VisualVariant.EDIT ||
+          visualVariant === VisualVariant.PLAN) &&
+          'border-primary bg-primary/10',
+        isRunning && 'chat-box-running'
+      )}
+    >
+      {dropzone && <input {...dropzone.getInputProps()} />}
 
-        {isDragActive && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center rounded-sm border-2 border-dashed border-primary bg-background/80 backdrop-blur-sm pointer-events-none animate-in fade-in-0 duration-150">
-            <div className="text-center">
-              <div className="mx-auto mb-2 w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                <ImageIcon className="h-5 w-5 text-primary" />
-              </div>
-              <p className="text-sm font-medium text-foreground">
-                {t('tasks:dropzone.dropImagesHere')}
-              </p>
-              <p className="text-xs text-default-500 mt-0.5">
-                {t('tasks:dropzone.supportedFormats')}
-              </p>
+      {isDragActive && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center rounded-sm border-2 border-dashed border-primary bg-background/80 backdrop-blur-sm pointer-events-none animate-in fade-in-0 duration-150">
+          <div className="text-center">
+            <div className="mx-auto mb-2 w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+              <ImageIcon className="h-5 w-5 text-primary" />
             </div>
-          </div>
-        )}
-        {/* Error alert */}
-        {error && (
-          <div className="bg-danger/10 border-b border-divider px-double py-base">
-            <p className="text-danger text-sm">{error}</p>
-          </div>
-        )}
-
-        {/* Banner content (queued indicator, feedback mode, etc.) */}
-        {banner}
-
-        {/* Header - Stats and selector */}
-        {visualVariant === VisualVariant.NORMAL && hasHeaderContent && (
-          <div className="flex flex-col items-stretch gap-base border-b px-base py-base sm:flex-row sm:items-center">
-            <div className="flex flex-1 items-center gap-base text-sm min-w-0 overflow-hidden">
-              {headerLeft}
-            </div>
-            <Toolbar className="w-full justify-end gap-[9px] sm:w-auto">
-              {headerRight}
-            </Toolbar>
-          </div>
-        )}
-
-        {/* Editor area */}
-        <div className="flex flex-col gap-plusfifty px-base py-base rounded-md">
-          {editor}
-
-          {/* Footer - Controls */}
-          <div className="flex items-end justify-between gap-base">
-            <Toolbar className="flex-1 min-w-0 flex-wrap !gap-half">
-              {modelSelector}
-              {footerLeft}
-            </Toolbar>
-            <div className="flex shrink-0 gap-base">{footerRight}</div>
+            <p className="text-sm font-medium text-foreground">
+              {t('tasks:dropzone.dropImagesHere')}
+            </p>
+            <p className="text-xs text-default-500 mt-0.5">
+              {t('tasks:dropzone.supportedFormats')}
+            </p>
           </div>
         </div>
+      )}
+      {/* Error alert */}
+      {error && (
+        <div className="bg-danger/10 border-b border-divider px-double py-base">
+          <p className="text-danger text-sm">{error}</p>
+        </div>
+      )}
 
-        {bottomLeftOverlay && (
-          <div className="absolute bottom-base left-base z-10">
-            {bottomLeftOverlay}
+      {/* Banner content (queued indicator, feedback mode, etc.) */}
+      {banner}
+
+      {/* Header - Stats and selector */}
+      {visualVariant === VisualVariant.NORMAL && hasHeaderContent && (
+        <div
+          data-composer-header=""
+          className={cn(
+            'flex gap-base border-b px-base py-base',
+            compact
+              ? 'items-center'
+              : 'flex-col items-stretch sm:flex-row sm:items-center'
+          )}
+        >
+          <div className="flex flex-1 items-center gap-base text-sm min-w-0 overflow-hidden">
+            {visibleHeaderLeft}
           </div>
-        )}
+          <Toolbar
+            className={
+              compact
+                ? 'shrink-0 justify-end gap-half'
+                : 'w-full justify-end gap-[9px] sm:w-auto'
+            }
+          >
+            {headerRight}
+          </Toolbar>
+        </div>
+      )}
+
+      {/* Editor area */}
+      <div className="flex flex-col gap-plusfifty px-base py-base rounded-md">
+        {editor}
+
+        {/* Footer - Controls */}
+        <div
+          data-composer-footer=""
+          className="flex items-end justify-between gap-base"
+        >
+          <Toolbar
+            className={cn('flex-1 min-w-0 !gap-half', !compact && 'flex-wrap')}
+          >
+            {compact ? (
+              <>
+                {mobileControls.tools && (
+                  <ComposerControls kind="tools">
+                    {mobileControls.tools}
+                  </ComposerControls>
+                )}
+                {(mobileControls.settings || modelSelector) && (
+                  <ComposerControls kind="settings">
+                    {mobileControls.settings}
+                    {modelSelector}
+                  </ComposerControls>
+                )}
+                {mobileControls.footerLeft}
+              </>
+            ) : (
+              <>
+                {modelSelector}
+                {footerLeft}
+              </>
+            )}
+          </Toolbar>
+          <div className="flex shrink-0 gap-base">{footerRight}</div>
+        </div>
       </div>
-    </ComposerOverlays>
+
+      {bottomLeftOverlay && (
+        <div className="absolute bottom-base left-base z-10">
+          {bottomLeftOverlay}
+        </div>
+      )}
+    </div>
   );
 }

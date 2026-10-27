@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useState,
@@ -19,6 +20,8 @@ const ComposerSheetContext = createContext<{
 const DismissContext = createContext({
   onOpenChange: (_open: boolean) => {},
   open: false,
+  registerChild: () => () => {},
+  hasOpenChild: false,
 });
 const mobileQuery = '(max-width: 767px)';
 
@@ -94,11 +97,40 @@ export function ComposerSheetOwner({
   open: boolean;
   children: ReactNode;
 }) {
+  const parent = useContext(DismissContext);
+  const [childCount, setChildCount] = useState(0);
+  const registerChild = useCallback(() => {
+    setChildCount((count) => count + 1);
+    return () => setChildCount((count) => count - 1);
+  }, []);
+  useEffect(() => {
+    if (open) return parent.registerChild();
+  }, [open, parent.registerChild]);
   return (
-    <DismissContext.Provider value={{ onOpenChange, open }}>
+    <DismissContext.Provider
+      value={{
+        onOpenChange,
+        open,
+        registerChild,
+        hasOpenChild: childCount > 0,
+      }}
+    >
       {children}
     </DismissContext.Provider>
   );
+}
+
+export function useComposerSheetLayer() {
+  const { mobile } = useComposerSheet();
+  const { hasOpenChild, onOpenChange } = useContext(DismissContext);
+  return {
+    hasOpenChild,
+    onEscapeKeyDown: (event: KeyboardEvent) => {
+      if (!mobile) return;
+      event.preventDefault();
+      if (!hasOpenChild) onOpenChange(false);
+    },
+  };
 }
 
 export function useComposerSheetToggle() {

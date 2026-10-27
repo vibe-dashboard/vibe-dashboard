@@ -165,6 +165,75 @@ export function CreateChatBox<TExecutor extends string = string>({
       }
     />
   );
+  const executorControls = (
+    <>
+      {agentIcon}
+      <ToolbarDropdown label={executorLabel} disabled={isDisabled}>
+        <DropdownMenuLabel>
+          {t('tasks:conversation.executors')}
+        </DropdownMenuLabel>
+        {executor.options.map((exec) => (
+          <DropdownMenuItem
+            key={exec}
+            icon={executor.selected === exec ? CheckIcon : undefined}
+            onClick={() => executor.onChange(exec)}
+          >
+            {formatExecutorLabel(exec)}
+          </DropdownMenuItem>
+        ))}
+      </ToolbarDropdown>
+      {saveAsDefault?.visible && (
+        <label className="ml-2 flex cursor-pointer items-center gap-1.5 text-sm text-default-500">
+          <Checkbox
+            checked={saveAsDefault.checked}
+            onCheckedChange={saveAsDefault.onChange}
+            className="h-3.5 w-3.5"
+            disabled={isDisabled}
+          />
+          <span>{t('tasks:conversation.saveAsDefault')}</span>
+        </label>
+      )}
+    </>
+  );
+  const attachmentControls = !isMinimalZen ? (
+    <>
+      <ToolbarIconButton
+        icon={PaperclipIcon}
+        aria-label={t('tasks:taskFormDialog.attachFile')}
+        title={t('tasks:taskFormDialog.attachFile')}
+        onClick={handleAttachClick}
+        disabled={isDisabled}
+      />
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={handleFileInputChange}
+      />
+    </>
+  ) : null;
+  const linkedIssueNode = linkedIssue ? (
+    <div
+      className="inline-flex items-center gap-half whitespace-nowrap text-sm text-default-500"
+      title={linkedIssue.title}
+    >
+      <span className="font-mono text-xs text-foreground">
+        {linkedIssue.simpleId}
+      </span>
+      <button
+        type="button"
+        onClick={linkedIssue.onRemove}
+        disabled={isDisabled}
+        className="inline-flex items-center text-default-500 transition-colors hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
+        aria-label={t('common:composer.removeIssueLink', {
+          issue: linkedIssue.simpleId,
+        })}
+      >
+        <XIcon className="size-icon-xs" weight="bold" />
+      </button>
+    </div>
+  ) : null;
 
   return (
     <ChatBoxBase
@@ -182,80 +251,29 @@ export function CreateChatBox<TExecutor extends string = string>({
       error={error}
       visualVariant={VisualVariant.NORMAL}
       dropzone={dropzone}
-      modelSelector={chatViewMode === 'full' ? modelSelector : undefined}
-      headerLeft={
-        chatViewMode !== 'full' ? undefined : (
-          <>
-            {agentIcon}
-            <ToolbarDropdown label={executorLabel} disabled={isDisabled}>
-              <DropdownMenuLabel>
-                {t('tasks:conversation.executors')}
-              </DropdownMenuLabel>
-              {executor.options.map((exec) => (
-                <DropdownMenuItem
-                  key={exec}
-                  icon={executor.selected === exec ? CheckIcon : undefined}
-                  onClick={() => executor.onChange(exec)}
-                >
-                  {formatExecutorLabel(exec)}
-                </DropdownMenuItem>
-              ))}
-            </ToolbarDropdown>
-            {saveAsDefault?.visible && (
-              <label className="ml-2 flex cursor-pointer items-center gap-1.5 text-sm text-default-500">
-                <Checkbox
-                  checked={saveAsDefault.checked}
-                  onCheckedChange={saveAsDefault.onChange}
-                  className="h-3.5 w-3.5"
-                  disabled={isDisabled}
-                />
-                <span>{t('tasks:conversation.saveAsDefault')}</span>
-              </label>
-            )}
-          </>
-        )
+      mobileControls={
+        chatViewMode === 'full'
+          ? {
+              headerLeft: repoSummaryNode,
+              settings: executorControls,
+              tools: (
+                <>
+                  {repoSummaryNode}
+                  {linkedIssueNode}
+                </>
+              ),
+              footerLeft: attachmentControls,
+            }
+          : undefined
       }
+      modelSelector={chatViewMode === 'full' ? modelSelector : undefined}
+      headerLeft={chatViewMode !== 'full' ? undefined : executorControls}
       headerRight={chatViewModeSelector}
       footerLeft={
         <>
-          {!isMinimalZen && (
-            <>
-              <ToolbarIconButton
-                icon={PaperclipIcon}
-                aria-label={t('tasks:taskFormDialog.attachFile')}
-                title={t('tasks:taskFormDialog.attachFile')}
-                onClick={handleAttachClick}
-                disabled={isDisabled}
-              />
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                className="hidden"
-                onChange={handleFileInputChange}
-              />
-            </>
-          )}
+          {attachmentControls}
           {repoSummaryNode}
-          {linkedIssue && (
-            <div
-              className="inline-flex items-center gap-half whitespace-nowrap text-sm text-default-500"
-              title={linkedIssue.title}
-            >
-              <span className="font-mono text-xs text-foreground">
-                {linkedIssue.simpleId}
-              </span>
-              <button
-                type="button"
-                onClick={linkedIssue.onRemove}
-                disabled={isDisabled}
-                className="inline-flex items-center text-default-500 transition-colors hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
-                aria-label={`Remove link to ${linkedIssue.simpleId}`}
-              >
-                <XIcon className="size-icon-xs" weight="bold" />
-              </button>
-            </div>
-          )}
+          {linkedIssueNode}
         </>
       }
       footerRight={footerActionContent}

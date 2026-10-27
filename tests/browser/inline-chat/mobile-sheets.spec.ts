@@ -25,12 +25,78 @@ async function expectSheet(page: Page) {
 }
 
 async function openAndDismiss(page: Page, trigger: Locator) {
+  const count = await page.locator('[data-composer-sheet]').count();
   await trigger.click();
   await expectSheet(page);
+  await expect(page.locator('[data-composer-sheet]')).toHaveCount(count + 1);
   await page.keyboard.press('Escape');
-  await expect(page.locator('[data-composer-sheet]')).toHaveCount(0);
+  await expect(page.locator('[data-composer-sheet]')).toHaveCount(count);
   await expect(trigger).toBeFocused();
 }
+
+test('mobile Full composer keeps a single compact header and direct actions across narrow widths', async ({
+  page,
+  backend,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  const left = page.getByRole('region', { name: 'Left Agent' });
+  await expect(left).toContainText('History for session-1');
+  backend.setDiff('workspace-1', 'large.ts', 21769);
+  const composer = left.locator('[data-composer="compact"]');
+  const editor = left.getByRole('textbox', { name: 'Markdown editor' });
+  await editor.fill('A short draft');
+  for (const width of [320, 390, 700]) {
+    await page.setViewportSize({ width, height: 844 });
+    const header = composer.locator('[data-composer-header]');
+    const footer = composer.locator('[data-composer-footer]');
+    const summary = header.getByRole('button', { name: 'Change summary' });
+    await expect(summary).toHaveText('1 file');
+    for (const control of [
+      summary,
+      header.getByRole('button', { name: 'session-1', exact: true }),
+      header.getByRole('combobox', { name: 'Chat view' }),
+    ]) {
+      const box = (await control.boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(width);
+      expect(box.y).toBeCloseTo((await summary.boundingBox())!.y, 0);
+    }
+    for (const name of [
+      'Composer tools',
+      'Composer settings',
+      'Attach file',
+      'Send',
+    ]) {
+      const button = footer.getByRole('button', { name, exact: true });
+      await expect(button).toBeVisible();
+      const box = (await button.boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(width);
+      expect(box.height).toBeGreaterThanOrEqual(44);
+    }
+    expect((await composer.boundingBox())!.height).toBeLessThanOrEqual(200);
+    await expect(editor).toHaveCSS('font-size', '16px');
+  }
+  await composer.getByRole('button', { name: 'Change summary' }).click();
+  const summarySheet = await expectSheet(page);
+  await expect(summarySheet).toContainText('+21769');
+  await summarySheet
+    .getByRole('button', { name: 'View changes', exact: true })
+    .click();
+  await expect(
+    page.getByText('Diff requested for left:workspace-1')
+  ).toBeVisible();
+  await expect(editor).toHaveText('A short draft');
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await expect(
+    left.getByRole('button', { name: 'Model A', exact: true })
+  ).toBeVisible();
+  await expect(
+    left.getByRole('button', { name: 'Workspace tasks', exact: true })
+  ).toBeVisible();
+  await expect(editor).toHaveText('A short draft');
+});
 
 test('mobile Agent menus are bottom sheets and selections stay scoped to their session', async ({
   page,
@@ -44,33 +110,48 @@ test('mobile Agent menus are bottom sheets and selections stay scoped to their s
     .getByRole('textbox', { name: /Follow up|Markdown editor/ })
     .last();
   await editor.fill('Keep this mobile draft');
-  for (const name of [
-    'Custom',
-    'Model A',
-    'Permissions',
-    'session-1',
-    'Workspace tasks',
-    'Preview slots',
-    'Context usage',
-    'Go to previous message',
-  ]) {
+  for (const name of ['Composer settings', 'Composer tools', 'session-1']) {
     await test.step(name, () =>
       openAndDismiss(page, left.getByRole('button', { name, exact: true }))
     );
     await expect(editor).toHaveText('Keep this mobile draft');
   }
   await openAndDismiss(page, left.getByRole('combobox', { name: 'Chat view' }));
-  await left.getByRole('button', { name: 'Model A', exact: true }).click();
+  await left
+    .getByRole('button', { name: 'Composer tools', exact: true })
+    .click();
+  for (const name of [
+    'Workspace tasks',
+    'Preview slots',
+    'Context usage',
+    'Go to previous message',
+  ]) {
+    await openAndDismiss(page, page.getByRole('button', { name, exact: true }));
+  }
+  await page.keyboard.press('Escape');
+  await left
+    .getByRole('button', { name: 'Composer settings', exact: true })
+    .click();
+  await openAndDismiss(
+    page,
+    page.getByRole('button', { name: 'Preset', exact: true })
+  );
+  await page.getByRole('button', { name: 'Model A', exact: true }).click();
   await page.getByText('Model B', { exact: true }).click();
   await page.getByRole('button', { name: 'Low', exact: true }).click();
   await expectSheet(page);
   await page.getByRole('menuitem', { name: 'High', exact: true }).click();
   await page.keyboard.press('Escape');
-  await left.getByRole('button', { name: 'Permissions', exact: true }).click();
+  await page.getByRole('button', { name: 'Permissions', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Plan', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await right
+    .getByRole('button', { name: 'Composer settings', exact: true })
+    .click();
   await expect(
-    right.getByRole('button', { name: 'Model A', exact: true })
+    page.getByRole('button', { name: 'Model A', exact: true })
   ).toBeVisible();
+  await page.keyboard.press('Escape');
   await expect(
     right.getByRole('textbox', { name: /Follow up|Markdown editor/ }).last()
   ).toBeEmpty();
@@ -104,21 +185,29 @@ test('mobile Create Workspace selectors preserve the draft and selected reposito
   const create = page.getByTestId('inline-vk-create-workspace');
   const editor = create.getByRole('textbox', { name: 'Markdown editor' });
   await editor.fill('Keep the mobile creation draft');
-  for (const name of ['Opencode', 'Custom', 'Model A', 'Permissions']) {
-    await openAndDismiss(
-      page,
-      create.getByRole('button', { name, exact: true })
-    );
+  await create
+    .getByRole('button', { name: 'Composer settings', exact: true })
+    .click();
+  for (const name of ['Opencode', 'Preset', 'Model A', 'Permissions']) {
+    await openAndDismiss(page, page.getByRole('button', { name, exact: true }));
   }
+  await page.keyboard.press('Escape');
   await expect(editor).toHaveText('Keep the mobile creation draft');
   await expect(
     create.getByRole('button', { name: 'repo · main', exact: true })
   ).toBeVisible();
-  await create.getByRole('button', { name: 'Model A', exact: true }).click();
+  await create
+    .getByRole('button', { name: 'Composer settings', exact: true })
+    .click();
+  await page.getByRole('button', { name: 'Model A', exact: true }).click();
   await page.locator('button[aria-label="Close"]').last().click();
-  await expect(page.locator('[data-composer-sheet]')).toHaveCount(0);
+  await expect(page.locator('[data-composer-sheet]')).toHaveCount(1);
   await expect(
-    create.getByRole('button', { name: 'Model A', exact: true })
+    page.getByRole('button', { name: 'Model A', exact: true })
+  ).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(
+    create.getByRole('button', { name: 'Composer settings', exact: true })
   ).toBeFocused();
 });
 
@@ -128,7 +217,7 @@ test('mobile sheets follow the visible keyboard viewport and dismiss from the ba
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   const left = page.getByRole('region', { name: 'Left Agent' });
-  const trigger = left.getByRole('button', { name: 'Preview slots' });
+  const trigger = left.getByRole('button', { name: 'Composer tools' });
   await trigger.click();
   const sheet = await expectSheet(page);
   await page.evaluate(() => {
@@ -162,7 +251,10 @@ test('short-screen task sheets scroll and nested session selection targets the c
   await page.setViewportSize({ width: 700, height: 380 });
   await page.goto('/');
   const left = page.getByRole('region', { name: 'Left Agent' });
-  await left.getByRole('button', { name: 'Workspace tasks' }).click();
+  await left.getByRole('button', { name: 'Composer tools' }).click();
+  await page
+    .getByRole('button', { name: 'Workspace tasks', exact: true })
+    .click();
   const sheet = await expectSheet(page);
   await expect(
     sheet.getByText('task-29 · Open task 29', { exact: true })
@@ -172,6 +264,10 @@ test('short-screen task sheets scroll and nested session selection targets the c
   });
   await sessions.click();
   await expectSheet(page);
+  await page.keyboard.press('Escape');
+  await expect(sessions).toBeFocused();
+  await expect(page.locator('[data-composer-sheet]')).toHaveCount(2);
+  await sessions.click();
   await page.getByRole('option', { name: 'session-2', exact: true }).click();
   await expect(sessions).toContainText('session-2');
   await sheet.getByRole('button', { name: 'Request housekeeping' }).click();
@@ -193,7 +289,8 @@ test('long model sheets remain searchable inside a reduced keyboard viewport', a
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   const left = page.getByRole('region', { name: 'Left Agent' });
-  await left.getByRole('button', { name: 'Model A', exact: true }).click();
+  await left.getByRole('button', { name: 'Composer settings' }).click();
+  await page.getByRole('button', { name: 'Model A', exact: true }).click();
   const sheet = await expectSheet(page);
   const search = sheet.getByPlaceholder('Filter by provider, name or ID...');
   await expect(search).toBeVisible();
@@ -217,8 +314,77 @@ test('long model sheets remain searchable inside a reduced keyboard viewport', a
   await model.click();
   await page.keyboard.press('Escape');
   await expect(
-    left.getByRole('button', { name: 'Extra model 25', exact: true })
+    page.getByRole('button', { name: 'Extra model 25', exact: true })
   ).toBeVisible();
+});
+
+test('mobile tools can open preview dialogs and return to the composer draft', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  const left = page.getByRole('region', { name: 'Left Agent' });
+  const editor = left.getByRole('textbox', { name: 'Markdown editor' });
+  await editor.fill('Keep the tools draft');
+  await left
+    .getByRole('button', { name: 'Composer tools', exact: true })
+    .click();
+  await page
+    .getByRole('button', { name: 'Preview slots', exact: true })
+    .click();
+  await page
+    .getByRole('menuitem', {
+      name: 'Logs for Application preview',
+      exact: true,
+    })
+    .click();
+  const logs = page.getByRole('dialog', {
+    name: 'Preview server logs: Application preview',
+  });
+  await expect(logs.getByLabel('Preview server output')).toContainText(
+    'Preview server listening'
+  );
+  await logs.getByRole('button', { name: 'Close', exact: true }).click();
+  if (await page.locator('[data-composer-sheet]').count())
+    await page.keyboard.press('Escape');
+  await expect(editor).toHaveText('Keep the tools draft');
+});
+
+test('mobile attachment and queue actions remain directly reachable on a narrow screen', async ({
+  page,
+  backend,
+}) => {
+  await page.setViewportSize({ width: 320, height: 740 });
+  await page.goto('/');
+  const left = page.getByRole('region', { name: 'Left Agent' });
+  await expect(left).toContainText('History for session-1');
+  backend.stream('session-1', 'Executing');
+  await expect(left).toContainText('Executing');
+  const editor = left.getByRole('textbox', { name: 'Markdown editor' });
+  await editor.fill('Queue this attachment');
+  const chooser = page.waitForEvent('filechooser');
+  await left.getByRole('button', { name: 'Attach file', exact: true }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'proof.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('proof'),
+  });
+  await expect(left).toContainText('proof.txt');
+  await left.getByRole('button', { name: 'Queue', exact: true }).click();
+  const cancel = left.getByRole('button', { name: /Cancel.*queue/i });
+  await expect(cancel).toBeVisible();
+  for (const button of [
+    cancel,
+    left.getByRole('button', { name: 'Stop', exact: true }),
+  ]) {
+    const box = (await button.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(320);
+  }
+  await cancel.click();
+  await expect(editor).toContainText('Queue this attachment');
 });
 
 test('mobile slash suggestions use a bottom sheet while preserving editor focus and command insertion', async ({

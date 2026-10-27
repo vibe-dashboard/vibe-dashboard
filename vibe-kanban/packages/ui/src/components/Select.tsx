@@ -11,6 +11,7 @@ import {
   ComposerSheetHeader,
   useComposerOverlayState,
   useComposerSheet,
+  useComposerSheetLayer,
 } from './ComposerSheet';
 
 function Select(props: React.ComponentProps<typeof SelectPrimitive.Root>) {
@@ -86,6 +87,7 @@ const SelectContent = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>
 >(({ className, children, style, position = 'popper', ...props }, ref) => {
   const sheet = useComposerSheet();
+  const layer = useComposerSheetLayer();
   return (
     <SelectPrimitive.Portal>
       <div style={{ display: 'contents' }}>
@@ -102,6 +104,10 @@ const SelectContent = React.forwardRef<
           )}
           position={position}
           {...props}
+          onEscapeKeyDown={(event) => {
+            props.onEscapeKeyDown?.(event);
+            layer.onEscapeKeyDown(event);
+          }}
         >
           <ComposerSheetHeader handleOnly />
           <SelectScrollUpButton />
