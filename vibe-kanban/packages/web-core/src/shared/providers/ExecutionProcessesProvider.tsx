@@ -43,6 +43,7 @@ export const ExecutionProcessesProvider: React.FC<{
 
   const value = useMemo<ExecutionProcessesContextType>(
     () => ({
+      sessionId,
       executionProcessesAll: executionProcesses,
       executionProcessesByIdAll: executionProcessesById,
       isAttemptRunningAll: isAttemptRunning,
@@ -54,6 +55,7 @@ export const ExecutionProcessesProvider: React.FC<{
       error,
     }),
     [
+      sessionId,
       executionProcesses,
       executionProcessesById,
       isAttemptRunning,

@@ -1,0 +1,10 @@
+{
+  "cli": "codex",
+  "package": "@openai/codex",
+  "version_role": "current",
+  "version": "0.147.0",
+  "captured_from": "committed_raw_fixture",
+  "raw_fixture": "stdout.jsonl",
+  "compatibility_scope": "normalization_no_migration",
+  "notes": "Current pinned Codex app-server JSON-RPC event shape. CI validates this committed raw fixture; it does not invoke Codex."
+}

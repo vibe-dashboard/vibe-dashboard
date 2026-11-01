@@ -2,6 +2,7 @@ use db::models::{execution_process::ExecutionProcess, scratch::Scratch, workspac
 use futures::StreamExt;
 use serde_json::json;
 use tokio_stream::wrappers::BroadcastStream;
+use tracing::Instrument;
 use utils::log_msg::LogMsg;
 use uuid::Uuid;
 
@@ -22,9 +23,23 @@ impl EventService {
         super::types::EventError,
     > {
         // Get execution processes for this session
-        let processes =
-            ExecutionProcess::find_by_session_id(&self.db.pool, session_id, show_soft_deleted)
-                .await?;
+        let processes = async {
+            ExecutionProcess::find_by_session_id(&self.db.pool, session_id, show_soft_deleted).await
+        }
+        .instrument(tracing::debug_span!(
+            "events.stream_execution_processes.initial_snapshot",
+            session_id = %session_id,
+            show_soft_deleted = show_soft_deleted,
+        ))
+        .await?;
+        let process_count = processes.len();
+
+        tracing::debug!(
+            session_id = %session_id,
+            show_soft_deleted = show_soft_deleted,
+            process_count = process_count,
+            "events.stream_execution_processes.initial_snapshot_loaded"
+        );
 
         // Convert processes array to object keyed by process ID
         let processes_map: serde_json::Map<String, serde_json::Value> = processes

@@ -19,8 +19,8 @@ function sanitizeHref(href?: string): string | undefined {
     trimmed.startsWith('/')
   )
     return trimmed;
-  // Allow only https
-  if (/^https:\/\//i.test(trimmed)) return trimmed;
+  // Allow safe web links
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
   // Block everything else by default
   return undefined;
 }
@@ -30,13 +30,13 @@ function sanitizeHref(href?: string): string | undefined {
  */
 function isExternalHref(href?: string): boolean {
   if (!href) return false;
-  return /^https:\/\//i.test(href);
+  return /^https?:\/\//i.test(href);
 }
 
 /**
  * Plugin that handles link sanitization and security attributes in read-only mode.
  * - Blocks dangerous protocols (javascript:, vbscript:, data:)
- * - External HTTPS links: clickable with target="_blank" and rel="noopener noreferrer"
+ * - External HTTP(S) links: clickable with target="_blank" and rel="noopener noreferrer"
  * - Internal/relative links: rendered but not clickable
  */
 export function ReadOnlyLinkPlugin() {
@@ -67,7 +67,7 @@ export function ReadOnlyLinkPlugin() {
           const isExternal = isExternalHref(safeHref);
 
           if (isExternal) {
-            // External HTTPS link - add security attributes
+            // External HTTP(S) link - add security attributes
             dom.setAttribute('target', '_blank');
             dom.setAttribute('rel', 'noopener noreferrer');
             dom.onclick = (e) => e.stopPropagation();

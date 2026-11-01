@@ -6,7 +6,8 @@
   "gitPanel": {
     "advanced": {
       "placeholder": "例如：acme Corp"
-    }
+    },
+    "addRepo": "新增儲存庫"
   },
   "loading": "載入任務中...",
   "actions": {
@@ -366,7 +367,8 @@
       "untrackedPresent_other": "存在 {{count}} 個未追蹤的檔案（不受重設影響）。",
       "forceReset": "強制重設（捨棄未提交的變更）",
       "uncommittedWillDiscard": "未提交的變更將被捨棄。",
-      "uncommittedPresentHint": "存在未提交的變更。請啟用強制重設或先提交/暫存後再繼續。"
+      "uncommittedPresentHint": "存在未提交的變更。請啟用強制重設或先提交/暫存後再繼續。",
+      "stopOtherSessions": "Stop other running sessions before resetting worktree"
     },
     "buttons": {
       "retry": "重試",

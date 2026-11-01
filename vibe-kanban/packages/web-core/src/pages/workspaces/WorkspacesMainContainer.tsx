@@ -125,7 +125,7 @@ export const WorkspacesMainContainer = forwardRef<
     repos,
     onSelectSession,
     isLoading,
-    isSessionsLoading: _isSessionsLoading,
+    isSessionsLoading,
     isNewSessionMode,
     onStartNewSession,
     chatViewMode = 'full',
@@ -226,6 +226,15 @@ export const WorkspacesMainContainer = forwardRef<
             repos={repos}
             onAtBottomChange={handleAtBottomChange}
             sessionScopeId={selectedSessionId}
+            previewMode={
+              selectedSession
+                ? 'session'
+                : isSessionsLoading
+                  ? 'workspace'
+                  : isNewSessionMode
+                    ? 'disabled'
+                    : 'workspace'
+            }
           />
         </RetryUiProvider>
       </div>

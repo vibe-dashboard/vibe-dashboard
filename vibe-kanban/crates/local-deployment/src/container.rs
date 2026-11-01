@@ -52,6 +52,7 @@ use services::services::{
     container::{
         ContainerError, ContainerRef, ContainerService, QueueDispatchOutcome, StartExecutionOutcome,
     },
+    conversation_preview,
     diff_stream::{self, DiffStreamHandle},
     file::FileService,
     notification::NotificationService,
@@ -63,6 +64,7 @@ use services::services::{
 };
 use tokio::{process::Command, sync::RwLock, task::JoinHandle, time::timeout};
 use tokio_util::io::ReaderStream;
+use tracing::Instrument;
 use utils::{
     log_msg::LogMsg,
     msg_store::MsgStore,
@@ -501,6 +503,12 @@ impl LocalContainerService {
             }
             WorkspaceError::RepoAlreadyAttached => {
                 ContainerError::Other(anyhow!("Repository already attached to workspace"))
+            }
+            WorkspaceError::RepoNameAlreadyAttached { repo_name } => {
+                ContainerError::Other(anyhow!(
+                    "Repository name '{}' is already attached to workspace",
+                    repo_name
+                ))
             }
             WorkspaceError::BranchNotFound { repo_name, branch } => ContainerError::Other(anyhow!(
                 "Branch '{}' does not exist in repository '{}'",
@@ -1295,21 +1303,28 @@ impl LocalContainerService {
             .await
             .ok_or_else(|| ContainerError::Other(anyhow!("MsgStore not found for execution")))?;
         let out = child.inner().stdout.take().expect("no stdout");
-        let err = child.inner().stderr.take().expect("no stderr");
+        let err = child.inner().stderr.take();
 
         // Map stdout bytes -> LogMsg::Stdout
         let out = ReaderStream::new(out)
             .map_ok(|chunk| LogMsg::Stdout(String::from_utf8_lossy(&chunk).into_owned()));
 
-        // Map stderr bytes -> LogMsg::Stderr
-        let err = ReaderStream::new(err)
-            .map_ok(|chunk| LogMsg::Stderr(String::from_utf8_lossy(&chunk).into_owned()));
+        if let Some(err) = err {
+            // Map stderr bytes -> LogMsg::Stderr
+            let err = ReaderStream::new(err)
+                .map_ok(|chunk| LogMsg::Stderr(String::from_utf8_lossy(&chunk).into_owned()));
 
-        // If you have a JSON Patch source, map it to LogMsg::JsonPatch too, then select all three.
+            // If you have a JSON Patch source, map it to LogMsg::JsonPatch too, then select all three.
 
-        // Merge and forward into the store
-        let merged = select(out, err); // Stream<Item = Result<LogMsg, io::Error>>
-        store.clone().spawn_forwarder(merged);
+            // Merge and forward into the store
+            let merged = select(out, err); // Stream<Item = Result<LogMsg, io::Error>>
+            store.clone().spawn_forwarder(merged);
+        } else {
+            // Some executors intentionally discard child stderr to avoid pipe
+            // backpressure or exposing internal diagnostics. Continue forwarding
+            // stdout in those cases.
+            store.clone().spawn_forwarder(out);
+        }
         Ok(())
     }
 
@@ -1368,6 +1383,17 @@ impl LocalContainerService {
                 } else {
                     tracing::debug!("No assistant message found for execution {}", exec_id);
                 }
+            }
+
+            if let Err(error) =
+                conversation_preview::refresh_execution_process_preview(&self.db.pool, *exec_id)
+                    .await
+            {
+                tracing::warn!(
+                    "Failed to refresh conversation preview for execution {}: {}",
+                    exec_id,
+                    error
+                );
             }
         }
 
@@ -1690,6 +1716,15 @@ impl LocalContainerService {
             &ExecutionProcessRunReason::CodingAgent,
             Some((queued.id, &queued.owner, &payload_fingerprint)),
         )
+        .instrument(tracing::debug_span!(
+            target: "perf.agent_startup",
+            "agent.turn",
+            workspace_id = %workspace.id,
+            session_id = %session.id,
+            executor = %executor_profile_id.executor,
+            queued = true,
+            execution_process_id = tracing::field::Empty,
+        ))
         .await
     }
 }
@@ -2024,6 +2059,18 @@ impl ContainerService for LocalContainerService {
         Ok(true)
     }
 
+    #[tracing::instrument(
+        name = "agent.turn.start_execution_inner",
+        target = "perf.agent_startup",
+        level = "debug",
+        skip(self, workspace, execution_process, executor_action),
+        fields(
+            workspace_id = %workspace.id,
+            session_id = %execution_process.session_id,
+            execution_process_id = %execution_process.id,
+            executor = ?executor_action.base_executor(),
+        )
+    )]
     async fn start_execution_inner(
         &self,
         workspace: &Workspace,
@@ -2083,7 +2130,14 @@ impl ContainerService for LocalContainerService {
 
         // Once spawn has been polled, an error cannot prove that no child exists.
         let mut spawned = match spawn_with_timeout(
-            executor_action.spawn(&current_dir, approvals_service, &env),
+            executor_action
+                .spawn(&current_dir, approvals_service, &env)
+                .instrument(tracing::debug_span!(
+                    target: "perf.agent_startup",
+                    "agent.turn.executor_spawn",
+                    execution_process_id = %execution_process.id,
+                    executor = ?executor_action.base_executor(),
+                )),
             Duration::from_secs(30),
         )
         .await

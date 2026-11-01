@@ -50,7 +50,7 @@ import { stripLineEnding, splitLines } from '@/shared/lib/string';
 import { ReviewCommentRenderer } from './ReviewCommentRenderer';
 import { GitHubCommentRenderer } from './GitHubCommentRenderer';
 import { CommentWidgetLine } from './CommentWidgetLine';
-import type { Diff, DiffChangeKind } from 'shared/types';
+import type { Diff } from 'shared/types';
 
 function workerFactory() {
   return new Worker(WorkerUrl, { type: 'module' });
@@ -61,27 +61,6 @@ const HIGHLIGHTER_OPTIONS = {
   theme: { dark: 'github-dark', light: 'github-light' } as const,
   langs: [] as string[],
 };
-
-const COLLAPSE_BY_CHANGE_TYPE: Record<DiffChangeKind, boolean> = {
-  added: false,
-  deleted: true,
-  modified: false,
-  renamed: true,
-  copied: true,
-  permissionChange: true,
-};
-
-const COLLAPSE_MAX_LINES = 800;
-
-function shouldAutoCollapse(diff: Diff): boolean {
-  const totalLines = (diff.additions ?? 0) + (diff.deletions ?? 0);
-  if (diff.change === 'renamed') {
-    return totalLines === 0 || totalLines > COLLAPSE_MAX_LINES;
-  }
-  if (COLLAPSE_BY_CHANGE_TYPE[diff.change]) return true;
-  if (totalLines > COLLAPSE_MAX_LINES) return true;
-  return false;
-}
 
 const IS_MOBILE = isRealMobileDevice();
 const NOOP = () => {};
@@ -328,7 +307,7 @@ const DiffFileItem = memo(function DiffFileItem({
 }: DiffFileItemProps) {
   const { t } = useTranslation('common');
   const filePath = diff.newPath || diff.oldPath || '';
-  const expandKey = `diff:${filePath}`;
+  const expandKey = `diff:${workspaceId}:${filePath}`;
 
   const expanded = useUiPreferencesStore(
     (s) => s.expanded[expandKey] ?? initialExpanded
@@ -601,26 +580,18 @@ export const ChangesPanelContainer = memo(function ChangesPanelContainer({
   className,
   workspaceId,
 }: ChangesPanelContainerProps) {
+  const { t } = useTranslation('common');
   const diffs = useDiffs();
   const { registerScrollToFile } = useChangesView();
-  const [processedPaths] = useState(() => new Set<string>());
   const [mountedCount, setMountedCount] = useState(0);
   const rafRef = useRef<number | null>(null);
 
   const diffItems = useMemo(() => {
-    const sorted = sortDiffs(diffs);
-    return sorted.map((diff) => {
-      const path = diff.newPath || diff.oldPath || '';
-
-      let initialExpanded = true;
-      if (!processedPaths.has(path)) {
-        processedPaths.add(path);
-        initialExpanded = !shouldAutoCollapse(diff);
-      }
-
-      return { diff, initialExpanded };
-    });
-  }, [diffs, processedPaths]);
+    return sortDiffs(diffs).map((diff) => ({
+      diff,
+      initialExpanded: false,
+    }));
+  }, [diffs]);
 
   useEffect(() => {
     if (diffItems.length === 0) {
@@ -796,7 +767,7 @@ export const ChangesPanelContainer = memo(function ChangesPanelContainer({
 
   const handleScrollToFile = useCallback(
     (path: string, lineNumber?: number) => {
-      const expandKey = `diff:${path}`;
+      const expandKey = `diff:${workspaceId}:${path}`;
       const expandedState = useUiPreferencesStore.getState().expanded;
       if (!(expandedState[expandKey] ?? false)) {
         useUiPreferencesStore.getState().setExpanded(expandKey, true);
@@ -845,15 +816,33 @@ export const ChangesPanelContainer = memo(function ChangesPanelContainer({
           });
       });
     },
-    [diffItems.length, beginProgrammaticScroll, onScrollComplete]
+    [workspaceId, diffItems.length, beginProgrammaticScroll, onScrollComplete]
   );
 
   useEffect(() => {
+    // Do not consume a queued navigation request until at least one diff has
+    // mounted. The provider will replay it when this callback registers.
+    if (!hasItems) {
+      registerScrollToFile(null);
+      return;
+    }
+
     registerScrollToFile(handleScrollToFile);
     return () => {
       registerScrollToFile(null);
     };
-  }, [registerScrollToFile, handleScrollToFile]);
+  }, [registerScrollToFile, handleScrollToFile, hasItems]);
+
+  if (diffItems.length === 0) {
+    return (
+      <div
+        className={`flex h-full w-full items-center justify-center bg-secondary px-base text-sm text-low ${className}`}
+        role="status"
+      >
+        {t('empty.noChanges')}
+      </div>
+    );
+  }
 
   return (
     <WorkerPoolContextProvider

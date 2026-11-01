@@ -128,8 +128,34 @@ The following environment variables can be configured at build time or runtime:
 | `VK_SHARED_API_BASE` | Runtime | Not set | Base URL for the remote/cloud API used by the local desktop app |
 | `VK_SHARED_RELAY_API_BASE` | Runtime | Not set | Base URL for the relay API used by tunnel-mode connections |
 | `VK_TUNNEL` | Runtime | Not set | Enable relay tunnel mode when set (requires relay API base URL) |
+| `VK_QA_MODE` | Runtime | Not set | Enable QA agent-response mocking when set to `1`, `true`, `yes`, or `on`; `QA_MODE` is also accepted as a fallback. The mock emits Claude-style logs and is intended for QA/dev harnesses, not production |
 
 **Build-time variables** must be set when running `pnpm run build`. **Runtime variables** are read when the application starts.
+
+#### Performance tracing with SigNoz
+
+Performance tracing is disabled by default. To export HTTP, SQL, function, and
+WebSocket tracing spans to SigNoz, start the backend with `VK_PERF_TRACING=1`
+and an OTLP endpoint:
+
+```bash
+VK_PERF_TRACING=1 \
+OTEL_EXPORTER_OTLP_ENDPOINT='https://ingest.<region>.signoz.cloud:443' \
+OTEL_EXPORTER_OTLP_HEADERS='signoz-ingestion-key=<your-ingestion-key>' \
+OTEL_SERVICE_NAME='vibe-kanban-backend' \
+OTEL_RESOURCE_ATTRIBUTES="service.version=$(git rev-parse --short HEAD)" \
+RUST_LOG=info \
+pnpm run backend:dev:watch
+```
+
+Use `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` instead when traces should use a
+different endpoint from other OTLP signals. `OTEL_EXPORTER_OTLP_HEADERS` is
+needed for SigNoz Cloud auth, but is usually unnecessary for a local collector.
+`RUST_LOG=info` keeps console logs quiet; performance span targets are still
+sent to the SigNoz exporter when OTLP is configured.
+`VK_WS_POLL_TRACING=1` enables extra noisy WebSocket poll tracing and is not
+normally needed. See [docs/performance-tracing.md](docs/performance-tracing.md)
+for local collector examples and a smoke-test checklist.
 
 #### Self-Hosting with a Reverse Proxy or Custom Domain
 

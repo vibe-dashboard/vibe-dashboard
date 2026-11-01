@@ -70,29 +70,67 @@ export function appendPresetModel(
   config: ModelSelectorConfig | null,
   presetModel: string | null | undefined
 ): ModelSelectorConfig | null {
-  if (!config || !presetModel) return config;
+  return appendExplicitModelChoices(config, [presetModel]);
+}
+
+export function appendExplicitModelChoices(
+  config: ModelSelectorConfig | null,
+  modelChoices: Array<string | null | undefined>
+): ModelSelectorConfig | null {
+  if (!config) return config;
   const hasProviders = config.providers.length > 0;
-  const { providerId, modelId } = parseModelId(presetModel, hasProviders);
-  if (!modelId) return config;
+  let nextModels = config.models;
+  let nextProviders = config.providers;
 
-  const exists = config.models.some(
-    (m) =>
-      m.id.toLowerCase() === modelId.toLowerCase() &&
-      (!providerId || m.provider_id?.toLowerCase() === providerId.toLowerCase())
-  );
-  if (exists) return config;
+  for (const modelChoice of modelChoices) {
+    if (!modelChoice) continue;
+    const { providerId, modelId } = parseModelId(modelChoice, hasProviders);
+    if (!modelId) continue;
 
-  return {
-    ...config,
-    models: [
+    const existingProvider = providerId
+      ? nextProviders.find(
+          (provider) => provider.id.toLowerCase() === providerId.toLowerCase()
+        )
+      : null;
+    const canonicalProviderId = existingProvider?.id ?? providerId;
+
+    if (canonicalProviderId && !existingProvider) {
+      nextProviders = [
+        ...nextProviders,
+        {
+          id: canonicalProviderId,
+          name: canonicalProviderId,
+        },
+      ];
+    }
+
+    const exists = nextModels.some(
+      (m) =>
+        m.id.toLowerCase() === modelId.toLowerCase() &&
+        (!canonicalProviderId ||
+          m.provider_id?.toLowerCase() === canonicalProviderId.toLowerCase())
+    );
+    if (exists) continue;
+
+    nextModels = [
       {
         id: modelId,
         name: modelId,
-        provider_id: providerId,
+        provider_id: canonicalProviderId,
         reasoning_options: [],
       },
-      ...config.models,
-    ],
+      ...nextModels,
+    ];
+  }
+
+  if (nextModels === config.models && nextProviders === config.providers) {
+    return config;
+  }
+
+  return {
+    ...config,
+    models: nextModels,
+    providers: nextProviders,
   };
 }
 

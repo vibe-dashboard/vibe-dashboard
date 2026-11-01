@@ -1,31 +1,36 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     io,
     sync::{
         Arc, OnceLock,
         atomic::{AtomicBool, Ordering},
     },
+    time::Instant,
 };
 
 use async_trait::async_trait;
 use codex_app_server_protocol::{
-    ClientInfo, ClientNotification, ClientRequest, CommandExecutionApprovalDecision,
-    CommandExecutionRequestApprovalResponse, ConfigBatchWriteParams, ConfigEdit, ConfigReadParams,
-    ConfigReadResponse, ConfigWriteResponse, DynamicToolCallOutputContentItem,
-    DynamicToolCallResponse, FileChangeApprovalDecision, FileChangeRequestApprovalResponse,
-    GetAccountParams, GetAccountRateLimitsResponse, GetAccountResponse, InitializeCapabilities,
-    InitializeParams, InitializeResponse, ItemCompletedNotification, JSONRPCError,
-    JSONRPCNotification, JSONRPCRequest, JSONRPCResponse, ListMcpServerStatusParams,
-    ListMcpServerStatusResponse, McpServerStatusDetail, RequestId, ReviewStartParams,
-    ReviewStartResponse, ReviewTarget, ServerRequest, ThreadCompactStartParams,
-    ThreadCompactStartResponse, ThreadForkParams, ThreadForkResponse, ThreadItem, ThreadReadParams,
-    ThreadReadResponse, ThreadStartParams, ThreadStartResponse, ToolRequestUserInputAnswer,
-    ToolRequestUserInputQuestion, ToolRequestUserInputResponse, TurnCompletedNotification,
-    TurnStartParams, TurnStartResponse, TurnStatus, UserInput,
+    AttestationGenerateResponse, ClientInfo, ClientNotification, ClientRequest,
+    CommandExecutionApprovalDecision, CommandExecutionRequestApprovalResponse,
+    ConfigBatchWriteParams, ConfigEdit, ConfigReadParams, ConfigReadResponse, ConfigWriteResponse,
+    CurrentTimeReadResponse, DynamicToolCallOutputContentItem, DynamicToolCallResponse,
+    FileChangeApprovalDecision, FileChangeRequestApprovalResponse, GetAccountParams,
+    GetAccountRateLimitsResponse, GetAccountResponse, InitializeCapabilities, InitializeParams,
+    InitializeResponse, ItemCompletedNotification, JSONRPCError, JSONRPCNotification,
+    JSONRPCRequest, JSONRPCResponse, ListMcpServerStatusParams, ListMcpServerStatusResponse,
+    McpServerStatusDetail, RequestId, ReviewStartParams, ReviewStartResponse, ReviewTarget,
+    ServerRequest, ThreadCompactStartParams, ThreadCompactStartResponse, ThreadForkParams,
+    ThreadForkResponse, ThreadItem, ThreadReadParams, ThreadReadResponse, ThreadStartParams,
+    ThreadStartResponse, ToolRequestUserInputAnswer, ToolRequestUserInputQuestion,
+    ToolRequestUserInputResponse, TurnCompletedNotification, TurnStartParams, TurnStartResponse,
+    TurnStatus, UserInput,
 };
-use codex_protocol::config_types::{CollaborationMode, ModeKind, Settings};
+use codex_protocol::{
+    config_types::{CollaborationMode, ModeKind, Settings},
+    protocol::{EventMsg, McpStartupCompleteEvent, McpStartupStatus, McpStartupUpdateEvent},
+};
 use futures::TryFutureExt;
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{self, Value};
 use tokio::{
     io::{AsyncWrite, AsyncWriteExt, BufWriter},
@@ -45,12 +50,361 @@ struct PendingPlan {
     item_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct CodexNotificationParams {
+    msg: EventMsg,
+}
+
+fn perf_agent_startup_tracing_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(workspace_utils::perf_trace::enabled)
+}
+
+#[derive(Default)]
+struct CodexStartupTraceState {
+    mcp: McpStartupTraceState,
+    saw_session_configured: bool,
+    saw_turn_started: bool,
+    saw_first_reasoning_delta: bool,
+    saw_first_message_delta: bool,
+    saw_first_tool_request: bool,
+    turn_start_response_at: Option<Instant>,
+}
+
+impl CodexStartupTraceState {
+    fn mark_turn_start_response(&mut self, thread_id: &str, input_count: usize) {
+        self.turn_start_response_at = Some(Instant::now());
+        tracing::debug!(
+            target: "perf.agent_startup",
+            thread_id,
+            input_count,
+            "codex.turn_start.response_received"
+        );
+    }
+
+    fn elapsed_since_turn_start_response_ms(&self) -> Option<u64> {
+        self.turn_start_response_at
+            .map(|started_at| started_at.elapsed().as_millis() as u64)
+    }
+
+    fn handle_event(&mut self, event: &EventMsg) {
+        match event {
+            EventMsg::SessionConfigured(config) => {
+                if !self.saw_session_configured {
+                    self.saw_session_configured = true;
+                    tracing::debug!(
+                        target: "perf.agent_startup",
+                        session_id = %config.session_id,
+                        forked_from_id = ?config.forked_from_id.as_ref().map(ToString::to_string),
+                        model = %config.model,
+                        model_provider_id = %config.model_provider_id,
+                        reasoning_effort = ?config.reasoning_effort,
+                        service_tier = ?config.service_tier,
+                        "codex.session_configured"
+                    );
+                }
+            }
+            EventMsg::McpStartupUpdate(update) => self.mcp.handle_update(update),
+            EventMsg::McpStartupComplete(complete) => self.mcp.handle_complete(complete),
+            EventMsg::TurnStarted(_) if !self.saw_turn_started => {
+                self.saw_turn_started = true;
+                tracing::debug!(
+                    target: "perf.agent_startup",
+                    elapsed_since_turn_start_response_ms = ?self.elapsed_since_turn_start_response_ms(),
+                    "codex.turn_started"
+                );
+            }
+            EventMsg::AgentReasoningRawContent(_) if !self.saw_first_reasoning_delta => {
+                self.saw_first_reasoning_delta = true;
+                tracing::debug!(
+                    target: "perf.agent_startup",
+                    elapsed_since_turn_start_response_ms = ?self.elapsed_since_turn_start_response_ms(),
+                    "codex.first_reasoning_delta"
+                );
+            }
+            EventMsg::AgentMessageContentDelta(_) if !self.saw_first_message_delta => {
+                self.saw_first_message_delta = true;
+                tracing::debug!(
+                    target: "perf.agent_startup",
+                    elapsed_since_turn_start_response_ms = ?self.elapsed_since_turn_start_response_ms(),
+                    "codex.first_message_delta"
+                );
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_tool_request(&mut self, tool_kind: &'static str, request_id: &RequestId) {
+        if self.saw_first_tool_request {
+            return;
+        }
+        self.saw_first_tool_request = true;
+        tracing::debug!(
+            target: "perf.agent_startup",
+            tool_kind,
+            rpc_request_id = ?request_id,
+            elapsed_since_turn_start_response_ms = ?self.elapsed_since_turn_start_response_ms(),
+            "codex.first_tool_request"
+        );
+    }
+}
+
+#[derive(Default)]
+struct McpStartupTraceState {
+    span: Option<tracing::Span>,
+    started_at: Option<Instant>,
+    seen_servers: HashSet<String>,
+    server_spans: HashMap<String, tracing::Span>,
+    server_started_at: HashMap<String, Instant>,
+    update_count: u64,
+    starting_count: u64,
+    ready_count: u64,
+    failed_count: u64,
+    cancelled_count: u64,
+}
+
+impl McpStartupTraceState {
+    fn span(&mut self) -> &tracing::Span {
+        self.started_at.get_or_insert_with(Instant::now);
+        self.span.get_or_insert_with(|| {
+            tracing::debug_span!(
+                target: "perf.agent_startup",
+                "codex.mcp_startup",
+                mcp_server_count = tracing::field::Empty,
+                mcp_update_count = tracing::field::Empty,
+                mcp_starting_count = tracing::field::Empty,
+                mcp_ready_count = tracing::field::Empty,
+                mcp_failed_count = tracing::field::Empty,
+                mcp_cancelled_count = tracing::field::Empty,
+                mcp_ready_servers = tracing::field::Empty,
+                mcp_failed_servers = tracing::field::Empty,
+                mcp_cancelled_servers = tracing::field::Empty,
+                elapsed_ms = tracing::field::Empty,
+            )
+        })
+    }
+
+    fn handle_update(&mut self, update: &McpStartupUpdateEvent) {
+        self.update_count += 1;
+        self.seen_servers.insert(update.server.clone());
+
+        let status = match &update.status {
+            McpStartupStatus::Starting => {
+                self.starting_count += 1;
+                "starting"
+            }
+            McpStartupStatus::Ready => {
+                self.ready_count += 1;
+                "ready"
+            }
+            McpStartupStatus::Failed { .. } => {
+                self.failed_count += 1;
+                "failed"
+            }
+            McpStartupStatus::Cancelled => {
+                self.cancelled_count += 1;
+                "cancelled"
+            }
+        };
+        let error_len = match &update.status {
+            McpStartupStatus::Failed { error, .. } => Some(error.len()),
+            _ => None,
+        };
+        let aggregate_span = self.span().clone();
+        let server_elapsed_ms =
+            aggregate_span.in_scope(|| self.handle_server_update(update, status, error_len));
+
+        let update_count = self.update_count;
+        let server_count = self.seen_servers.len() as u64;
+        let starting_count = self.starting_count;
+        let ready_count = self.ready_count;
+        let failed_count = self.failed_count;
+        let cancelled_count = self.cancelled_count;
+        let span = self.span();
+        span.record("mcp_server_count", server_count);
+        span.record("mcp_update_count", update_count);
+        span.record("mcp_starting_count", starting_count);
+        span.record("mcp_ready_count", ready_count);
+        span.record("mcp_failed_count", failed_count);
+        span.record("mcp_cancelled_count", cancelled_count);
+        span.in_scope(|| {
+            tracing::debug!(
+                target: "perf.agent_startup",
+                mcp_server = %update.server,
+                mcp_status = status,
+                mcp_error_len = ?error_len,
+                mcp_server_elapsed_ms = ?server_elapsed_ms,
+                "codex.mcp_startup.update"
+            );
+        });
+    }
+
+    fn handle_server_update(
+        &mut self,
+        update: &McpStartupUpdateEvent,
+        status: &str,
+        error_len: Option<usize>,
+    ) -> Option<u64> {
+        if matches!(update.status, McpStartupStatus::Starting) {
+            self.server_started_at
+                .entry(update.server.clone())
+                .or_insert_with(Instant::now);
+            let server_span = self
+                .server_spans
+                .entry(update.server.clone())
+                .or_insert_with(|| {
+                    tracing::debug_span!(
+                        target: "perf.agent_startup",
+                        "codex.mcp_server_startup",
+                        mcp_server = %update.server,
+                        mcp_status = tracing::field::Empty,
+                        elapsed_ms = tracing::field::Empty,
+                        mcp_error_len = tracing::field::Empty,
+                    )
+                });
+            server_span.record("mcp_status", status);
+            server_span.in_scope(|| {
+                tracing::debug!(
+                    target: "perf.agent_startup",
+                    mcp_server = %update.server,
+                    mcp_status = status,
+                    "codex.mcp_server_startup.update"
+                );
+            });
+            return None;
+        }
+
+        let elapsed_ms = self
+            .server_started_at
+            .remove(&update.server)
+            .map(|started_at| started_at.elapsed().as_millis() as u64);
+        let server_span = self.server_spans.remove(&update.server).unwrap_or_else(|| {
+            tracing::debug_span!(
+                target: "perf.agent_startup",
+                "codex.mcp_server_startup",
+                mcp_server = %update.server,
+                mcp_status = tracing::field::Empty,
+                elapsed_ms = tracing::field::Empty,
+                mcp_error_len = tracing::field::Empty,
+            )
+        });
+        server_span.record("mcp_status", status);
+        if let Some(elapsed_ms) = elapsed_ms {
+            server_span.record("elapsed_ms", elapsed_ms);
+        }
+        if let Some(error_len) = error_len {
+            server_span.record("mcp_error_len", error_len as u64);
+        }
+        server_span.in_scope(|| {
+            tracing::debug!(
+                target: "perf.agent_startup",
+                mcp_server = %update.server,
+                mcp_status = status,
+                elapsed_ms = ?elapsed_ms,
+                mcp_error_len = ?error_len,
+                "codex.mcp_server_startup.complete"
+            );
+        });
+        elapsed_ms
+    }
+
+    fn handle_complete(&mut self, complete: &McpStartupCompleteEvent) {
+        self.seen_servers.extend(complete.ready.iter().cloned());
+        self.seen_servers
+            .extend(complete.failed.iter().map(|failure| failure.server.clone()));
+        self.seen_servers.extend(complete.cancelled.iter().cloned());
+        for server in &complete.ready {
+            self.finish_server_if_open(server, "ready", None);
+        }
+        for failure in &complete.failed {
+            self.finish_server_if_open(&failure.server, "failed", Some(failure.error.len()));
+        }
+        for server in &complete.cancelled {
+            self.finish_server_if_open(server, "cancelled", None);
+        }
+
+        let ready_servers = complete.ready.join(",");
+        let failed_servers = complete
+            .failed
+            .iter()
+            .map(|failure| failure.server.as_str())
+            .collect::<Vec<_>>()
+            .join(",");
+        let cancelled_servers = complete.cancelled.join(",");
+        let elapsed_ms = self
+            .started_at
+            .map(|started_at| started_at.elapsed().as_millis() as u64);
+        let server_count = self.seen_servers.len() as u64;
+        let update_count = self.update_count;
+
+        let span = self.span();
+        span.record("mcp_server_count", server_count);
+        span.record("mcp_update_count", update_count);
+        span.record("mcp_ready_count", complete.ready.len() as u64);
+        span.record("mcp_failed_count", complete.failed.len() as u64);
+        span.record("mcp_cancelled_count", complete.cancelled.len() as u64);
+        span.record("mcp_ready_servers", ready_servers.as_str());
+        span.record("mcp_failed_servers", failed_servers.as_str());
+        span.record("mcp_cancelled_servers", cancelled_servers.as_str());
+        if let Some(elapsed_ms) = elapsed_ms {
+            span.record("elapsed_ms", elapsed_ms);
+        }
+        span.in_scope(|| {
+            tracing::debug!(
+                target: "perf.agent_startup",
+                mcp_ready_count = complete.ready.len(),
+                mcp_failed_count = complete.failed.len(),
+                mcp_cancelled_count = complete.cancelled.len(),
+                mcp_ready_servers = ready_servers.as_str(),
+                mcp_failed_servers = failed_servers.as_str(),
+                mcp_cancelled_servers = cancelled_servers.as_str(),
+                mcp_failed_error_lens = ?complete
+                    .failed
+                    .iter()
+                    .map(|failure| (&failure.server, failure.error.len()))
+                    .collect::<Vec<_>>(),
+                elapsed_ms = ?elapsed_ms,
+                "codex.mcp_startup.complete"
+            );
+        });
+        self.span.take();
+    }
+
+    fn finish_server_if_open(&mut self, server: &str, status: &str, error_len: Option<usize>) {
+        let Some(server_span) = self.server_spans.remove(server) else {
+            return;
+        };
+        let elapsed_ms = self
+            .server_started_at
+            .remove(server)
+            .map(|started_at| started_at.elapsed().as_millis() as u64);
+        server_span.record("mcp_status", status);
+        if let Some(elapsed_ms) = elapsed_ms {
+            server_span.record("elapsed_ms", elapsed_ms);
+        }
+        if let Some(error_len) = error_len {
+            server_span.record("mcp_error_len", error_len as u64);
+        }
+        server_span.in_scope(|| {
+            tracing::debug!(
+                target: "perf.agent_startup",
+                mcp_server = server,
+                mcp_status = status,
+                elapsed_ms = ?elapsed_ms,
+                mcp_error_len = ?error_len,
+                "codex.mcp_server_startup.complete"
+            );
+        });
+    }
+}
+
 pub struct AppServerClient {
     rpc: OnceLock<JsonRpcPeer>,
     log_writer: LogWriter,
     approvals: Option<Arc<dyn ExecutorApprovalService>>,
     thread_id: Mutex<Option<String>>,
     pending_feedback: Mutex<VecDeque<String>>,
+    startup_trace: Mutex<CodexStartupTraceState>,
     auto_approve: bool,
     plan_mode: bool,
     resolved_model: OnceLock<String>,
@@ -84,6 +438,7 @@ impl AppServerClient {
             pending_plan: Mutex::new(None),
             thread_id: Mutex::new(None),
             pending_feedback: Mutex::new(VecDeque::new()),
+            startup_trace: Mutex::new(CodexStartupTraceState::default()),
             repo_context,
             commit_reminder,
             commit_reminder_prompt,
@@ -157,6 +512,8 @@ impl AppServerClient {
         input: Vec<UserInput>,
         collaboration_mode: Option<CollaborationMode>,
     ) -> Result<TurnStartResponse, ExecutorError> {
+        let input_count = input.len();
+        let trace_thread_id = thread_id.clone();
         let request = ClientRequest::TurnStart {
             request_id: self.next_request_id(),
             params: TurnStartParams {
@@ -166,7 +523,14 @@ impl AppServerClient {
                 ..Default::default()
             },
         };
-        self.send_request(request, "turn/start").await
+        let response = self.send_request(request, "turn/start").await?;
+        if perf_agent_startup_tracing_enabled() {
+            self.startup_trace
+                .lock()
+                .await
+                .mark_turn_start_response(&trace_thread_id, input_count);
+        }
+        Ok(response)
     }
 
     fn collaboration_mode(&self, mode: ModeKind) -> Result<CollaborationMode, ExecutorError> {
@@ -230,6 +594,7 @@ impl AppServerClient {
                 cursor,
                 limit: None,
                 detail: Some(McpServerStatusDetail::ToolsAndAuthOnly),
+                thread_id: None,
             },
         };
         self.send_request(request, "mcpServerStatus/list").await
@@ -307,6 +672,8 @@ impl AppServerClient {
     ) -> Result<(), ExecutorError> {
         match request {
             ServerRequest::FileChangeRequestApproval { request_id, params } => {
+                self.trace_tool_request("file_change_approval", &request_id)
+                    .await;
                 let call_id = params.item_id.clone();
                 let status = self
                     .request_tool_approval("edit", "codex.apply_patch", &call_id)
@@ -342,6 +709,8 @@ impl AppServerClient {
                 Ok(())
             }
             ServerRequest::CommandExecutionRequestApproval { request_id, params } => {
+                self.trace_tool_request("command_execution_approval", &request_id)
+                    .await;
                 let call_id = params.item_id.clone();
                 let status = self
                     .request_tool_approval("bash", "codex.exec_command", &call_id)
@@ -377,6 +746,7 @@ impl AppServerClient {
                 Ok(())
             }
             ServerRequest::ToolRequestUserInput { request_id, params } => {
+                self.trace_tool_request("user_input", &request_id).await;
                 let call_id = params.item_id.clone();
                 let question_count = params.questions.len();
                 let status = self
@@ -412,6 +782,8 @@ impl AppServerClient {
                 Ok(())
             }
             ServerRequest::DynamicToolCall { request_id, params } => {
+                self.trace_tool_request("dynamic_tool_call", &request_id)
+                    .await;
                 tracing::warn!(
                     "received unsupported dynamic tool call: tool={} call_id={}",
                     params.tool,
@@ -428,6 +800,29 @@ impl AppServerClient {
                 };
                 send_server_response(peer, request_id, response).await?;
                 Ok(())
+            }
+            ServerRequest::CurrentTimeRead { request_id, .. } => {
+                let current_time_at = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or_default();
+                send_server_response(
+                    peer,
+                    request_id,
+                    CurrentTimeReadResponse { current_time_at },
+                )
+                .await
+            }
+            ServerRequest::AttestationGenerate { request_id, .. } => {
+                tracing::warn!("received unsupported attestation request");
+                send_server_response(
+                    peer,
+                    request_id,
+                    AttestationGenerateResponse {
+                        token: String::new(),
+                    },
+                )
+                .await
             }
             ServerRequest::ChatgptAuthTokensRefresh { .. }
             | ServerRequest::McpServerElicitationRequest { .. }
@@ -451,6 +846,16 @@ impl AppServerClient {
                 .into())
             }
         }
+    }
+
+    async fn trace_tool_request(&self, tool_kind: &'static str, request_id: &RequestId) {
+        if !perf_agent_startup_tracing_enabled() {
+            return;
+        }
+        self.startup_trace
+            .lock()
+            .await
+            .handle_tool_request(tool_kind, request_id);
     }
 
     async fn request_tool_approval(
@@ -859,6 +1264,14 @@ impl JsonRpcCallbacks for AppServerClient {
 
         let method = notification.method.as_str();
 
+        if perf_agent_startup_tracing_enabled()
+            && method.starts_with("codex/event")
+            && let Some(params) = notification.params.as_ref()
+            && let Ok(params) = serde_json::from_value::<CodexNotificationParams>(params.clone())
+        {
+            self.startup_trace.lock().await.handle_event(&params.msg);
+        }
+
         // Detect completed plan items in the notification stream
         if self.plan_mode
             && method == "item/completed"
@@ -982,16 +1395,27 @@ fn request_id(request: &ClientRequest) -> RequestId {
 #[derive(Clone)]
 pub struct LogWriter {
     writer: Arc<Mutex<BufWriter<Box<dyn AsyncWrite + Send + Unpin>>>>,
+    first_raw_write_seen: Arc<AtomicBool>,
 }
 
 impl LogWriter {
     pub fn new(writer: impl AsyncWrite + Send + Unpin + 'static) -> Self {
         Self {
             writer: Arc::new(Mutex::new(BufWriter::new(Box::new(writer)))),
+            first_raw_write_seen: Arc::new(AtomicBool::new(false)),
         }
     }
 
     pub async fn log_raw(&self, raw: &str) -> Result<(), ExecutorError> {
+        if perf_agent_startup_tracing_enabled()
+            && !self.first_raw_write_seen.swap(true, Ordering::Relaxed)
+        {
+            tracing::debug!(
+                target: "perf.agent_startup",
+                raw_log_bytes = raw.len(),
+                "codex.first_raw_log_write"
+            );
+        }
         let mut guard = self.writer.lock().await;
         guard
             .write_all(raw.as_bytes())

@@ -19,6 +19,18 @@ interface UseSessionMessageEditorOptions {
   scratchId: string | undefined;
 }
 
+export function resolveSessionMessageScratchId(params: {
+  approvalId: string | undefined;
+  isNewSessionMode: boolean;
+  workspaceId: string | undefined;
+  sessionId: string | undefined;
+}): string | undefined {
+  return (
+    params.approvalId ??
+    (params.isNewSessionMode ? params.workspaceId : params.sessionId)
+  );
+}
+
 interface UseSessionMessageEditorResult {
   /** Current message value */
   localMessage: string;
@@ -35,12 +47,83 @@ interface UseSessionMessageEditorResult {
     message: string,
     executorConfig: ExecutorConfig
   ) => Promise<void>;
+  /** Clear only the browser-local dirty draft mirror */
+  discardLocalDraft: () => void;
+  /** Best-effort delete of the authoritative draft scratch */
+  deleteDraftScratch: () => Promise<void>;
   /** Delete the draft scratch */
   clearDraft: () => Promise<void>;
   /** Cancel pending debounced save */
   cancelDebouncedSave: () => void;
   /** Handle message change with debounced save */
   handleMessageChange: (value: string, executorConfig: ExecutorConfig) => void;
+}
+
+function logDeleteDraftScratchFailure(error: unknown): void {
+  console.debug('Failed to delete follow-up draft scratch', error);
+}
+
+export function discardFollowUpLocalDraft(scratchId: string | undefined): void {
+  if (!scratchId) return;
+  clearStoredScratchDraft(ScratchType.DRAFT_FOLLOW_UP, scratchId);
+}
+
+export async function deleteDraftScratchBestEffort(
+  deleteScratch: () => Promise<void>,
+  onError: (error: unknown) => void = logDeleteDraftScratchFailure
+): Promise<void> {
+  try {
+    await deleteScratch();
+  } catch (error) {
+    // The server may already have consumed/deleted the scratch during a
+    // successful submit. The local draft mirror is the critical state to
+    // clear so a stale submitted message cannot repopulate on reload.
+    onError(error);
+  }
+}
+
+export async function clearFollowUpDraft(params: {
+  scratchId: string | undefined;
+  cancelDebouncedSave: () => void;
+  deleteScratch: () => Promise<void>;
+  onDeleteError?: (error: unknown) => void;
+}): Promise<void> {
+  params.cancelDebouncedSave();
+  discardFollowUpLocalDraft(params.scratchId);
+  await deleteDraftScratchBestEffort(
+    params.deleteScratch,
+    params.onDeleteError
+  );
+}
+
+export async function restoreQueuedFollowUpDraftAfterCancel(params: {
+  queuedMessage: string | null;
+  queuedConfig: ExecutorConfig | null;
+  cancelQueue: () => Promise<void>;
+  setLocalMessage: (value: string) => void;
+  setExecutorOverrides: (config: Partial<ExecutorConfig>) => void;
+  handleMessageChange: (value: string, executorConfig: ExecutorConfig) => void;
+  saveToScratch: (
+    message: string,
+    executorConfig: ExecutorConfig
+  ) => Promise<void>;
+}): Promise<void> {
+  await params.cancelQueue();
+
+  const { queuedMessage, queuedConfig } = params;
+
+  if (queuedMessage !== null) {
+    params.setLocalMessage(queuedMessage);
+  }
+
+  if (queuedConfig) {
+    params.setExecutorOverrides(queuedConfig);
+  }
+
+  if (queuedMessage !== null && queuedConfig) {
+    params.handleMessageChange(queuedMessage, queuedConfig);
+    await params.saveToScratch(queuedMessage, queuedConfig);
+  }
 }
 
 /**
@@ -188,6 +271,25 @@ export function useSessionMessageEditor({
     [saveToScratch, scratchId]
   );
 
+  const discardLocalDraft = useCallback(() => {
+    discardFollowUpLocalDraft(scratchId);
+  }, [scratchId]);
+
+  const deleteDraftScratch = useCallback(
+    () => deleteDraftScratchBestEffort(deleteScratch),
+    [deleteScratch]
+  );
+
+  const clearDraft = useCallback(
+    () =>
+      clearFollowUpDraft({
+        scratchId,
+        cancelDebouncedSave,
+        deleteScratch,
+      }),
+    [cancelDebouncedSave, deleteScratch, scratchId]
+  );
+
   // Handle message change with debounced save
   // Pass executor profile at call-time to avoid stale closure
   const handleMessageChange = useCallback(
@@ -216,13 +318,9 @@ export function useSessionMessageEditor({
     isScratchLoading,
     hasInitialValue,
     saveToScratch: saveCurrentScratch,
-    clearDraft: async () => {
-      cancelDebouncedSave();
-      if (scratchId) {
-        clearStoredScratchDraft(ScratchType.DRAFT_FOLLOW_UP, scratchId);
-      }
-      await deleteScratch();
-    },
+    discardLocalDraft,
+    deleteDraftScratch,
+    clearDraft,
     cancelDebouncedSave,
     handleMessageChange,
   };

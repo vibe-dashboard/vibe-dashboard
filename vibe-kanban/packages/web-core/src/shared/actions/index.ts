@@ -1,6 +1,6 @@
 import { forwardRef, createElement } from 'react';
 import type { Icon, IconProps } from '@phosphor-icons/react';
-import type { ExecutorConfig, Merge, Workspace } from 'shared/types';
+import type { ExecutorConfig, Merge, Repo, Workspace } from 'shared/types';
 import type { QueryClient } from '@tanstack/react-query';
 import {
   CopyIcon,
@@ -37,6 +37,7 @@ import {
   ListIcon,
   MegaphoneIcon,
   QuestionIcon,
+  MagnifyingGlassIcon,
   ArrowsLeftRightIcon,
   ArrowFatLineUpIcon,
   UsersIcon,
@@ -128,6 +129,147 @@ async function getWorkspace(
   return workspacesApi.get(workspaceId);
 }
 
+function getRepoDisplayName(repo: Repo): string {
+  return repo.display_name || repo.name;
+}
+
+function getRepoNameCollisionKey(repoName: string): string {
+  return repoName.toLowerCase();
+}
+
+async function selectRepoBranch(repo: Repo): Promise<string | null> {
+  const [{ SelectionDialog }, { buildBranchSelectionPages }] =
+    await Promise.all([
+      import('@/shared/dialogs/command-bar/SelectionDialog'),
+      import('@/shared/dialogs/command-bar/selections/branchSelection'),
+    ]);
+
+  const branches = await repoApi.getBranches(repo.id);
+  const preferredBranch = repo.default_target_branch
+    ? branches.find((branch) => branch.name === repo.default_target_branch)
+    : undefined;
+  if (preferredBranch) {
+    return preferredBranch.name;
+  }
+
+  const result = (await SelectionDialog.show({
+    initialPageId: 'selectBranch',
+    pages: buildBranchSelectionPages(
+      branches.map((branch) => ({
+        name: branch.name,
+        isCurrent: branch.is_current,
+      })),
+      getRepoDisplayName(repo)
+    ),
+  })) as { branch: string } | undefined;
+
+  return result?.branch ?? null;
+}
+
+async function browseWorkspaceRepoToAdd(
+  attachedRepoIds: Set<string>,
+  attachedRepoNameKeys: Set<string>,
+  hostId: string | null
+): Promise<Repo | null> {
+  const { FolderPickerDialog } = await import(
+    '@/shared/dialogs/shared/FolderPickerDialog'
+  );
+  const selectedPath = await FolderPickerDialog.show({
+    title: 'Select Git Repository',
+    description: 'Choose a repository to add to this workspace.',
+  });
+  if (!selectedPath) return null;
+
+  const repo = await repoApi.register({ path: selectedPath }, hostId);
+  if (attachedRepoIds.has(repo.id)) {
+    throw new Error('Repository is already attached to this workspace');
+  }
+  if (attachedRepoNameKeys.has(getRepoNameCollisionKey(repo.name))) {
+    throw new Error(
+      `A repository named "${repo.name}" is already attached to this workspace`
+    );
+  }
+  return repo;
+}
+
+async function selectWorkspaceRepoToAdd(
+  attachedRepoIds: Set<string>,
+  attachedRepoNameKeys: Set<string>,
+  hostId: string | null
+): Promise<Repo | null> {
+  const { SelectionDialog } = await import(
+    '@/shared/dialogs/command-bar/SelectionDialog'
+  );
+
+  const recentRepos = await repoApi.listRecent();
+  const availableRepos = recentRepos.filter(
+    (repo) =>
+      !attachedRepoIds.has(repo.id) &&
+      !attachedRepoNameKeys.has(getRepoNameCollisionKey(repo.name))
+  );
+
+  if (availableRepos.length === 0) {
+    return browseWorkspaceRepoToAdd(
+      attachedRepoIds,
+      attachedRepoNameKeys,
+      hostId
+    );
+  }
+
+  const browseAction: GlobalActionDefinition = {
+    id: 'browse-workspace-repo',
+    label: 'Browse for Repository',
+    icon: MagnifyingGlassIcon,
+    requiresTarget: ActionTargetType.NONE,
+    execute: () => {},
+  };
+
+  const result = (await SelectionDialog.show({
+    initialPageId: 'selectRepo',
+    pages: {
+      selectRepo: {
+        id: 'selectRepo',
+        title: 'Select Repository',
+        buildGroups: () => [
+          {
+            label: 'Repositories',
+            items: availableRepos.map((repo) => ({
+              type: 'repo' as const,
+              repo: {
+                id: repo.id,
+                display_name: getRepoDisplayName(repo),
+              },
+            })),
+          },
+          {
+            label: 'Other',
+            items: [{ type: 'action' as const, action: browseAction }],
+          },
+        ],
+        onSelect: (item) => {
+          if (item.type === 'repo') {
+            return { type: 'complete', data: { repoId: item.repo.id } };
+          }
+          if (item.type === 'action' && item.action.id === browseAction.id) {
+            return { type: 'complete', data: { browse: true } };
+          }
+          return { type: 'complete', data: undefined as never };
+        },
+      },
+    },
+  })) as { repoId?: string; browse?: boolean } | undefined;
+
+  if (result?.browse) {
+    return browseWorkspaceRepoToAdd(
+      attachedRepoIds,
+      attachedRepoNameKeys,
+      hostId
+    );
+  }
+  if (!result?.repoId) return null;
+  return availableRepos.find((repo) => repo.id === result.repoId) ?? null;
+}
+
 // Helper to invalidate workspace-related queries
 function invalidateWorkspaceQueries(
   queryClient: QueryClient,
@@ -137,6 +279,20 @@ function invalidateWorkspaceQueries(
     queryKey: workspaceRecordKeys.byId(workspaceId),
   });
   queryClient.invalidateQueries({ queryKey: workspaceSummaryKeys.all });
+}
+
+function invalidateWorkspaceRepoQueries(
+  queryClient: QueryClient,
+  workspaceId: string,
+  hostId: string | null
+) {
+  queryClient.invalidateQueries({
+    queryKey: workspaceRepoKeys.byWorkspace(workspaceId, hostId),
+  });
+  queryClient.invalidateQueries({
+    queryKey: repoBranchKeys.all,
+  });
+  invalidateWorkspaceQueries(queryClient, workspaceId);
 }
 
 // Helper to find the next workspace to navigate to when removing current workspace
@@ -385,6 +541,40 @@ export const Actions = {
       } catch {
         ctx.appNavigation.goToWorkspacesCreate();
       }
+    },
+  },
+
+  AddWorkspaceRepo: {
+    id: 'add-workspace-repo',
+    label: 'Add Repository',
+    icon: TreeStructureIcon,
+    requiresTarget: ActionTargetType.WORKSPACE,
+    isVisible: (ctx) => ctx.hasWorkspace,
+    execute: async (ctx, workspaceId) => {
+      const attachedRepos = await workspacesApi.getRepos(workspaceId);
+      const attachedRepoIds = new Set(attachedRepos.map((repo) => repo.id));
+      const attachedRepoNameKeys = new Set(
+        attachedRepos.map((repo) => getRepoNameCollisionKey(repo.name))
+      );
+      const repo = await selectWorkspaceRepoToAdd(
+        attachedRepoIds,
+        attachedRepoNameKeys,
+        ctx.currentHostId
+      );
+      if (!repo) return;
+
+      const targetBranch = await selectRepoBranch(repo);
+      if (!targetBranch) return;
+
+      await workspacesApi.addRepo(workspaceId, {
+        repo_id: repo.id,
+        target_branch: targetBranch,
+      });
+      invalidateWorkspaceRepoQueries(
+        ctx.queryClient,
+        workspaceId,
+        ctx.currentHostId
+      );
     },
   },
 

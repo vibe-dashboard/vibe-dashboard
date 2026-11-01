@@ -3,6 +3,8 @@ import { createHmrContext } from '@/shared/lib/hmrContext';
 import type { ExecutionProcess } from 'shared/types';
 
 export type ExecutionProcessesContextType = {
+  sessionId: string | undefined;
+
   executionProcessesAll: ExecutionProcess[];
   executionProcessesByIdAll: Record<string, ExecutionProcess>;
   isAttemptRunningAll: boolean;

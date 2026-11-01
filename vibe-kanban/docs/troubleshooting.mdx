@@ -29,6 +29,20 @@ RUST_LOG=debug npx vibe-kanban
 
 This will provide verbose logging output that can help identify the root cause of issues.
 
+## Mocking Agent Responses for QA
+
+For local QA runs, you can mock coding agent responses without rebuilding Vibe Kanban by setting `VK_QA_MODE`.
+
+```bash
+VK_QA_MODE=1 npx vibe-kanban
+```
+
+Accepted truthy values are `1`, `true`, `yes`, and `on`. The legacy `QA_MODE` variable is also accepted for local QA harnesses.
+
+<Note>
+`VK_QA_MODE` only mocks agent responses and their log normalisation. Other QA-only behaviours may still require the compile-time `qa-mode` feature.
+</Note>
+
 ## DANGER: Wiping Your Database 
 
 If you encounter irrecoverable errors and need to completely wipe your Vibe Kanban database, you can delete the application data directory for your operating system. 

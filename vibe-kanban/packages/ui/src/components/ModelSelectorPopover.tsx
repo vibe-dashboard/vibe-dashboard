@@ -16,7 +16,11 @@ import {
   AccordionTrigger,
 } from './Accordion';
 import { ModelProviderIcon } from './ModelProviderIcon';
-import { ModelList, type ModelListModel } from './ModelList';
+import {
+  ModelList,
+  modelMatchesSearch,
+  type ModelListModel,
+} from './ModelList';
 
 interface ModelSelectorProvider {
   id: string;
@@ -26,6 +30,7 @@ interface ModelSelectorProvider {
 interface ModelSelectorConfigLike {
   models: ModelListModel[];
   providers: ModelSelectorProvider[];
+  model_order?: string[];
 }
 
 export interface ModelSelectorPopoverProps {
@@ -79,6 +84,47 @@ function sortModelsAlphabetically(models: ModelListModel[]): ModelListModel[] {
   });
 }
 
+function getModelOrderKey(model: ModelListModel): string {
+  return getModelKey(model).toLowerCase();
+}
+
+function getModelOrderIndex(
+  model: ModelListModel,
+  orderedKeys: Map<string, number>
+): number | null {
+  const providerScopedIndex = orderedKeys.get(getModelOrderKey(model));
+  if (providerScopedIndex !== undefined) return providerScopedIndex;
+
+  const modelIdIndex = orderedKeys.get(model.id.toLowerCase());
+  return modelIdIndex ?? null;
+}
+
+export function orderModelsForDisplay(
+  models: ModelListModel[],
+  modelOrder?: string[]
+): ModelListModel[] {
+  if (!modelOrder?.length) {
+    return sortModelsAlphabetically(models);
+  }
+
+  const alphabeticalModels = sortModelsAlphabetically(models);
+  const orderedKeys = new Map(
+    modelOrder.map((key, index) => [key.toLowerCase(), index])
+  );
+
+  return alphabeticalModels.sort((a, b) => {
+    const aIndex = getModelOrderIndex(a, orderedKeys);
+    const bIndex = getModelOrderIndex(b, orderedKeys);
+
+    if (aIndex !== null && bIndex !== null) {
+      return aIndex - bIndex;
+    }
+    if (aIndex !== null) return -1;
+    if (bIndex !== null) return 1;
+    return 0;
+  });
+}
+
 function getSelectedModel(
   models: ModelListModel[],
   selectedProviderId: string | null,
@@ -105,10 +151,58 @@ function getPopoverWidth(hasProviders: boolean, hasReasoning: boolean): string {
   return 'w-[200px]';
 }
 
-function matchesSearch(model: ModelListModel, query: string): boolean {
-  const name = model.name?.toLowerCase() ?? '';
-  const id = model.id?.toLowerCase() ?? '';
-  return name.includes(query) || id.includes(query);
+export function providerMatchesSearch(
+  provider: ModelSelectorProvider,
+  normalizedQuery: string
+): boolean {
+  if (!normalizedQuery) return true;
+  return (
+    provider.id.toLowerCase().includes(normalizedQuery) ||
+    provider.name.toLowerCase().includes(normalizedQuery)
+  );
+}
+
+export function getProviderFilterState(
+  config: ModelSelectorConfigLike,
+  searchQuery: string,
+  expandedProviderId: string
+): {
+  activeProviderId: string;
+  providerMatchesById: Map<string, boolean>;
+  visibleProviderIds: string[];
+} {
+  const normalizedSearch = searchQuery.trim().toLowerCase();
+  const modelsByProvider = new Map<string, ModelListModel[]>();
+  for (const model of config.models) {
+    if (!model.provider_id) continue;
+    const list = modelsByProvider.get(model.provider_id) ?? [];
+    list.push(model);
+    modelsByProvider.set(model.provider_id, list);
+  }
+
+  const providerMatchesById = new Map<string, boolean>();
+  const visibleProviderIds: string[] = [];
+
+  for (const provider of config.providers) {
+    const providerMatches = providerMatchesSearch(provider, normalizedSearch);
+    providerMatchesById.set(provider.id, providerMatches);
+    const providerModels = modelsByProvider.get(provider.id) ?? [];
+    const hasMatchingModel = providerModels.some((model) =>
+      modelMatchesSearch(model, normalizedSearch)
+    );
+
+    if (!normalizedSearch || providerMatches || hasMatchingModel) {
+      visibleProviderIds.push(provider.id);
+    }
+  }
+
+  return {
+    activeProviderId: normalizedSearch
+      ? (visibleProviderIds[0] ?? '')
+      : expandedProviderId,
+    providerMatchesById,
+    visibleProviderIds,
+  };
 }
 
 interface ProviderAccordionProps {
@@ -160,6 +254,9 @@ function ProviderAccordion({
 
   const isDefaultSelected = selectedModelId === null;
   const providers = config.providers;
+  const { activeProviderId, providerMatchesById, visibleProviderIds } =
+    getProviderFilterState(config, searchQuery, expandedProviderId);
+  const visibleProviderIdSet = new Set(visibleProviderIds);
 
   return (
     <div
@@ -170,31 +267,31 @@ function ProviderAccordion({
         <Accordion
           type="single"
           collapsible
-          value={expandedProviderId}
+          value={activeProviderId}
           onValueChange={onExpandedProviderIdChange}
         >
           {providers.map((provider) => {
-            const providerModels = sortModelsAlphabetically(
-              modelsByProvider.get(provider.id) ?? []
+            const providerModels = orderModelsForDisplay(
+              modelsByProvider.get(provider.id) ?? [],
+              config.model_order
             );
             const isSelectedProvider =
               Boolean(selectedModelId) &&
               selectedModel?.provider_id?.toLowerCase() ===
                 provider.id.toLowerCase();
 
-            if (
-              normalizedSearch &&
-              !providerModels.some((model) =>
-                matchesSearch(model, normalizedSearch)
-              )
-            ) {
+            if (!visibleProviderIdSet.has(provider.id)) {
               return null;
             }
+            const providerMatches =
+              providerMatchesById.get(provider.id) ?? false;
+            const modelSearchQuery =
+              normalizedSearch && providerMatches ? '' : searchQuery;
 
             return (
               <AccordionItem key={provider.id} value={provider.id}>
                 <AccordionTrigger
-                  sticky={provider.id === expandedProviderId}
+                  sticky={provider.id === activeProviderId}
                   className={cn(
                     'group gap-2 px-base py-half rounded-sm',
                     'text-sm font-medium text-low',
@@ -224,7 +321,7 @@ function ProviderAccordion({
                       selectedModelId={
                         isSelectedProvider ? selectedModelId : null
                       }
-                      searchQuery={searchQuery}
+                      searchQuery={modelSearchQuery}
                       onSelect={onModelSelect}
                       reasoningOptions={
                         isSelectedProvider
@@ -329,7 +426,7 @@ export function ModelSelectorPopover({
       />
     );
   } else {
-    const sortedModels = sortModelsAlphabetically(models);
+    const sortedModels = orderModelsForDisplay(models, config.model_order);
     const selectedModel = getSelectedModel(
       models,
       selectedProviderId,
@@ -386,7 +483,7 @@ export function ModelSelectorPopover({
             {showSearch && (
               <div className="border-t border-border">
                 <DropdownMenuSearchInput
-                  placeholder="Filter by name or ID..."
+                  placeholder="Filter by provider, name or ID..."
                   value={searchQuery}
                   onValueChange={onSearchChange}
                 />

@@ -6,7 +6,8 @@
   "gitPanel": {
     "advanced": {
       "placeholder": "例如：Acme Corp"
-    }
+    },
+    "addRepo": "添加仓库"
   },
   "loading": "加载任务中...",
   "actions": {
@@ -366,7 +367,8 @@
       "untrackedPresent_other": "存在 {{count}} 个未跟踪的文件（不受重置影响）。",
       "forceReset": "强制重置（丢弃未提交的更改）",
       "uncommittedWillDiscard": "未提交的更改将被丢弃。",
-      "uncommittedPresentHint": "存在未提交的更改。请打开强制重置或提交/暂存后继续。"
+      "uncommittedPresentHint": "存在未提交的更改。请打开强制重置或提交/暂存后继续。",
+      "stopOtherSessions": "Stop other running sessions before resetting worktree"
     },
     "buttons": {
       "retry": "重试",

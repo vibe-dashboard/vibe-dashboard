@@ -1,4 +1,6 @@
 pub mod actions;
+#[cfg(test)]
+mod agent_upgrade_contract;
 pub mod approvals;
 pub mod command;
 pub mod env;

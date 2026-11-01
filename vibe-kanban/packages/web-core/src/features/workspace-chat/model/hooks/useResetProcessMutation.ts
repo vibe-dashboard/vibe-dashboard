@@ -50,6 +50,8 @@ export function useResetProcessMutation(
         process_id: executionProcessId,
         force_when_dirty: modalResult.forceWhenDirty ?? false,
         perform_git_reset: modalResult.performGitReset ?? true,
+        stop_other_sessions_for_git_reset:
+          modalResult.stopOtherSessionsForGitReset ?? false,
       });
     },
     onSuccess: () => {

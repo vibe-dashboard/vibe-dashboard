@@ -109,10 +109,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Run web-core Vitest suite
+      - name: Run web-core and UI Vitest suites
         env:
           NODE_OPTIONS: --max-old-space-size=8192
-        run: pnpm run web-core:test
+        run: |
+          pnpm run web-core:test
+          pnpm --filter @vibe/ui run test
 
   backend-schema-checks:
     needs: changes
@@ -253,6 +255,9 @@ jobs:
     name: Coding-agent upgrade gate
     runs-on: *runner_label
     env:
+      CARGO_BUILD_JOBS: "1"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
       BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
@@ -274,6 +279,8 @@ jobs:
           if git diff --quiet "$base" "$HEAD_SHA" -- \
             ':(top)vibe-kanban/Cargo.toml' ':(top)vibe-kanban/Cargo.lock' \
             ':(top)vibe-kanban/crates/executors' ':(top)vibe-kanban/crates/mcp' \
+            ':(top)vibe-kanban/scripts/agent-fixtures' ':(top)vibe-kanban/scripts/ci' \
+            ':(top)vibe-kanban/package.json' ':(top)vibe-kanban/pnpm-lock.yaml' \
             ':(top).github/workflows/vk-test.yml' ':(top).github/actions/vk-*'; then
             echo "result=false" >> "$GITHUB_OUTPUT"
           else
@@ -301,8 +308,5 @@ jobs:
 
       - name: Run coding-agent upgrade gate
         if: steps.should_run.outputs.result == 'true'
-        # Exercise the vendored executor suite, including Codex/Claude protocol
-        # normalization, instead of scripts removed by the monorepo import.
-        run: |
-          cargo test -p executors --lib
-          cargo check -p mcp
+        # Selection above uses monorepo paths; never re-select using vendor-local paths.
+        run: FORCE_AGENT_UPGRADE_GATE=1 pnpm run agent-upgrade-gate

@@ -67,6 +67,7 @@ import {
   PushError,
   TokenResponse,
   CurrentUserResponse,
+  ConversationPreview,
   QueueStatus,
   PrCommentsResponse,
   MergeWorkspaceRequest,
@@ -89,6 +90,8 @@ import {
   CreateFromPrError,
   CreateAndStartWorkspaceRequest,
   CreateAndStartWorkspaceResponse,
+  AddWorkspaceRepoRequest,
+  AddWorkspaceRepoResponse,
   RelayPairedClient,
   ListRelayPairedClientsResponse,
   RemoveRelayPairedClientResponse,
@@ -107,6 +110,14 @@ import { createWorkspaceWithSession } from '@/shared/types/attempt';
 import { resolveHostRequestScope } from '@/shared/lib/hostRequestScope';
 import { makeRequest as makeRemoteRequest } from '@/shared/lib/remoteApi';
 import { makeLocalApiRequest } from '@/shared/lib/localApiTransport';
+
+type CreateFollowUpAttemptWithResetOverride = CreateFollowUpAttempt & {
+  stop_other_sessions_for_git_reset?: boolean | null;
+};
+
+type ResetProcessRequestWithResetOverride = ResetProcessRequest & {
+  stop_other_sessions_for_git_reset?: boolean | null;
+};
 
 export class ApiError<E = unknown> extends Error {
   public status?: number;
@@ -328,6 +339,20 @@ export const sessionsApi = {
     return handleApiResponse<Session>(response);
   },
 
+  getConversationPreview: async (
+    sessionId: string,
+    limit?: number,
+    hostId?: string | null
+  ): Promise<ConversationPreview> => {
+    const params = new URLSearchParams();
+    if (limit != null) params.set('limit', String(limit));
+    const response = await makeHostAwareRequest(
+      `/api/sessions/${sessionId}/conversation-preview${params.toString() ? `?${params.toString()}` : ''}`,
+      hostId
+    );
+    return handleApiResponse<ConversationPreview>(response);
+  },
+
   create: async (data: {
     workspace_id: string;
     executor?: string;
@@ -342,7 +367,7 @@ export const sessionsApi = {
 
   followUp: async (
     sessionId: string,
-    data: CreateFollowUpAttempt
+    data: CreateFollowUpAttemptWithResetOverride
   ): Promise<ExecutionProcess> => {
     const response = await makeRequest(`/api/sessions/${sessionId}/follow-up`, {
       method: 'POST',
@@ -364,12 +389,22 @@ export const sessionsApi = {
 
   reset: async (
     sessionId: string,
-    data: ResetProcessRequest
+    data: ResetProcessRequestWithResetOverride
   ): Promise<void> => {
     const response = await makeRequest(`/api/sessions/${sessionId}/reset`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
+    return handleApiResponse<void>(response);
+  },
+
+  stopExecution: async (sessionId: string): Promise<void> => {
+    const response = await makeRequest(
+      `/api/sessions/${sessionId}/execution/stop`,
+      {
+        method: 'POST',
+      }
+    );
     return handleApiResponse<void>(response);
   },
 
@@ -424,6 +459,20 @@ export const workspacesApi = {
     return handleApiResponse<Workspace>(response);
   },
 
+  getConversationPreview: async (
+    workspaceId: string,
+    limit?: number,
+    hostId?: string | null
+  ): Promise<ConversationPreview> => {
+    const params = new URLSearchParams();
+    if (limit != null) params.set('limit', String(limit));
+    const response = await makeHostAwareRequest(
+      `/api/workspaces/${workspaceId}/conversation-preview${params.toString() ? `?${params.toString()}` : ''}`,
+      hostId
+    );
+    return handleApiResponse<ConversationPreview>(response);
+  },
+
   update: async (
     workspaceId: string,
     data: { archived?: boolean; pinned?: boolean; name?: string }
@@ -444,16 +493,6 @@ export const workspacesApi = {
       sessionsApi.getByWorkspace(workspaceId),
     ]);
     return createWorkspaceWithSession(workspace, sessions[0]);
-  },
-
-  stop: async (workspaceId: string): Promise<void> => {
-    const response = await makeRequest(
-      `/api/workspaces/${workspaceId}/execution/stop`,
-      {
-        method: 'POST',
-      }
-    );
-    return handleApiResponse<void>(response);
   },
 
   delete: async (
@@ -538,6 +577,17 @@ export const workspacesApi = {
   getRepos: async (workspaceId: string): Promise<RepoWithTargetBranch[]> => {
     const response = await makeRequest(`/api/workspaces/${workspaceId}/repos`);
     return handleApiResponse<RepoWithTargetBranch[]>(response);
+  },
+
+  addRepo: async (
+    workspaceId: string,
+    data: AddWorkspaceRepoRequest
+  ): Promise<AddWorkspaceRepoResponse> => {
+    const response = await makeRequest(`/api/workspaces/${workspaceId}/repos`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    return handleApiResponse<AddWorkspaceRepoResponse>(response);
   },
 
   getFirstUserMessage: async (workspaceId: string): Promise<string | null> => {

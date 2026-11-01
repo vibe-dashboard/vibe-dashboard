@@ -16,5 +16,5 @@
       "shared/*": ["../../shared/*"]
     }
   },
-  "include": ["src"]
+  "include": ["src", "vitest.config.ts"]
 }

@@ -25,7 +25,7 @@ import {
   getSelectedModel,
   escapeAttributeValue,
   parseModelId,
-  appendPresetModel,
+  appendExplicitModelChoices,
   resolveDefaultModelId,
   isModelAvailable,
   resolveDefaultReasoningId,
@@ -116,8 +116,13 @@ export function ModelSelectorContainer({
     }
   }, [streamError]);
 
+  const recentModelEntries = getRecentModelEntries(profiles, agent);
   const baseConfig = streamConfig;
-  const config = appendPresetModel(baseConfig, presetOptions?.model_id);
+  const config = appendExplicitModelChoices(baseConfig, [
+    executorConfig?.model_id,
+    presetOptions?.model_id,
+    ...recentModelEntries,
+  ]);
 
   const availableProviderIds = useMemo(
     () => config?.providers.map((item) => item.id) ?? [],
@@ -237,7 +242,6 @@ export function ModelSelectorContainer({
 
   // LRU persistence (on popover close)
 
-  const recentModelEntries = getRecentModelEntries(profiles, agent);
   const pendingModelRef = useRef<ModelInfo | null>(null);
   const pendingReasoningRef = useRef<string | null>(null);
 

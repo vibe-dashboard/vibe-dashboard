@@ -10,15 +10,19 @@ use deployment::{Deployment, DeploymentError};
 use services::services::container::ContainerService;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
-use tower_http::validate_request::ValidateRequestHeaderLayer;
+use tower_http::{trace::TraceLayer, validate_request::ValidateRequestHeaderLayer};
 use utils::{
     assets::asset_dir,
+    perf_trace,
     process_diag::{self, ProcessSnapshot},
 };
 
 use crate::{
     DeploymentImpl,
-    middleware::origin::{validate_allowed_origins_config, validate_origin},
+    middleware::{
+        make_http_span,
+        origin::{validate_allowed_origins_config, validate_origin},
+    },
     routes,
     runtime::relay_registration,
 };
@@ -62,9 +66,20 @@ impl ServerHandle {
         relay_registration::spawn_relay(&self.deployment).await;
         log_startup_phase("relay_startup_spawn_complete");
 
-        let app_router = routes::router(self.deployment.clone());
-        let proxy_router: axum::Router = routes::preview::subdomain_router(self.deployment.clone())
-            .layer(ValidateRequestHeaderLayer::custom(validate_origin));
+        let perf_tracing_enabled = perf_trace::enabled();
+        let app_router = routes::router(self.deployment.clone(), perf_tracing_enabled);
+        let proxy_router: axum::Router = {
+            let router = routes::preview::subdomain_router(self.deployment.clone());
+            let router = if perf_tracing_enabled {
+                router.layer(
+                    TraceLayer::new_for_http()
+                        .make_span_with(|request: &axum::extract::Request| make_http_span(request)),
+                )
+            } else {
+                router
+            };
+            router.layer(ValidateRequestHeaderLayer::custom(validate_origin))
+        };
 
         let main_shutdown = self.shutdown_token.clone();
         let proxy_shutdown = self.shutdown_token.clone();
@@ -74,21 +89,46 @@ impl ServerHandle {
         let proxy_server = axum::serve(self.proxy_listener, proxy_router)
             .with_graceful_shutdown(async move { proxy_shutdown.cancelled().await });
 
-        let main_handle = tokio::spawn(async move {
+        let mut main_handle = tokio::spawn(async move {
             if let Err(e) = main_server.await {
                 tracing::error!("Main server error: {}", e);
             }
         });
-        let proxy_handle = tokio::spawn(async move {
+        let mut proxy_handle = tokio::spawn(async move {
             if let Err(e) = proxy_server.await {
                 tracing::error!("Preview proxy error: {}", e);
             }
         });
         log_startup_phase("server_ready");
 
+        let mut main_done = false;
+        let mut proxy_done = false;
         tokio::select! {
-            _ = main_handle => {}
-            _ = proxy_handle => {}
+            result = &mut main_handle => {
+                main_done = true;
+                if let Err(error) = result {
+                    tracing::error!(%error, "Main server task failed");
+                } else {
+                    tracing::warn!("Main server task completed; shutting down");
+                }
+            }
+            result = &mut proxy_handle => {
+                proxy_done = true;
+                if let Err(error) = result {
+                    tracing::error!(%error, "Preview proxy task failed");
+                } else {
+                    tracing::warn!("Preview proxy task completed; shutting down");
+                }
+            }
+        }
+
+        self.shutdown_token.cancel();
+
+        if !main_done && let Err(error) = main_handle.await {
+            tracing::error!(%error, "Main server task failed during shutdown");
+        }
+        if !proxy_done && let Err(error) = proxy_handle.await {
+            tracing::error!(%error, "Preview proxy task failed during shutdown");
         }
 
         perform_cleanup_actions(&self.deployment).await;

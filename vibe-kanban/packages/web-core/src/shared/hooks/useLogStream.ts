@@ -1,6 +1,10 @@
 import { useEffect, useState, useRef } from 'react';
 import type { PatchType } from 'shared/types';
 import { openLocalApiWebSocket } from '@/shared/lib/localApiTransport';
+import {
+  isMobilePerfDiagnosticsEnabled,
+  recordMobilePerfDiagnostic,
+} from '@/shared/lib/mobilePerfDiagnostics';
 
 type LogEntry = Extract<PatchType, { type: 'STDOUT' } | { type: 'STDERR' }>;
 type LogPatch = { path?: string; value?: PatchType };
@@ -70,6 +74,11 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
               ws.close();
               return;
             }
+            recordMobilePerfDiagnostic('ws.raw_logs.open', {
+              has_process: !!capturedProcessId,
+              stream_kind: 'raw_logs',
+              retry_count: retryCountRef.current,
+            });
             setError(null);
             retryCountRef.current = 0;
           };
@@ -118,12 +127,29 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
                   const normalizedLogs = nextLogs.filter(
                     (entry): entry is LogEntry => entry !== undefined
                   );
+                  if (isMobilePerfDiagnosticsEnabled()) {
+                    recordMobilePerfDiagnostic('ws.raw_logs.batch', {
+                      has_process: !!capturedProcessId,
+                      stream_kind: 'raw_logs',
+                      patch_count: patches.length,
+                      log_count: normalizedLogs.length,
+                      payload_bytes:
+                        typeof event.data === 'string'
+                          ? event.data.length
+                          : null,
+                    });
+                  }
                   logsRef.current = normalizedLogs;
                   setLogs(normalizedLogs);
                 }
               } else if (data.finished === true) {
                 finishedRef.current = true;
                 isIntentionallyClosed.current = true;
+                recordMobilePerfDiagnostic('ws.raw_logs.finished', {
+                  has_process: !!capturedProcessId,
+                  stream_kind: 'raw_logs',
+                  log_count: logsRef.current.length,
+                });
                 ws.close();
               }
             } catch (e) {
@@ -138,6 +164,15 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
           };
 
           ws.onclose = (event) => {
+            recordMobilePerfDiagnostic('ws.raw_logs.close', {
+              has_process: !!capturedProcessId,
+              stream_kind: 'raw_logs',
+              code: event.code,
+              was_clean: event.wasClean,
+              intentional: isIntentionallyClosed.current,
+              finished: finishedRef.current,
+              log_count: logsRef.current.length,
+            });
             // Don't retry for stale WebSocket connections
             if (
               cancelled ||

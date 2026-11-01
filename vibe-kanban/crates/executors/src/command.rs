@@ -18,6 +18,11 @@ pub enum CommandBuildError {
     QuoteError(#[from] shlex::QuoteError),
     #[error("invalid shell parameters: {0}")]
     InvalidShellParams(String),
+    #[error("{variable} must point to an existing executable file: {path}")]
+    InvalidConfiguredExecutable {
+        variable: &'static str,
+        path: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -203,11 +208,9 @@ mod spawn_boundary_tests {
             .into_resolved()
             .await
             .unwrap_err();
-
-        assert!(matches!(
-            error.into_proven_not_spawned(),
-            Ok(ExecutorError::ExecutableNotFound { program }) if program == missing
-        ));
+        assert!(
+            matches!(error.into_proven_not_spawned(), Ok(ExecutorError::ExecutableNotFound { program }) if program == missing)
+        );
     }
 
     #[test]
@@ -216,7 +219,6 @@ mod spawn_boundary_tests {
             .build_initial()
             .map_err(ExecutorError::from)
             .unwrap_err();
-
         assert!(matches!(
             error.into_proven_not_spawned(),
             Ok(ExecutorError::CommandBuild(CommandBuildError::EmptyCommand))

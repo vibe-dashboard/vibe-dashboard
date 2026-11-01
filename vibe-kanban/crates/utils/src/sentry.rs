@@ -84,7 +84,7 @@ pub fn configure_user_scope(user_id: &str, username: Option<&str>, email: Option
     });
 }
 
-pub fn sentry_layer<S>() -> SentryLayer<S>
+pub fn sentry_layer<S>(_source: SentrySource) -> SentryLayer<S>
 where
     S: tracing::Subscriber,
     S: for<'a> tracing_subscriber::registry::LookupSpan<'a>,

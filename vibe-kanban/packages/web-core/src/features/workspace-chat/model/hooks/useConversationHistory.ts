@@ -7,6 +7,8 @@ import { useExecutionProcessesContext } from '@/shared/hooks/useExecutionProcess
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { streamJsonPatchEntries } from '@/shared/lib/streamJsonPatchEntries';
 import { loadFiniteJsonPatchEntries } from '@/shared/lib/loadFiniteJsonPatchEntries';
+import { sessionsApi, workspacesApi } from '@/shared/lib/api';
+import { useHostId } from '@/shared/providers/HostIdProvider';
 import type {
   AddEntryType,
   ConversationTimelineSource,
@@ -23,6 +25,10 @@ import {
   loadExplicitEarlierHistoryBatch,
   shouldAutoReplayRemainingHistoryAfterInitialLoad,
 } from './conversationHistoryLoadingPolicy';
+import {
+  conversationPreviewToExecutionProcessState,
+  mergePreviewIntoExecutionProcessState,
+} from '../conversationPreviewTimeline';
 
 // Result type for the new UI's conversation history hook
 export interface UseConversationHistoryResult {
@@ -56,9 +62,12 @@ const HISTORIC_REPLAY_ERROR =
   'Failed to load some earlier conversation messages.';
 
 export const useConversationHistory = ({
+  attempt,
   onTimelineUpdated,
+  previewMode = 'session',
   scopeKey,
 }: UseConversationHistoryParams): UseConversationHistoryResult => {
+  const hostId = useHostId();
   const {
     executionProcessesVisible: executionProcessesRaw,
     isLoading,
@@ -68,6 +77,7 @@ export const useConversationHistory = ({
   const displayedExecutionProcesses = useRef<ExecutionProcessStateStore>({});
   const loadedInitialEntries = useRef(false);
   const emittedEmptyInitialRef = useRef(false);
+  const emittedPreviewRef = useRef(false);
   const streamingProcessIdsRef = useRef<Set<string>>(new Set());
   const runningStreamControllersRef = useRef<Map<string, { close(): void }>>(
     new Map()
@@ -855,6 +865,7 @@ export const useConversationHistory = ({
     displayedExecutionProcesses.current = {};
     loadedInitialEntries.current = false;
     emittedEmptyInitialRef.current = false;
+    emittedPreviewRef.current = false;
     loadEarlierHistoryInFlightRef.current = false;
     streamingProcessIdsRef.current.clear();
     previousStatusMapRef.current.clear();
@@ -868,6 +879,72 @@ export const useConversationHistory = ({
     closeAllRunningStreams,
     scopeKey,
     emitEntries,
+  ]);
+
+  useEffect(() => {
+    if (previewMode === 'disabled') return;
+    if (emittedPreviewRef.current) return;
+    const generation = scopeGenerationRef.current;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const preview =
+          previewMode === 'session' && attempt.session?.id
+            ? await sessionsApi.getConversationPreview(
+                attempt.session.id,
+                MIN_INITIAL_ENTRIES,
+                hostId
+              )
+            : await workspacesApi.getConversationPreview(
+                attempt.id,
+                MIN_INITIAL_ENTRIES,
+                hostId
+              );
+
+        if (cancelled || !isCurrentGeneration(generation)) return;
+        emittedPreviewRef.current = true;
+        if (preview.messages.length === 0) return;
+
+        const previewState =
+          conversationPreviewToExecutionProcessState(preview);
+        const didMerge = mergeIntoDisplayedForGeneration(
+          generation,
+          (state) => {
+            mergePreviewIntoExecutionProcessState(
+              state,
+              previewState,
+              executionProcesses.current
+            );
+          }
+        );
+        if (!didMerge) return;
+
+        emitEntriesForGeneration(
+          generation,
+          displayedExecutionProcesses.current,
+          'initial',
+          false
+        );
+      } catch (error) {
+        if (!cancelled && isCurrentGeneration(generation)) {
+          console.warn('Failed to load conversation preview', error);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    attempt.id,
+    attempt.session?.id,
+    emitEntriesForGeneration,
+    hostId,
+    isCurrentGeneration,
+    mergeIntoDisplayedForGeneration,
+    previewMode,
+    scopeKey,
   ]);
 
   useEffect(() => {

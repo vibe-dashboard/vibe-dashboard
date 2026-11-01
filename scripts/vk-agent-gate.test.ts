@@ -41,7 +41,7 @@ function fixture() {
 }
 
 it('selects executor and MCP changes using monorepo paths from the vendored directory', () => {
-  for (const file of ['vibe-kanban/crates/executors/src/agent.rs', 'vibe-kanban/crates/mcp/Cargo.toml', 'vibe-kanban/Cargo.lock', '.github/workflows/vk-test.yml']) {
+  for (const file of ['vibe-kanban/crates/executors/src/agent.rs', 'vibe-kanban/crates/mcp/Cargo.toml', 'vibe-kanban/Cargo.lock', 'vibe-kanban/scripts/agent-fixtures/check.mjs', 'vibe-kanban/scripts/ci/agent-upgrade-gate.sh', 'vibe-kanban/package.json', '.github/workflows/vk-test.yml']) {
     const repo = fixture();
     expect(repo.select(repo.commit(file))).toEqual({ status: 0, output: 'result=true\n' });
   }

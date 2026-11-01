@@ -12,3 +12,4 @@ http = "1"
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-tungstenite = { version = "0.26" }
+tracing = { workspace = true }

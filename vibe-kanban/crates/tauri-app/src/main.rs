@@ -19,11 +19,26 @@ use tokio_util::sync::CancellationToken;
 use tracing_subscriber::{EnvFilter, prelude::*};
 use utils::{
     assets::config_path,
+    perf_trace,
     sentry::{self as sentry_utils, SentrySource, sentry_layer},
+    signoz,
 };
 use uuid::Uuid;
 
 const UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(60 * 60);
+
+const DEFAULT_TRACING_TARGETS: &[&str] = &[
+    "server",
+    "services",
+    "db",
+    "executors",
+    "deployment",
+    "local_deployment",
+    "utils",
+    "vibe_kanban_tauri",
+];
+
+const DEFAULT_TRACING_DIRECTIVES: &[&str] = &["warn"];
 
 #[cfg(target_os = "linux")]
 mod linux_notifications;
@@ -116,18 +131,62 @@ fn main() {
         .expect("Failed to install rustls crypto provider");
 
     let log_level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
-    let filter_string = format!(
-        "warn,server={level},services={level},db={level},executors={level},deployment={level},local_deployment={level},utils={level},vibe_kanban_tauri={level}",
-        level = log_level
+    let perf_tracing_enabled = perf_trace::enabled();
+    let log_filter_string = perf_trace::tracing_filter_string(
+        &log_level,
+        false,
+        DEFAULT_TRACING_TARGETS,
+        DEFAULT_TRACING_DIRECTIVES,
     );
-    let env_filter = EnvFilter::try_new(filter_string).expect("Failed to create tracing filter");
+    let signoz_filter_string = perf_trace::tracing_filter_string(
+        &log_level,
+        perf_tracing_enabled,
+        DEFAULT_TRACING_TARGETS,
+        DEFAULT_TRACING_DIRECTIVES,
+    );
+    let env_filter =
+        EnvFilter::try_new(log_filter_string.as_str()).expect("Failed to create tracing filter");
 
     sentry_utils::init_once(SentrySource::Desktop);
+    let (signoz_layer, signoz_provider, signoz_endpoint) =
+        match signoz::init_layer("vibe-kanban-desktop", &signoz_filter_string) {
+            Some(signoz::SignozTracing {
+                layer,
+                provider,
+                endpoint_diagnostics,
+            }) => (Some(layer), Some(provider), Some(endpoint_diagnostics)),
+            None => (None, None, signoz::resolved_endpoint_for_diagnostics()),
+        };
 
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().with_filter(env_filter))
-        .with(sentry_layer())
+        .with(signoz_layer)
+        .with(sentry_layer(SentrySource::Desktop))
         .init();
+    if perf_tracing_enabled {
+        tracing::info!(
+            signoz_enabled = signoz_provider.is_some(),
+            signoz_endpoint_configured = signoz_endpoint.is_some(),
+            signoz_endpoint_source = signoz_endpoint
+                .as_ref()
+                .map(|endpoint| endpoint.source)
+                .unwrap_or("not configured"),
+            signoz_endpoint_scheme = signoz_endpoint
+                .as_ref()
+                .map(|endpoint| endpoint.scheme.as_str())
+                .unwrap_or("not configured"),
+            signoz_endpoint_host = signoz_endpoint
+                .as_ref()
+                .map(|endpoint| endpoint.host.as_str())
+                .unwrap_or("not configured"),
+            signoz_endpoint_port = signoz_endpoint.as_ref().and_then(|endpoint| endpoint.port),
+            signoz_endpoint_path = signoz_endpoint
+                .as_ref()
+                .map(|endpoint| endpoint.path.as_str())
+                .unwrap_or("not configured"),
+            "Performance tracing enabled. Desktop spans are traceable."
+        );
+    }
 
     // Shared token so we can tell the server to shut down when the app quits.
     let shutdown_token = Arc::new(CancellationToken::new());
@@ -309,6 +368,12 @@ fn main() {
                 tauri::async_runtime::block_on(install_pending_update(_app, &pending_for_exit));
             }
         });
+
+    if let Some(provider) = signoz_provider
+        && let Err(error) = provider.shutdown()
+    {
+        tracing::warn!(%error, "Failed to flush SigNoz OpenTelemetry spans");
+    }
 }
 
 /// Disable trackpad/touchpad pinch-to-zoom on macOS while keeping Cmd+/- zoom.

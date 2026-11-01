@@ -69,6 +69,15 @@ pub struct ModelSelectorConfig {
     /// Available models
     pub models: Vec<ModelInfo>,
 
+    /// Optional display ordering for model identifiers.
+    ///
+    /// Entries match either a plain model id (for single-provider selectors) or
+    /// `provider_id/model_id` (for provider-scoped selectors). Unlisted models
+    /// remain selectable and are sorted by the UI's default fallback.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub model_order: Option<Vec<String>>,
+
     /// Global default model (format: provider_id/model_id)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_model: Option<String>,

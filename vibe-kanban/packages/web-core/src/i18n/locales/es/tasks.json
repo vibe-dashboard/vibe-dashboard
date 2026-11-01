@@ -6,7 +6,8 @@
   "gitPanel": {
     "advanced": {
       "placeholder": "ej. acme Corp"
-    }
+    },
+    "addRepo": "Agregar repositorio"
   },
   "actions": {
     "addTask": "Agregar tarea"
@@ -366,7 +367,8 @@
       "untrackedPresent_other": "{{count}} archivos sin rastrear presentes (no afectados por el restablecimiento).",
       "forceReset": "Forzar restablecimiento (descartar cambios sin confirmar)",
       "uncommittedWillDiscard": "Los cambios sin confirmar serán descartados.",
-      "uncommittedPresentHint": "Hay cambios sin confirmar. Activa Forzar restablecimiento o confirma/guarda para continuar."
+      "uncommittedPresentHint": "Hay cambios sin confirmar. Activa Forzar restablecimiento o confirma/guarda para continuar.",
+      "stopOtherSessions": "Stop other running sessions before resetting worktree"
     },
     "buttons": {
       "retry": "Reintentar",

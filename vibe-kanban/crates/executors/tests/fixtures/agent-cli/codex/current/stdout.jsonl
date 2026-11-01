@@ -1,0 +1,2 @@
+{"id":"req-dyn-1","jsonrpc":"2.0","method":"item/tool/call","params":{"arguments":{"id":"ABC-123"},"callId":"call-dyn-1","threadId":"thread-1","tool":"lookup_ticket","turnId":"turn-1"}}
+{"jsonrpc":"2.0","method":"item/completed","params":{"completedAtMs":2,"item":{"arguments":{"id":"ABC-123"},"contentItems":[{"text":"Ticket ABC-123 is open.","type":"inputText"}],"durationMs":1,"id":"call-dyn-1","status":"completed","success":true,"tool":"lookup_ticket","type":"dynamicToolCall"},"threadId":"thread-1","turnId":"turn-1"}}

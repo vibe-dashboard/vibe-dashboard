@@ -2,7 +2,9 @@ use axum::{
     Router,
     routing::{IntoMakeService, get},
 };
-use tower_http::{compression::CompressionLayer, validate_request::ValidateRequestHeaderLayer};
+use tower_http::{
+    compression::CompressionLayer, trace::TraceLayer, validate_request::ValidateRequestHeaderLayer,
+};
 
 use crate::{DeploymentImpl, middleware};
 
@@ -11,6 +13,7 @@ pub mod auto_nudge;
 mod codex_usage;
 pub mod config;
 pub mod containers;
+pub mod conversation_preview;
 pub mod filesystem;
 // pub mod github;
 pub mod attachments;
@@ -35,10 +38,11 @@ pub mod terminal;
 pub mod webrtc;
 pub mod workspaces;
 
-pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
+pub fn router(deployment: DeploymentImpl, perf_tracing_enabled: bool) -> IntoMakeService<Router> {
     let relay_signed_routes = Router::new()
         .route("/health", get(health::health_check))
         .merge(config::router())
+        .merge(conversation_preview::router())
         .merge(auto_nudge::router())
         .merge(containers::router(&deployment))
         .merge(workspaces::router(&deployment))
@@ -81,10 +85,19 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .layer(axum::middleware::from_fn(middleware::log_server_errors))
         .with_state(deployment);
 
-    Router::new()
+    let router = Router::new()
         .route("/", get(frontend::serve_frontend_root))
         .route("/{*path}", get(frontend::serve_frontend))
-        .nest("/api", api_routes)
-        .layer(CompressionLayer::new())
-        .into_make_service()
+        .nest("/api", api_routes);
+
+    let router =
+        if perf_tracing_enabled {
+            router.layer(TraceLayer::new_for_http().make_span_with(
+                |request: &axum::extract::Request| middleware::make_http_span(request),
+            ))
+        } else {
+            router
+        };
+
+    router.layer(CompressionLayer::new()).into_make_service()
 }

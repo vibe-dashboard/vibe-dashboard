@@ -146,7 +146,7 @@ fn init_process_logging(log_prefix: &str, version: &str) {
                 .with_writer(std::io::stderr)
                 .with_filter(EnvFilter::new("debug")),
         )
-        .with(sentry_layer())
+        .with(sentry_layer(SentrySource::Mcp))
         .init();
 
     tracing::debug!(

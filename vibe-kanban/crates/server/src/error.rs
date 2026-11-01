@@ -123,6 +123,9 @@ impl From<WorkspaceManagerError> for ApiError {
             WorkspaceManagerError::RepoAlreadyAttached => {
                 ApiError::Conflict("Repository already attached to workspace".to_string())
             }
+            WorkspaceManagerError::RepoNameAlreadyAttached { repo_name } => ApiError::Conflict(
+                format!("Repository name '{repo_name}' is already attached to workspace"),
+            ),
             WorkspaceManagerError::BranchNotFound { repo_name, branch } => {
                 ApiError::BadRequest(format!(
                     "Branch '{}' does not exist in repository '{}'",

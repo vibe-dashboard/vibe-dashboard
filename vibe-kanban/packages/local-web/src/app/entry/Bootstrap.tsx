@@ -17,8 +17,10 @@ import { queryClient } from '@/shared/lib/queryClient';
 import { isTauriApp } from '@/shared/lib/platform';
 import { initZoom, zoomIn, zoomOut, zoomReset } from '@/shared/lib/zoom';
 import { installIframeShortcutBridge } from './iframeShortcutBridge';
+import { initializeMobilePerfDiagnostics } from '@/shared/lib/mobilePerfDiagnostics';
 
 installIframeShortcutBridge();
+initializeMobilePerfDiagnostics();
 
 if (import.meta.env.VITE_SENTRY_DSN) {
   Sentry.init({

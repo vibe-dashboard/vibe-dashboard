@@ -64,8 +64,12 @@ export function shouldAutoLoadEarlierHistoryAtBoundary({
   if (!isNearHistoryBoundary) return false;
   if (isLoadingHistory) return false;
   if (hasHistoryError) return false;
-  if (hasRequestedForCurrentBoundary) return false;
-  if (!hasLeftInitialBoundary) return false;
+  if (hasRequestedForCurrentBoundary && isScrollable) return false;
+  // If the initial latest-history slice is shorter than the viewport, the
+  // reader cannot scroll away from the top boundary to "arm" loading. In that
+  // case keep fetching earlier turns until the transcript is scrollable (or
+  // history is exhausted), otherwise previous messages can become unreachable.
+  if (!hasLeftInitialBoundary && isScrollable) return false;
 
   // On initial render the boundary state can briefly be true before the
   // initial-bottom anchor settles. Avoid interpreting that as a top-boundary

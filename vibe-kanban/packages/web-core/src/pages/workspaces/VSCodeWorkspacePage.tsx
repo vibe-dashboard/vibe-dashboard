@@ -95,6 +95,7 @@ export function VSCodeWorkspacePage() {
     selectedSessionId,
     selectSession,
     isLoading,
+    isSessionsLoading,
     isNewSessionMode,
     startNewSession,
     repos,
@@ -211,6 +212,15 @@ export function VSCodeWorkspacePage() {
                           repos={repos}
                           onAtBottomChange={handleAtBottomChange}
                           sessionScopeId={selectedSessionId}
+                          previewMode={
+                            selectedSession
+                              ? 'session'
+                              : isSessionsLoading
+                                ? 'workspace'
+                                : isNewSessionMode
+                                  ? 'disabled'
+                                  : 'workspace'
+                          }
                         />
                       </RetryUiProvider>
                     </div>

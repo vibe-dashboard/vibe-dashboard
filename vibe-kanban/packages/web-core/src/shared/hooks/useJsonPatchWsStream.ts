@@ -4,6 +4,10 @@ import type { Operation } from 'rfc6902';
 import { applyUpsertPatch } from '@/shared/lib/jsonPatch';
 import { openLocalApiWebSocket } from '@/shared/lib/localApiTransport';
 import {
+  isMobilePerfDiagnosticsEnabled,
+  recordMobilePerfDiagnostic,
+} from '@/shared/lib/mobilePerfDiagnostics';
+import {
   getWsRetryDecision,
   markWsStreamHealthy,
 } from '@/shared/lib/wsStreamRetryPolicy';
@@ -164,6 +168,12 @@ export const useJsonPatchWsStream = <T extends object>(
             setError(null);
             setIsConnected(true);
             setIsReconnecting(false);
+            recordMobilePerfDiagnostic('ws.json_patch.open', {
+              endpoint_kind: endpoint.includes('/execution-processes/')
+                ? 'execution-processes'
+                : 'other',
+              retry_attempts: retryStateRef.current.retryAttempts,
+            });
             if (retryTimerRef.current) {
               window.clearTimeout(retryTimerRef.current);
               retryTimerRef.current = null;
@@ -188,10 +198,29 @@ export const useJsonPatchWsStream = <T extends object>(
                 const current = dataRef.current;
                 if (!filtered.length || !current) return;
 
+                const diagnosticsEnabled = isMobilePerfDiagnosticsEnabled();
+                const applyStartedAt = diagnosticsEnabled
+                  ? performance.now()
+                  : 0;
                 // Use Immer for structural sharing - only modified parts get new references
                 const next = produce(current, (draft) => {
                   applyUpsertPatch(draft, filtered);
                 });
+
+                if (diagnosticsEnabled) {
+                  recordMobilePerfDiagnostic('ws.json_patch.batch', {
+                    endpoint_kind: endpoint.includes('/execution-processes/')
+                      ? 'execution-processes'
+                      : 'other',
+                    patch_count: patches.length,
+                    filtered_patch_count: filtered.length,
+                    payload_bytes:
+                      typeof event.data === 'string' ? event.data.length : null,
+                    apply_duration_ms: Math.round(
+                      performance.now() - applyStartedAt
+                    ),
+                  });
+                }
 
                 dataRef.current = next;
                 setData(next);
@@ -203,6 +232,12 @@ export const useJsonPatchWsStream = <T extends object>(
                   retryStateRef.current
                 );
                 initializedForEndpointRef.current = endpoint;
+                recordMobilePerfDiagnostic('ws.json_patch.ready', {
+                  endpoint_kind: endpoint.includes('/execution-processes/')
+                    ? 'execution-processes'
+                    : 'other',
+                  retry_attempts: retryStateRef.current.retryAttempts,
+                });
                 setIsInitialized(true);
                 setIsReconnecting(false);
                 setError(null);
@@ -216,6 +251,11 @@ export const useJsonPatchWsStream = <T extends object>(
                 );
                 finishedRef.current = true;
                 manualCloseRef.current = true;
+                recordMobilePerfDiagnostic('ws.json_patch.finished', {
+                  endpoint_kind: endpoint.includes('/execution-processes/')
+                    ? 'execution-processes'
+                    : 'other',
+                });
                 ws.close(1000, 'finished');
                 wsRef.current = null;
                 setIsConnected(false);
@@ -236,6 +276,15 @@ export const useJsonPatchWsStream = <T extends object>(
           ws.onclose = (evt) => {
             setIsConnected(false);
             wsRef.current = null;
+            recordMobilePerfDiagnostic('ws.json_patch.close', {
+              endpoint_kind: endpoint.includes('/execution-processes/')
+                ? 'execution-processes'
+                : 'other',
+              code: evt.code,
+              was_clean: evt.wasClean,
+              manual_close: manualCloseRef.current,
+              finished: finishedRef.current,
+            });
 
             const cleanTerminalClose =
               evt?.code === 1000 && evt?.wasClean && !reconnectOnCleanClose;

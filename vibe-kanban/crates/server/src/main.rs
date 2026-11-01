@@ -1,17 +1,42 @@
 use anyhow::{self, Error as AnyhowError};
 use axum::Router;
 use deployment::{Deployment, DeploymentError};
-use server::{middleware::origin::validate_origin, routes, runtime::relay_registration, startup};
+use server::{
+    middleware::{make_http_span, origin::validate_origin},
+    routes,
+    runtime::relay_registration,
+    startup,
+};
 use sqlx::Error as SqlxError;
 use strip_ansi_escapes::strip;
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
-use tower_http::validate_request::ValidateRequestHeaderLayer;
+use tower_http::{trace::TraceLayer, validate_request::ValidateRequestHeaderLayer};
 use tracing_subscriber::{EnvFilter, prelude::*};
 use utils::{
+    perf_trace,
     port_file::write_port_file_with_proxy,
     sentry::{self as sentry_utils, SentrySource, sentry_layer},
+    signoz,
 };
+
+const DEFAULT_TRACING_TARGETS: &[&str] = &[
+    "server",
+    "services",
+    "db",
+    "executors",
+    "deployment",
+    "local_deployment",
+    "utils",
+    "embedded_ssh",
+    "desktop_bridge",
+    "relay_hosts",
+    "relay_client",
+    "relay_webrtc",
+    "ws_bridge",
+];
+
+const DEFAULT_TRACING_DIRECTIVES: &[&str] = &["warn", "codex_core=off"];
 
 #[derive(Debug, Error)]
 pub enum VibeKanbanError {
@@ -35,15 +60,70 @@ async fn main() -> Result<(), VibeKanbanError> {
     sentry_utils::init_once(SentrySource::Backend);
 
     let log_level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
-    let filter_string = format!(
-        "warn,server={level},services={level},db={level},executors={level},deployment={level},local_deployment={level},utils={level},embedded_ssh={level},desktop_bridge={level},relay_hosts={level},relay_client={level},relay_webrtc={level},codex_core=off",
-        level = log_level
+    let perf_tracing_enabled = perf_trace::enabled();
+    let log_filter_string = perf_trace::tracing_filter_string(
+        &log_level,
+        false,
+        DEFAULT_TRACING_TARGETS,
+        DEFAULT_TRACING_DIRECTIVES,
     );
-    let env_filter = EnvFilter::try_new(filter_string).expect("Failed to create tracing filter");
+    let signoz_filter_string = perf_trace::tracing_filter_string(
+        &log_level,
+        perf_tracing_enabled,
+        DEFAULT_TRACING_TARGETS,
+        DEFAULT_TRACING_DIRECTIVES,
+    );
+    let env_filter =
+        EnvFilter::try_new(log_filter_string.as_str()).expect("Failed to create tracing filter");
+    let (signoz_layer, signoz_provider, signoz_endpoint, signoz_enabled) =
+        match signoz::init_layer("vibe-kanban-backend", &signoz_filter_string) {
+            Some(signoz::SignozTracing {
+                layer,
+                provider,
+                endpoint_diagnostics,
+            }) => (
+                Some(layer),
+                Some(provider),
+                Some(endpoint_diagnostics),
+                true,
+            ),
+            None => (
+                None,
+                None,
+                signoz::resolved_endpoint_for_diagnostics(),
+                false,
+            ),
+        };
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().with_filter(env_filter))
-        .with(sentry_layer())
+        .with(signoz_layer)
+        .with(sentry_layer(SentrySource::Backend))
         .init();
+    if perf_tracing_enabled {
+        tracing::info!(
+            signoz_enabled,
+            signoz_endpoint_configured = signoz_endpoint.is_some(),
+            signoz_endpoint_source = signoz_endpoint
+                .as_ref()
+                .map(|endpoint| endpoint.source)
+                .unwrap_or("not configured"),
+            signoz_endpoint_scheme = signoz_endpoint
+                .as_ref()
+                .map(|endpoint| endpoint.scheme.as_str())
+                .unwrap_or("not configured"),
+            signoz_endpoint_host = signoz_endpoint
+                .as_ref()
+                .map(|endpoint| endpoint.host.as_str())
+                .unwrap_or("not configured"),
+            signoz_endpoint_port = signoz_endpoint.as_ref().and_then(|endpoint| endpoint.port),
+            signoz_endpoint_path = signoz_endpoint
+                .as_ref()
+                .map(|endpoint| endpoint.path.as_str())
+                .unwrap_or("not configured"),
+            "Performance tracing enabled. HTTP spans, SQLx query logs, \
+             and WebSocket send paths are traceable."
+        );
+    }
     startup::begin_startup_diagnostics();
 
     let shutdown_token = CancellationToken::new();
@@ -97,7 +177,7 @@ async fn main() -> Result<(), VibeKanbanError> {
         .expect("client preview proxy port already set");
     startup::log_startup_phase("client_info_registered");
 
-    let app_router = routes::router(deployment.clone());
+    let app_router = routes::router(deployment.clone(), perf_tracing_enabled);
 
     // Production only: open browser
     if !cfg!(debug_assertions) {
@@ -116,8 +196,18 @@ async fn main() -> Result<(), VibeKanbanError> {
         });
     }
 
-    let proxy_router: Router = routes::preview::subdomain_router(deployment.clone())
-        .layer(ValidateRequestHeaderLayer::custom(validate_origin));
+    let proxy_router: Router = {
+        let router = routes::preview::subdomain_router(deployment.clone());
+        let router = if perf_tracing_enabled {
+            router.layer(
+                TraceLayer::new_for_http()
+                    .make_span_with(|request: &axum::extract::Request| make_http_span(request)),
+            )
+        } else {
+            router
+        };
+        router.layer(ValidateRequestHeaderLayer::custom(validate_origin))
+    };
 
     let main_shutdown = shutdown_token.clone();
     let proxy_shutdown = shutdown_token.clone();
@@ -127,12 +217,12 @@ async fn main() -> Result<(), VibeKanbanError> {
     let proxy_server = axum::serve(proxy_listener, proxy_router)
         .with_graceful_shutdown(async move { proxy_shutdown.cancelled().await });
 
-    let main_handle = tokio::spawn(async move {
+    let mut main_handle = tokio::spawn(async move {
         if let Err(e) = main_server.await {
             tracing::error!("Main server error: {}", e);
         }
     });
-    let proxy_handle = tokio::spawn(async move {
+    let mut proxy_handle = tokio::spawn(async move {
         if let Err(e) = proxy_server.await {
             tracing::error!("Preview proxy error: {}", e);
         }
@@ -142,17 +232,46 @@ async fn main() -> Result<(), VibeKanbanError> {
     relay_registration::spawn_relay(&deployment).await;
     startup::log_startup_phase("relay_startup_spawn_complete");
 
+    let mut main_done = false;
+    let mut proxy_done = false;
     tokio::select! {
         _ = shutdown_signal() => {
             tracing::info!("Shutdown signal received");
         }
-        _ = main_handle => {}
-        _ = proxy_handle => {}
+        result = &mut main_handle => {
+            main_done = true;
+            if let Err(error) = result {
+                tracing::error!(%error, "Main server task failed");
+            } else {
+                tracing::warn!("Main server task completed; shutting down");
+            }
+        }
+        result = &mut proxy_handle => {
+            proxy_done = true;
+            if let Err(error) = result {
+                tracing::error!(%error, "Preview proxy task failed");
+            } else {
+                tracing::warn!("Preview proxy task completed; shutting down");
+            }
+        }
     }
 
     shutdown_token.cancel();
 
+    if !main_done && let Err(error) = main_handle.await {
+        tracing::error!(%error, "Main server task failed during shutdown");
+    }
+    if !proxy_done && let Err(error) = proxy_handle.await {
+        tracing::error!(%error, "Preview proxy task failed during shutdown");
+    }
+
     perform_cleanup_actions(&deployment).await;
+
+    if let Some(provider) = signoz_provider
+        && let Err(error) = provider.shutdown()
+    {
+        tracing::warn!(%error, "Failed to flush SigNoz OpenTelemetry spans");
+    }
 
     Ok(())
 }
