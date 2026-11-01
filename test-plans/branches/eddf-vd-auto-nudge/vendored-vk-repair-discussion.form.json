@@ -1,0 +1,91 @@
+{
+  "format": "standard",
+  "id": "vendored_vk_repair_discussion_v1",
+  "title": "Decide the VK baseline repair and merge boundary",
+  "description": "Standalone decision form for task-ho2 and branch vk/eddf-vd-auto-nudge. All evidence, proposed work, tradeoffs and acceptance requirements are included in the questions and choices. No prior conversation or external document is required. Choose one main option per question. The public form uses multi-select checkboxes; if selecting multiple alternatives, explain the intended combination in Additional notes. Recommendations are proposals, not decisions already made.",
+  "allowCodeFileChanges": {
+    "label": "Authorize the selected repair, scoped commits and branch pushes",
+    "description": "Leave unchecked to continue discussion without source implementation. Checking authorizes the selected baseline-preservation repair and relevant validation, commits and pushes to the selected feature/repair branch. It does not authorize merging into main, deploying/restarting the live service, rewriting shared Git history, or implementing teams/sub-workspaces/concurrency limits.",
+    "defaultChecked": false
+  },
+  "questions": [
+    {
+      "type": "choices",
+      "id": "preserved_baseline",
+      "title": "1. Should the repair preserve all existing main functionality?",
+      "description": "AUDITED SNAPSHOT: feature head e75bbd05e; main baseline 8f4d22b2c. The branch is 127 commits ahead and zero behind main, with 247 changed files. ROOT CAUSE: single-parent commit 0dc67b740, 'Port VK branch into vendored vibe-kanban', changed 181 vendored paths with 2,472 insertions and 16,794 deletions. It replaced code with an older executor baseline: Codex CLI and Rust protocol tags fell from 0.147.0 to 0.124.0, and Claude Code from 2.1.227 to 2.1.119. The removed features already existed before this commit. For example, agent_upgrade_contract.rs has the identical Git blob in the pre-import parent, main, and the later main-merge parent, but is deleted on this branch. The original copy command/donor SHA is not recorded, so the exact shell operation cannot be established from Git. WHY MERGING MAIN DID NOT FIX IT: Git treats a branch-side deletion of an unchanged ancestor file as an ordinary change; merge 10bd64082 therefore retained it. Another merge of unchanged main will not restore it. INVENTORY: of the 181 import paths, 25 now match main; 128 still match the imported output exactly and differ from main; 28 have further branch edits and need semantic review. There are 36 net deleted files, including 9 standalone test files and 9 fixture files, plus inline test deletions. CONFIRMED COLLATERAL: conversation-preview warm/session/workspace APIs and finalization refresh; named /preview/resolve; session-scoped stop and sibling-session reset protections; repo-name collision guard and add-repo setup/rollback; persisted action log-normalizer metadata; current CLI contracts, model catalog and configured binary support; Claude final unterminated-JSON handling; SigNoz/performance tracing, shutdown handling and build-commit reporting; draft/model/URL/layout behaviors and tests. Some DB models and type inputs were restored later, but these losses remain. No requirement for auto-nudge necessitates removing these baseline capabilities. Which preservation rule should guide the repair?",
+      "choices": [
+        {
+          "id": "restore_main_and_keep_branch_features",
+          "label": "Preserve main and integrate the intended branch features",
+          "description": "Treat main 8f4d22b2c as the known-good baseline, verifying whether main has advanced before implementation. Restore the applicable 128 unchanged-import-output paths in coherent implementation/dependency/test groups; leave the 25 already-restored paths intact. Semantically integrate the 28 overlap paths. Preserve this branch's atomic per-session admission, owned non-replacing queue, durable queue-effect/request fingerprints, exact identified sessions/processes, strict REST final responses, structured usage events, serial workflow/forms, and proven-not-spawned versus uncertain-start handling. Keep existing workspace-root agent startup behavior. Restore main's CLI pins and protocol/fixture versions together; that reverses a downgrade rather than adding a new upgrade feature. Every remaining baseline removal must have an explicit, reviewed explanation. Do not wholesale revert 0dc67b740 or replace the whole vendor directory: both would also discard intended functionality and later fixes. Use forward repair commits with no reset, rebase or force push.",
+          "is_recommended_reason": "Repairs the integration error while preserving both existing product behavior and the validated auto-nudge/admission increment."
+        },
+        {
+          "id": "approve_specific_retirements",
+          "label": "Restore main except explicitly listed retirements",
+          "description": "Use the same baseline-preserving repair, but intentionally retire only capabilities you enumerate in this choice's notes or Additional notes. State the exact behavior/API to remove and why; a broad label such as 'old UI' is insufficient because backend contracts, reset safety and history replay are also affected. Update callers, docs and acceptance coverage for each approved retirement rather than leaving accidental breakage. Remaining unlisted removals are restored. This introduces product-deprecation decisions into the merge repair and needs more review than full preservation."
+        },
+        {
+          "id": "discuss_baseline_first",
+          "label": "Discuss the preservation boundary before repairing",
+          "description": "Keep the branch merge-blocked and request a more focused explanation of selected capability groups. Specify them in notes. No source repair or retirement is approved by this option; leave implementation authorization unchecked."
+        }
+      ]
+    },
+    {
+      "type": "choices",
+      "id": "repair_delivery",
+      "title": "2. Where should the repair be made, and what constitutes valid repair evidence?",
+      "description": "PROPOSED REPAIR SEQUENCE: (1) freeze and record baseline/feature SHAs and inventory intended versus collateral changes; (2) restore unchanged baseline files as coherent groups and reconcile overlapping executor/actions/container/router/session/frontend files; (3) restore baseline contracts and tests alongside the new branch tests; (4) regenerate/verify derived artifacts; (5) review the complete diff against main and run required gates. CRITICAL OVERLAPS: register conversation-preview routes alongside auto-nudge; restore session-only stop and safe sibling-reset behavior alongside identified sessions/admission; restore persisted QA/selected-executor normalizer metadata alongside fault hooks and fail-closed start classification; retain immutable queue payload identity and exact process reconciliation; combine main's model/CLI behavior with the new spawn-disposition handling. Restoring old files alone is not sufficient if their call sites/API exports remain absent. CI COVERAGE GAP: commit 505804535 replaced the missing fixture/version upgrade gate with cargo test -p executors --lib and cargo check -p mcp. Those checks pass, but cannot execute deleted contracts. Restore actual fixture metadata/version lockstep and previous/current CLI normalization tests with their registration and a monorepo-correct gate. Preserve the useful resource-bounded builds and path-selection fixes. VALIDATION REQUIRED FOR EITHER DELIVERY OPTION: no unexplained baseline API/test deletions; fixture checks genuinely run rather than matching zero tests; CLI/Rust/fixture versions agree; restored conversation/named previews, session stop/reset safety, repo attachment/setup/rollback, persisted history normalization, Claude final-line parsing, draft/model/URL/layout tests; retain all 17 source-QA cases, full backend/frontend tests, Clippy, schema/SQLx/generated-type checks and Docker e2e. Source QA uses mocked executors and does not substitute for real CLI protocol fixtures. Local TS checks/tests and Rust formatting are allowed; Rust builds/tests and Rust-generated API/SQLx artifacts remain CI-only under the project's existing policy. Do not hand-edit generated types or fabricate a lockfile; generate or update them using the proper tooling in CI and import required outputs. How should this repair be delivered?",
+      "choices": [
+        {
+          "id": "forward_repair_current_branch",
+          "label": "Repair the current branch with scoped forward commits",
+          "description": "Apply the selected restoration to vk/eddf-vd-auto-nudge, preserving existing history. Group source/dependency/test integration coherently; do not push knowingly broken intermediate restoration fragments just to make small commits. Check status/shared edits before staging. Commit and push intended repairs, then watch exact-head CI through vibe-agent callback with gh run watch. Record restored behavior and remaining exceptions on task-ho2. New failures get evidence-backed fixes; do not weaken assertions/gates to regain green. No existing PR was open at the readiness check; PR creation/merge is separate from repair authorization.",
+          "is_recommended_reason": "Smallest operational change and preserves the existing review/history context without rewriting a shared branch."
+        },
+        {
+          "id": "separate_repair_branch",
+          "label": "Make a separate repair branch from the audited feature head",
+          "description": "Preserve vk/eddf-vd-auto-nudge and apply the same restoration on a new clearly named repair branch starting at the feature head. Validate and review its full delta, then integrate repair commits back or use it as the final PR head through an explicit decision. This isolates ongoing repair work but does not eliminate semantic reconciliation or magically reduce the 127-commit feature history. Do not reconstruct the feature by indiscriminately cherry-picking every commit onto main; that would risk replaying the original snapshot regression."
+        },
+        {
+          "id": "review_plan_only",
+          "label": "Review a detailed repair manifest before source edits",
+          "description": "Produce a grouped manifest of exact restore candidates, overlap decisions, dependency/generated-artifact work and validation commands, then return it for review. This is discussion-only; leave implementation authorization unchecked. Useful if you want to approve particular restoration groups or explicitly retire baseline features before repair begins."
+        }
+      ]
+    },
+    {
+      "type": "choices",
+      "id": "merge_scope",
+      "title": "3. What is the shipping boundary after this preservation repair?",
+      "description": "CURRENT EVIDENCE: feature source through 7f6877e34 passed VK Test 39993098670 after a hosted-runner communication-loss retry, including backend tests, Clippy, schema/types and frontend gates; Docker e2e also passed. Current head e75bbd05e adds only a discussion-form JSON; its CI/source QA passed, including 17/17 mocked-provider scenarios. These results validate the tree that exists today, not removed baseline features. The preservation repair must receive new exact-head validation before merge. EXISTING FOLLOW-UP WORK IS NOT ALL COMPLETE: task-7dm reserved stop/wait/start interrupt admission and task-yiu abnormal-interruption recovery remain unfinished; task-d8z tracks broader real implementer→reviewer→tester rejection/reset, actual service-restart queue reconciliation and human/decision-maker form-resume stories; task-dmr still requires matching live-backend activation and real competing ingress verification; vkvw-t3u5 has source/tests but still needs matching-backend usage-event integration evidence. Distinguish adding missing test evidence from implementing new features. NEW DISCUSSION SCOPE: task-5k3 global active-session cap/automatic overload queue and task-otw teams/sub-workspaces/parallel worktrees have not been implemented and should not silently enter this repair. Merging source is not deploying the already-running older backend; image publication alone does not activate migrations or admission protection. Any live rollout needs a separate explicit action and matching-backend verification. Which release scope do you want?",
+      "choices": [
+        {
+          "id": "ship_repaired_increment",
+          "label": "Ship the repaired implemented increment; defer unfinished features",
+          "description": "Make baseline restoration plus the full preserved/regression CI gate the merge requirement. Freeze feature development: carry interrupt/recovery, broader acceptance stories, capacity limits and teams/sub-workspaces into explicit follow-up work. Resolve any concrete correctness failure found by the repair before merge. Do not describe deferred stories as tested or unfinished features as delivered. Record remaining runtime/matching-backend verification as rollout requirements. This is an intentional incremental release decision: it accepts that the complete originally planned workflow epic and all broader e2e stories are not yet delivered. Selecting this does not authorize merge or live deployment automatically.",
+          "is_recommended_reason": "Matches shipping before expanding scope while still requiring preservation of existing main behavior and evidence for the repaired increment."
+        },
+        {
+          "id": "complete_implemented_acceptance",
+          "label": "Repair first, then complete real acceptance for implemented paths",
+          "description": "Keep new feature development frozen, but require missing integration evidence for functionality already included before merge: real review/test reset loop, queue-state loss across actual service restart, correlated form resume, usage-event REST integration and competing ingress against a matching isolated backend. Implement test infrastructure/scenarios as needed; do not add interrupt/recovery implementation or teams/capacity features to satisfy this option. If broader acceptance stories contain unfinished feature prerequisites, split those stories explicitly and report which cannot yet be claimed. More work than the repaired-increment gate, with stronger end-to-end confidence."
+        },
+        {
+          "id": "finish_original_scope",
+          "label": "Finish the original interrupt/recovery scope before merge",
+          "description": "After baseline repair, complete task-7dm interrupt reservation, task-yiu positively evidenced abnormal recovery and their dependent real acceptance stories before shipping. Keep teams/sub-workspaces/global concurrency deferred. This preserves the broader original completion boundary but substantially delays merge and is more than a preservation repair. Requires renewed planning of remaining feature work and its validation; no implied live restart/deployment permission."
+        }
+      ]
+    },
+    {
+      "type": "textarea",
+      "id": "additional_notes",
+      "title": "Additional notes and specific exceptions",
+      "description": "Master notes for this standalone decision. List any baseline capability/API you intentionally want retired, changes to the repair plan, required extra evidence, preferred repair branch name, and the exact merge boundary. If choices conflict, explain your priority. If you only want discussion, leave implementation authorization unchecked. A blank response does not approve baseline removals, feature expansion, merge, deployment or destructive Git operations."
+    }
+  ]
+}
