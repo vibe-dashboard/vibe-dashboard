@@ -171,7 +171,7 @@ export default defineConfig({
       shared: vkSharedSrc,
       '@vibe/inline-chat': path.resolve(__dirname, 'vibe-kanban/packages/inline-chat/src/index.tsx')
     },
-    dedupe: ['react', 'react-dom']
+    dedupe: ['react', 'react-dom', '@tanstack/react-query', '@radix-ui/react-select']
   },
   define: {
     'process.env.DEBUG_LOG_PERFORMANCE': '""',
