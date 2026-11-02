@@ -14,6 +14,32 @@ export type RepoDevServerScript = { id: string, repo_id: string, name: string, s
 
 export type UpdateRepoDevServerScript = { id?: string, name: string, script: string, working_dir: string | null, is_default: boolean, };
 
+export type RunConfig = { id: string, repo_id: string, slug: string, name: string, command: string, working_dir: string | null, kind: RunConfigKind, enabled: boolean, created_at: Date, updated_at: Date, };
+
+export enum RunConfigKind { long_running = "long_running", one_shot = "one_shot", test = "test" }
+
+export type UpsertRunConfig = { id?: string, repo_id: string, slug: string, name: string, command: string, working_dir: string | null, kind: RunConfigKind, enabled: boolean, };
+
+export type PreviewSlot = { id: string, repo_id: string, run_config_id: string, slot_slug: string, title: string, enabled: boolean, created_at: Date, updated_at: Date, };
+
+export type UpsertPreviewSlot = { id?: string, repo_id: string, run_config_id: string, slot_slug: string, title: string, enabled: boolean, };
+
+export type PreviewProcessLink = { id: string, workspace_id: string, repo_id: string, run_config_id: string, preview_slot_id: string | null, execution_process_id: string, assigned_port: bigint, status_snapshot: PreviewProcessStatusSnapshot, started_at: Date, updated_at: Date, ended_at: Date | null, };
+
+export enum PreviewProcessStatusSnapshot { starting = "starting", ready = "ready", failed = "failed", stopped = "stopped" }
+
+export type RunConfigStartResponse = { execution_process: ExecutionProcess, preview_process_link: PreviewProcessLink, upstream: string, };
+
+export type WorkspaceRunConfigsResponse = { run_configs: Array<RunConfig>, preview_slots: Array<PreviewSlot>, preview_url_parts: Array<PreviewSlotUrlParts>, };
+
+export type PreviewSlotUrlParts = { previewSlotId: string, workspaceToken: string, repoSlug: string, slotSlug: string, };
+
+export type PreviewSlotUrlResponse = { previewSlotId: string, workspaceToken: string, repoSlug: string, slotSlug: string, customerSlug: string, host: string, url: string, };
+
+export type NamedPreviewResolveRequest = { host: string, workspaceToken: string, repoSlug: string, slotSlug: string, customerSlug: string, ensure: boolean, method: string, path: string, };
+
+export type NamedPreviewResolveResponse = { status: string, upstream: string | null, message: string | null, executionProcessId: string | null, };
+
 export type SearchResult = { path: string, is_file: boolean, match_type: SearchMatchType,
 /**
  * Ranking score based on git history (higher = more recently/frequently edited)
@@ -276,7 +302,7 @@ export type TagSearchParams = { search: string | null, };
 
 export type TokenResponse = { access_token: string, expires_at: string | null, };
 
-export type UserSystemInfo = { version: string, config: Config, machine_id: string, login_status: LoginStatus, remote_auth_degraded: string | null, environment: Environment,
+export type UserSystemInfo = { version: string, commit_hash: string | null, config: Config, machine_id: string, login_status: LoginStatus, remote_auth_degraded: string | null, environment: Environment,
 /**
  * Capabilities supported per executor (e.g., { "CLAUDE_CODE": ["SESSION_FORK"] })
  */
@@ -297,6 +323,24 @@ export type CheckEditorAvailabilityResponse = { available: boolean, };
 export type CheckAgentAvailabilityQuery = { executor: BaseCodingAgent, };
 
 export type AgentPresetOptionsQuery = { executor: BaseCodingAgent, variant: string | null, };
+
+export type ConversationPreviewMessageRole = "user" | "assistant";
+
+export type ConversationPreviewMessage = { role: ConversationPreviewMessageRole, content: string, execution_process_id: string, created_at: string, };
+
+export type ConversationPreviewSource = "cache" | "computed";
+
+export type ConversationPreview = { workspace_id: string, session_id: string | null, messages: Array<ConversationPreviewMessage>, has_running_turn: boolean, source: ConversationPreviewSource, warmed_at: string, };
+
+export type WarmWorkspaceSessionsRequest = { workspace_id: string, session_ids: Array<string>, include_latest_session: boolean, };
+
+export type WarmConversationPreviewRequest = { workspace_ids: Array<string>, session_ids: Array<string>, workspace_sessions: Array<WarmWorkspaceSessionsRequest>, message_limit: number | null, };
+
+export type WarmConversationPreviewItem = { workspace_id: string, session_id: string | null, message_count: number, source: ConversationPreviewSource, };
+
+export type WarmConversationPreviewError = { workspace_id: string | null, session_id: string | null, message: string, };
+
+export type WarmConversationPreviewResponse = { warmed: Array<WarmConversationPreviewItem>, errors: Array<WarmConversationPreviewError>, };
 
 export type CurrentUserResponse = { user_id: string, };
 
@@ -558,7 +602,9 @@ export type QueueEffectReconciliation = { queue_id: string, owner: string, sessi
 
 export type ConflictOp = "rebase" | "merge" | "cherry_pick" | "revert";
 
-export type ExecutorAction = { typ: ExecutorActionType, next_action: ExecutorAction | null, };
+export type ExecutorAction = { typ: ExecutorActionType, next_action: ExecutorAction | null, log_normalizer?: ExecutorActionLogNormalizer, };
+
+export enum ExecutorActionLogNormalizer { selected_executor = "selected_executor", qa_mock_claude = "qa_mock_claude" }
 
 export type McpConfig = { servers: { [key in string]?: JsonValue }, servers_path: Array<string>, template: JsonValue, preconfigured: JsonValue, is_toml_config: boolean, };
 
@@ -836,6 +882,14 @@ providers: Array<ModelProvider>,
  * Available models
  */
 models: Array<ModelInfo>,
+/**
+ * Optional display ordering for model identifiers.
+ *
+ * Entries match either a plain model id (for single-provider selectors) or
+ * `provider_id/model_id` (for provider-scoped selectors). Unlisted models
+ * remain selectable and are sorted by the UI's default fallback.
+ */
+model_order?: Array<string>,
 /**
  * Global default model (format: provider_id/model_id)
  */
