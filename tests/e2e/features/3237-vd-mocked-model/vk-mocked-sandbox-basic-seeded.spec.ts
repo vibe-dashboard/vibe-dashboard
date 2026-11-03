@@ -54,10 +54,12 @@ test.describe('VK mocked-provider basic-seeded fixture', () => {
       agentChat.getByRole('button', { name: 'Preview slots' }),
     ).toBeVisible();
     await agentChat.getByRole('button', { name: 'Preview slots' }).click();
+    const previewMenu = page.getByRole('menu', { name: 'Preview slots', exact: true });
     await expect(
-      agentChat.getByRole('menuitem', { name: 'Configure preview slots' }),
+      previewMenu.getByRole('menuitem', { name: 'Configure preview slots' }),
     ).toBeVisible();
     await page.keyboard.press('Escape');
+    await expect(previewMenu).toBeHidden();
 
     const composer = getChatComposer(agentChat);
     await composer.fill('Draft survives view mode changes');
