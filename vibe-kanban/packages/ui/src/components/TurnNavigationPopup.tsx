@@ -170,7 +170,9 @@ export function TurnNavigationPopup({
                           isActive ? 'text-primary' : 'text-default-500'
                         )}
                       >
-                        {t('turnNavigation.number', { number: turn.turnNumber })}
+                        {t('turnNavigation.number', {
+                          number: turn.turnNumber,
+                        })}
                       </span>
                       <span
                         className={cn(
