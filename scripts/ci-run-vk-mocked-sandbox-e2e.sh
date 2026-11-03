@@ -2,6 +2,10 @@
 set -euo pipefail
 
 RUN_DIR="${VK_MOCKED_SANDBOX_RUN_DIR:-.vk-mocked-sandbox/current}"
+export VK_CHECKOUT="${VK_CHECKOUT:-vibe-kanban}"
+export VK_MOCKED_VK_BACKEND="${VK_MOCKED_VK_BACKEND:-ci-release}"
+export VK_MOCKED_RELEASE_WAIT_SECONDS="${VK_MOCKED_RELEASE_WAIT_SECONDS:-2700}"
+export VK_MOCKED_SANDBOX_RUN_DIR="$RUN_DIR"
 READY_TIMEOUT_SECONDS="${VK_MOCKED_SANDBOX_READY_TIMEOUT_SECONDS:-120}"
 PORT_LOCK="${VK_MOCKED_SANDBOX_PORT_LOCK:-${TMPDIR:-/tmp}/vk-mocked-sandbox-ports.lock}"
 
@@ -27,8 +31,11 @@ exec 9>"$PORT_LOCK"
 flock 9
 
 echo "::group::Prepare VK mocked sandbox"
-VK_MOCKED_PREBUILD_BACKEND=1 \
+if [[ "$VK_MOCKED_VK_BACKEND" == "ci-release" ]]; then
   node --experimental-strip-types scripts/vk-mocked-sandbox.ts setup
+else
+  VK_MOCKED_PREBUILD_BACKEND=1 node --experimental-strip-types scripts/vk-mocked-sandbox.ts setup
+fi
 echo "::endgroup::"
 
 # setup owns port allocation. Reuse that exact plan when start constructs its
@@ -40,8 +47,7 @@ VK_HEALTH_URL="http://127.0.0.1:$VK_MOCKED_BACKEND_PORT/api/health"
 SANDBOX_LOG="$VK_MOCKED_SANDBOX_RUN_DIR/sandbox.log"
 
 echo "Starting VK mocked sandbox; log: $SANDBOX_LOG"
-VK_MOCKED_PREBUILD_BACKEND=1 VK_MOCKED_SKIP_LOCAL_WEB_BUILD=1 VK_MOCKED_SKIP_SETUP_COMMANDS=1 \
-  node --experimental-strip-types scripts/vk-mocked-sandbox.ts start >"$SANDBOX_LOG" 2>&1 &
+VK_MOCKED_SKIP_SETUP_COMMANDS=1 node --experimental-strip-types scripts/vk-mocked-sandbox.ts start >"$SANDBOX_LOG" 2>&1 &
 sandbox_pid=$!
 
 deadline=$((SECONDS + READY_TIMEOUT_SECONDS))
@@ -63,4 +69,4 @@ done
 flock -u 9
 
 echo "VK mocked sandbox is ready: $VK_HEALTH_URL and $SANDBOX_URL/workspaces"
-npx playwright test --config playwright.vk-mocked-sandbox.config.ts
+npx playwright test --config playwright.vk-mocked-sandbox.config.ts "$@"

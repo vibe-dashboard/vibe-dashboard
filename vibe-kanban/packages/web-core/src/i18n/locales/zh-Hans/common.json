@@ -1,4 +1,26 @@
 {
+  "composer": {
+    "tools": "消息编辑工具",
+    "settings": "消息编辑设置",
+    "diffSummary": "更改摘要",
+    "files_one": "{{count}} 个文件",
+    "files_other": "{{count}} 个文件",
+    "viewChanges": "查看更改",
+    "tasks": "工作区任务",
+    "preview": "预览槽位",
+    "prComments": "添加 PR 评论",
+    "insertPrComments": "将 PR 评论插入消息",
+    "removeIssueLink": "移除指向 {{issue}} 的链接",
+    "linesAdded": "+{{count}}",
+    "linesRemoved": "-{{count}}",
+    "openWorkspace": "打开工作区"
+  },
+  "turnNavigation": {
+    "title": "你的消息",
+    "count_one": "{{count}} 轮对话",
+    "count_other": "{{count}} 轮对话",
+    "number": "#{{number}}"
+  },
   "editorNames": {
     "custom": "自定义"
   },

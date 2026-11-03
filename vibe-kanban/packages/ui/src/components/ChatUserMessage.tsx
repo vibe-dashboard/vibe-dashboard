@@ -45,7 +45,7 @@ export function ChatUserMessage({
                 e.stopPropagation();
                 onReset();
               }}
-              className="p-1 rounded hover:bg-muted text-low hover:text-normal transition-colors"
+              className="p-1 rounded hover:bg-content2 text-default-500 hover:text-foreground transition-colors"
               aria-label={t('conversation.actions.reset')}
             >
               <ArrowUUpLeftIcon className="size-icon-xs" />
@@ -60,7 +60,7 @@ export function ChatUserMessage({
                 e.stopPropagation();
                 onEdit();
               }}
-              className="p-1 rounded hover:bg-muted text-low hover:text-normal transition-colors"
+              className="p-1 rounded hover:bg-content2 text-default-500 hover:text-foreground transition-colors"
               aria-label={t('conversation.actions.edit')}
             >
               <PencilSimpleIcon className="size-icon-xs" />

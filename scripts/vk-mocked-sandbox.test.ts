@@ -11,6 +11,7 @@ import {
   downloadCiReleaseArtifactFromEnv,
   findFreePort,
   loadSandboxCaddyfile,
+  resolveVkCheckoutPath,
   readPreparedSandboxPlan,
   writeSandboxFiles,
   type PortAllocator,
@@ -596,6 +597,21 @@ describe('VK mocked sandbox helpers', () => {
     expect(plan.paths.vkRoot).toBe('/tmp/custom-vk-checkout');
     expect(plan.setupCommands[0]?.cwd).toBe('/tmp/custom-vk-checkout');
     expect(plan.commands[0]?.cwd).toBe('/tmp/custom-vk-checkout');
+  });
+
+  it('resolves a relative VK checkout inside the VD repo before the workspace root', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'vk-mocked-sandbox-workspace-'));
+    const vdRoot = join(workspaceRoot, 'vibe-kanban-vscode-web');
+    const monorepoVkRoot = join(vdRoot, 'vibe-kanban');
+    try {
+      await mkdir(monorepoVkRoot, { recursive: true });
+
+      expect(resolveVkCheckoutPath(workspaceRoot, vdRoot, 'vibe-kanban')).toBe(
+        monorepoVkRoot,
+      );
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
   });
 
   it('falls back to the vendored VK checkout when VK_CHECKOUT is blank', () => {

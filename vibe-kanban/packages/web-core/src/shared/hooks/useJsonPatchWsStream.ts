@@ -36,6 +36,7 @@ interface UseJsonPatchStreamResult<T> {
   data: T | undefined;
   isConnected: boolean;
   isInitialized: boolean;
+  isFinished: boolean;
   isReconnecting: boolean;
   error: string | null;
 }
@@ -52,6 +53,7 @@ export const useJsonPatchWsStream = <T extends object>(
   const [data, setData] = useState<T | undefined>(undefined);
   const [isConnected, setIsConnected] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [isFinished, setIsFinished] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const initializedForEndpointRef = useRef<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
@@ -104,6 +106,7 @@ export const useJsonPatchWsStream = <T extends object>(
       setData(undefined);
       setIsConnected(false);
       setIsInitialized(false);
+      setIsFinished(false);
       setIsReconnecting(false);
       setError(null);
       dataRef.current = undefined;
@@ -135,6 +138,7 @@ export const useJsonPatchWsStream = <T extends object>(
       setData(undefined);
       setIsConnected(false);
       setIsInitialized(false);
+      setIsFinished(false);
       setIsReconnecting(false);
       setError(null);
       if (injectInitialEntry) {
@@ -250,6 +254,7 @@ export const useJsonPatchWsStream = <T extends object>(
                   retryStateRef.current
                 );
                 finishedRef.current = true;
+                setIsFinished(true);
                 manualCloseRef.current = true;
                 recordMobilePerfDiagnostic('ws.json_patch.finished', {
                   endpoint_kind: endpoint.includes('/execution-processes/')
@@ -374,11 +379,14 @@ export const useJsonPatchWsStream = <T extends object>(
 
   const isInitializedForCurrentEndpoint =
     isInitialized && initializedForEndpointRef.current === endpoint;
+  const isFinishedForCurrentEndpoint =
+    isFinished && endpointIdentityRef.current === endpoint;
 
   return {
     data,
     isConnected,
     isInitialized: isInitializedForCurrentEndpoint,
+    isFinished: isFinishedForCurrentEndpoint,
     isReconnecting,
     error,
   };

@@ -48,11 +48,10 @@ export function useActionVisibilityContext(
   const expanded = useUiPreferencesStore((s) => s.expanded);
 
   // Derive kanban state from URL (URL is single source of truth)
-  const { projectId: routeProjectId, issueId: routeIssueId } = useParams({
-    strict: false,
-  });
-  const destination = useCurrentAppDestination();
-  const { isCreateMode: kanbanCreateMode } = useCurrentKanbanRouteState();
+  const { projectId: routeProjectId, issueId: routeIssueId } =
+    useOptionalParams();
+  const destination = useOptionalCurrentAppDestination();
+  const { isCreateMode: kanbanCreateMode } = useOptionalKanbanRouteState();
   const effectiveProjectId = options?.projectId ?? routeProjectId;
   const optionIssueIds = options?.issueIds;
   const effectiveIssueIds = useMemo(
@@ -92,7 +91,7 @@ export function useActionVisibilityContext(
   const { data: branchStatus } = useBranchStatus(workspaceId);
   const { isAttemptRunningVisible } = useExecutionProcessesContext();
   const { logsPanelContent } = useLogsPanel();
-  const { isSignedIn } = useAuth();
+  const { isSignedIn } = useOptionalAuth();
 
   return useMemo(() => {
     // Compute isAllDiffsExpanded
@@ -173,4 +172,39 @@ export function useActionVisibilityContext(
     kanbanCreateMode,
     isSignedIn,
   ]);
+}
+
+function useOptionalParams(): { projectId?: string; issueId?: string } {
+  try {
+    return useParams({ strict: false }) as {
+      projectId?: string;
+      issueId?: string;
+    };
+  } catch {
+    return {};
+  }
+}
+
+function useOptionalCurrentAppDestination() {
+  try {
+    return useCurrentAppDestination();
+  } catch {
+    return null;
+  }
+}
+
+function useOptionalKanbanRouteState() {
+  try {
+    return useCurrentKanbanRouteState();
+  } catch {
+    return { isCreateMode: false };
+  }
+}
+
+function useOptionalAuth() {
+  try {
+    return useAuth();
+  } catch {
+    return { isSignedIn: false };
+  }
 }

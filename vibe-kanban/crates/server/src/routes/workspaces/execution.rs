@@ -2,9 +2,9 @@ use std::{collections::HashMap, net::TcpListener, sync::OnceLock};
 
 use axum::{
     Extension, Router,
-    extract::{Path as AxumPath, Query, State},
+    extract::{Path as AxumPath, State},
     response::Json as ResponseJson,
-    routing::{get, post},
+    routing::{delete, get, post},
 };
 use db::models::{
     execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus},
@@ -27,6 +27,7 @@ use serde::{Deserialize, Serialize};
 use services::services::container::ContainerService;
 use tokio::sync::Mutex;
 use ts_rs::TS;
+use url::Url;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
@@ -79,19 +80,8 @@ pub struct PreviewSlotUrlResponse {
     pub workspace_token: String,
     pub repo_slug: String,
     pub slot_slug: String,
-    pub customer_slug: String,
     pub host: String,
     pub url: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PreviewSlotUrlQuery {
-    pub customer_slug: String,
-    #[serde(default)]
-    pub base_domain: Option<String>,
-    #[serde(default)]
-    pub url_scheme: Option<String>,
 }
 
 fn repo_has_dev_server(repo: &db::models::repo::Repo) -> bool {
@@ -153,12 +143,20 @@ pub fn router() -> Router<DeploymentImpl> {
             post(start_run_config_by_id),
         )
         .route(
+            "/run-configs/{run_config_id}",
+            delete(delete_run_config_by_id),
+        )
+        .route(
             "/preview-slots",
             get(list_preview_slots).post(upsert_preview_slot),
         )
         .route(
             "/preview-slots/{preview_slot_id}/start",
             post(start_preview_slot_by_id),
+        )
+        .route(
+            "/preview-slots/{preview_slot_id}",
+            delete(delete_preview_slot_by_id),
         )
         .route(
             "/preview-slots/{preview_slot_id}/url",
@@ -307,10 +305,8 @@ pub async fn preview_slot_url(
     Extension(workspace): Extension<Workspace>,
     State(deployment): State<DeploymentImpl>,
     AxumPath((workspace_id, preview_slot_id)): AxumPath<(Uuid, Uuid)>,
-    Query(query): Query<PreviewSlotUrlQuery>,
 ) -> Result<ResponseJson<ApiResponse<PreviewSlotUrlResponse>>, ApiError> {
     debug_assert_eq!(workspace_id, workspace.id);
-    validate_slug("customer slug", &query.customer_slug, 16)?;
     let pool = &deployment.db().pool;
     let slot = PreviewSlot::find_by_id(pool, preview_slot_id)
         .await?
@@ -323,38 +319,179 @@ pub async fn preview_slot_url(
     let repo_slug = RepoPreviewSlug::ensure(pool, slot.repo_id, &repo_name)
         .await?
         .slug;
-    let base_domain = query
-        .base_domain
-        .as_deref()
-        .unwrap_or("vibedashboard.dev")
-        .trim()
-        .trim_start_matches('.')
-        .to_ascii_lowercase();
-    let url_scheme = query
-        .url_scheme
-        .as_deref()
-        .unwrap_or("https")
-        .trim()
-        .trim_end_matches(':')
-        .to_ascii_lowercase();
-    if url_scheme != "http" && url_scheme != "https" {
-        return Err(ApiError::BadRequest(
-            "Preview URL scheme must be http or https".to_string(),
-        ));
-    }
-    let host = format!(
-        "{}-{}-{}-{}.{}",
-        workspace_token, repo_slug, slot.slot_slug, query.customer_slug, base_domain
-    );
+    let site_origin = std::env::var("SITE_ORIGIN").ok();
+    let preview_url = build_preview_slot_url(
+        &workspace_token,
+        &repo_slug,
+        &slot.slot_slug,
+        site_origin.as_deref(),
+    )
+    .map_err(ApiError::BadRequest)?;
+    let host = match preview_url.port() {
+        Some(port) => format!("{}:{port}", preview_url.host_str().unwrap()),
+        None => preview_url.host_str().unwrap().to_string(),
+    };
     Ok(ResponseJson(ApiResponse::success(PreviewSlotUrlResponse {
         preview_slot_id: slot.id,
         workspace_token,
         repo_slug,
         slot_slug: slot.slot_slug,
-        customer_slug: query.customer_slug,
-        url: format!("{url_scheme}://{host}/"),
+        url: preview_url.to_string(),
         host,
     })))
+}
+
+#[axum::debug_handler]
+pub async fn delete_run_config_by_id(
+    Extension(workspace): Extension<Workspace>,
+    State(deployment): State<DeploymentImpl>,
+    AxumPath((workspace_id, run_config_id)): AxumPath<(Uuid, Uuid)>,
+) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    debug_assert_eq!(workspace_id, workspace.id);
+    let _guard = run_config_start_lock().lock().await;
+    let pool = &deployment.db().pool;
+    let run_config = RunConfig::find_by_id(pool, run_config_id)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("Run config not found".to_string()))?;
+    validate_workspace_repo(&deployment, workspace.id, run_config.repo_id).await?;
+    if !PreviewSlot::find_by_run_config_id(pool, run_config_id)
+        .await?
+        .is_empty()
+    {
+        return Err(ApiError::BadRequest(
+            "Delete linked preview slots before deleting this run config.".to_string(),
+        ));
+    }
+    stop_linked_preview_process(
+        &deployment,
+        PreviewProcessLink::find_active_by_config(pool, workspace.id, run_config_id).await?,
+    )
+    .await?;
+    RunConfig::delete(pool, run_config_id).await?;
+    write_run_config_audit(
+        &deployment,
+        Some(workspace.id),
+        Some(run_config.repo_id),
+        None,
+        None,
+        None,
+        "run_config.delete",
+        Some(serde_json::json!({ "runConfigId": run_config_id }).to_string()),
+    )
+    .await?;
+    Ok(ResponseJson(ApiResponse::success(())))
+}
+
+#[axum::debug_handler]
+pub async fn delete_preview_slot_by_id(
+    Extension(workspace): Extension<Workspace>,
+    State(deployment): State<DeploymentImpl>,
+    AxumPath((workspace_id, preview_slot_id)): AxumPath<(Uuid, Uuid)>,
+) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    debug_assert_eq!(workspace_id, workspace.id);
+    let _guard = run_config_start_lock().lock().await;
+    let pool = &deployment.db().pool;
+    let slot = PreviewSlot::find_by_id(pool, preview_slot_id)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("Preview slot not found".to_string()))?;
+    validate_workspace_repo(&deployment, workspace.id, slot.repo_id).await?;
+    stop_linked_preview_process(
+        &deployment,
+        PreviewProcessLink::find_active_by_slot(pool, workspace.id, preview_slot_id).await?,
+    )
+    .await?;
+    PreviewSlot::delete(pool, preview_slot_id).await?;
+    write_run_config_audit(
+        &deployment,
+        Some(workspace.id),
+        Some(slot.repo_id),
+        Some(slot.run_config_id),
+        None,
+        None,
+        "preview_slot.delete",
+        Some(serde_json::json!({ "previewSlotId": preview_slot_id }).to_string()),
+    )
+    .await?;
+    Ok(ResponseJson(ApiResponse::success(())))
+}
+
+async fn stop_linked_preview_process(
+    deployment: &DeploymentImpl,
+    link: Option<PreviewProcessLink>,
+) -> Result<(), ApiError> {
+    if let Some(link) = link {
+        if let Some(process) =
+            ExecutionProcess::find_by_id(&deployment.db().pool, link.execution_process_id).await?
+            && process.status == ExecutionProcessStatus::Running
+        {
+            deployment
+                .container()
+                .stop_execution(&process, ExecutionProcessStatus::Killed)
+                .await?;
+        }
+        PreviewProcessLink::mark_ended_for_process(
+            &deployment.db().pool,
+            link.execution_process_id,
+            db::models::preview_process_link::PreviewProcessStatusSnapshot::Stopped,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+fn build_preview_slot_url(
+    workspace_token: &str,
+    repo_slug: &str,
+    slot_slug: &str,
+    site_origin: Option<&str>,
+) -> Result<Url, String> {
+    let mut origin =
+        Url::parse(site_origin.ok_or("Preview URLs require SITE_ORIGIN on the server")?)
+            .map_err(|_| "Invalid SITE_ORIGIN".to_string())?;
+    if !matches!(origin.scheme(), "http" | "https") {
+        return Err("SITE_ORIGIN must use HTTP or HTTPS".to_string());
+    }
+    if workspace_token.len() != 16
+        || !workspace_token
+            .bytes()
+            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+        || repo_slug.is_empty()
+        || repo_slug.len() > 18
+        || !repo_slug
+            .bytes()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        || slot_slug.is_empty()
+        || slot_slug.len() > 10
+        || !slot_slug
+            .bytes()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+    {
+        return Err("Invalid preview URL parts".to_string());
+    }
+    if !matches!(origin.host(), Some(url::Host::Domain(_))) {
+        return Err("Preview URLs require a DNS hostname in SITE_ORIGIN".to_string());
+    }
+    let hostname = origin.host_str().unwrap();
+    let prefix = format!("{workspace_token}-{repo_slug}-{slot_slug}");
+    let host = match psl::domain_str(hostname) {
+        Some(domain) if domain != hostname => {
+            let (label, rest) = hostname.split_once('.').unwrap();
+            format!("{prefix}-{label}-user.{rest}")
+        }
+        _ => format!("{prefix}-user.{hostname}"),
+    };
+    if host.split('.').next().unwrap().len() > 63 {
+        return Err("Preview hostname exceeds the DNS label limit".to_string());
+    }
+    origin
+        .set_host(Some(&host))
+        .map_err(|_| "Invalid preview hostname".to_string())?;
+    origin.set_path("/");
+    origin.set_query(None);
+    origin.set_fragment(None);
+    let _ = origin.set_username("");
+    let _ = origin.set_password(None);
+    Ok(origin)
 }
 
 #[axum::debug_handler]
@@ -904,6 +1041,52 @@ mod tests {
     use http::Request;
     use tower::ServiceExt;
     use uuid::Uuid;
+
+    use super::build_preview_slot_url;
+
+    #[test]
+    fn preview_urls_follow_shared_site_origin_contract() {
+        let cases: Vec<serde_json::Value> =
+            serde_json::from_str(include_str!("../../../../../shared/preview-url-cases.json"))
+                .unwrap();
+        for case in cases {
+            let url =
+                build_preview_slot_url("0123456789abcdef", "repo", "web", case["origin"].as_str())
+                    .unwrap();
+            assert_eq!(url.as_str(), case["url"].as_str().unwrap());
+        }
+    }
+
+    #[test]
+    fn preview_urls_require_valid_origin_and_routing_parts() {
+        for origin in [
+            None,
+            Some("not a URL"),
+            Some("ftp://example.com"),
+            Some("http://127.0.0.1"),
+            Some("http://[::1]"),
+        ] {
+            assert!(build_preview_slot_url("0123456789abcdef", "repo", "web", origin).is_err());
+        }
+        for (token, repo, slot) in [
+            ("INVALID", "repo", "web"),
+            ("0123456789abcdef", "repo-name", "web"),
+            ("0123456789abcdef", "repo", "Web"),
+        ] {
+            assert!(
+                build_preview_slot_url(token, repo, slot, Some("https://example.com")).is_err()
+            );
+        }
+        assert!(
+            build_preview_slot_url(
+                "0123456789abcdef",
+                "repo",
+                "web",
+                Some(&format!("https://{}.example.com", "x".repeat(60)))
+            )
+            .is_err()
+        );
+    }
 
     #[tokio::test]
     async fn nested_run_config_route_path_extracts_workspace_and_run_config_ids() {

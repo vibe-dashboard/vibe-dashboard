@@ -478,6 +478,10 @@ async function openCraftFromVoyageActionsMenu(page: Page) {
   await clickVoyageActionsMenuItem(page, 'Open Craft');
 }
 
+async function openCraftFromKeyboardShortcut(page: Page) {
+  await page.keyboard.press('Control+K');
+}
+
 async function expectCurrentVoyage(page: Page, voyageName: string) {
   const voyageRow = getVoyageSwitcherVoyageButton(page, voyageName).locator(
     '..',
@@ -1039,7 +1043,7 @@ test.describe('voyage persistence', () => {
     );
     await waitForSavedVoyageWithCraft(page.request, voyageId, menuCraftLabel);
 
-    await page.keyboard.press('Control+K');
+    await openCraftFromKeyboardShortcut(page);
     await expect(page.getByRole('heading', { name: 'Open VK Workspace' })).toBeVisible();
     await page.getByPlaceholder('Search workspaces...').fill(commandWorkspace.name);
     await page.getByRole('button', { name: new RegExp(commandWorkspace.name) }).click();
@@ -1248,6 +1252,52 @@ test.describe('voyage persistence', () => {
     await expect(page).toHaveURL(
       new RegExp(`voyage=e2e-pending-error-target-${runId}`),
     );
+  });
+
+  test('preserves entry views when move requests carry a stale generated-surface selection', async ({ page }) => {
+    await clearSavedVoyages(page.request);
+    const runId = Date.now().toString(36);
+    const crafts = [];
+    for (const label of ['Moved', 'Remaining', 'Target seed']) {
+      const craft = await callWorkspaceAction<{ tabGroupId: string }>(page.request, 'addTabGroup', {
+        spaceId: 'space_home', label: `${label} ${runId}`,
+      });
+      const tab = await callWorkspaceAction<{ tabId: string }>(page.request, 'addTab', {
+        tabGroupId: craft.tabGroupId, title: 'Agent', url: `https://example.invalid/${runId}/${label}`,
+      });
+      crafts.push({ ...craft, tabId: tab.tabId, label: `${label} ${runId}` });
+    }
+    const [moved, remaining, seed] = crafts as [typeof crafts[number], typeof crafts[number], typeof crafts[number]];
+    const movedEntry = { id: `ve_moved_${runId}`, tabGroupId: moved.tabGroupId, viewIds: [moved.tabId] };
+    const remainingEntry = { id: `ve_remaining_${runId}`, tabGroupId: remaining.tabGroupId, viewIds: [remaining.tabId] };
+    const seedEntry = { id: `ve_seed_${runId}`, tabGroupId: seed.tabGroupId, viewIds: [seed.tabId] };
+    const sourceId = `source_${runId}`;
+    const targetId = `target_${runId}`;
+    for (const [id, entries] of [[sourceId, [movedEntry, remainingEntry]], [targetId, [seedEntry]]] as const) {
+      await callWorkspaceAction(page.request, 'upsertSavedSession', {
+        id, name: id, slug: id, createdAt: '2026-06-05T00:00:00.000Z', updatedAt: '2026-06-05T00:00:00.000Z',
+        voyageEntries: entries, activeVoyageEntryId: entries[0].id,
+        activeSpaceId: 'space_home', activeTabGroupId: entries[0].tabGroupId,
+        activeItemsByVoyageEntryId: Object.fromEntries(entries.map((entry) => [entry.id, entry.viewIds[0]])),
+        visitedTabGroupIds: entries.map((entry) => entry.tabGroupId),
+      });
+    }
+    const staleItemId = `craft-surface:${moved.tabGroupId}:dev.mickmister.code-server/editor`;
+    await callWorkspaceAction(page.request, 'moveVoyageEntryBetweenSavedSessions', {
+      sourceSessionId: sourceId, targetSessionId: targetId, voyageEntryId: movedEntry.id, activeItemId: staleItemId,
+    });
+    await waitForSavedVoyageCraftState(page.request, targetId, {
+      entryLabels: [seed.label, moved.label], activeCraftLabel: moved.label,
+      activeItemTitle: 'Agent', activeTabGroupId: moved.tabGroupId,
+    });
+
+    const created = await callWorkspaceAction<{ targetSession: { id: string } }>(page.request, 'createSavedSessionFromVoyageEntry', {
+      name: `Created target ${runId}`, sourceSessionId: targetId, voyageEntry: movedEntry, activeItemId: staleItemId,
+    });
+    await waitForSavedVoyageCraftState(page.request, created.targetSession.id, {
+      entryLabels: [moved.label], activeCraftLabel: moved.label,
+      activeItemTitle: 'Agent', activeTabGroupId: moved.tabGroupId,
+    });
   });
 
   test('moves a craft entry from one saved voyage to another and persists both voyages', async ({ page }) => {

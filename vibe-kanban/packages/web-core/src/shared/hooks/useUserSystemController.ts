@@ -8,6 +8,9 @@ import type {
   UserSystemInfo,
 } from 'shared/types';
 import type { UserSystemContextType } from './useUserSystem';
+import { executorDiscoveryKeys } from './executorDiscoveryKeys';
+import { presetOptionsKeys } from './usePresetOptions';
+import { useHostId } from '@/shared/providers/HostIdProvider';
 
 interface UseUserSystemControllerOptions {
   queryKey: readonly unknown[];
@@ -29,6 +32,7 @@ export function useUserSystemController({
   isLoading: boolean;
 } {
   const queryClient = useQueryClient();
+  const hostId = useHostId();
 
   const { data: userSystemInfo, isLoading } = useQuery({
     queryKey,
@@ -106,8 +110,16 @@ export function useUserSystemController({
   );
 
   const reloadSystem = useCallback(async () => {
-    await queryClient.invalidateQueries({ queryKey });
-  }, [queryClient, queryKey]);
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey }),
+      queryClient.invalidateQueries({
+        queryKey: executorDiscoveryKeys.byHost(hostId),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: [...presetOptionsKeys.all, hostId],
+      }),
+    ]);
+  }, [queryClient, queryKey, hostId]);
 
   const setEnvironment = useCallback(
     (env: Environment | null) => {

@@ -44,8 +44,8 @@ function ToolbarButton({
       className={cn(
         'p-half rounded-sm transition-colors',
         active
-          ? 'text-normal bg-panel'
-          : 'text-low hover:text-normal hover:bg-panel/50'
+          ? 'text-foreground bg-content2'
+          : 'text-default-500 hover:text-foreground hover:bg-content2/50'
       )}
     >
       <Icon className="size-icon-sm" weight="bold" />
@@ -86,7 +86,7 @@ export function StaticToolbarPlugin({
   };
 
   return (
-    <div className="flex items-center gap-half mt-half px-base py-half border-t border-border/50">
+    <div className="flex items-center gap-half mt-half px-base py-half border-t border-divider/50">
       {/* Undo button */}
       <ToolbarButton
         onClick={() =>

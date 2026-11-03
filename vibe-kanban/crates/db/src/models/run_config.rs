@@ -139,6 +139,14 @@ impl RunConfig {
         rows.into_iter().map(TryInto::try_into).collect()
     }
 
+    pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query("DELETE FROM run_configs WHERE id = ?")
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(result.rows_affected())
+    }
+
     pub async fn upsert(pool: &SqlitePool, input: &UpsertRunConfig) -> Result<Self, sqlx::Error> {
         let id = input.id.unwrap_or_else(Uuid::new_v4);
         sqlx::query(

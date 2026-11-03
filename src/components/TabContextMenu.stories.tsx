@@ -24,8 +24,8 @@ const meta: Meta<typeof TabContextMenu> = {
   component: TabContextMenu,
   decorators: [
     (Story) => (
-      <div className="relative min-h-80 w-full bg-neutral-950 p-4 text-neutral-100">
-        <div className="rounded-lg border border-dashed border-neutral-800 p-4 text-sm text-neutral-500">
+      <div className="relative min-h-80 w-full bg-background p-4 text-foreground">
+        <div className="rounded-lg border border-dashed border-divider/30 p-4 text-sm text-default-500">
           Context menu preview canvas
         </div>
         <Story />

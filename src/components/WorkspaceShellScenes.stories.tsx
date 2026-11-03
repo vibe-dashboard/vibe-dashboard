@@ -66,7 +66,7 @@ const meta: Meta = {
   title: 'Scenes/WorkspaceShell',
   decorators: [
     (Story) => (
-      <div className="min-h-[720px] bg-neutral-950 p-6 text-neutral-100">
+      <div className="min-h-[720px] bg-background p-6 text-foreground">
         <Story />
       </div>
     ),
@@ -78,7 +78,7 @@ type Story = StoryObj<typeof meta>;
 
 export const DesktopVoyageBar: Story = {
   render: () => (
-    <div className="h-20 overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950">
+    <div className="h-20 overflow-hidden rounded-lg border border-divider bg-background">
       <VoyageBarView
         items={voyageItems}
         activeVoyageEntryId="voyage_entry_agent"
@@ -105,7 +105,7 @@ export const DesktopVoyageBar: Story = {
 
 export const DesktopVoyageBarWithPendingCraft: Story = {
   render: () => (
-    <div className="h-20 overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950">
+    <div className="h-20 overflow-hidden rounded-lg border border-divider bg-background">
       <VoyageBarView
         items={voyageItems}
         activeVoyageEntryId="voyage_entry_agent"
@@ -252,7 +252,7 @@ export const DuplicateCraftPrompt: Story = {
 
 export const PendingOpenCraftMainContent: Story = {
   render: () => (
-    <div className="h-[420px] overflow-hidden rounded-lg border border-neutral-800">
+    <div className="h-[420px] overflow-hidden rounded-lg border border-divider">
       <PendingOpenCraftContent
         tab={{ label: 'Kanban polish', status: 'pending' }}
         onRetry={noop}
@@ -264,7 +264,7 @@ export const PendingOpenCraftMainContent: Story = {
 
 export const PendingOpenCraftErrorContent: Story = {
   render: () => (
-    <div className="h-[420px] overflow-hidden rounded-lg border border-neutral-800">
+    <div className="h-[420px] overflow-hidden rounded-lg border border-divider">
       <PendingOpenCraftContent
         tab={{
           label: 'Kanban polish',
@@ -280,7 +280,7 @@ export const PendingOpenCraftErrorContent: Story = {
 
 export const PendingOpenCraftTabs: Story = {
   render: () => (
-    <div className="flex h-10 items-stretch overflow-hidden rounded-lg border border-neutral-800 bg-neutral-900">
+    <div className="flex h-10 items-stretch overflow-hidden rounded-lg border border-divider bg-content1">
       <PendingOpenCraftVoyageTab
         tab={{ label: 'Kanban polish', status: 'pending' }}
         compact={false}
@@ -300,7 +300,7 @@ export const PendingOpenCraftTabs: Story = {
 
 export const ExpandedDesktopCraftStrip: Story = {
   render: () => (
-    <div className="h-20 overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950">
+    <div className="h-20 overflow-hidden rounded-lg border border-divider bg-background">
       <ExpandedCraftStrip
         items={expandedItems}
         onSelect={(item) => console.info('select expanded item', item)}
@@ -311,7 +311,7 @@ export const ExpandedDesktopCraftStrip: Story = {
 
 export const ExpandedMobileCraftStrip: Story = {
   render: () => (
-    <div className="relative h-[420px] overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950">
+    <div className="relative h-[420px] overflow-hidden rounded-lg border border-divider bg-background">
       <ExpandedCraftStrip
         items={expandedItems.filter((item) => item.kind === 'tab')}
         mobile
@@ -323,7 +323,7 @@ export const ExpandedMobileCraftStrip: Story = {
 
 export const MobileCraftStripManyCrafts: Story = {
   render: () => (
-    <div className="relative h-[420px] overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950">
+    <div className="relative h-[420px] overflow-hidden rounded-lg border border-divider bg-background">
       <MobileCraftStrip
         items={voyageItems}
         activeVoyageEntryId="voyage_entry_agent"
@@ -348,7 +348,7 @@ export const MobileCraftStripManyCrafts: Story = {
 
 export const MobileCraftStripEmptyPending: Story = {
   render: () => (
-    <div className="relative h-[420px] overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950">
+    <div className="relative h-[420px] overflow-hidden rounded-lg border border-divider bg-background">
       <MobileCraftStrip
         items={[]}
         activeTabGroupLabel="No craft"
@@ -373,7 +373,7 @@ export const MobileCraftStripEmptyPending: Story = {
 
 export const MobileCraftMenuOpen: Story = {
   render: () => (
-    <div className="relative h-[520px] overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950">
+    <div className="relative h-[520px] overflow-hidden rounded-lg border border-divider bg-background">
       <MobileCraftMenu
         tabGroup={storybookTabGroups.agent}
         draftLabel="Auth"

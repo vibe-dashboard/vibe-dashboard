@@ -157,6 +157,65 @@ describe('BeadsClient', () => {
     }
   });
 
+  it('lists all workspace tasks grouped into stable status buckets', async () => {
+    const store = await withWorkspaceBeadsStore('workspace-1');
+    const exec = vi.fn<ExecFileLike>(async (_file, args, options) => {
+      expect(options.cwd).toBe(store.store);
+      expect(args).toEqual(['--readonly', 'list', '--json', '--all', '--limit', '0']);
+      return {
+        stdout: JSON.stringify([
+          { id: 'task-open', title: 'Open item', status: 'open', priority: 2, owner: 'owner-a', labels: ['needs-agent-review'] },
+          { id: 'task-work', title: 'Working item', status: 'in_progress', assignee: 'agent' },
+          { id: 'task-blocked', title: 'Blocked item', status: 'blocked' },
+          { id: 'task-done', title: 'Done item', status: 'closed', metadata: { beadFormsSummary: { hasForms: true, hasPendingAnswer: true, pendingResponseCount: 1, formIds: ['review'], pendingFormIds: ['review'] } } },
+          { id: 'task-custom', title: 'Custom item', status: 'needs_triage' },
+        ]),
+        stderr: '',
+      };
+    });
+    const client = new BeadsClient({ execFile: exec });
+
+    try {
+      const result = await client.listWorkspaceTasks({ workspaceId: 'workspace-1' });
+
+      expect(result.initialized).toBe(true);
+      expect(result.counts).toEqual({ open: 2, inProgress: 2, done: 1 });
+      expect(result.groups.inProgress.map((task) => task.id)).toEqual(['task-work', 'task-blocked']);
+      expect(result.groups.open.map((task) => task.id)).toEqual(['task-open', 'task-custom']);
+      expect(result.groups.done.map((task) => task.id)).toEqual(['task-done']);
+      expect(result.groups.done[0]).toMatchObject({
+        forms: { hasForms: true, pendingResponseCount: 1, pendingFormIds: ['review'] },
+      });
+    } finally {
+      store.restore();
+    }
+  });
+
+  it('reports uninitialized workspace tasks without running bd', async () => {
+    const base = await mkdtemp(join(tmpdir(), 'vd-beads-'));
+    const previous = process.env.VD_BEADS_DIRECTORY;
+    process.env.VD_BEADS_DIRECTORY = base;
+    const exec = vi.fn<ExecFileLike>(async () => ({ stdout: '[]', stderr: '' }));
+    const client = new BeadsClient({ execFile: exec });
+
+    try {
+      const result = await client.listWorkspaceTasks({ workspaceId: 'workspace-1' });
+
+      expect(result).toMatchObject({
+        workspaceId: 'workspace-1',
+        initialized: false,
+        counts: { open: 0, inProgress: 0, done: 0 },
+      });
+      expect(exec).not.toHaveBeenCalled();
+    } finally {
+      if (previous === undefined) {
+        delete process.env.VD_BEADS_DIRECTORY;
+      } else {
+        process.env.VD_BEADS_DIRECTORY = previous;
+      }
+    }
+  });
+
   it('uses form-bearing list metadata for workspace discovery without bulk showing every bead', async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), 'beads-workspace-'));
     const store = await withWorkspaceBeadsStore('workspace-1');

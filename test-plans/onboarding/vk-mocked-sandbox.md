@@ -99,11 +99,35 @@ To preview the plan without starting the servers:
 npm run prepare:vk-mocked-sandbox
 ```
 
-By default, the sandbox tries to use a prebuilt VK runtime release for the
-vendored `./vibe-kanban` content hash. If the vendored VK tree is dirty or no
-matching `vk-assets-sha256-<hash>` release exists, it falls back to local source
-builds. To force CI-release mode, use the convenience commands with an exact VK
-content hash:
+For remotely built VK servers, use the CI-release convenience commands below.
+They calculate the current checkout's VK content hash with
+`.github/scripts/vk-content-hash.sh` and download the matching
+`vk-assets-sha256-<hash>` GitHub Release from `vibe-dashboard/vibe-kanban`.
+Archives include the frontend. Manifest identity and archive checksums are
+verified before extraction. Missing releases fail without falling back to local
+builds. Normal runtime binaries support mocked responses with `VK_QA_MODE=1`;
+the compile-time `qa-mode` feature is not needed.
+
+```bash
+VK_CHECKOUT=vibe-kanban npm run prepare:vk-mocked-sandbox:ci-release
+VK_CHECKOUT=vibe-kanban npm run dev:vk-mocked-sandbox:ci-release
+scripts/ci-run-vk-mocked-sandbox-e2e.sh
+```
+
+The sandbox CLI and CI-style e2e wrapper default to remote mode. Set
+`VK_MOCKED_VK_BACKEND=source` explicitly for local builds. To pin a different
+release, set `VK_MOCKED_CONTENT_HASH=<64-character-sha256>`; only the default
+checkout-derived hash guarantees matching local VK content. Release files are
+stored under `.vk-mocked-sandbox/vk-runtime-releases/<tag>/<platform>`.
+The wrapper waits up to 45 minutes for the matching release to be published
+(`VK_MOCKED_RELEASE_WAIT_SECONDS` overrides this); direct downloads fail
+immediately by default. Linux release-mode fixture reset/snapshot uses
+`.vk-mocked-sandbox/current/xdg-data/vibe-kanban` rather than the source
+checkout's `dev_assets`, matching the server's isolated `XDG_DATA_HOME`.
+Fixture reset prepares both source and release data directories and rewrites
+the seeded repository path into the current worktree. Snapshotting release
+runtime data requires `VK_MOCKED_VK_BACKEND=ci-release`.
+`VK_MOCKED_RELEASE_HASH` is accepted as an alias for an explicit content pin:
 
 ```bash
 VK_MOCKED_RELEASE_HASH=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
@@ -113,11 +137,9 @@ VK_MOCKED_RELEASE_HASH=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 npm run dev:vk-mocked-sandbox:ci-release
 ```
 
-When `VK_MOCKED_RELEASE_HASH` is omitted, the command computes it with
-`.github/scripts/vk-content-hash.sh`. The downloaded artifact is cached under
-`$VD_CHECKOUT/.vk-mocked-sandbox/vk-release-assets/<hash>`, which is ignored by
-git. The release archive checksum is verified; `manifest.json` content hash is
-also checked when the artifact includes it.
+When no content pin is supplied, the command computes it with
+`.github/scripts/vk-content-hash.sh`. Both content identity and archive checksum
+must match the manifest. Legacy commit-SHA/Actions-run pins are no longer used.
 
 After upgrading from the separate QA archive, rerun sandbox setup before using
 `VK_MOCKED_SKIP_SETUP_COMMANDS=1` so the saved plan points to the standard binary.
@@ -134,10 +156,10 @@ Record the printed:
 - `VK_CHECKOUT` exists. CI-release mode still uses this checkout as VK's working
   directory/data location, but does not build or execute VK from source.
 - Node/pnpm dependencies are installed for VD and VK.
-- VK Rust dependencies are installed.
+- VK Rust dependencies are needed only for explicitly selected source mode.
 - Caddy is installed and available on `PATH`.
-- VK backend has either already been built, or the tester accepts the
-  initial Rust compile time.
+- The matching remote VK release exists, or CI publication completes within the
+  configured release-wait period. Default operation does not compile VK locally.
 
 Optional prebuilds to reduce first sandbox startup delay:
 
@@ -240,9 +262,10 @@ is `VK_CHECKOUT` in this sandbox.
 | `VK_MOCKED_VD_SERVER_PORT` | Explicit VD server port. |
 | `VK_MOCKED_CADDY_PORT` | Explicit front-door Caddy port. |
 | `VK_MOCKED_SANDBOX_RUN_DIR` | Overrides the generated plan, environment, log, and PID directory. |
-| `VK_MOCKED_VK_BACKEND` | For vendored VK, defaults to trying a CI release artifact first, then source mode. External `VK_CHECKOUT` values default to source mode. Set to `ci-release` to require a CI artifact or `source` to force local source mode. |
-| `VK_MOCKED_RELEASE_HASH` | Optional CI-release mode override; full 64-character VK content hash. When omitted, `.github/scripts/vk-content-hash.sh` hashes tracked files under `vibe-kanban`. |
-| `VK_MOCKED_RELEASE_TAG` | Optional CI-release mode release tag override; defaults to `vk-assets-sha256-<VK_MOCKED_RELEASE_HASH>`. |
+| `VK_MOCKED_VK_BACKEND` | Defaults to remotely built `ci-release`; no automatic fallback to local compilation. `source` explicitly selects local source mode. |
+| `VK_MOCKED_CONTENT_HASH` | Optional exact 64-character content-hash pin. CI-release mode defaults to the current checkout's VK content hash. |
+| `VK_MOCKED_RELEASE_WAIT_SECONDS` | Retry release downloads while publication finishes. Defaults to 2700 in the e2e wrapper and 0 for direct commands. |
+| `VK_MOCKED_RELEASE_HASH` | Alias for `VK_MOCKED_CONTENT_HASH`; full 64-character VK content hash. |
 | `VK_MOCKED_GH_REPO` | CI-release mode GitHub repo; defaults to `vibe-dashboard/vibe-kanban`. |
 | `VK_MOCKED_GH_ARTIFACT_NAME` | CI-release mode cache directory name; defaults to `release-assets-linux-x64`. |
 | `VK_MOCKED_GH_ARCHIVE_NAME` | CI-release mode archive name; defaults to the standard build `vibe-kanban-linux-x64.tar.gz`. |

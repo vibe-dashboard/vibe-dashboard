@@ -36,7 +36,7 @@ use crate::{
 
 #[derive(Debug, Deserialize)]
 pub struct AttachmentMetadataQuery {
-    /// Path relative to worktree root, e.g., ".vibe-attachments/screenshot.png"
+    /// Path relative to worktree root, e.g., ".alohak-attachments/screenshot.png"
     pub path: String,
     pub session_id: Uuid,
 }
@@ -144,8 +144,18 @@ pub async fn get_attachment_metadata(
     State(deployment): State<DeploymentImpl>,
     Query(query): Query<AttachmentMetadataQuery>,
 ) -> Result<ResponseJson<ApiResponse<AttachmentMetadata>>, ApiError> {
-    let vibe_attachments_prefix = format!("{}/", utils::path::VIBE_ATTACHMENTS_DIR);
-    if !query.path.starts_with(&vibe_attachments_prefix) {
+    let attachment_path = [
+        utils::path::VIBE_ATTACHMENTS_DIR,
+        utils::path::LEGACY_ATTACHMENTS_DIR,
+    ]
+    .into_iter()
+    .find_map(|directory| {
+        query
+            .path
+            .strip_prefix(&format!("{directory}/"))
+            .map(|path| (directory, path))
+    });
+    let Some((attachment_directory, file_path)) = attachment_path else {
         return Ok(ResponseJson(ApiResponse::success(AttachmentMetadata {
             exists: false,
             file_name: None,
@@ -154,7 +164,7 @@ pub async fn get_attachment_metadata(
             format: None,
             proxy_url: None,
         })));
-    }
+    };
 
     if query.path.contains("..") {
         return Ok(ResponseJson(ApiResponse::success(AttachmentMetadata {
@@ -168,11 +178,8 @@ pub async fn get_attachment_metadata(
     }
 
     let base_path = resolve_session_base_path(&deployment, &workspace, query.session_id).await?;
-    let file_path = query
-        .path
-        .strip_prefix(&vibe_attachments_prefix)
-        .unwrap_or("");
-    ensure_workspace_attachment_exists(&deployment, &base_path, file_path).await?;
+    ensure_workspace_attachment_exists(&deployment, &base_path, file_path, attachment_directory)
+        .await?;
     let full_path = base_path.join(&query.path);
 
     let metadata = match tokio::fs::metadata(&full_path).await {
@@ -222,8 +229,22 @@ pub async fn serve_file(
         return Err(ApiError::File(FileError::NotFound));
     }
     let base_path = resolve_session_base_path(&deployment, &workspace, query.session_id).await?;
-    ensure_workspace_attachment_exists(&deployment, &base_path, &path).await?;
-    let vibe_attachments_dir = base_path.join(utils::path::VIBE_ATTACHMENTS_DIR);
+    let attachment_directory = if !base_path
+        .join(utils::path::VIBE_ATTACHMENTS_DIR)
+        .join(&path)
+        .exists()
+        && base_path
+            .join(utils::path::LEGACY_ATTACHMENTS_DIR)
+            .join(&path)
+            .exists()
+    {
+        utils::path::LEGACY_ATTACHMENTS_DIR
+    } else {
+        utils::path::VIBE_ATTACHMENTS_DIR
+    };
+    ensure_workspace_attachment_exists(&deployment, &base_path, &path, attachment_directory)
+        .await?;
+    let vibe_attachments_dir = base_path.join(attachment_directory);
     let full_path = vibe_attachments_dir.join(&path);
 
     let canonical_path = tokio::fs::canonicalize(&full_path)
@@ -276,8 +297,9 @@ async fn ensure_workspace_attachment_exists(
     deployment: &DeploymentImpl,
     base_path: &Path,
     file_path: &str,
+    directory: &str,
 ) -> Result<(), ApiError> {
-    let attachment_dir = base_path.join(utils::path::VIBE_ATTACHMENTS_DIR);
+    let attachment_dir = base_path.join(directory);
     let full_path = attachment_dir.join(file_path);
     if full_path.exists() {
         return Ok(());
@@ -291,6 +313,21 @@ async fn ensure_workspace_attachment_exists(
         .file()
         .copy_files_by_ids_to_worktree(base_path, &[file.id])
         .await?;
+
+    if directory == utils::path::LEGACY_ATTACHMENTS_DIR {
+        tokio::fs::create_dir_all(&attachment_dir).await?;
+        let gitignore = attachment_dir.join(".gitignore");
+        if !gitignore.exists() {
+            tokio::fs::write(gitignore, "*\n").await?;
+        }
+        tokio::fs::copy(
+            base_path
+                .join(utils::path::VIBE_ATTACHMENTS_DIR)
+                .join(file_path),
+            full_path,
+        )
+        .await?;
+    }
 
     Ok(())
 }

@@ -19,7 +19,7 @@ export function ExternalKanbanBoardShell({
   overlays?: React.ReactNode;
 }) {
   return (
-    <main className="dark h-dvh overflow-y-auto overscroll-contain bg-neutral-950 text-neutral-100">
+    <main className="h-dvh overflow-y-auto overscroll-contain bg-background text-foreground">
       <div className="flex min-h-full flex-col lg:flex-row">
         <div className="min-w-0 flex-1">{children}</div>
         {sidePanel ?? null}
@@ -47,13 +47,13 @@ export function ExternalKanbanColumns({
       {renderColumns.map((column) => {
         const columnCards = cards.filter((card) => isCardInColumn(card, column, knownColumnIds));
         return (
-          <section key={column.id} className="min-w-72 rounded-xl border border-neutral-800 bg-neutral-900/80">
-            <div className="flex items-center justify-between border-b border-neutral-800 px-4 py-3">
-              <h3 className="text-sm font-semibold text-neutral-100">{column.title}</h3>
-              <Chip size="sm" variant="flat" className="bg-neutral-800 text-neutral-300">{columnCards.length}</Chip>
+          <section key={column.id} className="min-w-72 rounded-xl border border-divider/30 bg-content1/80">
+            <div className="flex items-center justify-between border-b border-divider/30 px-4 py-3">
+              <h3 className="text-sm font-semibold text-foreground">{column.title}</h3>
+              <Chip size="sm" variant="flat" className="bg-content2 text-foreground">{columnCards.length}</Chip>
             </div>
             <div className="space-y-3 p-3">
-              {columnCards.length === 0 ? <div className="rounded-lg border border-dashed border-neutral-800 p-3 text-sm text-neutral-500">{emptyLabel}</div> : null}
+              {columnCards.length === 0 ? <div className="rounded-lg border border-dashed border-divider/30 p-3 text-sm text-default-500">{emptyLabel}</div> : null}
               {columnCards.map((card) => <React.Fragment key={card.id}>{renderCard(card)}</React.Fragment>)}
             </div>
           </section>
@@ -82,13 +82,13 @@ export function ExternalKanbanList({
   return (
     <div className="space-y-4" role="list" aria-label="External Kanban list">
       {showGroupingDiagnostic ? (
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">
+        <div className="rounded-xl border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
           <div className="font-medium">Grouping not fully mirrored</div>
-          {list?.reason ? <div className="mt-1 text-amber-100/80">{list.reason}</div> : null}
+          {list?.reason ? <div className="mt-1 text-warning/80">{list.reason}</div> : null}
         </div>
       ) : null}
       {orderedCards.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-neutral-800 p-4 text-sm text-neutral-500">{emptyLabel}</div>
+        <div className="rounded-xl border border-dashed border-divider/30 p-4 text-sm text-default-500">{emptyLabel}</div>
       ) : null}
       {renderedSections.length > 0 ? (
         <>
@@ -117,7 +117,7 @@ export function ExternalKanbanSingleIssuePage({
   boardView,
   card,
   providerLabel,
-  providerColorClassName = 'bg-neutral-800 text-neutral-200',
+  providerColorClassName = 'bg-content2 text-foreground',
   openInProviderLabel = 'Open in provider',
   metadataItems = [],
   onCreateWorkspace,
@@ -137,21 +137,21 @@ export function ExternalKanbanSingleIssuePage({
   return (
     <main className="min-h-full px-4 py-5 sm:px-6 lg:px-8">
       <div className="mx-auto flex max-w-5xl flex-col gap-5">
-        <header className="rounded-2xl border border-neutral-800 bg-neutral-900/70 p-5">
+        <header className="rounded-2xl border border-divider/30 bg-content1/70 p-5">
           <div className="flex flex-wrap items-center gap-2">
             <Chip size="sm" variant="flat" className={providerColorClassName}>{providerLabel}</Chip>
-            <Chip size="sm" variant="flat" className="bg-neutral-800 text-neutral-300">Single issue</Chip>
-            <Chip size="sm" variant="flat" className="bg-neutral-800 text-neutral-300">Read-only</Chip>
+            <Chip size="sm" variant="flat" className="bg-content2 text-foreground">Single issue</Chip>
+            <Chip size="sm" variant="flat" className="bg-content2 text-foreground">Read-only</Chip>
           </div>
           <div className="mt-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded bg-neutral-800 px-2 py-0.5 font-mono text-sm font-semibold text-neutral-100">{card.key}</span>
-                {card.statusName ? <span className="rounded bg-neutral-800 px-2 py-0.5 text-xs text-neutral-300">{card.statusName}</span> : null}
-                {card.priority ? <span className="rounded bg-neutral-800 px-2 py-0.5 text-xs text-neutral-300">{card.priority}</span> : null}
+                <span className="rounded bg-content2 px-2 py-0.5 font-mono text-sm font-semibold text-foreground">{card.key}</span>
+                {card.statusName ? <span className="rounded bg-content2 px-2 py-0.5 text-xs text-foreground">{card.statusName}</span> : null}
+                {card.priority ? <span className="rounded bg-content2 px-2 py-0.5 text-xs text-foreground">{card.priority}</span> : null}
               </div>
-              <h1 className="mt-3 text-3xl font-semibold tracking-tight text-neutral-50">{card.title}</h1>
-              <p className="mt-2 text-sm text-neutral-400">{boardView.siteHostname} · {boardView.board.name ?? boardView.resource.name}</p>
+              <h1 className="mt-3 text-3xl font-semibold tracking-tight text-foreground">{card.title}</h1>
+              <p className="mt-2 text-sm text-default-500">{boardView.siteHostname} · {boardView.board.name ?? boardView.resource.name}</p>
             </div>
             <div className="flex flex-wrap gap-2">
               {workspaceCount === 0 ? (
@@ -169,7 +169,7 @@ export function ExternalKanbanSingleIssuePage({
           </div>
         </header>
 
-        <section className="grid gap-3 rounded-2xl border border-neutral-800 bg-neutral-900/60 p-4 sm:grid-cols-2 lg:grid-cols-4">
+        <section className="grid gap-3 rounded-2xl border border-divider/30 bg-content1/60 p-4 sm:grid-cols-2 lg:grid-cols-4">
           <DetailStat label="Assignee" value={card.assignee?.displayName ?? 'Unassigned'} />
           <DetailStat label="Workspace" value={workspaceCount === 0 ? 'None' : workspaceCount === 1 ? 'Existing workspace' : `${workspaceCount} linked workspaces`} />
           <DetailStat label="Tasks" value={`${taskSummary.completed}/${taskSummary.total} tasks complete`} />
@@ -177,19 +177,19 @@ export function ExternalKanbanSingleIssuePage({
           {metadataItems.map((item) => <DetailStat key={`${item.label}:${item.value}`} label={item.label} value={item.value} />)}
         </section>
 
-        <section className="rounded-2xl border border-neutral-800 bg-neutral-900/60 p-5">
-          <h2 className="text-sm font-semibold text-neutral-200">Related workspaces</h2>
+        <section className="rounded-2xl border border-divider/30 bg-content1/60 p-5">
+          <h2 className="text-sm font-semibold text-foreground">Related workspaces</h2>
           {card.relatedWorkspaces?.length ? (
             <div className="mt-3 grid gap-3">
               {card.relatedWorkspaces.map((workspace) => {
                 const metrics = workspaceMetrics(workspace);
                 return (
-                  <article key={workspace.workspaceId} className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-emerald-50">
+                  <article key={workspace.workspaceId} className="rounded-xl border border-success/20 bg-success/10 p-3 text-foreground">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0">
-                        <div className="font-medium">{workspace.displayName || workspace.workspaceId}{workspace.isPrimary ? <span className="ml-2 text-xs text-emerald-300">Primary</span> : null}</div>
-                        {workspace.workspaceDir ? <div className="mt-1 truncate text-xs text-emerald-200/70">{workspace.workspaceDir}</div> : null}
-                        <div className="mt-2 flex flex-wrap gap-2 text-xs text-emerald-100/80">
+                        <div className="font-medium">{workspace.displayName || workspace.workspaceId}{workspace.isPrimary ? <span className="ml-2 text-xs text-success">Primary</span> : null}</div>
+                        {workspace.workspaceDir ? <div className="mt-1 truncate text-xs text-default-500">{workspace.workspaceDir}</div> : null}
+                        <div className="mt-2 flex flex-wrap gap-2 text-xs text-default-500">
                           <span>{metrics.filesChanged}</span>
                           <span>{metrics.linesChanged}</span>
                           <span>{metrics.agentSessions}</span>
@@ -205,32 +205,32 @@ export function ExternalKanbanSingleIssuePage({
               })}
             </div>
           ) : (
-            <div className="mt-3 rounded-xl border border-dashed border-neutral-800 p-4">
-              <p className="text-sm text-neutral-400">No existing workspace is associated with this issue.</p>
+            <div className="mt-3 rounded-xl border border-dashed border-divider/30 p-4">
+              <p className="text-sm text-default-500">No existing workspace is associated with this issue.</p>
               <Button className="mt-3" color="primary" variant="flat" isDisabled={!onCreateWorkspace} onPress={() => onCreateWorkspace?.(card)}>Create Workspace</Button>
             </div>
           )}
         </section>
 
-        <section className="rounded-2xl border border-neutral-800 bg-neutral-900/60 p-5">
-          <h2 className="text-sm font-semibold text-neutral-200">Related tasks</h2>
+        <section className="rounded-2xl border border-divider/30 bg-content1/60 p-5">
+          <h2 className="text-sm font-semibold text-foreground">Related tasks</h2>
           {card.relatedBeads?.length ? (
             <ul className="mt-3 space-y-2">
               {card.relatedBeads.map((task) => (
-                <li key={task.id} className="rounded-lg border border-sky-500/20 bg-sky-500/10 px-3 py-2 text-sm text-sky-100">
+                <li key={task.id} className="rounded-lg border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-foreground">
                   <div className="font-medium">{task.id}: {task.title}</div>
-                  {task.status ? <div className="mt-1 text-xs text-sky-200/70">Status: {task.status}</div> : null}
+                  {task.status ? <div className="mt-1 text-xs text-default-500">Status: {task.status}</div> : null}
                 </li>
               ))}
             </ul>
-          ) : <p className="mt-2 text-sm text-neutral-400">No tasks have been created for this issue yet.</p>}
+          ) : <p className="mt-2 text-sm text-default-500">No tasks have been created for this issue yet.</p>}
         </section>
 
         {card.labels.length ? (
-          <section className="rounded-2xl border border-neutral-800 bg-neutral-900/60 p-5">
-            <h2 className="text-sm font-semibold text-neutral-200">Provider metadata</h2>
+          <section className="rounded-2xl border border-divider/30 bg-content1/60 p-5">
+            <h2 className="text-sm font-semibold text-foreground">Provider metadata</h2>
             <div className="mt-3 flex flex-wrap gap-2">
-              {card.labels.map((label) => <span key={label} className="rounded bg-neutral-800 px-2 py-0.5 text-xs text-neutral-300">{label}</span>)}
+              {card.labels.map((label) => <span key={label} className="rounded bg-content2 px-2 py-0.5 text-xs text-foreground">{label}</span>)}
             </div>
           </section>
         ) : null}
@@ -251,13 +251,13 @@ function ExternalKanbanListSection({
   emptyLabel: string;
 }) {
   return (
-    <section className="rounded-xl border border-neutral-800 bg-neutral-900/70">
-      <div className="flex items-center justify-between border-b border-neutral-800 px-4 py-3">
-        <h3 className="text-sm font-semibold text-neutral-100">{section.title}</h3>
-        <Chip size="sm" variant="flat" className="bg-neutral-800 text-neutral-300">{cards.length}</Chip>
+    <section className="rounded-xl border border-divider/30 bg-content1/70">
+      <div className="flex items-center justify-between border-b border-divider/30 px-4 py-3">
+        <h3 className="text-sm font-semibold text-foreground">{section.title}</h3>
+        <Chip size="sm" variant="flat" className="bg-content2 text-foreground">{cards.length}</Chip>
       </div>
       <div className="space-y-2 p-3">
-        {cards.length === 0 ? <div className="rounded-lg border border-dashed border-neutral-800 p-3 text-sm text-neutral-500">{emptyLabel}</div> : null}
+        {cards.length === 0 ? <div className="rounded-lg border border-dashed border-divider/30 p-3 text-sm text-default-500">{emptyLabel}</div> : null}
         {cards.map((card) => <React.Fragment key={card.id}>{renderCard(card)}</React.Fragment>)}
       </div>
     </section>
@@ -273,10 +273,10 @@ function ExternalKanbanUnassignedListSection({
 }) {
   if (cards.length === 0) return null;
   return (
-    <section className="rounded-xl border border-neutral-800 bg-neutral-900/70">
-      <div className="flex items-center justify-between border-b border-neutral-800 px-4 py-3">
-        <h3 className="text-sm font-semibold text-neutral-100">Other issues</h3>
-        <Chip size="sm" variant="flat" className="bg-neutral-800 text-neutral-300">{cards.length}</Chip>
+    <section className="rounded-xl border border-divider/30 bg-content1/70">
+      <div className="flex items-center justify-between border-b border-divider/30 px-4 py-3">
+        <h3 className="text-sm font-semibold text-foreground">Other issues</h3>
+        <Chip size="sm" variant="flat" className="bg-content2 text-foreground">{cards.length}</Chip>
       </div>
       <div className="space-y-2 p-3">
         {cards.map((card) => <React.Fragment key={card.id}>{renderCard(card)}</React.Fragment>)}
@@ -318,8 +318,8 @@ function isCardInColumn(card: ExternalKanbanCardDto, column: ExternalKanbanColum
 function DetailStat({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="text-xs uppercase tracking-wide text-neutral-500">{label}</div>
-      <div className="mt-1 text-sm text-neutral-200">{value}</div>
+      <div className="text-xs uppercase tracking-wide text-default-500">{label}</div>
+      <div className="mt-1 text-sm text-foreground">{value}</div>
     </div>
   );
 }

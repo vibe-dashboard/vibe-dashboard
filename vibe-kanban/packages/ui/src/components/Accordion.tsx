@@ -23,7 +23,7 @@ const AccordionTrigger = React.forwardRef<
   AccordionTriggerProps
 >(({ className, children, sticky = false, ...props }, ref) => (
   <AccordionPrimitive.Header
-    className={cn('flex', sticky && 'sticky top-0 z-10 bg-panel')}
+    className={cn('flex', sticky && 'sticky top-0 z-10 bg-content1')}
   >
     <AccordionPrimitive.Trigger
       ref={ref}

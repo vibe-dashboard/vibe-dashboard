@@ -17,6 +17,8 @@ import {
 } from '@phosphor-icons/react';
 import { useTranslation } from 'react-i18next';
 import { ChatBoxBase, VisualVariant, type DropzoneProps } from './ChatBoxBase';
+import { ComposerDesktop, ComposerTool } from './ComposerControls';
+import { ComposerDiffSummary } from './ComposerDiffSummary';
 import { type EditorProps, type ExecutorProps } from './CreateChatBox';
 import type { AskUserQuestionItem, QuestionAnswer } from 'shared/types';
 import {
@@ -186,6 +188,8 @@ interface SessionChatBoxProps<TExecutor extends string = string> {
   formatSessionDate?: (createdAt: string | Date) => string;
   todos?: TodoProgressItem[];
   inProgressTodo?: TodoProgressItem | null;
+  workspaceTasks?: ReactNode;
+  workspacePreview?: ReactNode;
   localAttachments?: LocalAttachmentMetadata[];
   onPrCommentClick?: () => void;
   onViewCode?: () => void;
@@ -250,6 +254,8 @@ export function SessionChatBox<TExecutor extends string = string>({
   formatSessionDate = defaultFormatSessionDate,
   todos,
   inProgressTodo,
+  workspaceTasks,
+  workspacePreview,
   localAttachments,
   onPrCommentClick,
   onViewCode,
@@ -593,17 +599,17 @@ export function SessionChatBox<TExecutor extends string = string>({
       banners.push(
         <div
           key="review-comments"
-          className="bg-accent/5 border-b px-double py-base flex items-center gap-base"
+          className="bg-content2/50 border-b border-divider px-double py-base flex items-center gap-base"
         >
-          <ChatCircleIcon className="h-4 w-4 text-brand flex-shrink-0" />
-          <span className="text-sm text-normal flex-1">
+          <ChatCircleIcon className="h-4 w-4 text-primary flex-shrink-0" />
+          <span className="text-sm text-foreground flex-1">
             {t('conversation.reviewComments.count', {
               count: reviewComments.count,
             })}
           </span>
           <button
             onClick={reviewComments.onClear}
-            className="text-low hover:text-normal transition-colors p-1 -m-1"
+            className="text-default-500 hover:text-foreground transition-colors p-1 -m-1"
             title={t('conversation.actions.clearReviewComments')}
           >
             <TrashIcon className="h-4 w-4" />
@@ -632,10 +638,10 @@ export function SessionChatBox<TExecutor extends string = string>({
       banners.push(
         <div
           key="queued"
-          className="bg-secondary border-b px-double py-base flex items-center gap-base"
+          className="bg-content2 border-b border-divider px-double py-base flex items-center gap-base"
         >
-          <ClockIcon className="h-4 w-4 text-low" />
-          <span className="text-sm text-low">
+          <ClockIcon className="h-4 w-4 text-default-500" />
+          <span className="text-sm text-default-500">
             {t('followUp.queuedMessage')}
           </span>
         </div>
@@ -661,6 +667,113 @@ export function SessionChatBox<TExecutor extends string = string>({
   };
   const footerActionContent = renderActionButtons();
 
+  const executorControls =
+    isNewSessionMode && executor ? (
+      <>
+        {renderAgentIcon?.(agent, 'size-icon-xl')}
+        <ToolbarDropdown
+          label={
+            executor.selected
+              ? formatExecutorLabel(executor.selected)
+              : emptyExecutorLabel
+          }
+        >
+          <DropdownMenuLabel>{t('conversation.executors')}</DropdownMenuLabel>
+          {executor.options.map((exec) => (
+            <DropdownMenuItem
+              key={exec}
+              icon={executor.selected === exec ? CheckIcon : undefined}
+              onClick={() => executor.onChange(exec)}
+            >
+              {formatExecutorLabel(exec)}
+            </DropdownMenuItem>
+          ))}
+        </ToolbarDropdown>
+      </>
+    ) : null;
+  const navigationControls = (
+    <>
+      {!isNewSessionMode && onScrollToPreviousMessage && (
+        <ComposerTool label={t('conversation.actions.scrollToPreviousMessage')}>
+          <TurnNavigationPopup
+            turns={userMessageTurns ?? []}
+            onNavigateToTurn={onScrollToUserMessage ?? (() => {})}
+            getActiveTurnPatchKey={getActiveTurnPatchKey}
+          >
+            <ToolbarIconButton
+              icon={ArrowUpIcon}
+              title={t('conversation.actions.scrollToPreviousMessage')}
+              aria-label={t('conversation.actions.scrollToPreviousMessage')}
+              onClick={onScrollToPreviousMessage}
+            />
+          </TurnNavigationPopup>
+        </ComposerTool>
+      )}
+      {!isNewSessionMode && (
+        <ComposerDesktop enabled={chatViewMode === 'full'}>
+          {renderAgentIcon?.(agent, 'size-icon-xl')}
+        </ComposerDesktop>
+      )}
+      <ComposerTool label={t('common:composer.tasks')}>
+        {workspaceTasks ?? <TodoProgressPopup todos={todos ?? []} />}
+      </ComposerTool>
+      {workspacePreview && (
+        <ComposerTool label={t('common:composer.preview')}>
+          {workspacePreview}
+        </ComposerTool>
+      )}
+      {supportsContextUsage && (
+        <ComposerTool label={t('common:contextUsage.label')}>
+          <ContextUsageGauge tokenUsageInfo={tokenUsageInfo} />
+        </ComposerTool>
+      )}
+    </>
+  );
+  const attachmentControls = !isMinimalZen ? (
+    <>
+      <ToolbarIconButton
+        icon={PaperclipIcon}
+        aria-label={t('tasks:taskFormDialog.attachFile')}
+        title={t('tasks:taskFormDialog.attachFile')}
+        onClick={handleAttachClick}
+        disabled={areContentInsertActionsDisabled}
+      />
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={handleFileInputChange}
+      />
+    </>
+  ) : null;
+  const extraTools = !isMinimalZen ? (
+    <>
+      {onPrCommentClick && (
+        <ComposerTool label={t('common:composer.prComments')}>
+          <ToolbarIconButton
+            icon={GithubLogoIcon}
+            aria-label={t('common:composer.prComments')}
+            title={t('common:composer.insertPrComments')}
+            onClick={onPrCommentClick}
+            disabled={areContentInsertActionsDisabled}
+          />
+        </ComposerTool>
+      )}
+      {toolbarActions?.items.map((item) => (
+        <ComposerTool key={item.id} label={item.label}>
+          <ToolbarIconButton
+            icon={item.icon}
+            aria-label={item.label}
+            title={item.tooltip}
+            onClick={item.onClick}
+            disabled={isDisabled || isRunning || Boolean(item.disabled)}
+          />
+        </ComposerTool>
+      ))}
+    </>
+  ) : null;
+
   return (
     <ChatBoxBase
       editor={renderEditor({
@@ -680,36 +793,50 @@ export function SessionChatBox<TExecutor extends string = string>({
       visualVariant={getVisualVariant()}
       isRunning={showRunningAnimation}
       dropzone={dropzone}
-      modelSelector={isMinimalZen ? undefined : modelSelector}
+      mobileControls={
+        chatViewMode === 'full'
+          ? {
+              headerLeft: !isNewSessionMode ? (
+                <ComposerDiffSummary
+                  filesChanged={filesChanged}
+                  linesAdded={linesAdded}
+                  linesRemoved={linesRemoved}
+                  hasConflicts={stats?.hasConflicts}
+                  conflictedFilesCount={stats?.conflictedFilesCount}
+                  onResolveConflicts={stats?.onResolveConflicts}
+                  onViewCode={onViewCode}
+                />
+              ) : undefined,
+              settings: executorControls ?? (
+                <div className="flex items-center gap-base text-sm">
+                  {renderAgentIcon?.(agent, 'size-icon-xl')}
+                  {agent ? formatExecutorLabel(agent) : emptyExecutorLabel}
+                </div>
+              ),
+              tools: (
+                <>
+                  {navigationControls}
+                  {extraTools}
+                  {isRunning && inProgressTodo && (
+                    <p className="text-sm">{inProgressTodo.content}</p>
+                  )}
+                  {onOpenWorkspace && (
+                    <button type="button" onClick={onOpenWorkspace}>
+                      {t('common:composer.openWorkspace')}
+                    </button>
+                  )}
+                </>
+              ),
+              footerLeft: attachmentControls,
+            }
+          : undefined
+      }
+      modelSelector={chatViewMode === 'full' ? modelSelector : undefined}
       headerLeft={
-        shouldHideZenHeader ? undefined : (
+        chatViewMode !== 'full' ? undefined : (
           <>
             {/* New session mode: agent icon + executor dropdown */}
-            {isNewSessionMode && executor && (
-              <>
-                {renderAgentIcon?.(agent, 'size-icon-xl')}
-                <ToolbarDropdown
-                  label={
-                    executor.selected
-                      ? formatExecutorLabel(executor.selected)
-                      : emptyExecutorLabel
-                  }
-                >
-                  <DropdownMenuLabel>
-                    {t('conversation.executors')}
-                  </DropdownMenuLabel>
-                  {executor.options.map((exec) => (
-                    <DropdownMenuItem
-                      key={exec}
-                      icon={executor.selected === exec ? CheckIcon : undefined}
-                      onClick={() => executor.onChange(exec)}
-                    >
-                      {formatExecutorLabel(exec)}
-                    </DropdownMenuItem>
-                  ))}
-                </ToolbarDropdown>
-              </>
-            )}
+            {executorControls}
             {/* Existing session mode: show in-progress todo when running, otherwise file stats */}
             {!isNewSessionMode && (
               <>
@@ -758,12 +885,16 @@ export function SessionChatBox<TExecutor extends string = string>({
                             <span className="space-x-half">
                               {linesAdded !== undefined && (
                                 <span className="text-success">
-                                  +{linesAdded}
+                                  {t('common:composer.linesAdded', {
+                                    count: linesAdded,
+                                  })}
                                 </span>
                               )}
                               {linesRemoved !== undefined && (
-                                <span className="text-error">
-                                  -{linesRemoved}
+                                <span className="text-danger">
+                                  {t('common:composer.linesRemoved', {
+                                    count: linesRemoved,
+                                  })}
                                 </span>
                               )}
                             </span>
@@ -771,7 +902,7 @@ export function SessionChatBox<TExecutor extends string = string>({
                         </span>
                       </PrimaryButton>
                     ) : (
-                      <span className="text-sm text-low space-x-half whitespace-nowrap truncate min-w-0">
+                      <span className="text-sm text-default-500 space-x-half whitespace-nowrap truncate min-w-0">
                         <span>
                           {t('diff.filesChanged', { count: filesChanged })}
                         </span>
@@ -780,12 +911,16 @@ export function SessionChatBox<TExecutor extends string = string>({
                           <span className="space-x-half">
                             {linesAdded !== undefined && (
                               <span className="text-success">
-                                +{linesAdded}
+                                {t('common:composer.linesAdded', {
+                                  count: linesAdded,
+                                })}
                               </span>
                             )}
                             {linesRemoved !== undefined && (
-                              <span className="text-error">
-                                -{linesRemoved}
+                              <span className="text-danger">
+                                {t('common:composer.linesRemoved', {
+                                  count: linesRemoved,
+                                })}
                               </span>
                             )}
                           </span>
@@ -800,39 +935,17 @@ export function SessionChatBox<TExecutor extends string = string>({
         )
       }
       headerRight={
-        shouldHideZenHeader ? undefined : (
+        shouldHideZenHeader ? (
+          chatViewModeSelector
+        ) : (
           <>
-            {/* Turn navigation + Agent icon for existing session mode */}
-            {!isNewSessionMode && (
-              <>
-                {onScrollToPreviousMessage && (
-                  <TurnNavigationPopup
-                    turns={userMessageTurns ?? []}
-                    onNavigateToTurn={onScrollToUserMessage ?? (() => {})}
-                    getActiveTurnPatchKey={getActiveTurnPatchKey}
-                  >
-                    <ToolbarIconButton
-                      icon={ArrowUpIcon}
-                      title={t('conversation.actions.scrollToPreviousMessage')}
-                      aria-label={t(
-                        'conversation.actions.scrollToPreviousMessage'
-                      )}
-                      onClick={onScrollToPreviousMessage}
-                    />
-                  </TurnNavigationPopup>
-                )}
-                {renderAgentIcon?.(agent, 'size-icon-xl')}
-              </>
-            )}
-            {/* Todo progress popup - always rendered, disabled when no todos */}
-            <TodoProgressPopup todos={todos ?? []} />
-            {supportsContextUsage && (
-              <ContextUsageGauge tokenUsageInfo={tokenUsageInfo} />
-            )}
+            <ComposerDesktop enabled={chatViewMode === 'full'}>
+              {navigationControls}
+            </ComposerDesktop>
             <ToolbarDropdown
               label={sessionLabel}
               disabled={isInFeedbackMode || isInEditMode || isInApprovalMode}
-              className="min-w-0 max-w-[120px]"
+              className="min-w-0 max-w-[96px] md:max-w-[120px]"
             >
               {/* New Session option */}
               <DropdownMenuItem
@@ -895,49 +1008,14 @@ export function SessionChatBox<TExecutor extends string = string>({
                 </>
               )}
             </ToolbarDropdown>
+            {chatViewModeSelector}
           </>
         )
       }
       footerLeft={
         <>
-          {chatViewModeSelector}
-          {!isMinimalZen && (
-            <>
-              <ToolbarIconButton
-                icon={PaperclipIcon}
-                aria-label={t('tasks:taskFormDialog.attachFile')}
-                title={t('tasks:taskFormDialog.attachFile')}
-                onClick={handleAttachClick}
-                disabled={areContentInsertActionsDisabled}
-              />
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                className="hidden"
-                onChange={handleFileInputChange}
-              />
-              {onPrCommentClick && (
-                <ToolbarIconButton
-                  icon={GithubLogoIcon}
-                  aria-label="Add PR Comments"
-                  title="Insert PR comments into message"
-                  onClick={onPrCommentClick}
-                  disabled={areContentInsertActionsDisabled}
-                />
-              )}
-              {toolbarActions?.items.map((item) => (
-                <ToolbarIconButton
-                  key={item.id}
-                  icon={item.icon}
-                  aria-label={item.label}
-                  title={item.tooltip}
-                  onClick={item.onClick}
-                  disabled={isDisabled || isRunning || Boolean(item.disabled)}
-                />
-              ))}
-            </>
-          )}
+          {attachmentControls}
+          {extraTools}
         </>
       }
       footerRight={footerActionContent}

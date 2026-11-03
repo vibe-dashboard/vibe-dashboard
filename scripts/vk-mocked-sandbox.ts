@@ -5,6 +5,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { promisify } from 'node:util';
+import { VkRuntimeRelease } from './vk-runtime-release.ts';
 
 export interface SandboxPorts {
   vkBackend: number;
@@ -474,6 +475,19 @@ export async function loadSandboxCaddyfile(vdRoot: string): Promise<string> {
   return await readFile(join(vdRoot, SANDBOX_CADDYFILE_NAME), 'utf8');
 }
 
+export function resolveVkCheckoutPath(
+  workspaceRoot: string,
+  vdRoot: string,
+  configuredPath: string | undefined,
+): string {
+  if (!configuredPath?.trim()) return join(vdRoot, 'vibe-kanban');
+  if (isAbsolute(configuredPath)) return configuredPath;
+
+  const repoRelativePath = resolve(vdRoot, configuredPath);
+  const workspaceRelativePath = resolve(workspaceRoot, configuredPath);
+  return existsSync(repoRelativePath) ? repoRelativePath : workspaceRelativePath;
+}
+
 export function createSandboxPlan(input: {
   workspaceRoot?: string;
   env?: NodeJS.ProcessEnv;
@@ -485,15 +499,17 @@ export function createSandboxPlan(input: {
   const workspaceRoot = resolve(input.workspaceRoot ?? process.cwd(), '..');
   const vdRoot = resolve(workspaceRoot, 'vibe-kanban-vscode-web');
   const configuredVkCheckout = env.VK_CHECKOUT?.trim();
-  const vkRoot = configuredVkCheckout
-    ? resolve(workspaceRoot, configuredVkCheckout)
-    : join(vdRoot, 'vibe-kanban');
-  const ciReleaseArtifact = ciReleaseArtifactFromEnv(vdRoot, env);
+  const vkRoot = resolveVkCheckoutPath(workspaceRoot, vdRoot, configuredVkCheckout);
+  const runtimeRelease = isCiReleaseBackend(env) && env.VK_MOCKED_CONTENT_HASH
+    ? new VkRuntimeRelease(vdRoot, env.VK_MOCKED_CONTENT_HASH)
+    : undefined;
+  const ciReleaseArtifact = runtimeRelease ? undefined : ciReleaseArtifactFromEnv(vdRoot, env);
+  const releaseArtifact = runtimeRelease ?? ciReleaseArtifact;
   const configuredRunDir = env.VK_MOCKED_SANDBOX_RUN_DIR?.trim();
   const runDir = resolve(
     input.runDir || configuredRunDir || join(vdRoot, '.vk-mocked-sandbox', 'current'),
   );
-  const caddyfile = ciReleaseArtifact
+  const caddyfile = releaseArtifact
     ? caddyfileWithCiReleaseAssetRouting(input.caddyfile)
     : input.caddyfile;
   const vdUrl = `http://localhost:${input.ports.vdCaddy}`;
@@ -524,11 +540,23 @@ export function createSandboxPlan(input: {
   ].join(',');
 
   const canUsePrebuiltLocalWeb =
-    Boolean(ciReleaseArtifact) ||
+    Boolean(releaseArtifact) ||
     (env.VK_MOCKED_SKIP_LOCAL_WEB_BUILD === '1' &&
       existsSync(join(vkRoot, 'packages/local-web/dist/index.html')));
   const setupCommands: CommandSpec[] = [];
-  if (ciReleaseArtifact) {
+  if (runtimeRelease) {
+    setupCommands.push({
+      name: 'vk-download-runtime-release',
+      cwd: vdRoot,
+      command: 'node',
+      args: ['--experimental-strip-types', 'scripts/vk-mocked-sandbox.ts', 'download-runtime-release'],
+      env: {
+        ...commonEnv,
+        VK_MOCKED_CONTENT_HASH: runtimeRelease.contentHash,
+        VK_MOCKED_GH_REPO: env.VK_MOCKED_GH_REPO ?? DEFAULT_VK_GH_REPO,
+      },
+    });
+  } else if (ciReleaseArtifact) {
     setupCommands.push({
       name: 'vk-download-release-artifact',
       cwd: vdRoot,
@@ -573,7 +601,7 @@ export function createSandboxPlan(input: {
       },
     });
   }
-  if (!ciReleaseArtifact && env.VK_MOCKED_PREBUILD_BACKEND === '1') {
+  if (!releaseArtifact && env.VK_MOCKED_PREBUILD_BACKEND === '1') {
     setupCommands.push({
       name: 'vk-build-backend-qa',
       cwd: vkRoot,
@@ -583,11 +611,11 @@ export function createSandboxPlan(input: {
     });
   }
 
-  const vkBackendCommand: CommandSpec = ciReleaseArtifact
+  const vkBackendCommand: CommandSpec = releaseArtifact
     ? {
         name: 'vk-backend-ci-release',
         cwd: vkRoot,
-        command: ciReleaseArtifact.binaryPath,
+        command: releaseArtifact.binaryPath,
         args: [],
         env: {
           ...commonEnv,
@@ -868,6 +896,11 @@ async function main(): Promise<void> {
   const mode = process.argv[2] ?? 'prepare';
   const workspaceRoot = resolve(process.cwd(), '..');
   const vdRoot = resolve(workspaceRoot, 'vibe-kanban-vscode-web');
+  if (mode === 'download-runtime-release') {
+    const release = await VkRuntimeRelease.forCheckout(process.cwd(), process.env);
+    await release.download(process.env.VK_MOCKED_GH_REPO, Number(process.env.VK_MOCKED_RELEASE_WAIT_SECONDS ?? 0));
+    return;
+  }
   if (mode === 'download-ci-release') {
     const artifact = await downloadCiReleaseArtifactFromEnv(vdRoot, process.env);
     console.log(`[vk-mocked-sandbox] VK release binary ready: ${artifact.binaryPath}`);
@@ -884,34 +917,14 @@ async function main(): Promise<void> {
   } else {
     const ports = await allocatePorts();
     const caddyfile = await loadSandboxCaddyfile(vdRoot);
-    const configuredVkCheckout = process.env.VK_CHECKOUT?.trim();
-    const vkRoot = configuredVkCheckout
-      ? resolve(workspaceRoot, configuredVkCheckout)
-      : join(vdRoot, 'vibe-kanban');
     let env = process.env;
-    if (isCiReleaseBackend(process.env)) {
-      const artifact = await resolveCiReleaseArtifact(vdRoot, vkRoot, process.env);
+    if (process.env.VK_MOCKED_VK_BACKEND !== 'source') {
+      const release = await VkRuntimeRelease.forCheckout(vdRoot, process.env);
       env = {
         ...process.env,
         VK_MOCKED_VK_BACKEND: CI_RELEASE_BACKEND_MODE,
-        VK_MOCKED_RELEASE_HASH: artifact.contentHash,
-        VK_MOCKED_RELEASE_TAG: artifact.releaseTag,
-        VK_MOCKED_RELEASE_CACHE_DIR: artifact.artifactRoot,
+        VK_MOCKED_CONTENT_HASH: release.contentHash,
       };
-    } else if (
-      process.env.VK_MOCKED_VK_BACKEND !== 'source' &&
-      resolve(vkRoot) === join(resolve(vdRoot), 'vibe-kanban')
-    ) {
-      const artifact = await tryResolveCiReleaseArtifact(vdRoot, vkRoot, process.env);
-      if (artifact) {
-        env = {
-          ...process.env,
-          VK_MOCKED_VK_BACKEND: CI_RELEASE_BACKEND_MODE,
-          VK_MOCKED_RELEASE_HASH: artifact.contentHash,
-          VK_MOCKED_RELEASE_TAG: artifact.releaseTag,
-          VK_MOCKED_RELEASE_CACHE_DIR: artifact.artifactRoot,
-        };
-      }
     }
     plan = createSandboxPlan({
       workspaceRoot: process.cwd(),

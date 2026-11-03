@@ -1,7 +1,6 @@
 import {
   expect,
   test,
-  type FrameLocator,
   type Locator,
   type Page,
 } from 'playwright/test';
@@ -85,11 +84,9 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
     if (!createdVoyageWithCraft) {
       await page.getByRole('button', { name: 'New Craft' }).first().click();
     }
-    const createWorkspaceFrame = page
-      .frameLocator('iframe[title="Create Workspace"]')
-      .last();
+    const createWorkspaceFrame = await getCreateWorkspaceSurface(page);
     await closeSidebarOverlayIfPresent(page);
-    await expectCreateWorkspaceFrameUrl(page);
+    await expectCreateWorkspaceSurface(page);
     const reachedRepositorySelection = await ensureRepositorySelectionStep(
       createWorkspaceFrame,
     );
@@ -116,20 +113,20 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
         .getByRole('button', { name: 'Create' })
         .click();
       await expect(
-        createWorkspaceFrame.getByRole('heading', {
+        page.getByRole('heading', {
           name: 'Create New Repository',
         }),
       ).toBeVisible();
-      await createWorkspaceFrame
+      await page
         .getByRole('textbox', { name: 'my-project' })
         .fill(repoName);
-      await createWorkspaceFrame
+      await page
         .getByRole('textbox', { name: 'Current directory' })
         .fill(sandboxRepoDir);
-      await createWorkspaceFrame
+      await page
         .getByRole('button', { name: 'Create Repository' })
         .click();
-      await createWorkspaceFrame
+      await page
         .getByRole('option', { name: /main/ })
         .click();
 
@@ -145,7 +142,9 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
       }),
     ).toBeVisible();
     await expect(
-      createWorkspaceFrame.getByRole('button', { name: 'Codex' }),
+      createWorkspaceFrame.getByRole('button', {
+        name: /^(Codex|Claude Code)$/,
+      }),
     ).toBeVisible();
     await expect(
       createWorkspaceFrame.getByRole('button', {
@@ -155,25 +154,42 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
     await createWorkspaceFrame
       .getByRole('textbox', { name: 'Markdown editor' })
       .fill(`${promptTitle}\n\n${promptBody}`);
+    const createComposer = createWorkspaceFrame.getByRole('textbox', {
+      name: 'Markdown editor',
+    });
+    for (const shortcut of ['Control+k', 'Meta+k']) {
+      await createComposer.focus();
+      await expect(createComposer).toBeFocused();
+      await createComposer.press(shortcut);
+      await expect(page.getByRole('dialog', { name: 'Open VK Workspace' })).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('dialog', { name: 'Open VK Workspace' })).toBeHidden();
+      await expect(createComposer).toHaveText(`${promptTitle}\n\n${promptBody}`);
+    }
+    const creationCraft = page.getByRole('button', {
+      name: /^Open Create Workspace in /,
+    });
+    await expect(creationCraft.first()).toBeVisible();
     await createWorkspaceFrame
       .getByRole('button', { name: 'Create' })
       .click();
 
-    await expect(createWorkspaceFrame.locator('body')).toContainText(
+    const agentChat = page.getByTestId('inline-vk-agent-chat').last();
+    await expect(agentChat).toBeVisible();
+    await expect(creationCraft).toHaveCount(0);
+    await expect(agentChat).toContainText(
       'System initialized with model: qa-mock',
       { timeout: 60_000 },
     );
-    await expect(createWorkspaceFrame.locator('body')).toContainText(
+    await expect(agentChat).toContainText(
       'QA mode execution completed successfully',
       { timeout: 60_000 },
     );
-    await expect(createWorkspaceFrame.locator('body')).toContainText(
+    await expect(agentChat).toContainText(
       /\d+ files? changed/,
     );
 
-    await openCreatedCraftFromVd(page, promptTitle);
-    const agentFrame = page.frameLocator('iframe[title="Agent"]').last();
-    await expect(agentFrame.locator('body')).toContainText(promptTitle);
+    await expect(agentChat).toContainText(promptTitle);
     await expect(
       page.getByRole('button', { name: 'Agent', exact: true }),
     ).toBeVisible();
@@ -203,7 +219,7 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
 
     await clickVoyageActionsMenuItem(page, 'New Craft');
     await expectMobileNewCraftNavigationSettled(page);
-    await expectCreateWorkspaceFrameUrl(page);
+    await expectCreateWorkspaceSurface(page);
     await clickVoyageActionsMenuItem(page, 'Open Craft');
     await expect(
       page.getByRole('heading', { name: 'Open VK Workspace' }),
@@ -215,18 +231,18 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
       .getByRole('button', { name: new RegExp(escapeRegex(promptTitle)) })
       .click();
     await expect(
-      page.frameLocator('iframe[title="Agent"]').last().locator('body'),
+      page.getByTestId('inline-vk-agent-chat').last(),
     ).toContainText(promptTitle);
 
     await page.setViewportSize({ width: 1280, height: 720 });
-    const reopenedAgentFrame = page.frameLocator('iframe[title="Agent"]').last();
-    await reopenedAgentFrame
-      .getByRole('textbox', { name: 'Markdown editor' })
-      .last()
-      .fill(followUp);
-    await sendFollowUpThroughVkApi(page, followUp);
-    await expect(reopenedAgentFrame.locator('body')).toContainText(followUp);
-    await expect(reopenedAgentFrame.locator('body')).toContainText(
+    const reopenedAgentChat = page.getByTestId('inline-vk-agent-chat').last();
+    await getChatComposer(reopenedAgentChat).fill(followUp);
+    await expect(
+      reopenedAgentChat.getByRole('button', { name: 'Send' }),
+    ).toBeEnabled({ timeout: 60_000 });
+    await reopenedAgentChat.getByRole('button', { name: 'Send' }).click();
+    await expect(reopenedAgentChat).toContainText(followUp);
+    await expect(reopenedAgentChat).toContainText(
       'Ran a test command',
       { timeout: 60_000 },
     );
@@ -277,20 +293,14 @@ async function createVoyage(
   return false;
 }
 
-async function ensureRepositorySelectionStep(
-  createWorkspaceFrame: FrameLocator,
-): Promise<boolean> {
-  const frameBody = createWorkspaceFrame.locator('body');
-  if (await isRepositorySelectionStep(createWorkspaceFrame)) {
-    return true;
-  }
+type CreateWorkspaceSurface = Locator;
 
-  if (
-    await frameBody
-      .textContent()
-      .then((text) => Boolean(text?.includes('What would you like to work on?')))
-      .catch(() => false)
-  ) {
+async function ensureRepositorySelectionStep(
+  createWorkspaceFrame: CreateWorkspaceSurface,
+): Promise<boolean> {
+  const visibleStep = await waitForCreateWorkspaceStep(createWorkspaceFrame);
+  if (visibleStep === 'repo-selection') return true;
+  if (visibleStep === 'prompt') {
     return false;
   }
 
@@ -304,7 +314,7 @@ async function ensureRepositorySelectionStep(
       .waitFor({ state: 'hidden', timeout: 30_000 })
       .catch(() => undefined);
     await selectedRepoButton.click();
-    return await frameBody
+    return await createWorkspaceFrame
       .textContent({ timeout: 10_000 })
       .then((text) =>
         Boolean(text?.includes('Which repositories would you like to work on?')),
@@ -315,9 +325,38 @@ async function ensureRepositorySelectionStep(
   return false;
 }
 
-async function isRepositorySelectionStep(createWorkspaceFrame: FrameLocator) {
+async function waitForCreateWorkspaceStep(
+  createWorkspaceFrame: CreateWorkspaceSurface,
+): Promise<'repo-selection' | 'prompt' | 'unknown'> {
+  return expect
+    .poll(
+      async () => {
+        const text = await createWorkspaceFrame.textContent().catch(() => '');
+        if (text?.includes('Which repositories would you like to work on?')) {
+          return 'repo-selection';
+        }
+        if (text?.includes('What would you like to work on?')) {
+          return 'prompt';
+        }
+        return 'unknown';
+      },
+      { timeout: 30_000 },
+    )
+    .not.toBe('unknown')
+    .then(async () => {
+      const text = await createWorkspaceFrame.textContent().catch(() => '');
+      if (text?.includes('Which repositories would you like to work on?')) {
+        return 'repo-selection';
+      }
+      if (text?.includes('What would you like to work on?')) {
+        return 'prompt';
+      }
+      return 'unknown';
+    });
+}
+
+async function isRepositorySelectionStep(createWorkspaceFrame: CreateWorkspaceSurface) {
   return createWorkspaceFrame
-    .locator('body')
     .textContent()
     .then((text) =>
       Boolean(text?.includes('Which repositories would you like to work on?')),
@@ -325,7 +364,7 @@ async function isRepositorySelectionStep(createWorkspaceFrame: FrameLocator) {
     .catch(() => false);
 }
 
-async function clearSelectedRepositories(createWorkspaceFrame: FrameLocator) {
+async function clearSelectedRepositories(createWorkspaceFrame: CreateWorkspaceSurface) {
   const removeButtons = createWorkspaceFrame.locator(
     'button[aria-label^="Remove "]',
   );
@@ -404,7 +443,7 @@ async function expectMobileNewCraftNavigationSettled(page: Page) {
   ).toBeHidden();
   await expect(page.getByRole('menuitem', { name: 'New Craft' })).toBeHidden();
   await expect(
-    page.locator('iframe[title="Create Workspace"]').last(),
+    page.getByTestId('react-craft-surface:vd.built-in/create-workspace').last(),
   ).toBeVisible();
 }
 
@@ -440,102 +479,34 @@ async function clickLocatorInViewport(page: Page, locator: Locator) {
   );
 }
 
-async function expectCreateWorkspaceFrameUrl(page: Page) {
-  await expect
-    .poll(async () => {
-      return await page
-        .locator('iframe[title="Create Workspace"]')
-        .last()
-        .evaluate((iframe) => (iframe as HTMLIFrameElement).src);
-    })
-    .toMatch(/\/workspaces$/);
+async function getCreateWorkspaceSurface(page: Page): Promise<CreateWorkspaceSurface> {
+  const surface = page
+    .getByTestId('react-craft-surface:vd.built-in/create-workspace')
+    .last();
+  await expect(surface).toBeVisible({ timeout: 30_000 });
+  return surface;
 }
 
-async function dismissVkWelcomeIfPresent(frame: FrameLocator) {
+async function expectCreateWorkspaceSurface(page: Page) {
+  await expect(
+    page.getByTestId('react-craft-surface:vd.built-in/create-workspace').last(),
+  ).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('iframe[title="Create Workspace"]')).toHaveCount(0);
+}
+
+async function dismissVkWelcomeIfPresent(frame: CreateWorkspaceSurface) {
   const closeButton = frame.getByRole('button', { name: 'Close' });
   if (await closeButton.isVisible().catch(() => false)) {
     await closeButton.click();
   }
 }
 
-async function openCreatedCraftFromVd(page: Page, promptTitle: string) {
-  await openSidebarIfNeeded(page);
-  await page.getByRole('button', { name: 'Open Craft' }).first().click();
-  await expect(
-    page.getByRole('heading', { name: 'Open VK Workspace' }),
-  ).toBeVisible();
-  await page
-    .getByRole('textbox', { name: 'Search workspaces...' })
-    .fill(promptTitle);
-  await page
-    .getByRole('button', { name: new RegExp(escapeRegex(promptTitle)) })
-    .click();
-}
-
-async function sendFollowUpThroughVkApi(page: Page, followUp: string) {
-  const agentFrameSrc = await page
-    .locator('iframe[title="Agent"]')
-    .first()
-    .evaluate((iframe) => (iframe as HTMLIFrameElement).src);
-  const sessionId = agentFrameSrc.match(
-    /\/sessions\/([0-9a-fA-F-]{36})(?:[/?#]|$)/,
-  )?.[1];
-  const workspaceId = agentFrameSrc.match(
-    /\/workspaces\/([0-9a-fA-F-]{36})(?:[/?#]|$)/,
-  )?.[1];
-  const resolvedSessionId =
-    sessionId ??
-    (workspaceId ? await latestSessionIdForWorkspace(page, workspaceId) : null);
-  if (!resolvedSessionId) {
-    throw new Error(`Could not resolve VK session id from ${agentFrameSrc}`);
-  }
-
-  const response = await page.request.post(
-    new URL(
-      `/api/sessions/${resolvedSessionId}/follow-up`,
-      sandboxUrl,
-    ).toString(),
-    {
-      data: {
-        prompt: followUp,
-        executor_config: {
-          executor: 'CODEX',
-          permission_policy: 'AUTO',
-        },
-        retry_process_id: null,
-        force_when_dirty: null,
-        perform_git_reset: null,
-      },
-    },
-  );
-
-  if (!response.ok()) {
-    throw new Error(
-      `VK follow-up API failed with ${response.status()}: ${await response.text()}`,
-    );
-  }
-}
-
-async function latestSessionIdForWorkspace(page: Page, workspaceId: string) {
-  const response = await page.request.get(
-    new URL(`/api/sessions?workspace_id=${workspaceId}`, sandboxUrl).toString(),
-  );
-  if (!response.ok()) {
-    throw new Error(
-      `VK sessions API failed with ${response.status()}: ${await response.text()}`,
-    );
-  }
-
-  const body = (await response.json()) as {
-    data?: Array<{ id?: string; created_at?: string }>;
-  };
-  return body.data
-    ?.slice()
-    .sort((left, right) =>
-      String(right.created_at ?? '').localeCompare(String(left.created_at ?? '')),
-    )[0]?.id;
-}
-
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function getChatComposer(agentChat: Locator) {
+  return agentChat
+    .getByRole('textbox', { name: /^(Follow up|Markdown editor)$/ })
+    .last();
 }

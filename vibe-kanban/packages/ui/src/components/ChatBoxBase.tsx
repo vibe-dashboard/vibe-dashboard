@@ -3,6 +3,8 @@ import { ImageIcon } from '@phosphor-icons/react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../lib/cn';
 import { Toolbar } from './Toolbar';
+import { ComposerOverlays, useComposerSheet } from './ComposerSheet';
+import { ComposerControls } from './ComposerControls';
 
 export enum VisualVariant {
   NORMAL = 'NORMAL',
@@ -53,13 +55,28 @@ interface ChatBoxBaseProps {
 
   // Dropzone props for drag-and-drop image uploads
   dropzone?: DropzoneProps;
+
+  mobileControls?: {
+    headerLeft?: ReactNode;
+    settings?: ReactNode;
+    tools?: ReactNode;
+    footerLeft?: ReactNode;
+  };
 }
 
 /**
  * Base chat box layout component.
  * Provides shared structure for CreateChatBox and SessionChatBox.
  */
-export function ChatBoxBase({
+export function ChatBoxBase(props: ChatBoxBaseProps) {
+  return (
+    <ComposerOverlays>
+      <ChatBoxLayout {...props} />
+    </ComposerOverlays>
+  );
+}
+
+function ChatBoxLayout({
   editor,
   error,
   headerRight,
@@ -72,36 +89,41 @@ export function ChatBoxBase({
   visualVariant,
   isRunning,
   dropzone,
+  mobileControls,
 }: ChatBoxBaseProps) {
   const { t } = useTranslation(['common', 'tasks']);
 
   const isDragActive = dropzone?.isDragActive ?? false;
-  const hasHeaderContent = Boolean(headerLeft || headerRight);
+  const { mobile } = useComposerSheet();
+  const compact = mobile && !!mobileControls;
+  const visibleHeaderLeft = compact ? mobileControls.headerLeft : headerLeft;
+  const hasHeaderContent = Boolean(visibleHeaderLeft || headerRight);
 
   return (
     <div
+      data-composer={compact ? 'compact' : 'standard'}
       {...(dropzone?.getRootProps() ?? {})}
       className={cn(
-        'relative flex w-chat max-w-full flex-col rounded-sm border border-border bg-secondary',
+        'relative flex w-chat max-w-full flex-col rounded-sm border border-divider bg-content1',
         (visualVariant === VisualVariant.FEEDBACK ||
           visualVariant === VisualVariant.EDIT ||
           visualVariant === VisualVariant.PLAN) &&
-          'border-brand bg-brand/10',
+          'border-primary bg-primary/10',
         isRunning && 'chat-box-running'
       )}
     >
       {dropzone && <input {...dropzone.getInputProps()} />}
 
       {isDragActive && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center rounded-sm border-2 border-dashed border-brand bg-primary/80 backdrop-blur-sm pointer-events-none animate-in fade-in-0 duration-150">
+        <div className="absolute inset-0 z-50 flex items-center justify-center rounded-sm border-2 border-dashed border-primary bg-background/80 backdrop-blur-sm pointer-events-none animate-in fade-in-0 duration-150">
           <div className="text-center">
-            <div className="mx-auto mb-2 w-10 h-10 rounded-full bg-brand/10 flex items-center justify-center">
-              <ImageIcon className="h-5 w-5 text-brand" />
+            <div className="mx-auto mb-2 w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+              <ImageIcon className="h-5 w-5 text-primary" />
             </div>
-            <p className="text-sm font-medium text-high">
+            <p className="text-sm font-medium text-foreground">
               {t('tasks:dropzone.dropImagesHere')}
             </p>
-            <p className="text-xs text-low mt-0.5">
+            <p className="text-xs text-default-500 mt-0.5">
               {t('tasks:dropzone.supportedFormats')}
             </p>
           </div>
@@ -109,8 +131,8 @@ export function ChatBoxBase({
       )}
       {/* Error alert */}
       {error && (
-        <div className="bg-error/10 border-b px-double py-base">
-          <p className="text-error text-sm">{error}</p>
+        <div className="bg-danger/10 border-b border-divider px-double py-base">
+          <p className="text-danger text-sm">{error}</p>
         </div>
       )}
 
@@ -119,11 +141,27 @@ export function ChatBoxBase({
 
       {/* Header - Stats and selector */}
       {visualVariant === VisualVariant.NORMAL && hasHeaderContent && (
-        <div className="flex items-center gap-base border-b px-base py-base">
+        <div
+          data-composer-header=""
+          className={cn(
+            'flex gap-base border-b px-base py-base',
+            compact
+              ? 'items-center'
+              : 'flex-col items-stretch sm:flex-row sm:items-center'
+          )}
+        >
           <div className="flex flex-1 items-center gap-base text-sm min-w-0 overflow-hidden">
-            {headerLeft}
+            {visibleHeaderLeft}
           </div>
-          <Toolbar className="gap-[9px]">{headerRight}</Toolbar>
+          <Toolbar
+            className={
+              compact
+                ? 'shrink-0 justify-end gap-half'
+                : 'w-full justify-end gap-[9px] sm:w-auto'
+            }
+          >
+            {headerRight}
+          </Toolbar>
         </div>
       )}
 
@@ -132,10 +170,34 @@ export function ChatBoxBase({
         {editor}
 
         {/* Footer - Controls */}
-        <div className="flex items-end justify-between gap-base">
-          <Toolbar className="flex-1 min-w-0 flex-wrap !gap-half">
-            {modelSelector}
-            {footerLeft}
+        <div
+          data-composer-footer=""
+          className="flex items-end justify-between gap-base"
+        >
+          <Toolbar
+            className={cn('flex-1 min-w-0 !gap-half', !compact && 'flex-wrap')}
+          >
+            {compact ? (
+              <>
+                {mobileControls.tools && (
+                  <ComposerControls kind="tools">
+                    {mobileControls.tools}
+                  </ComposerControls>
+                )}
+                {(mobileControls.settings || modelSelector) && (
+                  <ComposerControls kind="settings">
+                    {mobileControls.settings}
+                    {modelSelector}
+                  </ComposerControls>
+                )}
+                {mobileControls.footerLeft}
+              </>
+            ) : (
+              <>
+                {modelSelector}
+                {footerLeft}
+              </>
+            )}
           </Toolbar>
           <div className="flex shrink-0 gap-base">{footerRight}</div>
         </div>

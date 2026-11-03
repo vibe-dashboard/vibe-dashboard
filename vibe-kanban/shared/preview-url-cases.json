@@ -1,0 +1,10 @@
+[
+  { "origin": "https://jamtools.dev", "url": "https://0123456789abcdef-repo-web-user.jamtools.dev/" },
+  { "origin": "https://mickmister.jamtools.dev", "url": "https://0123456789abcdef-repo-web-mickmister-user.jamtools.dev/" },
+  { "origin": "https://a.b.jamtools.dev", "url": "https://0123456789abcdef-repo-web-a-user.b.jamtools.dev/" },
+  { "origin": "https://example.co.uk", "url": "https://0123456789abcdef-repo-web-user.example.co.uk/" },
+  { "origin": "http://dev.example.co.uk:8080/path?query=1#hash", "url": "http://0123456789abcdef-repo-web-dev-user.example.co.uk:8080/" },
+  { "origin": "https://tenant.github.io", "url": "https://0123456789abcdef-repo-web-user.tenant.github.io/" },
+  { "origin": "https://dev.tenant.github.io", "url": "https://0123456789abcdef-repo-web-dev-user.tenant.github.io/" },
+  { "origin": "https://name:secret@DEV.Example.com:8443/path?query=1#hash", "url": "https://0123456789abcdef-repo-web-dev-user.example.com:8443/" }
+]

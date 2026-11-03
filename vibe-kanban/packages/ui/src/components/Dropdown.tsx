@@ -9,19 +9,72 @@ import {
 } from '@phosphor-icons/react';
 
 import { cn } from '../lib/cn';
+import {
+  ComposerSheetOwner,
+  ComposerSheetBackdrop,
+  ComposerSheetHeader,
+  useComposerOverlayState,
+  useComposerSheet,
+  useComposerSheetToggle,
+  useComposerSheetLayer,
+} from './ComposerSheet';
 
-const DropdownMenu = DropdownMenuPrimitive.Root;
+function DropdownMenu(
+  props: React.ComponentProps<typeof DropdownMenuPrimitive.Root>
+) {
+  const state = useComposerOverlayState(props);
+  const sheet = useComposerSheet();
+  return (
+    <ComposerSheetOwner {...state}>
+      <DropdownMenuPrimitive.Root
+        {...props}
+        {...state}
+        modal={sheet.mobile || props.modal}
+      />
+    </ComposerSheetOwner>
+  );
+}
 
 const DropdownMenuGroup = DropdownMenuPrimitive.Group;
 
 const DropdownMenuPortal = DropdownMenuPrimitive.Portal;
 
-const DropdownMenuSub = DropdownMenuPrimitive.Sub;
+function DropdownMenuSub(
+  props: React.ComponentProps<typeof DropdownMenuPrimitive.Sub>
+) {
+  const state = useComposerOverlayState(props);
+  return (
+    <ComposerSheetOwner {...state}>
+      <DropdownMenuPrimitive.Sub {...props} {...state} />
+    </ComposerSheetOwner>
+  );
+}
 
 const DropdownMenuRadioGroup = DropdownMenuPrimitive.RadioGroup;
 
 // Direct passthrough - inherits asChild support from Radix automatically
-const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
+const DropdownMenuTrigger = React.forwardRef<
+  React.ElementRef<typeof DropdownMenuPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Trigger>
+>(({ onPointerDown, onClick, ...props }, ref) => {
+  const { mobile } = useComposerSheet();
+  const toggle = useComposerSheetToggle();
+  return (
+    <DropdownMenuPrimitive.Trigger
+      {...props}
+      ref={ref}
+      onPointerDown={(event) => {
+        onPointerDown?.(event);
+        if (mobile) event.preventDefault();
+      }}
+      onClick={(event) => {
+        onClick?.(event);
+        if (mobile && !event.defaultPrevented) toggle();
+      }}
+    />
+  );
+});
+DropdownMenuTrigger.displayName = DropdownMenuPrimitive.Trigger.displayName;
 
 // Styled trigger button with icon/label/caret - use for default styled triggers
 interface DropdownMenuTriggerButtonProps
@@ -33,8 +86,8 @@ interface DropdownMenuTriggerButtonProps
 }
 
 export const dropdownMenuTriggerButtonClassName =
-  'flex items-center gap-half bg-secondary border border-border rounded-sm px-base py-half ' +
-  'focus:outline-none focus-visible:ring-1 focus-visible:ring-brand ' +
+  'flex items-center gap-half bg-content1 border border-divider rounded-sm px-base py-half ' +
+  'focus:outline-none focus-visible:ring-1 focus-visible:ring-focus ' +
   'disabled:opacity-50 disabled:cursor-not-allowed min-w-0';
 
 const sizeClasses = {
@@ -58,7 +111,7 @@ const DropdownMenuTriggerButton = React.forwardRef<
     },
     ref
   ) => (
-    <DropdownMenuPrimitive.Trigger
+    <DropdownMenuTrigger
       ref={ref}
       className={cn(
         dropdownMenuTriggerButtonClassName,
@@ -68,12 +121,12 @@ const DropdownMenuTriggerButton = React.forwardRef<
       {...props}
     >
       {IconComponent && (
-        <IconComponent className="size-icon-xs text-normal" weight="bold" />
+        <IconComponent className="size-icon-xs text-foreground" weight="bold" />
       )}
       {label && (
         <span
           className={cn(
-            'text-normal truncate flex-1 text-left',
+            'text-foreground truncate flex-1 text-left',
             size === 'default' && 'text-sm'
           )}
         >
@@ -83,11 +136,11 @@ const DropdownMenuTriggerButton = React.forwardRef<
       {children}
       {showCaret && (
         <CaretDownIcon
-          className="size-icon-2xs text-normal flex-shrink-0"
+          className="size-icon-2xs text-foreground flex-shrink-0"
           weight="bold"
         />
       )}
-    </DropdownMenuPrimitive.Trigger>
+    </DropdownMenuTrigger>
   )
 );
 DropdownMenuTriggerButton.displayName = 'DropdownMenuTriggerButton';
@@ -100,8 +153,8 @@ const DropdownMenuSubTrigger = React.forwardRef<
     ref={ref}
     className={cn(
       'flex cursor-pointer select-none items-center gap-base px-base py-half mx-half rounded-sm',
-      'text-sm text-high outline-none',
-      'focus:bg-secondary data-[state=open]:bg-secondary',
+      'text-sm text-foreground outline-none',
+      'focus:bg-content2 data-[state=open]:bg-content2',
       '[&_svg]:pointer-events-none [&_svg]:size-icon-xs [&_svg]:shrink-0',
       className
     )}
@@ -117,24 +170,38 @@ DropdownMenuSubTrigger.displayName =
 const DropdownMenuSubContent = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.SubContent>,
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubContent>
->(({ className, ...props }, ref) => {
+>(({ className, children, style, ...props }, ref) => {
+  const sheet = useComposerSheet();
+  const layer = useComposerSheetLayer();
   return (
     <DropdownMenuPrimitive.Portal>
-      <DropdownMenuPrimitive.SubContent
-        ref={ref}
-        className={cn(
-          'z-[10000] min-w-[8rem] overflow-hidden',
-          'bg-panel border border-border rounded-sm py-half shadow-md',
-          'data-[state=open]:animate-in',
-          'data-[state=open]:fade-in-0',
-          'data-[state=open]:zoom-in-95',
-          'data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2',
-          'data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2',
-          'origin-[--radix-dropdown-menu-content-transform-origin]',
-          className
-        )}
-        {...props}
-      />
+      <div style={{ display: 'contents' }}>
+        <ComposerSheetBackdrop />
+        <DropdownMenuPrimitive.SubContent
+          ref={ref}
+          data-composer-sheet={sheet.mobile ? '' : undefined}
+          style={{ ...style, ...(sheet.mobile ? sheet.style : {}) }}
+          className={cn(
+            'z-[10000] min-w-[8rem] overflow-hidden',
+            'bg-content1 border border-divider rounded-sm py-half shadow-md',
+            'data-[state=open]:animate-in',
+            'data-[state=open]:fade-in-0',
+            'data-[state=open]:zoom-in-95',
+            'data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2',
+            'data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2',
+            'origin-[--radix-dropdown-menu-content-transform-origin]',
+            className
+          )}
+          {...props}
+          onEscapeKeyDown={(event) => {
+            props.onEscapeKeyDown?.(event);
+            layer.onEscapeKeyDown(event);
+          }}
+        >
+          <ComposerSheetHeader menu />
+          {children}
+        </DropdownMenuPrimitive.SubContent>
+      </div>
     </DropdownMenuPrimitive.Portal>
   );
 });
@@ -144,26 +211,40 @@ DropdownMenuSubContent.displayName =
 const DropdownMenuContent = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content>
->(({ className, sideOffset = 4, ...props }, ref) => {
+>(({ className, children, style, sideOffset = 4, ...props }, ref) => {
+  const sheet = useComposerSheet();
+  const layer = useComposerSheetLayer();
   return (
     <DropdownMenuPrimitive.Portal>
-      <DropdownMenuPrimitive.Content
-        ref={ref}
-        sideOffset={sideOffset}
-        className={cn(
-          'z-[10000] min-w-[8rem] overflow-y-auto overflow-x-hidden',
-          'max-h-[var(--radix-dropdown-menu-content-available-height)]',
-          'bg-panel border border-border rounded-sm py-half shadow-md',
-          'data-[state=open]:animate-in',
-          'data-[state=open]:fade-in-0',
-          'data-[state=open]:zoom-in-95',
-          'data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2',
-          'data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2',
-          'origin-[--radix-dropdown-menu-content-transform-origin]',
-          className
-        )}
-        {...props}
-      />
+      <div style={{ display: 'contents' }}>
+        <ComposerSheetBackdrop />
+        <DropdownMenuPrimitive.Content
+          ref={ref}
+          data-composer-sheet={sheet.mobile ? '' : undefined}
+          style={{ ...style, ...(sheet.mobile ? sheet.style : {}) }}
+          sideOffset={sideOffset}
+          className={cn(
+            'z-[10000] min-w-[8rem] overflow-y-auto overflow-x-hidden',
+            'max-h-[var(--radix-dropdown-menu-content-available-height)]',
+            'bg-content1 border border-divider rounded-sm py-half shadow-md',
+            'data-[state=open]:animate-in',
+            'data-[state=open]:fade-in-0',
+            'data-[state=open]:zoom-in-95',
+            'data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2',
+            'data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2',
+            'origin-[--radix-dropdown-menu-content-transform-origin]',
+            className
+          )}
+          {...props}
+          onEscapeKeyDown={(event) => {
+            props.onEscapeKeyDown?.(event);
+            layer.onEscapeKeyDown(event);
+          }}
+        >
+          <ComposerSheetHeader menu />
+          {children}
+        </DropdownMenuPrimitive.Content>
+      </div>
     </DropdownMenuPrimitive.Portal>
   );
 });
@@ -201,11 +282,11 @@ const DropdownMenuItem = React.forwardRef<
       className={cn(
         'relative flex cursor-pointer select-none items-center gap-base',
         'px-base py-half mx-half rounded-sm outline-none transition-colors',
-        'focus:bg-secondary',
+        'focus:bg-content2',
         'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
         '[&_svg]:pointer-events-none [&_svg]:size-icon-xs [&_svg]:shrink-0',
-        variant === 'default' && 'text-high',
-        variant === 'destructive' && 'text-error',
+        variant === 'default' && 'text-foreground',
+        variant === 'destructive' && 'text-danger',
         className
       )}
       onPointerMove={
@@ -228,7 +309,9 @@ const DropdownMenuItem = React.forwardRef<
     >
       {IconComponent && <IconComponent weight="bold" />}
       <span className="flex-1 text-sm truncate">{children}</span>
-      {badge && <span className="text-sm text-high text-right">{badge}</span>}
+      {badge && (
+        <span className="text-sm text-foreground text-right">{badge}</span>
+      )}
     </DropdownMenuPrimitive.Item>
   )
 );
@@ -242,8 +325,8 @@ const DropdownMenuCheckboxItem = React.forwardRef<
     ref={ref}
     className={cn(
       'relative flex cursor-pointer select-none items-center gap-base',
-      'py-half px-base mx-half rounded-sm text-sm text-high',
-      'outline-none transition-colors focus:bg-secondary',
+      'py-half px-base mx-half rounded-sm text-sm text-foreground',
+      'outline-none transition-colors focus:bg-content2',
       'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
       className
     )}
@@ -252,7 +335,7 @@ const DropdownMenuCheckboxItem = React.forwardRef<
   >
     <span className="flex-1">{children}</span>
     <DropdownMenuPrimitive.ItemIndicator>
-      <CheckIcon className="size-icon-xs text-brand shrink-0" weight="bold" />
+      <CheckIcon className="size-icon-xs text-primary shrink-0" weight="bold" />
     </DropdownMenuPrimitive.ItemIndicator>
   </DropdownMenuPrimitive.CheckboxItem>
 ));
@@ -267,8 +350,8 @@ const DropdownMenuRadioItem = React.forwardRef<
     ref={ref}
     className={cn(
       'relative flex cursor-pointer select-none items-center',
-      'py-half pl-double pr-base mx-half rounded-sm text-sm text-high',
-      'outline-none transition-colors focus:bg-secondary',
+      'py-half pl-double pr-base mx-half rounded-sm text-sm text-foreground',
+      'outline-none transition-colors focus:bg-content2',
       'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
       className
     )}
@@ -292,7 +375,10 @@ const DropdownMenuLabel = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DropdownMenuPrimitive.Label
     ref={ref}
-    className={cn('px-base py-half text-sm font-semibold text-low', className)}
+    className={cn(
+      'px-base py-half text-sm font-semibold text-default-500',
+      className
+    )}
     {...props}
   />
 ));
@@ -316,7 +402,10 @@ const DropdownMenuShortcut = ({
 }: React.HTMLAttributes<HTMLSpanElement>) => {
   return (
     <span
-      className={cn('ml-auto text-xs tracking-widest text-low', className)}
+      className={cn(
+        'ml-auto text-xs tracking-widest text-default-500',
+        className
+      )}
       {...props}
     />
   );
@@ -332,6 +421,7 @@ const DropdownMenuSearchInput = React.forwardRef<
   HTMLInputElement,
   DropdownMenuSearchInputProps
 >(({ className, onValueChange, onChange, ...props }, ref) => {
+  const { mobile } = useComposerSheet();
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     onChange?.(e);
     onValueChange?.(e.target.value);
@@ -339,17 +429,20 @@ const DropdownMenuSearchInput = React.forwardRef<
 
   return (
     <div className="flex items-center gap-base px-plusfifty py-base">
-      <MagnifyingGlassIcon className="size-icon-xs text-low" weight="bold" />
+      <MagnifyingGlassIcon
+        className="size-icon-xs text-default-500"
+        weight="bold"
+      />
       <input
         ref={ref}
         type="text"
         className={cn(
-          'flex-1 bg-transparent text-sm text-low placeholder:text-low',
+          'flex-1 bg-transparent text-sm text-foreground placeholder:text-default-500',
           'outline-none border-none',
           className
         )}
         onChange={handleChange}
-        autoFocus
+        autoFocus={!mobile}
         {...props}
       />
     </div>

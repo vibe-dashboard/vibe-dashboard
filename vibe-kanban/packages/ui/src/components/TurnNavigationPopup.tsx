@@ -3,10 +3,14 @@ import {
   useRef,
   useCallback,
   useLayoutEffect,
-  type ReactNode,
+  cloneElement,
+  type ReactElement,
+  type ButtonHTMLAttributes,
 } from 'react';
 import { cn } from '../lib/cn';
+import { useTranslation } from 'react-i18next';
 import { Popover, PopoverTrigger, PopoverContent } from './Popover';
+import { useComposerSheet } from './ComposerSheet';
 
 export interface TurnNavigationItem {
   /** Unique key for this entry (patchKey from DisplayEntry) */
@@ -25,7 +29,7 @@ interface TurnNavigationPopupProps {
   /** Returns the patchKey of the currently visible user message */
   getActiveTurnPatchKey?: () => string | null;
   /** The trigger element (e.g. ArrowUp button) */
-  children: ReactNode;
+  children: ReactElement<ButtonHTMLAttributes<HTMLButtonElement>>;
 }
 
 export function TurnNavigationPopup({
@@ -34,6 +38,8 @@ export function TurnNavigationPopup({
   getActiveTurnPatchKey,
   children,
 }: TurnNavigationPopupProps) {
+  const { t } = useTranslation('common');
+  const { mobile } = useComposerSheet();
   const [open, setOpen] = useState(false);
   const [activePatchKey, setActivePatchKey] = useState<string | null>(null);
   const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -118,26 +124,27 @@ export function TurnNavigationPopup({
       }}
     >
       <PopoverTrigger asChild>
-        <span
-          className="inline-flex"
-          onMouseEnter={handleTriggerEnter}
-          onMouseLeave={handleTriggerLeave}
-        >
-          {children}
-        </span>
+        {cloneElement(children, {
+          onMouseEnter: mobile ? undefined : handleTriggerEnter,
+          onMouseLeave: mobile ? undefined : handleTriggerLeave,
+          onClick: mobile ? () => handleTriggerEnter() : children.props.onClick,
+        })}
       </PopoverTrigger>
       <PopoverContent
         align="end"
         className="w-80 max-h-[min(60vh,var(--radix-popover-content-available-height))] flex flex-col"
-        onMouseEnter={handleContentEnter}
-        onMouseLeave={handleContentLeave}
+        aria-label={t('turnNavigation.title')}
+        onMouseEnter={mobile ? undefined : handleContentEnter}
+        onMouseLeave={mobile ? undefined : handleContentLeave}
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <div className="flex flex-col gap-base min-h-0">
           <div className="flex items-center justify-between shrink-0">
-            <h4 className="text-sm font-medium text-normal">Your Messages</h4>
-            <span className="text-xs text-low">
-              {turns.length} turn{turns.length === 1 ? '' : 's'}
+            <h4 className="text-sm font-medium text-foreground">
+              {t('turnNavigation.title')}
+            </h4>
+            <span className="text-xs text-default-500">
+              {t('turnNavigation.count', { count: turns.length })}
             </span>
           </div>
 
@@ -151,8 +158,8 @@ export function TurnNavigationPopup({
                     className={cn(
                       'w-full text-left px-base py-half rounded transition-colors group',
                       isActive
-                        ? 'bg-brand/10 border-l-2 border-brand'
-                        : 'hover:bg-secondary'
+                        ? 'bg-primary/10 border-l-2 border-primary'
+                        : 'hover:bg-content2'
                     )}
                     onClick={() => handleNavigate(turn.patchKey)}
                   >
@@ -160,17 +167,19 @@ export function TurnNavigationPopup({
                       <span
                         className={cn(
                           'text-xs shrink-0 tabular-nums',
-                          isActive ? 'text-brand' : 'text-low'
+                          isActive ? 'text-primary' : 'text-default-500'
                         )}
                       >
-                        #{turn.turnNumber}
+                        {t('turnNavigation.number', {
+                          number: turn.turnNumber,
+                        })}
                       </span>
                       <span
                         className={cn(
                           'text-sm truncate',
                           isActive
-                            ? 'text-brand font-medium'
-                            : 'text-normal group-hover:text-high'
+                            ? 'text-primary font-medium'
+                            : 'text-foreground group-hover:text-foreground'
                         )}
                       >
                         {turn.content}

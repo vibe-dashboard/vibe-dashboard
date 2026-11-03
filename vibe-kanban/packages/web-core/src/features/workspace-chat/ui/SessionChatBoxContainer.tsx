@@ -1,6 +1,14 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useDropzone } from 'react-dropzone';
+import { DesktopIcon } from '@phosphor-icons/react';
 import {
   type AskUserQuestionItem,
   BaseAgentCapability,
@@ -14,15 +22,16 @@ import { workspaceSessionKeys } from '@/shared/hooks/workspaceSessionKeys';
 import { useWorkspaceExecution } from '@/shared/hooks/useWorkspaceExecution';
 import { useWorkspaceRepo } from '@/shared/hooks/useWorkspaceRepo';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
+import { useIsMobile } from '@/shared/hooks/useIsMobile';
+import { useOpenInEditor } from '@/shared/hooks/useOpenInEditor';
 import WYSIWYGEditor from '@/shared/components/WYSIWYGEditor';
 import { useApprovalFeedbackOptional } from '../model/contexts/ApprovalFeedbackContext';
 import { useMessageEditContext } from '../model/contexts/MessageEditContext';
 import { useEntries, useTokenUsage } from '../model/contexts/EntriesContext';
 import { useExecutionProcesses } from '@/shared/hooks/useExecutionProcesses';
 import { useReviewOptional } from '@/shared/hooks/useReview';
-import { useActions } from '@/shared/hooks/useActions';
 import { useTodos } from '../model/hooks/useTodos';
-import { getLatestConfigFromProcesses } from '@/shared/lib/executor';
+import { useSessionExecutorConfig } from '@/shared/hooks/useSessionExecutorConfig';
 import { useExecutorConfig } from '@/shared/hooks/useExecutorConfig';
 import {
   resolveSessionMessageScratchId,
@@ -54,16 +63,6 @@ import {
   RIGHT_MAIN_PANEL_MODES,
 } from '@/shared/stores/useUiPreferencesStore';
 import { useInspectModeStore } from '../model/store/useInspectModeStore';
-import { Actions } from '@/shared/actions';
-import {
-  isSpecialIcon,
-  getActionTooltip,
-  isActionEnabled,
-  isActionVisible,
-  type ActionDefinition,
-} from '@/shared/types/actions';
-import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
-import { useActionVisibilityContext } from '@/shared/hooks/useActionVisibilityContext';
 import { PrCommentsDialog } from '@/shared/dialogs/tasks/PrCommentsDialog';
 import type { NormalizedComment } from '@vibe/ui/components/pr-comment-node';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
@@ -74,6 +73,8 @@ import {
   isMobilePerfDiagnosticsEnabled,
   recordMobilePerfDiagnostic,
 } from '@/shared/lib/mobilePerfDiagnostics';
+import { WorkspaceBeadsTaskList } from './WorkspaceBeadsTaskList';
+import { shouldShowOpenInIde } from '../model/openInIdeVisibility';
 
 /** Compute execution status from boolean flags */
 function computeExecutionStatus(params: {
@@ -97,12 +98,18 @@ function computeExecutionStatus(params: {
 
 /** Shared props across all modes */
 interface SharedProps {
+  /** Stable host surface id; isolates embedded drafts from sibling panes. */
+  surfaceId?: string;
+  /** Show the host-approved editor action when the environment supports it. */
+  showOpenInIdeAction?: boolean;
   /** Available sessions for this workspace */
   sessions: Session[];
   /** Chat presentation mode */
   chatViewMode?: ChatViewMode;
   /** Optional control rendered in the chat header */
   chatViewModeSelector?: ReactNode;
+  /** Optional host-provided workspace preview control */
+  workspacePreview?: ReactNode;
   /** Number of files changed in current session */
   filesChanged: number;
   /** Number of lines added */
@@ -119,6 +126,7 @@ interface SharedProps {
   getActiveTurnPatchKey?: () => string | null;
   /** Disable the "view code" click handler (for VS Code extension) */
   disableViewCode: boolean;
+  onViewDiffs?: () => void;
   /** Replace diff stats with an "Open Workspace" button in header */
   showOpenWorkspaceButton: boolean;
 }
@@ -159,6 +167,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     sessions,
     chatViewMode = 'full',
     chatViewModeSelector,
+    workspacePreview,
     filesChanged,
     linesAdded,
     linesRemoved,
@@ -167,7 +176,10 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     onScrollToUserMessage,
     getActiveTurnPatchKey,
     disableViewCode = false,
+    onViewDiffs,
     showOpenWorkspaceButton,
+    surfaceId,
+    showOpenInIdeAction = false,
   } = props;
 
   // Extract mode-specific values
@@ -185,9 +197,14 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     mode === 'existing-session' ? props.onStartNewSession : undefined;
 
   const sessionId = session?.id;
+  const [surfaceFileSearchRepoId, setSurfaceFileSearchRepoId] = useState<
+    string | null
+  >(null);
   const lastComposerDiagnosticAtRef = useRef(0);
   const queryClient = useQueryClient();
   const hostId = useHostId();
+  const isMobile = useIsMobile();
+  const openInEditor = useOpenInEditor(workspaceId);
 
   const handleRenameSession = useCallback(
     (targetSessionId: string, currentName: string) => {
@@ -206,8 +223,6 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
   const appNavigation = useAppNavigation();
 
-  const { executeAction } = useActions();
-  const actionCtx = useActionVisibilityContext();
   const { rightMainPanelMode, setRightMainPanelMode } =
     useWorkspacePanelState(workspaceId);
 
@@ -249,8 +264,14 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   }, [entries]);
 
   // Execution state
-  const { isAttemptRunning, stopExecution, isStopping, processes } =
-    useWorkspaceExecution(workspaceId);
+  const {
+    isAttemptRunning,
+    stopExecution,
+    isStopping,
+    processes,
+    isLoading: isExecutionLoading,
+    error: executionError,
+  } = useWorkspaceExecution(workspaceId);
 
   // Approvals state
   const { getPendingForProcess } = useApprovals();
@@ -336,6 +357,15 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
   // Branch status for edit retry and conflict detection
   const { data: branchStatus } = useBranchStatus(workspaceId);
+  const hasOpenPullRequest = useMemo(
+    () =>
+      branchStatus?.some((repo) =>
+        repo.merges?.some(
+          (merge) => merge.type === 'pr' && merge.pr_info.status === 'open'
+        )
+      ) ?? false,
+    [branchStatus]
+  );
 
   // Derive conflict state from branch status
   const hasConflicts = useMemo(() => {
@@ -382,29 +412,31 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
   // Fetch processes from last session to get full profile (only in new session mode)
   const lastSessionId = isNewSessionMode ? sessions?.[0]?.id : undefined;
-  const { executionProcesses: lastSessionProcesses } =
-    useExecutionProcesses(lastSessionId);
+  const {
+    executionProcesses: lastSessionProcesses,
+    isLoading: isLastSessionLoading,
+    error: lastSessionError,
+  } = useExecutionProcesses(lastSessionId);
 
   // Compute latestConfig: current processes > last session processes > session metadata
-  const latestConfig = useMemo(() => {
-    // Current session's processes take priority (full ExecutorConfig)
-    const fromProcesses = getLatestConfigFromProcesses(processes);
-    if (fromProcesses) return fromProcesses;
-
-    // Try full config from last session's processes
-    const fromLastSession = getLatestConfigFromProcesses(lastSessionProcesses);
-    if (fromLastSession) return fromLastSession;
-
-    // Fallback: just executor from session metadata
-    const lastSessionExecutor = sessions?.[0]?.executor;
-    if (lastSessionExecutor) {
-      return {
-        executor: lastSessionExecutor as BaseCodingAgent,
-      };
-    }
-
-    return null;
-  }, [processes, lastSessionProcesses, sessions]);
+  const cachedSessionConfig = useSessionExecutorConfig(
+    workspaceId,
+    isNewSessionMode ? lastSessionId : sessionId,
+    isNewSessionMode ? lastSessionProcesses : processes,
+    isNewSessionMode
+      ? isLastSessionLoading || !!lastSessionError
+      : isExecutionLoading || !!executionError
+  );
+  const metadataExecutor = isNewSessionMode
+    ? sessions[0]?.executor
+    : session?.executor;
+  const latestConfig =
+    cachedSessionConfig ??
+    (metadataExecutor
+      ? {
+          executor: metadataExecutor as BaseCodingAgent,
+        }
+      : null);
 
   const needsExecutorSelection =
     isNewSessionMode || (!session?.executor && !latestConfig?.executor);
@@ -422,7 +454,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     deleteDraftScratch,
     cancelDebouncedSave,
     handleMessageChange,
-  } = useSessionMessageEditor({ scratchId });
+  } = useSessionMessageEditor({ scratchId, surfaceId });
 
   // Ref to access current message value for attachment handler
   const localMessageRef = useRef(localMessage);
@@ -451,7 +483,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   );
 
   useEffect(() => {
-    if (pendingComponentMarkdown) {
+    if (!surfaceId && pendingComponentMarkdown) {
       handleInsertMarkdown(pendingComponentMarkdown);
       clearPendingComponentMarkdown();
     }
@@ -459,6 +491,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     pendingComponentMarkdown,
     handleInsertMarkdown,
     clearPendingComponentMarkdown,
+    surfaceId,
   ]);
 
   const { uploadFiles, localAttachments, clearUploadedAttachments } =
@@ -491,7 +524,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
   // Navigate to agent settings to customise variants
   const handleCustomise = () => {
-    SettingsDialog.show({ initialSection: 'agents' });
+    console.warn('Agent settings are not available in the inline VD chat yet.');
   };
 
   // Queue interaction
@@ -518,6 +551,26 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     onSelectSession,
     executorConfig,
   });
+
+  const handleRequestBeadsHousekeeping = useCallback(
+    async (targetSessionId: string, message: string) => {
+      if (!executorConfig) return false;
+      try {
+        await sessionsApi.followUp(targetSessionId, {
+          prompt: message,
+          executor_config: executorConfig,
+          retry_process_id: null,
+          force_when_dirty: null,
+          perform_git_reset: null,
+        });
+        return true;
+      } catch (error) {
+        console.error('Failed to request beads housekeeping', error);
+        return false;
+      }
+    },
+    [executorConfig]
+  );
 
   const handleSend = useCallback(async () => {
     const { prompt, isSlashCommand } = buildAgentPrompt(localMessage, [
@@ -810,48 +863,27 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     }
   }, [workspaceId, repos, handleInsertMarkdown]);
 
-  // Toolbar actions handler
-  const handleToolbarAction = useCallback(
-    (action: ActionDefinition) => {
-      if (action.requiresTarget && workspaceId) {
-        executeAction(action, workspaceId);
-      } else {
-        executeAction(action);
-      }
-    },
-    [executeAction, workspaceId]
-  );
-
-  // Define which actions appear in the toolbar
-  const toolbarActionsList = useMemo(
-    () =>
-      [Actions.StartReview].filter((action) =>
-        isActionVisible(action, actionCtx)
-      ),
-    [actionCtx]
-  );
-
+  const canOpenInIde =
+    showOpenInIdeAction &&
+    shouldShowOpenInIde({
+      isMobile,
+      hostname: typeof window === 'undefined' ? '' : window.location.hostname,
+      remoteSshHost: config?.editor.remote_ssh_host,
+    });
   const toolbarActionItems = useMemo(
     () =>
-      toolbarActionsList.flatMap((action) => {
-        if (isSpecialIcon(action.icon)) {
-          return [];
-        }
-
-        const label = action.label;
-
-        return [
-          {
-            id: action.id,
-            icon: action.icon,
-            label,
-            tooltip: getActionTooltip(action, actionCtx),
-            disabled: !isActionEnabled(action, actionCtx),
-            onClick: () => handleToolbarAction(action),
-          },
-        ];
-      }),
-    [toolbarActionsList, actionCtx, handleToolbarAction]
+      canOpenInIde
+        ? [
+            {
+              id: 'open-in-ide',
+              icon: DesktopIcon,
+              label: 'Open in IDE',
+              tooltip: 'Open this workspace in your configured IDE',
+              onClick: () => void openInEditor(),
+            },
+          ]
+        : [],
+    [canOpenInIde, openInEditor]
   );
 
   // Handle approve action
@@ -986,6 +1018,12 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
         className="min-h-double max-h-[50vh] overflow-y-auto"
         constrainMobileComposerHeight
         repoIds={repoIds}
+        preferredFileSearchRepoId={
+          surfaceId ? surfaceFileSearchRepoId : undefined
+        }
+        onPreferredFileSearchRepoChange={
+          surfaceId ? setSurfaceFileSearchRepoId : undefined
+        }
         executor={executor}
         sessionId={sessionId}
         autoFocus
@@ -994,7 +1032,12 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
         sendShortcut={config?.send_message_shortcut}
       />
     ),
-    [config?.send_message_shortcut, sessionId]
+    [
+      config?.send_message_shortcut,
+      sessionId,
+      surfaceFileSearchRepoId,
+      surfaceId,
+    ]
   );
 
   const modelSelectorNode = effectiveExecutor ? (
@@ -1002,7 +1045,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
       agent={effectiveExecutor}
       workspaceId={workspaceId}
       sessionId={sessionId}
-      onAdvancedSettings={handleCustomise}
+      onAdvancedSettings={surfaceId ? undefined : handleCustomise}
       presets={variantOptions}
       selectedPreset={selectedVariant}
       onPresetSelect={setSelectedVariant}
@@ -1056,7 +1099,9 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
           linesAdded: 0,
           linesRemoved: 0,
         }}
-        onViewCode={disableViewCode ? undefined : handleViewCode}
+        onViewCode={
+          onViewDiffs ?? (disableViewCode ? undefined : handleViewCode)
+        }
         chatViewMode={chatViewMode}
         chatViewModeSelector={chatViewModeSelector}
       />
@@ -1066,7 +1111,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   return (
     <SessionChatBox<BaseCodingAgent>
       status={status}
-      onViewCode={disableViewCode ? undefined : handleViewCode}
+      onViewCode={onViewDiffs ?? (disableViewCode ? undefined : handleViewCode)}
       chatViewMode={chatViewMode}
       chatViewModeSelector={chatViewModeSelector}
       onOpenWorkspace={
@@ -1114,9 +1159,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
       toolbarActions={{
         items: toolbarActionItems,
       }}
-      onPrCommentClick={
-        actionCtx.hasOpenPR ? handleInsertPrComments : undefined
-      }
+      onPrCommentClick={hasOpenPullRequest ? handleInsertPrComments : undefined}
       stats={{
         filesChanged,
         linesAdded,
@@ -1129,6 +1172,17 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
       agent={effectiveExecutor}
       todos={todos}
       inProgressTodo={inProgressTodo}
+      workspaceTasks={
+        chatViewMode !== 'zen' ? (
+          <WorkspaceBeadsTaskList
+            workspaceId={workspaceId}
+            sessions={sessions}
+            selectedSessionId={sessionId}
+            onRequestHousekeeping={handleRequestBeadsHousekeeping}
+          />
+        ) : undefined
+      }
+      workspacePreview={chatViewMode !== 'zen' ? workspacePreview : undefined}
       executor={
         needsExecutorSelection
           ? {

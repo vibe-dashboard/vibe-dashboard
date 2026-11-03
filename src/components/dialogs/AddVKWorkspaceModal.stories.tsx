@@ -44,7 +44,7 @@ const meta: Meta<typeof AddVKWorkspaceModalView> = {
   component: AddVKWorkspaceModalView,
   decorators: [
     (Story) => (
-      <div className="min-h-[720px] bg-zinc-950 p-6 text-neutral-100">
+      <div className="min-h-[720px] bg-background p-6 text-foreground">
         <Story />
       </div>
     ),

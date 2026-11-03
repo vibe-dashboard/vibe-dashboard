@@ -35,6 +35,7 @@ import { useUserSystem } from '@/shared/hooks/useUserSystem';
 import { getResolvedTheme, useTheme } from '@/shared/hooks/useTheme';
 import { useModelSelectorConfig } from '@/shared/hooks/useExecutorDiscovery';
 import { ModelSelectorPopover } from '@vibe/ui/components/ModelSelectorPopover';
+import { useComposerSheet } from '@vibe/ui/components/ComposerSheet';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -48,7 +49,7 @@ interface ModelSelectorContainerProps {
   agent: BaseCodingAgent | null;
   workspaceId: string | undefined;
   sessionId?: string;
-  onAdvancedSettings: () => void;
+  onAdvancedSettings?: () => void;
   presets: string[];
   selectedPreset: string | null;
   onPresetSelect: (presetId: string | null) => void;
@@ -70,6 +71,7 @@ export function ModelSelectorContainer({
   presetOptions,
 }: ModelSelectorContainerProps) {
   const { t } = useTranslation('common');
+  const { mobile } = useComposerSheet();
   const { theme } = useTheme();
   const resolvedTheme = getResolvedTheme(theme);
   const [isOpen, setIsOpen] = useState(false);
@@ -105,6 +107,7 @@ export function ModelSelectorContainer({
     config: streamConfig,
     loadingModels,
     error: streamError,
+    retry: retryDiscovery,
   } = useModelSelectorConfig(agent, {
     workspaceId: sessionId ? workspaceId : undefined,
     sessionId,
@@ -400,7 +403,13 @@ export function ModelSelectorContainer({
     return (
       <>
         <DropdownMenu>
-          <DropdownMenuTriggerButton size="sm" label={loadingLabel} disabled />
+          <DropdownMenuTriggerButton
+            size="sm"
+            label={streamError ? t('buttons.retry') : loadingLabel}
+            title={streamError ?? loadingLabel}
+            disabled={!streamError}
+            onClick={() => void retryDiscovery()}
+          />
         </DropdownMenu>
       </>
     );
@@ -436,12 +445,25 @@ export function ModelSelectorContainer({
 
   return (
     <>
+      {streamError && (
+        <button
+          type="button"
+          title={streamError}
+          className="text-xs text-danger hover:underline"
+          onClick={() => void retryDiscovery()}
+        >
+          {t('buttons.retry')}
+        </button>
+      )}
       <DropdownMenu>
         <DropdownMenuTriggerButton
           size="sm"
-          icon={SlidersHorizontalIcon}
+          icon={mobile ? undefined : SlidersHorizontalIcon}
+          aria-label={t(
+            mobile ? 'modelSelector.preset' : 'modelSelector.custom'
+          )}
           label={
-            resolvedPreset?.toLowerCase() !== 'default'
+            mobile || resolvedPreset?.toLowerCase() !== 'default'
               ? presetLabel
               : undefined
           }
@@ -462,10 +484,14 @@ export function ModelSelectorContainer({
           ) : (
             <DropdownMenuItem disabled>{presetLabel}</DropdownMenuItem>
           )}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem icon={GearIcon} onClick={onAdvancedSettings}>
-            {t('modelSelector.custom')}
-          </DropdownMenuItem>
+          {onAdvancedSettings && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem icon={GearIcon} onClick={onAdvancedSettings}>
+                {t('modelSelector.custom')}
+              </DropdownMenuItem>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -504,6 +530,8 @@ export function ModelSelectorContainer({
           <DropdownMenuTriggerButton
             size="sm"
             icon={permissionIcon}
+            label={mobile ? permissionMeta?.label : undefined}
+            aria-label={t('modelSelector.permissions')}
             showCaret={false}
           />
           <DropdownMenuContent align="start">

@@ -76,7 +76,7 @@ const meta: Meta<typeof SpacesOverviewView> = {
   component: SpacesOverviewView,
   decorators: [
     (Story) => (
-      <div className="h-[760px] w-full overflow-hidden bg-zinc-900">
+      <div className="h-[760px] w-full overflow-hidden bg-background">
         <Story />
       </div>
     ),

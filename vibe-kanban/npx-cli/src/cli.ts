@@ -31,9 +31,6 @@ type PreviewUrlOptions = {
   repo?: string;
   runConfig?: string;
   slot?: string;
-  customer?: string;
-  baseDomain?: string;
-  urlScheme?: string;
   slug?: string;
   name?: string;
   command?: string;
@@ -343,13 +340,9 @@ async function runPreviewUrlCommand(action: string, options: PreviewUrlOptions):
 
   if (action === "url") {
     const slotId = requirePreviewOption(options, "slot");
-    const customerSlug = requirePreviewOption(options, "customer");
-    const params = new URLSearchParams({ customerSlug });
-    if (options.baseDomain) params.set("baseDomain", options.baseDomain);
-    if (options.urlScheme) params.set("urlScheme", options.urlScheme);
     const data = await previewApiRequest<{ url: string }>(
       options,
-      `/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots/${encodeURIComponent(slotId)}/url?${params}`,
+      `/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots/${encodeURIComponent(slotId)}/url`,
     );
     console.log(data.url);
     return;
@@ -479,9 +472,6 @@ async function main(): Promise<void> {
     .option("--repo <id>", "Repository ID for upsert actions")
     .option("--run-config <id>", "Run config ID")
     .option("--slot <idOrSlug>", "Preview slot ID for url/start-slot, or slot slug for upsert-slot")
-    .option("--customer <slug>", "Customer slug for canonical URL generation")
-    .option("--base-domain <domain>", "Preview base domain for URL generation")
-    .option("--url-scheme <scheme>", "Preview URL scheme: http or https")
     .option("--slug <slug>", "Run config slug")
     .option("--name <name>", "Run config display name")
     .option("--command <command>", "Stored shell command")

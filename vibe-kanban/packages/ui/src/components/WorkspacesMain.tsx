@@ -35,22 +35,24 @@ export function WorkspacesMain({
   return (
     <main
       ref={containerRef}
-      className="relative flex h-full min-h-0 flex-1 flex-col bg-primary"
+      className="relative flex h-full min-h-0 flex-1 flex-col bg-background"
     >
       {/* Conversation content - conditional based on loading/workspace state */}
       {isLoading ? (
         <div className="flex-1 min-h-0 flex items-center justify-center">
-          <SpinnerIcon className="size-6 animate-spin text-low" />
+          <SpinnerIcon className="size-6 animate-spin text-default-500" />
         </div>
       ) : !workspaceWithSession ? (
         <div className="flex-1 min-h-0 flex items-center justify-center">
-          <p className="text-low">{t('common:workspaces.selectToStart')}</p>
+          <p className="text-default-500">
+            {t('common:workspaces.selectToStart')}
+          </p>
         </div>
       ) : (
         <>
           {showLoadingOverlay && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-primary">
-              <SpinnerIcon className="size-6 animate-spin text-low" />
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-background">
+              <SpinnerIcon className="size-6 animate-spin text-default-500" />
             </div>
           )}
           {conversationContent}
@@ -63,7 +65,7 @@ export function WorkspacesMain({
             <button
               type="button"
               onClick={() => onScrollToBottom?.('auto')}
-              className="absolute bottom-2 right-4 z-10 pointer-events-auto flex items-center justify-center size-8 rounded-full bg-secondary/80 backdrop-blur-sm border border-secondary text-low hover:text-normal hover:bg-secondary shadow-md transition-all"
+              className="absolute bottom-2 right-4 z-10 pointer-events-auto flex items-center justify-center size-8 rounded-full bg-content1/80 backdrop-blur-sm border border-divider/30 text-default-500 hover:text-foreground hover:bg-content1 shadow-md transition-all"
               aria-label="Scroll to bottom"
               title="Scroll to bottom"
             >

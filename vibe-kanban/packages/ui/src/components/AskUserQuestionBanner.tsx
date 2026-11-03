@@ -160,11 +160,11 @@ export const AskUserQuestionBanner = forwardRef<
     <div className="border-b">
       {/* Header */}
       <div className="flex items-center gap-base px-double py-base">
-        <QuestionIcon className="h-4 w-4 text-brand flex-shrink-0" />
-        <span className="text-sm text-normal flex-1">
+        <QuestionIcon className="h-4 w-4 text-primary flex-shrink-0" />
+        <span className="text-sm text-foreground flex-1">
           {t('askQuestion.title')}
           {questions.length > 1 && (
-            <span className="text-low ml-1">
+            <span className="text-default-500 ml-1">
               ({Math.min(currentIndex + 1, questions.length)}/{questions.length}
               )
             </span>
@@ -176,16 +176,16 @@ export const AskUserQuestionBanner = forwardRef<
       {currentQuestion && (
         <div className="px-double pb-base">
           <div className="flex items-center gap-base mb-base">
-            <span className="text-xs font-medium text-low bg-secondary px-1 py-0.5 rounded">
+            <span className="text-xs font-medium text-default-500 bg-content2 px-1 py-0.5 rounded">
               {currentQuestion.header}
             </span>
             {currentQuestion.multiSelect && (
-              <span className="text-xs text-low">
+              <span className="text-xs text-default-500">
                 {t('askQuestion.selectMultiple')}
               </span>
             )}
           </div>
-          <p className="text-sm font-medium text-normal mb-base">
+          <p className="text-sm font-medium text-foreground mb-base">
             {currentQuestion.question}
           </p>
           <div className="flex flex-wrap gap-base">
@@ -202,8 +202,8 @@ export const AskUserQuestionBanner = forwardRef<
                     group relative rounded-md border px-2.5 py-1.5 text-xs transition-all
                     ${
                       isSelected
-                        ? 'border-brand bg-brand/10 text-normal'
-                        : 'border-border text-low hover:border-brand/40 hover:text-normal hover:bg-accent'
+                        ? 'border-primary bg-primary/10 text-foreground'
+                        : 'border-divider text-default-500 hover:border-primary/40 hover:text-foreground hover:bg-content2'
                     }
                     ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
                   `}
@@ -220,7 +220,7 @@ export const AskUserQuestionBanner = forwardRef<
               type="button"
               disabled={disabled}
               onClick={handleConfirmMultiSelect}
-              className="mt-2 rounded-md bg-brand px-3 py-1 text-xs font-medium text-white hover:bg-brand/90 transition-colors disabled:opacity-50"
+              className="mt-2 rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
             >
               {t('askQuestion.confirmSelection')}
             </button>
@@ -229,11 +229,11 @@ export const AskUserQuestionBanner = forwardRef<
       )}
 
       {error && (
-        <div className="px-double pb-base text-sm text-error">{error}</div>
+        <div className="px-double pb-base text-sm text-danger">{error}</div>
       )}
 
       {isSubmitting && (
-        <div className="px-double pb-base text-sm text-low">
+        <div className="px-double pb-base text-sm text-default-500">
           {t('askQuestion.submitting')}
         </div>
       )}

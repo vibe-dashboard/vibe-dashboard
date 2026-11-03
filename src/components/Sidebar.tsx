@@ -16,6 +16,7 @@ import type {
 } from '../types';
 import type { SpaceTypeContribution } from '../modules/plugins/vibe-dashboard/types';
 import { TabContextMenu } from './TabContextMenu';
+import { ThemeSelector } from './ThemeSelector';
 
 const INTERNAL_URL_PREFIX = 'internal://';
 
@@ -542,13 +543,13 @@ export function Sidebar({
   }, [contextMenu, groupContextMenu]);
 
   return (
-    <div className="h-full w-72 bg-neutral-900 border-r border-neutral-800 flex flex-col shrink-0">
-      <div className="p-3 border-b border-neutral-800">
+    <div className="h-full w-72 bg-content1 text-foreground border-r border-divider/30 flex flex-col shrink-0">
+      <div className="p-3 border-b border-divider/30">
         {view === 'groups' ? (
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
               <button
-                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-white"
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-foreground transition-colors hover:bg-content2"
                 title="Close sidebar"
                 aria-label="Close sidebar"
                 onClick={onRequestClose}
@@ -556,16 +557,16 @@ export function Sidebar({
                 ✕
               </button>
               <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-default-500">
                   Current Space
                 </p>
-                <h2 className="text-sm font-semibold text-neutral-100 truncate">
+                <h2 className="text-sm font-semibold text-foreground truncate">
                   {viewedSpace?.name || 'Unknown Space'}
                 </h2>
               </div>
             </div>
             <button
-              className="inline-flex h-8 shrink-0 items-center justify-center rounded-md px-2 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-white"
+              className="inline-flex h-8 shrink-0 items-center justify-center rounded-md px-2 text-xs font-medium text-foreground transition-colors hover:bg-content2"
               title="Show all spaces"
               onClick={() => setView('spaces')}
             >
@@ -576,19 +577,19 @@ export function Sidebar({
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
               <button
-                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-white"
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-foreground transition-colors hover:bg-content2"
                 title="Close sidebar"
                 aria-label="Close sidebar"
                 onClick={onRequestClose}
               >
                 ✕
               </button>
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-400">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-default-500">
                 Spaces
               </h2>
             </div>
             <button
-              className="inline-flex h-8 shrink-0 items-center justify-center rounded-md px-2 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-white"
+              className="inline-flex h-8 shrink-0 items-center justify-center rounded-md px-2 text-xs font-medium text-foreground transition-colors hover:bg-content2"
               title="Back to current space"
               onClick={() => {
                 setViewedSpaceId(activeSpaceId);
@@ -603,7 +604,7 @@ export function Sidebar({
 
       {view === 'groups' ? (
         <div className="flex-1 min-h-0 flex flex-col">
-          <div className="p-2 border-b border-neutral-800 space-y-2">
+          <div className="p-2 border-b border-divider/30 space-y-2">
             <Button
               size="sm"
               color="primary"
@@ -677,7 +678,7 @@ export function Sidebar({
                   value={newGroupLabel}
                   onChange={(e) => setNewGroupLabel(e.target.value)}
                   placeholder="Craft name..."
-                  classNames={{ inputWrapper: 'bg-neutral-800' }}
+                  classNames={{ inputWrapper: 'bg-content2' }}
                 />
                 <Button
                   size="sm"
@@ -692,7 +693,7 @@ export function Sidebar({
 
             {mobileAction === 'pair' && (
               <div className="space-y-1.5">
-                <p className="text-xs text-neutral-400">Pick 2 views to split</p>
+                <p className="text-xs text-default-500">Pick 2 views to split</p>
                 <div className="max-h-28 overflow-y-auto space-y-1">
                   {availablePairTabs.map((tab) => {
                     const selected = pairSelection.includes(tab.id);
@@ -701,8 +702,8 @@ export function Sidebar({
                         key={tab.id}
                         className={`w-full text-left px-2 py-1.5 rounded text-sm transition-colors ${
                           selected
-                            ? 'bg-primary-500/25 text-primary-200'
-                            : 'bg-neutral-800 text-neutral-200'
+                            ? 'bg-primary/25 text-primary'
+                            : 'bg-content2 text-foreground'
                         }`}
                         onClick={() => togglePairTab(tab.id)}
                       >
@@ -725,12 +726,12 @@ export function Sidebar({
           </div>
 
           <div className="flex-1 min-h-0 overflow-y-auto">
-            <div className="border-b border-neutral-800">
-              <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+            <div className="border-b border-divider/30">
+              <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-default-500">
                 Current Voyage
               </div>
               <div className="px-2 pb-2 space-y-2">
-                <div className="px-3 py-2 rounded-lg bg-neutral-800/60">
+                <div className="px-3 py-2 rounded-lg bg-content2/60">
                   {currentSession && editingSessionId === currentSession.id ? (
                     <Input
                       size="sm"
@@ -744,26 +745,26 @@ export function Sidebar({
                       autoFocus
                       classNames={{
                         input: 'text-sm',
-                        inputWrapper: 'h-8 min-h-8 bg-neutral-700',
+                        inputWrapper: 'h-8 min-h-8 bg-content2',
                       }}
                     />
                   ) : (
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="text-sm font-medium text-neutral-100 truncate">
+                        <div className="text-sm font-medium text-foreground truncate">
                           {currentSession
                             ? getSessionDisplayName(currentSession)
                             : 'Current voyage'}
                         </div>
                         {currentSession && (
-                          <div className="text-xs text-neutral-500 mt-1 truncate">
+                          <div className="text-xs text-default-500 mt-1 truncate">
                             Updated {formatSessionTimestamp(currentSession.updatedAt)}
                           </div>
                         )}
                       </div>
                       {currentSession && (
                         <button
-                          className="text-[10px] uppercase tracking-wide text-neutral-500 hover:text-neutral-300"
+                          className="text-[10px] uppercase tracking-wide text-default-500 hover:text-foreground"
                           onClick={() => startRenamingSession(currentSession)}
                         >
                           Rename
@@ -784,8 +785,8 @@ export function Sidebar({
             </div>
 
             {sessionVoyageEntries.length > 0 && (
-              <div className="border-b border-neutral-800">
-                <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+              <div className="border-b border-divider/30">
+                <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-default-500">
                   Active Fleet
                 </div>
                 <div className="px-2 pb-2 space-y-0.5">
@@ -794,15 +795,15 @@ export function Sidebar({
                       key={entry.id}
                       className={`w-full text-left px-3 py-1.5 rounded-lg transition-colors ${
                         activeVoyageEntryId === entry.id
-                          ? 'bg-primary-500/20 text-primary-300'
-                          : 'text-neutral-300 hover:bg-neutral-800'
+                          ? 'bg-primary/20 text-primary'
+                          : 'text-foreground hover:bg-content2'
                       }`}
                       onClick={() => {
                         onSelectVoyageEntry(entry.id);
                       }}
                     >
                       <div className="text-sm font-medium truncate">{tg.label}</div>
-                      <div className="text-xs text-neutral-500 mt-0.5">
+                      <div className="text-xs text-default-500 mt-0.5">
                         {space.name}
                       </div>
                     </button>
@@ -812,8 +813,8 @@ export function Sidebar({
             )}
 
             {resumableSessions.length > 0 && (
-              <div className="border-b border-neutral-800">
-                <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+              <div className="border-b border-divider/30">
+                <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-default-500">
                   Resume Voyage
                 </div>
                 <div className="px-2 pb-2 space-y-0.5">
@@ -828,7 +829,7 @@ export function Sidebar({
                     return (
                       <div
                         key={session.id}
-                        className="w-full text-left px-3 py-1.5 rounded-lg text-neutral-300 hover:bg-neutral-800 transition-colors"
+                        className="w-full text-left px-3 py-1.5 rounded-lg text-foreground hover:bg-content2 transition-colors"
                       >
                         <div className="flex items-center gap-2">
                           {editingSessionId === session.id ? (
@@ -844,7 +845,7 @@ export function Sidebar({
                               autoFocus
                               classNames={{
                                 input: 'text-sm',
-                                inputWrapper: 'h-7 min-h-7 bg-neutral-700',
+                                inputWrapper: 'h-7 min-h-7 bg-content2',
                               }}
                             />
                           ) : (
@@ -856,7 +857,7 @@ export function Sidebar({
                                 {getSessionDisplayName(session)}
                               </button>
                               <button
-                                className="text-[10px] uppercase tracking-wide text-neutral-500 hover:text-neutral-300"
+                                className="text-[10px] uppercase tracking-wide text-default-500 hover:text-foreground"
                                 onClick={() => startRenamingSession(session)}
                               >
                                 Rename
@@ -864,7 +865,7 @@ export function Sidebar({
                             </>
                           )}
                         </div>
-                        <div className="text-xs text-neutral-500 mt-0.5 truncate">
+                        <div className="text-xs text-default-500 mt-0.5 truncate">
                           {sessionSpace?.name || 'Unknown space'} •{' '}
                           {formatSessionTimestamp(session.updatedAt)}
                         </div>
@@ -877,9 +878,9 @@ export function Sidebar({
 
             {/* Starred crafts section */}
             {starredTabGroups.length > 0 && (
-              <div className="border-b border-neutral-800">
+              <div className="border-b border-divider/30">
                 <button
-                  className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-neutral-500 hover:text-neutral-300 transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-default-500 hover:text-foreground transition-colors"
                   onClick={toggleStarredExpanded}
                 >
                   <span className="text-[10px]">
@@ -894,8 +895,8 @@ export function Sidebar({
                         key={tg.id}
                         className={`w-full text-left px-3 py-1.5 rounded-lg transition-colors ${
                           activeTabGroupId === tg.id
-                            ? 'bg-primary-500/20 text-primary-300'
-                            : 'text-neutral-300 hover:bg-neutral-800'
+                            ? 'bg-primary/20 text-primary'
+                            : 'text-foreground hover:bg-content2'
                         }`}
                         onClick={() => {
                           setViewedSpaceId(space.id);
@@ -903,10 +904,10 @@ export function Sidebar({
                         }}
                       >
                         <div className="text-sm font-medium truncate flex items-center gap-1.5">
-                          <span className="text-amber-400 text-xs">★</span>
+                          <span className="text-warning text-xs">★</span>
                           {tg.label}
                         </div>
-                        <div className="text-xs text-neutral-500 mt-0.5 pl-4">
+                        <div className="text-xs text-default-500 mt-0.5 pl-4">
                           {space.name}
                         </div>
                       </button>
@@ -918,7 +919,7 @@ export function Sidebar({
 
             <div className="p-2 space-y-1">
             {activeTabGroups.length === 0 ? (
-              <div className="px-3 py-4 text-sm text-neutral-500">
+              <div className="px-3 py-4 text-sm text-default-500">
                 No craft in this space.
               </div>
             ) : (
@@ -935,8 +936,8 @@ export function Sidebar({
                     <button
                       className={`shrink-0 w-6 h-6 flex items-center justify-center rounded text-xs transition-colors ${
                         tabGroup.starred
-                          ? 'text-amber-400 hover:text-amber-300'
-                          : 'text-neutral-600 hover:text-neutral-400'
+                          ? 'text-warning hover:text-warning/80'
+                          : 'text-default-500 hover:text-foreground'
                       }`}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -949,8 +950,8 @@ export function Sidebar({
                     <button
                       className={`flex-1 text-left px-2 py-2 rounded-lg transition-colors ${
                         activeTabGroupId === tabGroup.id
-                          ? 'bg-primary-500/20 text-primary-300'
-                          : 'text-neutral-300 hover:bg-neutral-800'
+                          ? 'bg-primary/20 text-primary'
+                          : 'text-foreground hover:bg-content2'
                       }`}
                       onClick={() => onSelectTabGroup(tabGroup.id)}
                       onContextMenu={(e) =>
@@ -960,7 +961,7 @@ export function Sidebar({
                       <div className="text-sm font-medium truncate">
                         {tabGroup.label}
                       </div>
-                      <div className="text-xs text-neutral-500 mt-0.5">
+                      <div className="text-xs text-default-500 mt-0.5">
                         {tabGroup.tabs.length} tab
                         {tabGroup.tabs.length !== 1 ? 's' : ''}
                         {tabGroup.pairs.length > 0
@@ -971,7 +972,7 @@ export function Sidebar({
                   </div>
 
                   {activeTabGroupId === tabGroup.id && (
-                    <div className="ml-2 pl-2 border-l border-neutral-800 space-y-0.5">
+                    <div className="ml-2 pl-2 border-l border-divider/30 space-y-0.5">
                       {tabGroup.tabs.map((tab) => {
                         const isActiveTab = activeItems[tabGroup.id] === tab.id;
                         return (
@@ -979,8 +980,8 @@ export function Sidebar({
                             key={tab.id}
                             className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors ${
                               isActiveTab
-                                ? 'bg-primary-500/20 text-primary-300'
-                                : 'text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200'
+                                ? 'bg-primary/20 text-primary'
+                                : 'text-default-500 hover:bg-content2 hover:text-foreground'
                             }`}
                             onClick={(e) => {
                               e.stopPropagation();
@@ -1012,8 +1013,8 @@ export function Sidebar({
                             key={pair.id}
                             className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors ${
                               isActivePair
-                                ? 'bg-primary-500/20 text-primary-300'
-                                : 'text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200'
+                                ? 'bg-primary/20 text-primary'
+                                : 'text-default-500 hover:bg-content2 hover:text-foreground'
                             }`}
                             onClick={(e) => {
                               e.stopPropagation();
@@ -1049,8 +1050,8 @@ export function Sidebar({
               onDrop={(e) => handleSpaceDrop(e, space.id)}
               className={`group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
                 viewedSpaceId === space.id
-                  ? 'bg-primary-500/20 text-primary-400'
-                  : 'text-neutral-300 hover:bg-neutral-800'
+                  ? 'bg-primary/20 text-primary'
+                  : 'text-foreground hover:bg-content2'
               }`}
               onClick={() => handleSelectSpace(space.id)}
               onContextMenu={(e) => handleContextMenu(e, space.id)}
@@ -1073,7 +1074,7 @@ export function Sidebar({
                   autoFocus
                   classNames={{
                     input: 'text-sm',
-                    inputWrapper: 'h-6 min-h-6 bg-neutral-800',
+                    inputWrapper: 'h-6 min-h-6 bg-content2',
                   }}
                 />
               ) : (
@@ -1085,7 +1086,7 @@ export function Sidebar({
       )}
 
       {view === 'spaces' && (
-        <div className="p-2 border-t border-neutral-800">
+        <div className="p-2 border-t border-divider/30">
           {adding ? (
             <div className="flex gap-1">
               <Input
@@ -1099,7 +1100,7 @@ export function Sidebar({
                 }}
                 autoFocus
                 classNames={{
-                  inputWrapper: 'h-8 min-h-8 bg-neutral-800',
+                  inputWrapper: 'h-8 min-h-8 bg-content2',
                 }}
               />
               <Button
@@ -1166,28 +1167,28 @@ export function Sidebar({
           return (
             <div
               ref={groupContextMenuRef}
-              className="fixed z-[100] bg-neutral-800 border border-neutral-700 rounded-md shadow-xl py-1 min-w-[200px]"
+              className="fixed z-[100] bg-content1 border border-divider rounded-md shadow-xl py-1 min-w-[200px]"
               style={{
                 left: `${groupContextMenu.position.x}px`,
                 top: `${groupContextMenu.position.y}px`,
               }}
             >
               <button
-                className="w-full text-left px-4 py-2 text-sm text-neutral-200 hover:bg-neutral-700 transition-colors"
+                className="w-full text-left px-4 py-2 text-sm text-foreground hover:bg-content2 transition-colors"
                 onClick={handleRenameTabGroup}
               >
                 Rename Craft
               </button>
-              <div className="border-t border-neutral-700 my-1" />
+              <div className="border-t border-divider/30 my-1" />
               {canDelete ? (
                 <button
-                  className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-neutral-700 transition-colors"
+                  className="w-full text-left px-4 py-2 text-sm text-danger hover:bg-content2 transition-colors"
                   onClick={handleDeleteTabGroup}
                 >
                   Delete Craft
                 </button>
               ) : (
-                <div className="px-4 py-2 text-sm text-neutral-500 italic">
+                <div className="px-4 py-2 text-sm text-default-500 italic">
                   Cannot delete last craft
                 </div>
               )}
@@ -1196,7 +1197,8 @@ export function Sidebar({
         })()}
 
       {/* Address bar toggle */}
-      <div className="p-2 border-t border-neutral-800">
+      <ThemeSelector />
+      <div className="p-2 border-t border-divider/30">
         <Button
           size="sm"
           variant={showAddressBar ? 'solid' : 'flat'}
@@ -1220,7 +1222,7 @@ export function Sidebar({
           return (
             <div
               ref={contextMenuRef}
-              className="fixed z-[100] bg-neutral-800 border border-neutral-700 rounded-md shadow-xl py-1 min-w-[200px]"
+              className="fixed z-[100] bg-content1 border border-divider rounded-md shadow-xl py-1 min-w-[200px]"
               style={{
                 left: `${contextMenu.position.x}px`,
                 top: `${contextMenu.position.y}px`,
@@ -1228,28 +1230,28 @@ export function Sidebar({
             >
               {!isSystemSpace && (
                 <button
-                  className="w-full text-left px-4 py-2 text-sm text-neutral-200 hover:bg-neutral-700 transition-colors"
+                  className="w-full text-left px-4 py-2 text-sm text-foreground hover:bg-content2 transition-colors"
                   onClick={handleRenameFromContextMenu}
                 >
                   Rename Space
                 </button>
               )}
               {!isSystemSpace && workspace.spaces.length > 1 && (
-                <div className="border-t border-neutral-700 my-1" />
+                <div className="border-t border-divider/30 my-1" />
               )}
               {canDelete ? (
                 <button
-                  className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-neutral-700 transition-colors"
+                  className="w-full text-left px-4 py-2 text-sm text-danger hover:bg-content2 transition-colors"
                   onClick={handleDeleteSpace}
                 >
                   Delete Space
                 </button>
               ) : isSystemSpace ? (
-                <div className="px-4 py-2 text-sm text-neutral-500 italic">
+                <div className="px-4 py-2 text-sm text-default-500 italic">
                   System space cannot be modified
                 </div>
               ) : (
-                <div className="px-4 py-2 text-sm text-neutral-500 italic">
+                <div className="px-4 py-2 text-sm text-default-500 italic">
                   Cannot delete last space
                 </div>
               )}

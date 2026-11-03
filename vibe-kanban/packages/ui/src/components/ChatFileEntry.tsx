@@ -87,7 +87,7 @@ export function ChatFileEntry({
       <div
         className={cn(
           'rounded-sm border overflow-hidden',
-          isDenied && 'border-error bg-error/10',
+          isDenied && 'border-danger bg-danger/10',
           className
         )}
       >
@@ -95,7 +95,7 @@ export function ChatFileEntry({
         <div
           className={cn(
             'flex items-center p-base w-full',
-            isDenied ? 'bg-error/20' : 'bg-panel',
+            isDenied ? 'bg-danger/20' : 'bg-content1',
             isInteractive && 'cursor-pointer'
           )}
           onClick={handleClick}
@@ -115,7 +115,7 @@ export function ChatFileEntry({
                 />
               )}
             </span>
-            <span className="text-sm text-normal truncate">{filename}</span>
+            <span className="text-sm text-foreground truncate">{filename}</span>
             {onOpenInChanges && (
               <button
                 type="button"
@@ -123,7 +123,7 @@ export function ChatFileEntry({
                   e.stopPropagation();
                   onOpenInChanges();
                 }}
-                className="shrink-0 p-0.5 rounded hover:bg-muted text-low hover:text-normal transition-colors"
+                className="shrink-0 p-0.5 rounded hover:bg-content2 text-default-500 hover:text-foreground transition-colors"
                 title={t('conversation.viewInChangesPanel')}
               >
                 <ArrowSquareUpRightIcon className="size-icon-xs" />
@@ -136,7 +136,7 @@ export function ChatFileEntry({
                 )}
                 {additions !== undefined && deletions !== undefined && ' '}
                 {deletions !== undefined && deletions > 0 && (
-                  <span className="text-error">-{deletions}</span>
+                  <span className="text-danger">-{deletions}</span>
                 )}
               </span>
             )}
@@ -144,7 +144,7 @@ export function ChatFileEntry({
           {!isVSCode && onToggle && (
             <CaretDownIcon
               className={cn(
-                'size-icon-xs shrink-0 text-low transition-transform',
+                'size-icon-xs shrink-0 text-default-500 transition-transform',
                 !expanded && '-rotate-90'
               )}
             />
@@ -162,7 +162,7 @@ export function ChatFileEntry({
     <div
       className={cn(
         'flex items-center border rounded-sm p-base w-full',
-        isDenied ? 'bg-error/20 border-error' : 'bg-panel',
+        isDenied ? 'bg-danger/20 border-danger' : 'bg-content1',
         isInteractive && 'cursor-pointer',
         className
       )}
@@ -183,7 +183,7 @@ export function ChatFileEntry({
             />
           )}
         </span>
-        <span className="text-sm text-normal truncate">{filename}</span>
+        <span className="text-sm text-foreground truncate">{filename}</span>
         {onOpenInChanges && (
           <button
             type="button"
@@ -191,7 +191,7 @@ export function ChatFileEntry({
               e.stopPropagation();
               onOpenInChanges();
             }}
-            className="shrink-0 p-0.5 rounded hover:bg-muted text-low hover:text-normal transition-colors"
+            className="shrink-0 p-0.5 rounded hover:bg-content2 text-default-500 hover:text-foreground transition-colors"
             title={t('conversation.viewInChangesPanel')}
           >
             <ArrowSquareUpRightIcon className="size-icon-xs" />
@@ -204,7 +204,7 @@ export function ChatFileEntry({
             )}
             {additions !== undefined && deletions !== undefined && ' '}
             {deletions !== undefined && deletions > 0 && (
-              <span className="text-error">-{deletions}</span>
+              <span className="text-danger">-{deletions}</span>
             )}
           </span>
         )}
@@ -212,7 +212,7 @@ export function ChatFileEntry({
       {!isVSCode && onToggle && (
         <CaretDownIcon
           className={cn(
-            'size-icon-xs shrink-0 text-low transition-transform',
+            'size-icon-xs shrink-0 text-default-500 transition-transform',
             !expanded && '-rotate-90'
           )}
         />

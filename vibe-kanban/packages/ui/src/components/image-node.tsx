@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { NodeKey, SerializedLexicalNode, Spread, $getNodeByKey } from 'lexical';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { Download, File, HelpCircle, Loader2, X } from 'lucide-react';
+import { isWorkspaceAttachmentPath } from '../lib/workspaceAttachments';
 import {
   useWorkspaceId,
   useSessionId,
@@ -132,7 +133,7 @@ function useImageMetadata(
   src: string,
   localAttachments: LocalAttachmentMetadata[]
 ) {
-  const isVibeImage = src.startsWith('.vibe-attachments/');
+  const isVibeImage = isWorkspaceAttachmentPath(src);
 
   const localImage = useMemo(
     () => localAttachments.find((attachment) => attachment.path === src),
@@ -202,7 +203,7 @@ export function createImageNode(options: CreateImageNodeOptions) {
     const localAttachments = useLocalAttachments();
     const [editor] = useLexicalComposerContext();
 
-    const isVibeImage = src.startsWith('.vibe-attachments/');
+    const isVibeImage = isWorkspaceAttachmentPath(src);
     const isPendingAttachment = src.startsWith('pending-attachment://');
     const isAttachment = isPendingAttachment || src.startsWith('attachment://');
     const attachmentId =
@@ -351,8 +352,8 @@ export function createImageNode(options: CreateImageNodeOptions) {
 
       if (isImageAttachment && !localAttachment && attachmentLoading) {
         thumbnailContent = (
-          <div className="w-10 h-10 flex items-center justify-center bg-muted rounded flex-shrink-0">
-            <Loader2 className="w-5 h-5 text-muted-foreground animate-spin" />
+          <div className="w-10 h-10 flex items-center justify-center bg-content2 rounded flex-shrink-0">
+            <Loader2 className="w-5 h-5 text-default-500 animate-spin" />
           </div>
         );
       } else if (isImageAttachment && previewUrl) {
@@ -366,8 +367,8 @@ export function createImageNode(options: CreateImageNodeOptions) {
         );
       } else {
         thumbnailContent = (
-          <div className="w-10 h-10 flex items-center justify-center bg-muted rounded flex-shrink-0">
-            <File className="w-5 h-5 text-muted-foreground" />
+          <div className="w-10 h-10 flex items-center justify-center bg-content2 rounded flex-shrink-0">
+            <File className="w-5 h-5 text-default-500" />
           </div>
         );
       }
@@ -389,8 +390,8 @@ export function createImageNode(options: CreateImageNodeOptions) {
     } else if (isVibeImage && (hasLocalImage || hasContext)) {
       if (!isWorkspaceImage) {
         thumbnailContent = (
-          <div className="w-10 h-10 flex items-center justify-center bg-muted rounded flex-shrink-0">
-            <File className="w-5 h-5 text-muted-foreground" />
+          <div className="w-10 h-10 flex items-center justify-center bg-content2 rounded flex-shrink-0">
+            <File className="w-5 h-5 text-default-500" />
           </div>
         );
         displayName = truncatePath(workspaceDisplayName);
@@ -405,8 +406,8 @@ export function createImageNode(options: CreateImageNodeOptions) {
         metadataLine = parts.length > 0 ? parts.join(' · ') : null;
       } else if (loading) {
         thumbnailContent = (
-          <div className="w-10 h-10 flex items-center justify-center bg-muted rounded flex-shrink-0">
-            <Loader2 className="w-5 h-5 text-muted-foreground animate-spin" />
+          <div className="w-10 h-10 flex items-center justify-center bg-content2 rounded flex-shrink-0">
+            <Loader2 className="w-5 h-5 text-default-500 animate-spin" />
           </div>
         );
         displayName = truncatePath(src);
@@ -434,23 +435,23 @@ export function createImageNode(options: CreateImageNodeOptions) {
         }
       } else {
         thumbnailContent = (
-          <div className="w-10 h-10 flex items-center justify-center bg-muted rounded flex-shrink-0">
-            <HelpCircle className="w-5 h-5 text-muted-foreground" />
+          <div className="w-10 h-10 flex items-center justify-center bg-content2 rounded flex-shrink-0">
+            <HelpCircle className="w-5 h-5 text-default-500" />
           </div>
         );
         displayName = truncatePath(src);
       }
     } else if (!isVibeImage) {
       thumbnailContent = (
-        <div className="w-10 h-10 flex items-center justify-center bg-muted rounded flex-shrink-0">
-          <HelpCircle className="w-5 h-5 text-muted-foreground" />
+        <div className="w-10 h-10 flex items-center justify-center bg-content2 rounded flex-shrink-0">
+          <HelpCircle className="w-5 h-5 text-default-500" />
         </div>
       );
       displayName = truncatePath(altText || src);
     } else {
       thumbnailContent = (
-        <div className="w-10 h-10 flex items-center justify-center bg-muted rounded flex-shrink-0">
-          <HelpCircle className="w-5 h-5 text-muted-foreground" />
+        <div className="w-10 h-10 flex items-center justify-center bg-content2 rounded flex-shrink-0">
+          <HelpCircle className="w-5 h-5 text-default-500" />
         </div>
       );
       displayName = truncatePath(src);
@@ -458,7 +459,7 @@ export function createImageNode(options: CreateImageNodeOptions) {
 
     return (
       <span
-        className="group relative inline-flex items-center gap-1.5 pl-1.5 pr-5 py-1 ml-0.5 mr-0.5 bg-muted rounded border cursor-pointer border-border hover:border-muted-foreground transition-colors align-bottom"
+        className="group relative inline-flex items-center gap-1.5 pl-1.5 pr-5 py-1 ml-0.5 mr-0.5 bg-content2 rounded border cursor-pointer border-divider hover:border-primary transition-colors align-bottom"
         onClick={handleClick}
         onDoubleClick={onDoubleClickEdit}
         role="button"
@@ -466,11 +467,11 @@ export function createImageNode(options: CreateImageNodeOptions) {
       >
         {thumbnailContent}
         <span className="flex flex-col min-w-0">
-          <span className="text-xs text-muted-foreground truncate max-w-[120px]">
+          <span className="text-xs text-default-500 truncate max-w-[120px]">
             {displayName}
           </span>
           {metadataLine && (
-            <span className="text-[10px] text-muted-foreground/70 truncate max-w-[120px]">
+            <span className="text-[10px] text-default-500/70 truncate max-w-[120px]">
               {metadataLine}
             </span>
           )}
@@ -478,7 +479,7 @@ export function createImageNode(options: CreateImageNodeOptions) {
         {editor.isEditable() && (
           <button
             onClick={handleDelete}
-            className="absolute top-1 right-1 w-4 h-4 rounded-full bg-foreground/70 hover:bg-destructive flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+            className="absolute top-1 right-1 w-4 h-4 rounded-full bg-content1 hover:bg-danger flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
             aria-label={t('kanban.removeImage')}
             type="button"
           >

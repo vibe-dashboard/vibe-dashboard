@@ -17,7 +17,7 @@ export function ChatErrorMessage({
   return (
     <div
       className={cn(
-        'flex items-start gap-base text-sm text-error cursor-pointer',
+        'flex items-start gap-base text-sm text-danger cursor-pointer',
         className
       )}
       onClick={onToggle}

@@ -35,11 +35,14 @@ import type { PluginRegistryState } from "../modules/plugins/vibe-dashboard/type
 import type { ResolvedWorkspaceComposition } from "../modules/plugins/vibe-dashboard/workspace-composition";
 import { resolveWorkspaceFactoryComposition } from "../modules/plugins/vibe-dashboard/workspace-composition";
 import {
+  BUILT_IN_AGENT_SPLIT_PAIR_ID,
   createEffectiveWorkspaceWithCraftSurfaces,
   filterEphemeralCraftSurfaceActiveItems,
+  getBuiltInWorkspaceMetadata,
   tabGroupHasEphemeralCraftSurfaceTab,
 } from "../modules/plugins/vibe-dashboard/craft-surfaces";
 import { getVoyageEntryIdAfterClosingCraft } from "../lib/voyageFallback";
+import { useWorkspaceCreationTransition } from "../hooks/useWorkspaceCreationTransition";
 
 const MOBILE_TAB_EMOJI_CHOICES = [
   "🚀",
@@ -192,6 +195,7 @@ export type WorkspaceActions = {
   >;
   openVKWorkspaceInSavedSession: (args: {
     sessionId: string;
+    select?: boolean;
     taskAttemptId: string;
     name: string;
     containerRef: string;
@@ -820,7 +824,9 @@ export function WorkspaceShell({
       if (
         (e.metaKey || e.ctrlKey) &&
         key === "k" &&
-        !isEditableTarget(e.target)
+        !e.altKey &&
+        !e.shiftKey &&
+        !e.isComposing
       ) {
         e.preventDefault();
         e.stopPropagation();
@@ -838,7 +844,7 @@ export function WorkspaceShell({
         return;
       }
 
-      if (e.ctrlKey && !e.metaKey && !e.altKey && !isEditableTarget(e.target)) {
+      if (e.ctrlKey && !e.metaKey && !e.altKey) {
         if (key === "[" || key === "]") {
           e.preventDefault();
           e.stopPropagation();
@@ -1193,6 +1199,16 @@ export function WorkspaceShell({
       containerRef,
     });
   };
+
+  const handleWorkspaceCreated = useWorkspaceCreationTransition({
+    workspace: effectiveWorkspace,
+    currentSessionId,
+    activeTabGroupId: session.activeTabGroupId,
+    savedSessions,
+    actions,
+    sessionActions,
+    resolveComposition: resolveVKWorkspaceComposition,
+  });
 
   const handleWorkspaceSearchAddToSpace = async (
     workspaceId: string,
@@ -2159,10 +2175,10 @@ export function WorkspaceShell({
   }, [desktopTabMenuTarget, isSidebarOpen, voyagePlusMenuOpen]);
 
   return (
-    <div className="w-full h-full flex bg-neutral-950">
+    <div className="w-full h-full flex bg-background text-foreground">
       {isSidebarOpen && (
         <button
-          className="fixed inset-0 z-[60] cursor-default bg-black/40 md:bg-transparent"
+          className="fixed inset-0 z-[60] cursor-default bg-overlay/40 md:bg-transparent"
           onClick={() => setIsSidebarOpen(false)}
           aria-label="Close sidebar overlay"
         />
@@ -2355,6 +2371,12 @@ export function WorkspaceShell({
             }}
             onNavigateToTabGroup={handleNavigateToWorkspaceTabGroup}
             onOpenVKWorkspace={handleWorkspaceSearchAddToSpace}
+            onWorkspaceCreated={handleWorkspaceCreated}
+            onOpenCraft={() => {
+              setPendingOpenCraftSessionId(null);
+              setWorkspaceSearchMode("session-add");
+              setWorkspaceSearchOpen(true);
+            }}
           />
         )}
         {!isPendingOpenCraftActive && expandedSessionTabGroup && (
@@ -2525,7 +2547,7 @@ export function WorkspaceShell({
 
       {moveVoyageEntryPrompt && (
         <div
-          className="fixed inset-0 z-[94] flex items-center justify-center bg-black/60 p-4"
+          className="fixed inset-0 z-[94] flex items-center justify-center bg-overlay/60 p-4"
           onClick={(event) => {
             if (event.target === event.currentTarget) {
               setMoveVoyageEntryPrompt(null);
@@ -2536,12 +2558,12 @@ export function WorkspaceShell({
             role="dialog"
             aria-modal="true"
             aria-label="Move to Voyage"
-            className="flex max-h-[85dvh] w-full max-w-lg flex-col rounded-xl border border-neutral-700 bg-neutral-900 p-5 shadow-2xl"
+            className="flex max-h-[85dvh] w-full max-w-lg flex-col rounded-xl border border-divider bg-content1 p-5 shadow-2xl"
           >
-            <div className="text-base font-semibold text-neutral-100">
+            <div className="text-base font-semibold text-foreground">
               Move to Voyage
             </div>
-            <p className="mt-2 text-sm text-neutral-400">
+            <p className="mt-2 text-sm text-default-500">
               Choose the voyage that should receive this craft.
             </p>
 
@@ -2550,7 +2572,7 @@ export function WorkspaceShell({
                 moveVoyageTargets.map((savedSession) => (
                   <button
                     key={savedSession.id}
-                    className="block w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-700"
+                    className="block w-full rounded-md border border-divider bg-content2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-content3"
                     onClick={() => {
                       void handleMoveVoyageEntryToSession(savedSession.id);
                     }}
@@ -2558,17 +2580,17 @@ export function WorkspaceShell({
                     <span className="font-medium">
                       {getVoyageDisplayName(savedSession)}
                     </span>
-                    <span className="mt-1 block text-xs text-neutral-500">
+                    <span className="mt-1 block text-xs text-default-500">
                       Updated{" "}
                       {new Date(savedSession.updatedAt).toLocaleString()}
                     </span>
                   </button>
                 ))
               ) : (
-                <div className="rounded-md border border-neutral-800 bg-neutral-950/40 px-3 py-4 text-sm text-neutral-400">
+                <div className="rounded-md border border-divider bg-background/40 px-3 py-4 text-sm text-default-500">
                   <div>No other saved voyages yet.</div>
                   <button
-                    className="mt-3 rounded-md border border-blue-400/70 bg-blue-500/20 px-3 py-2 text-sm text-neutral-50 transition-colors hover:bg-blue-500/30"
+                    className="mt-3 rounded-md border border-primary/70 bg-primary/20 px-3 py-2 text-sm text-foreground transition-colors hover:bg-primary/30"
                     onClick={() => {
                       void handleMoveVoyageEntryToNewSession();
                     }}
@@ -2581,7 +2603,7 @@ export function WorkspaceShell({
 
             <div className="mt-5 flex justify-end">
               <button
-                className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-300 transition-colors hover:bg-neutral-800"
+                className="rounded-md border border-divider bg-content1 px-3 py-2 text-sm text-foreground transition-colors hover:bg-content2"
                 onClick={() => setMoveVoyageEntryPrompt(null)}
               >
                 Cancel
@@ -2631,15 +2653,41 @@ export function WorkspaceShell({
 
           return (
             <div
-              className="hidden md:block fixed z-[90] min-w-[220px] rounded-md border border-neutral-700 bg-neutral-900 py-1 shadow-2xl"
+              className="hidden md:block fixed z-[90] min-w-[220px] rounded-md border border-divider bg-content1 py-1 shadow-2xl"
               style={{
                 left: desktopTabMenuTarget.position.x,
                 top: desktopTabMenuTarget.position.y,
               }}
               onPointerDown={(event) => event.stopPropagation()}
             >
+              {tabGroup && getBuiltInWorkspaceMetadata(tabGroup) && (
+                <button
+                  className="block w-full px-4 py-2 text-left text-sm text-foreground transition-colors hover:bg-content2"
+                  onClick={() => {
+                    setDesktopTabMenuTarget(null);
+                    navigate(
+                      `/split-view?left=${encodeURIComponent(session.activeTabGroupId)}&right=${encodeURIComponent(tabGroup.id)}`,
+                    );
+                  }}
+                >
+                  Show in split view
+                </button>
+              )}
+              {tabGroup && getBuiltInWorkspaceMetadata(tabGroup) && (
+                <button
+                  className="block w-full px-4 py-2 text-left text-sm text-foreground transition-colors hover:bg-content2"
+                  onClick={() => {
+                    const target = desktopTabMenuTarget;
+                    setDesktopTabMenuTarget(null);
+                    sessionActions.selectVoyageEntry(target.voyageEntryId);
+                    selectEffectivePair(target.spaceId, target.tabGroupId, BUILT_IN_AGENT_SPLIT_PAIR_ID);
+                  }}
+                >
+                  Split this workspace’s Agents
+                </button>
+              )}
               <button
-                className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800 disabled:cursor-not-allowed disabled:text-neutral-500 disabled:hover:bg-transparent"
+                className="block w-full px-4 py-2 text-left text-sm text-foreground transition-colors hover:bg-content2 disabled:cursor-not-allowed disabled:text-default-500 disabled:hover:bg-transparent"
                 disabled={!canMoveVoyageEntryToAnotherVoyage}
                 title={
                   canMoveVoyageEntryToAnotherVoyage
@@ -2656,7 +2704,7 @@ export function WorkspaceShell({
                 Move to Voyage
               </button>
               <button
-                className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
+                className="block w-full px-4 py-2 text-left text-sm text-foreground transition-colors hover:bg-content2"
                 onClick={() => {
                   handleRemoveVoyageEntryFromSession(
                     desktopTabMenuTarget.voyageEntryId,
@@ -2665,9 +2713,9 @@ export function WorkspaceShell({
               >
                 Remove From Voyage
               </button>
-              <div className="my-1 border-t border-neutral-700" />
+              <div className="my-1 border-t border-divider/30" />
               <button
-                className="block w-full px-4 py-2 text-left text-sm text-red-300 transition-colors hover:bg-neutral-800"
+                className="block w-full px-4 py-2 text-left text-sm text-danger transition-colors hover:bg-content2"
                 onClick={() => {
                   setDesktopTabMenuTarget(null);
                   if (
@@ -2733,18 +2781,6 @@ export function WorkspaceShell({
         />
       )}
     </div>
-  );
-}
-
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-
-  const tagName = target.tagName.toLowerCase();
-  return (
-    tagName === "input" ||
-    tagName === "textarea" ||
-    tagName === "select" ||
-    target.isContentEditable
   );
 }
 

@@ -106,7 +106,7 @@ const RenameSessionDialogImpl = NiceModal.create<RenameSessionDialogProps>(
                 disabled={isSubmitting}
                 autoFocus
               />
-              {error && <p className="text-sm text-destructive">{error}</p>}
+              {error && <p className="text-sm text-danger">{error}</p>}
             </div>
           </div>
 

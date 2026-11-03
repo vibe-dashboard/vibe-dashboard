@@ -13,7 +13,7 @@ export function useSessionId() {
 
 // Local attachment metadata for rendering uploaded attachments before they're saved
 export type LocalAttachmentMetadata = {
-  path: string; // ".vibe-attachments/uuid.png"
+  path: string; // ".alohak-attachments/uuid.png"
   proxy_url: string; // "/api/attachments/{id}/file"
   file_name: string;
   size_bytes: number;

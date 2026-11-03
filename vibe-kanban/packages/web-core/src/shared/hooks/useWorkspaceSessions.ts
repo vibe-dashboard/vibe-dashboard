@@ -7,12 +7,39 @@ import type { Session } from 'shared/types';
 
 interface UseWorkspaceSessionsOptions {
   enabled?: boolean;
+  preferredSessionId?: string | null;
 }
 
 /** Discriminated union for session selection state */
 export type SessionSelection =
   | { mode: 'existing'; sessionId: string }
   | { mode: 'new' };
+
+export function resolveSessionSelection(
+  previous: SessionSelection | undefined,
+  sessions: ReadonlyArray<Pick<Session, 'id'>>,
+  preferredSessionId: string | null | undefined,
+  workspaceChanged: boolean
+): SessionSelection | undefined {
+  if (sessions.length === 0) return undefined;
+
+  if (!workspaceChanged && previous?.mode === 'new') return previous;
+  if (
+    !workspaceChanged &&
+    previous?.mode === 'existing' &&
+    sessions.some((session) => session.id === previous.sessionId)
+  ) {
+    return previous;
+  }
+  if (
+    preferredSessionId &&
+    sessions.some((session) => session.id === preferredSessionId)
+  ) {
+    return { mode: 'existing', sessionId: preferredSessionId };
+  }
+
+  return { mode: 'existing', sessionId: sessions[0].id };
+}
 
 interface UseWorkspaceSessionsResult {
   sessions: Session[];
@@ -37,7 +64,7 @@ export function useWorkspaceSessions(
   options: UseWorkspaceSessionsOptions = {}
 ): UseWorkspaceSessionsResult {
   const hostId = useHostId();
-  const { enabled = true } = options;
+  const { enabled = true, preferredSessionId } = options;
   const [selection, setSelection] = useState<SessionSelection | undefined>(
     undefined
   );
@@ -56,18 +83,15 @@ export function useWorkspaceSessions(
     const workspaceChanged = prevWorkspaceIdRef.current !== workspaceId;
     prevWorkspaceIdRef.current = workspaceId;
 
-    if (sessions.length > 0) {
-      // Sessions are ordered by most recently used, so first is the most recently used
-      // Always select first session when sessions are available for this workspace
-      // Only preserve new session mode within the same workspace
-      setSelection((prev) => {
-        if (prev?.mode === 'new' && !workspaceChanged) return prev;
-        return { mode: 'existing', sessionId: sessions[0].id };
-      });
-    } else {
-      setSelection(undefined);
-    }
-  }, [workspaceId, sessions]);
+    setSelection((previous) =>
+      resolveSessionSelection(
+        previous,
+        sessions,
+        preferredSessionId,
+        workspaceChanged
+      )
+    );
+  }, [workspaceId, sessions, preferredSessionId]);
 
   const isNewSessionMode = selection?.mode === 'new' || sessions.length === 0;
   const selectedSessionId =

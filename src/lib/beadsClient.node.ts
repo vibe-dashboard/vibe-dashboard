@@ -96,6 +96,45 @@ export type PendingBeadsFormQueueResult = {
   };
 };
 
+export type WorkspaceTaskStatusBucket = 'open' | 'inProgress' | 'done';
+
+export type WorkspaceTaskFormsSummary = {
+  hasForms: boolean;
+  hasPendingAnswer: boolean;
+  pendingResponseCount: number;
+  formIds: string[];
+  pendingFormIds: string[];
+};
+
+export type WorkspaceTask = {
+  id: string;
+  title: string;
+  description?: string;
+  status: string;
+  statusBucket: WorkspaceTaskStatusBucket;
+  priority?: number;
+  assignee?: string;
+  owner?: string;
+  labels: string[];
+  forms: WorkspaceTaskFormsSummary;
+};
+
+export type ListWorkspaceTasksResult = {
+  workspaceId: string;
+  dir: string;
+  dirExists: boolean;
+  initialized: boolean;
+  tasks: WorkspaceTask[];
+  counts: Record<WorkspaceTaskStatusBucket, number>;
+  groups: Record<WorkspaceTaskStatusBucket, WorkspaceTask[]>;
+  updateStrategy: {
+    mode: 'short-poll-when-visible';
+    intervalMs: number;
+    rationale: string;
+  };
+  error?: string;
+};
+
 export class BeadsClient {
   private readonly bdPath: string;
   private readonly exec: ExecFileLike;
@@ -165,6 +204,33 @@ export class BeadsClient {
       beadId: input.beadId,
     })];
     return { workspaceId: input.workspaceId, repos };
+  }
+
+  async listWorkspaceTasks(input: { workspaceId: string }): Promise<ListWorkspaceTasksResult> {
+    const dir = workspaceBeadsStoreDir(input.workspaceId);
+    if (!await pathExists(dir)) {
+      return emptyWorkspaceTasksResult(input.workspaceId, dir, false, false);
+    }
+
+    try {
+      const { stdout } = await this.exec(this.bdPath, ['--readonly', 'list', '--json', '--all', '--limit', '0'], {
+        cwd: dir,
+        timeout: 30_000,
+        maxBuffer: 1024 * 1024 * 10,
+      });
+      const tasks = parseBdJsonArray<Record<string, unknown>>(stdout)
+        .map(toWorkspaceTask)
+        .filter((task): task is WorkspaceTask => !!task);
+      return buildWorkspaceTasksResult(input.workspaceId, dir, tasks);
+    } catch (error) {
+      if (isNoBeadsDatabaseError(error)) {
+        return emptyWorkspaceTasksResult(input.workspaceId, dir, true, false);
+      }
+      return {
+        ...emptyWorkspaceTasksResult(input.workspaceId, dir, true, true),
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   async listPendingBeadsFormQueue(input: {
@@ -472,6 +538,126 @@ function pendingQueueUpdateStrategy(): PendingBeadsFormQueueResult['updateStrate
     mode: 'explicit-refresh',
     rationale: 'Use an explicit refresh action for the MVP. bd list --watch is display-oriented, while readonly bounded scans of persisted workspace stores avoid long-lived filesystem/database watchers and unexpected migrations.',
   };
+}
+
+function workspaceTasksUpdateStrategy(): ListWorkspaceTasksResult['updateStrategy'] {
+  return {
+    mode: 'short-poll-when-visible',
+    intervalMs: 20_000,
+    rationale: 'Use bounded readonly scans while the Agent surface is visible. bd list --watch is display-oriented; a future server-side watcher can replace polling when bd exposes a structured change stream.',
+  };
+}
+
+function emptyWorkspaceTasksResult(
+  workspaceId: string,
+  dir: string,
+  dirExists: boolean,
+  initialized: boolean,
+): ListWorkspaceTasksResult {
+  return {
+    workspaceId,
+    dir,
+    dirExists,
+    initialized,
+    tasks: [],
+    counts: { open: 0, inProgress: 0, done: 0 },
+    groups: { open: [], inProgress: [], done: [] },
+    updateStrategy: workspaceTasksUpdateStrategy(),
+  };
+}
+
+function buildWorkspaceTasksResult(
+  workspaceId: string,
+  dir: string,
+  tasks: WorkspaceTask[],
+): ListWorkspaceTasksResult {
+  const groups: Record<WorkspaceTaskStatusBucket, WorkspaceTask[]> = {
+    open: [],
+    inProgress: [],
+    done: [],
+  };
+  for (const task of tasks) {
+    groups[task.statusBucket].push(task);
+  }
+  return {
+    workspaceId,
+    dir,
+    dirExists: true,
+    initialized: true,
+    tasks,
+    counts: {
+      open: groups.open.length,
+      inProgress: groups.inProgress.length,
+      done: groups.done.length,
+    },
+    groups,
+    updateStrategy: workspaceTasksUpdateStrategy(),
+  };
+}
+
+function toWorkspaceTask(bead: Record<string, unknown>): WorkspaceTask | null {
+  const id = stringField(bead.id);
+  if (!id) return null;
+  const status = stringField(bead.status) || 'open';
+  const title = stringField(bead.title) || id;
+  const metadata = isObject(bead.metadata) ? bead.metadata : {};
+  return {
+    id,
+    title,
+    ...(stringField(bead.description) ? { description: stringField(bead.description)! } : {}),
+    status,
+    statusBucket: normalizeWorkspaceTaskStatus(status),
+    ...(numberField(bead.priority) !== undefined ? { priority: numberField(bead.priority)! } : {}),
+    ...(stringField(bead.assignee) ? { assignee: stringField(bead.assignee)! } : {}),
+    ...(stringField(bead.owner) ? { owner: stringField(bead.owner)! } : {}),
+    labels: arrayOfStrings(bead.labels),
+    forms: formsSummary(metadata),
+  };
+}
+
+export function normalizeWorkspaceTaskStatus(status: string | null | undefined): WorkspaceTaskStatusBucket {
+  const normalized = (status ?? '').trim().toLowerCase().replace(/-/g, '_');
+  if (['closed', 'done', 'completed', 'complete'].includes(normalized)) return 'done';
+  if (['in_progress', 'claimed', 'working', 'blocked', 'hooked'].includes(normalized)) return 'inProgress';
+  return 'open';
+}
+
+function formsSummary(metadata: JsonObject): WorkspaceTaskFormsSummary {
+  const summary = isObject(metadata.beadFormsSummary) ? metadata.beadFormsSummary : undefined;
+  if (summary) {
+    return {
+      hasForms: booleanField(summary.hasForms),
+      hasPendingAnswer: booleanField(summary.hasPendingAnswer),
+      pendingResponseCount: numberField(summary.pendingResponseCount) ?? 0,
+      formIds: arrayOfStrings(summary.formIds),
+      pendingFormIds: arrayOfStrings(summary.pendingFormIds),
+    };
+  }
+  const forms = getBeadsForms(metadata);
+  return {
+    hasForms: forms.length > 0,
+    hasPendingAnswer: forms.some((form) => (form.responses?.length ?? 0) === 0),
+    pendingResponseCount: forms.filter((form) => (form.responses?.length ?? 0) === 0).length,
+    formIds: forms.map((form) => form.id),
+    pendingFormIds: forms.filter((form) => (form.responses?.length ?? 0) === 0).map((form) => form.id),
+  };
+}
+
+function stringField(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function numberField(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function booleanField(value: unknown): boolean {
+  return value === true;
+}
+
+function arrayOfStrings(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
 }
 
 function isClosedBead(bead: BeadLike): boolean {

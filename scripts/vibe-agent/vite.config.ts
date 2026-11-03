@@ -8,6 +8,9 @@ const externalBuiltins = new Set([
 ]);
 
 export default defineConfig({
+  // These CLIs run in the image before node_modules is installed. Vite's SSR
+  // defaults externalize packages even when Rollup only externalizes builtins.
+  ssr: { noExternal: true },
   build: {
     ssr: true,
     target: 'node22',

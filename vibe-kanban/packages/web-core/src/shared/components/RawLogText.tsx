@@ -28,8 +28,8 @@ const RawLogText = memo(
     const shouldApplyStderrFallback = channel === 'stderr' && !hasAnsiCodes;
 
     const highlightClass = isCurrentMatch
-      ? 'bg-yellow-500/60 ring-1 ring-yellow-500 rounded-sm'
-      : 'bg-yellow-500/30 rounded-sm';
+      ? 'bg-warning/60 ring-1 ring-warning rounded-sm'
+      : 'bg-warning/30 rounded-sm';
 
     const highlightMatches = (text: string, key: string | number) => {
       if (!searchQuery) {
@@ -86,7 +86,7 @@ const RawLogText = memo(
       <Component
         className={clsx(
           'font-mono text-xs break-all whitespace-pre-wrap',
-          shouldApplyStderrFallback && 'text-error',
+          shouldApplyStderrFallback && 'text-danger',
           className
         )}
       >

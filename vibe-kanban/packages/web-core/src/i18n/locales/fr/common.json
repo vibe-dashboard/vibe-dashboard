@@ -1,4 +1,26 @@
 {
+  "composer": {
+    "tools": "Outils de rédaction",
+    "settings": "Paramètres de rédaction",
+    "diffSummary": "Résumé des modifications",
+    "files_one": "{{count}} fichier",
+    "files_other": "{{count}} fichiers",
+    "viewChanges": "Voir les modifications",
+    "tasks": "Tâches de l’espace de travail",
+    "preview": "Aperçus",
+    "prComments": "Ajouter des commentaires de PR",
+    "insertPrComments": "Insérer les commentaires de PR dans le message",
+    "removeIssueLink": "Supprimer le lien vers {{issue}}",
+    "linesAdded": "+{{count}}",
+    "linesRemoved": "-{{count}}",
+    "openWorkspace": "Ouvrir l’espace de travail"
+  },
+  "turnNavigation": {
+    "title": "Vos messages",
+    "count_one": "{{count}} tour",
+    "count_other": "{{count}} tours",
+    "number": "#{{number}}"
+  },
   "editorNames": {
     "custom": "Personnalisé"
   },

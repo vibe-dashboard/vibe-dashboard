@@ -1,4 +1,26 @@
 {
+  "composer": {
+    "tools": "Herramientas del editor",
+    "settings": "Configuración del editor",
+    "diffSummary": "Resumen de cambios",
+    "files_one": "{{count}} archivo",
+    "files_other": "{{count}} archivos",
+    "viewChanges": "Ver cambios",
+    "tasks": "Tareas del espacio de trabajo",
+    "preview": "Vistas previas",
+    "prComments": "Añadir comentarios de PR",
+    "insertPrComments": "Insertar comentarios de PR en el mensaje",
+    "removeIssueLink": "Eliminar enlace a {{issue}}",
+    "linesAdded": "+{{count}}",
+    "linesRemoved": "-{{count}}",
+    "openWorkspace": "Abrir espacio de trabajo"
+  },
+  "turnNavigation": {
+    "title": "Tus mensajes",
+    "count_one": "{{count}} turno",
+    "count_other": "{{count}} turnos",
+    "number": "#{{number}}"
+  },
   "editorNames": {
     "custom": "Personalizado"
   },

@@ -88,7 +88,8 @@ function getTabGroupDisplayLabel(
 
 function useVKDashboardData() {
   const [workspaces, setWorkspaces] = useState<DashboardWorkspace[]>([]);
-  const [repos, setRepos] = useState<Repo[]>([]);
+  // Temporary placeholder while repository fetching is disabled to avoid N+1 requests.
+  const [repos] = useState<Repo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -97,12 +98,11 @@ function useVKDashboardData() {
     setError(null);
 
     try {
-      // Fetch workspaces, summaries, and repos in parallel
-      const [allWorkspaces, summaryResult, reposResult] =
+      // Fetch workspaces and summaries in parallel
+      const [allWorkspaces, summaryResult] =
         await Promise.allSettled([
           vkClient.getWorkspaces(),
           vkClient.getWorkspaceSummaries(false),
-          vkClient.getRepos(),
         ]);
 
       if (allWorkspaces.status === "rejected") {
@@ -116,26 +116,6 @@ function useVKDashboardData() {
       if (summaryResult.status === "fulfilled") {
         for (const s of summaryResult.value.summaries) {
           summaryMap.set(s.workspace_id, s);
-        }
-      }
-
-      // Parse repos list (non-critical)
-      const allRepos =
-        reposResult.status === "fulfilled" ? reposResult.value : [];
-
-      // Batch-fetch per-workspace repos
-      const repoResults = await Promise.allSettled(
-        activeWorkspaces.map((ws) =>
-          vkClient
-            .getWorkspaceRepos(ws.id)
-            .then((repos) => ({ wsId: ws.id, repos })),
-        ),
-      );
-
-      const wsRepoMap = new Map<string, RepoWithBranch[]>();
-      for (const result of repoResults) {
-        if (result.status === "fulfilled") {
-          wsRepoMap.set(result.value.wsId, result.value.repos);
         }
       }
 
@@ -161,12 +141,11 @@ function useVKDashboardData() {
           has_running_dev_server: summary?.has_running_dev_server ?? false,
           has_unseen_turns: summary?.has_unseen_turns ?? false,
           pr_status: summary?.pr_status ?? null,
-          repos: wsRepoMap.get(ws.id) ?? [],
+          repos: [],
         };
       });
 
       setWorkspaces(merged);
-      setRepos(allRepos);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load data");
     } finally {
@@ -194,7 +173,7 @@ function StatusBadge({
 }) {
   if (hasPendingApproval) {
     return (
-      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/15 text-amber-400 border border-amber-500/30">
+      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-warning/15 text-warning border border-warning/30">
         Waiting
       </span>
     );
@@ -203,21 +182,21 @@ function StatusBadge({
   switch (status) {
     case "running":
       return (
-        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/15 text-green-400 border border-green-500/30 flex items-center gap-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-success/15 text-success border border-success/30 flex items-center gap-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
           Running
         </span>
       );
     case "completed":
       return (
-        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-500/15 text-blue-400 border border-blue-500/30">
+        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-primary/15 text-primary border border-primary/30">
           Done
         </span>
       );
     case "failed":
     case "killed":
       return (
-        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/15 text-red-400 border border-red-500/30">
+      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-danger/15 text-danger border border-danger/30">
           {status === "failed" ? "Failed" : "Killed"}
         </span>
       );
@@ -232,10 +211,10 @@ function PRBadge({
   status: "open" | "merged" | "closed" | "unknown";
 }) {
   const styles = {
-    open: "bg-green-500/15 text-green-400 border-green-500/30",
-    merged: "bg-purple-500/15 text-purple-400 border-purple-500/30",
-    closed: "bg-red-500/15 text-red-400 border-red-500/30",
-    unknown: "bg-zinc-500/15 text-zinc-400 border-zinc-500/30",
+    open: "bg-success/15 text-success border-success/30",
+    merged: "bg-secondary/15 text-secondary border-secondary/30",
+    closed: "bg-danger/15 text-danger border-danger/30",
+    unknown: "bg-default/15 text-default-500 border-divider/30",
   };
 
   return (
@@ -255,9 +234,9 @@ function RepoFilterBar({
   onSelectRepo: (repoId: string | null) => void;
 }) {
   const active =
-    "px-3 py-1 rounded-full text-xs font-medium bg-white/10 text-white border border-white/20";
+    "px-3 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary border border-primary/20";
   const inactive =
-    "px-3 py-1 rounded-full text-xs font-medium bg-zinc-800 text-zinc-400 border border-transparent hover:bg-zinc-700 hover:text-zinc-300 transition-colors";
+    "px-3 py-1 rounded-full text-xs font-medium bg-content2 text-default-500 border border-transparent hover:bg-content3 hover:text-foreground transition-colors";
 
   return (
     <div className="flex gap-2 overflow-x-auto pb-3 mb-4 scrollbar-none">
@@ -307,29 +286,29 @@ function WorkspaceRow({
     ws.has_running_dev_server || isStoppingDevServer;
 
   return (
-    <div className="flex flex-col gap-3 px-4 py-3 bg-zinc-800/50 rounded-lg border border-zinc-700/50 hover:border-zinc-600 transition-colors sm:flex-row sm:items-start">
+    <div className="flex flex-col gap-3 px-4 py-3 bg-content2/50 rounded-lg border border-divider/30 hover:border-divider/50 transition-colors sm:flex-row sm:items-start">
       <div className="flex min-w-0 flex-1 items-start gap-3">
         {/* Unseen dot */}
         <div className="w-2 shrink-0 pt-2">
           {ws.has_unseen_turns && (
-            <span className="block w-2 h-2 rounded-full bg-blue-400" />
+            <span className="block w-2 h-2 rounded-full bg-primary" />
           )}
         </div>
 
         {/* Name + metadata */}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
-            {ws.pinned && <span className="text-amber-400 text-xs">*</span>}
-            <span className="min-w-0 text-sm text-white font-medium break-words">
+            {ws.pinned && <span className="text-warning text-xs">*</span>}
+            <span className="min-w-0 text-sm text-foreground font-medium break-words">
               {ws.name}
             </span>
           </div>
-          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-default-500">
             <span className="font-mono break-all">{ws.branch}</span>
             {ws.repos.map((r) => (
               <span
                 key={r.id}
-                className="rounded bg-zinc-700 px-1.5 py-0.5 text-zinc-400"
+                className="rounded bg-content3 px-1.5 py-0.5 text-default-500"
               >
                 {r.display_name || r.name}
               </span>
@@ -340,16 +319,16 @@ function WorkspaceRow({
                   <span>{ws.files_changed} file{ws.files_changed !== 1 ? "s" : ""}</span>
                 )}
                 {ws.lines_added != null && ws.lines_added > 0 && (
-                  <span className="font-mono text-green-500">+{ws.lines_added}</span>
+                  <span className="font-mono text-success">+{ws.lines_added}</span>
                 )}
                 {ws.lines_removed != null && ws.lines_removed > 0 && (
-                  <span className="font-mono text-red-500">-{ws.lines_removed}</span>
+                  <span className="font-mono text-danger">-{ws.lines_removed}</span>
                 )}
               </>
             )}
             {showsDevServerControls && (
-              <span className="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-500/15 px-2 py-0.5 font-medium text-cyan-400">
-                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+              <span className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/15 px-2 py-0.5 font-medium text-primary">
+                <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
                 Dev server
               </span>
             )}
@@ -372,7 +351,7 @@ function WorkspaceRow({
           <button
             onClick={onStopDevServer}
             disabled={isStoppingDevServer}
-            className="px-2 py-1 rounded text-xs font-medium bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-2 py-1 rounded text-xs font-medium bg-danger/15 text-danger border border-danger/30 hover:bg-danger/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isStoppingDevServer ? "Stopping..." : "Stop server"}
           </button>
@@ -382,7 +361,7 @@ function WorkspaceRow({
           <button
             onClick={tabGroupNav.onNavigate}
             title={`Go to "${tabGroupNav.label}"`}
-            className="px-2 py-1 rounded text-xs font-medium bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/25 transition-colors"
+            className="px-2 py-1 rounded text-xs font-medium bg-secondary/15 text-secondary border border-secondary/30 hover:bg-secondary/25 transition-colors"
           >
             Go to craft
           </button>
@@ -390,7 +369,7 @@ function WorkspaceRow({
           <button
             onClick={onOpenInNewTabGroup}
             aria-label={`Open ${ws.name}`}
-            className="px-2 py-1 rounded text-xs font-medium bg-zinc-700 text-zinc-300 border border-zinc-600 hover:bg-zinc-600 hover:text-white transition-colors"
+            className="px-2 py-1 rounded text-xs font-medium bg-content2 text-foreground border border-divider/30 hover:bg-content3 hover:text-foreground transition-colors"
           >
             Open
           </button>
@@ -413,21 +392,21 @@ function Pagination({
 
   return (
     <div className="flex items-center justify-between mt-4">
-      <span className="text-xs text-zinc-500">
+      <span className="text-xs text-default-500">
         Page {page + 1} of {totalPages}
       </span>
       <div className="flex gap-2">
         <button
           disabled={page === 0}
           onClick={() => onPageChange(page - 1)}
-          className="px-3 py-1 rounded text-xs font-medium bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700 hover:text-zinc-300 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-zinc-800 disabled:hover:text-zinc-400"
+          className="px-3 py-1 rounded text-xs font-medium bg-content2 text-default-500 border border-divider/30 hover:bg-content3 hover:text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-content2 disabled:hover:text-default-500"
         >
           Previous
         </button>
         <button
           disabled={page >= totalPages - 1}
           onClick={() => onPageChange(page + 1)}
-          className="px-3 py-1 rounded text-xs font-medium bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700 hover:text-zinc-300 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-zinc-800 disabled:hover:text-zinc-400"
+          className="px-3 py-1 rounded text-xs font-medium bg-content2 text-default-500 border border-divider/30 hover:bg-content3 hover:text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-content2 disabled:hover:text-default-500"
         >
           Next
         </button>
@@ -458,32 +437,32 @@ function SpacePickerModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/60"
       onClick={() => {
         if (!isPending) onClose();
       }}
     >
       <div
-        className="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl w-full max-w-sm mx-4"
+        className="bg-content1 text-foreground border border-divider/30 rounded-xl shadow-2xl w-full max-w-sm mx-4"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-5 pt-5 pb-3">
-          <h3 className="text-sm font-semibold text-white">
+          <h3 className="text-sm font-semibold text-foreground">
             Open craft in space
           </h3>
-          <p className="text-xs text-zinc-500 mt-1 truncate">
+          <p className="text-xs text-default-500 mt-1 truncate">
             {targetWorkspace.name}
           </p>
         </div>
         {actionError && (
           <div
             role="alert"
-            className="mx-5 mb-3 rounded-md border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-200"
+            className="mx-5 mb-3 rounded-md border border-danger/40 bg-danger/10 p-3 text-xs text-danger"
           >
             <div>{actionError}</div>
             {onRetry && (
               <button
-                className="mt-2 rounded border border-red-400/50 px-2 py-1 font-medium text-red-100 transition-colors hover:bg-red-500/20"
+                className="mt-2 rounded border border-danger/50 px-2 py-1 font-medium text-danger transition-colors hover:bg-danger/20"
                 onClick={onRetry}
               >
                 Retry
@@ -493,7 +472,7 @@ function SpacePickerModal({
         )}
         <div className="px-3 pb-3 max-h-64 overflow-y-auto">
           {spaces.length === 0 ? (
-            <p className="text-xs text-zinc-500 px-2 py-4 text-center">
+            <p className="text-xs text-default-500 px-2 py-4 text-center">
               No spaces available. Create a space first.
             </p>
           ) : (
@@ -503,13 +482,13 @@ function SpacePickerModal({
                   key={space.id}
                   onClick={() => onSelect(space.id)}
                   disabled={isPending}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-zinc-800 transition-colors text-left disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-content2 transition-colors text-left disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
                 >
-                  <span className="text-sm text-white">{space.name}</span>
+                  <span className="text-sm text-foreground">{space.name}</span>
                   {pendingSpaceId === space.id && (
-                    <span className="text-xs text-cyan-300">Opening…</span>
+                    <span className="text-xs text-primary">Opening…</span>
                   )}
-                  <span className="text-xs text-zinc-600 ml-auto">
+                  <span className="text-xs text-default-500 ml-auto">
                     {
                       ws.tabGroups.filter((tg) =>
                         space.tabGroupIds.includes(tg.id),
@@ -522,11 +501,11 @@ function SpacePickerModal({
             </div>
           )}
         </div>
-        <div className="px-5 pb-4 pt-2 border-t border-zinc-800">
+        <div className="px-5 pb-4 pt-2 border-t border-divider/30">
           <button
             onClick={onClose}
             disabled={isPending}
-            className="w-full px-3 py-1.5 rounded text-xs font-medium bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700 hover:text-zinc-300 transition-colors disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-zinc-800 disabled:hover:text-zinc-400"
+            className="w-full px-3 py-1.5 rounded text-xs font-medium bg-content2 text-default-500 border border-divider/30 hover:bg-content3 hover:text-foreground transition-colors disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-content2 disabled:hover:text-default-500"
           >
             Cancel
           </button>
@@ -567,15 +546,15 @@ function RunningDevServersSection({
   if (loading || devServerWorkspaces.length === 0) return null;
 
   return (
-    <div className="mb-8 rounded-xl border border-cyan-500/30 bg-cyan-500/5 p-4">
+    <div className="mb-8 rounded-xl border border-primary/30 bg-primary/5 p-4">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-          <h2 className="text-lg font-semibold text-white">
+          <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+          <h2 className="text-lg font-semibold text-foreground">
             Running Dev Servers
           </h2>
         </div>
-        <span className="text-xs text-zinc-500">
+        <span className="text-xs text-default-500">
           {devServerWorkspaces.length} workspace
           {devServerWorkspaces.length !== 1 ? "s" : ""}
         </span>
@@ -634,13 +613,13 @@ function TabGroupRow({
   return (
     <button
       onClick={onNavigate}
-      className="w-full flex items-start gap-3 px-4 py-2.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50 hover:border-zinc-600 transition-colors group text-left"
+      className="w-full flex items-start gap-3 px-4 py-2.5 rounded-lg bg-content2/50 border border-divider/30 hover:border-divider/50 transition-colors group text-left"
     >
       <div className="min-w-0 flex-1">
-        <span className="text-sm font-medium text-white break-words block">
+        <span className="text-sm font-medium text-foreground break-words block">
           {label ?? tg.label}
         </span>
-        <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
+        <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-default-500">
           <span>{space.name}</span>
           <span>
             {tg.tabs.length} view{tg.tabs.length !== 1 ? "s" : ""}
@@ -651,7 +630,7 @@ function TabGroupRow({
         </span>
       </div>
       <svg
-        className="mt-1 w-3.5 h-3.5 text-zinc-600 group-hover:text-white transition-colors shrink-0"
+        className="mt-1 w-3.5 h-3.5 text-default-500 group-hover:text-foreground transition-colors shrink-0"
         fill="none"
         stroke="currentColor"
         viewBox="0 0 24 24"
@@ -710,7 +689,7 @@ function StarredTabGroups({
 
   return (
     <div className="mb-8">
-      <h2 className="text-lg font-semibold text-white mb-3">Starred</h2>
+      <h2 className="text-lg font-semibold text-foreground mb-3">Starred</h2>
       <div className="space-y-1">
         {starred.map(({ space, tg }) => (
           <TabGroupRow
@@ -760,10 +739,10 @@ function RecentSessionsSection({
   return (
     <div className="mb-8">
       <div className="flex items-center justify-between mb-3 gap-3">
-        <h2 className="text-lg font-semibold text-white">All Voyages</h2>
+        <h2 className="text-lg font-semibold text-foreground">All Voyages</h2>
         <button
           onClick={onStartNewSession}
-          className="px-3 py-1.5 rounded text-xs font-medium bg-zinc-800 text-zinc-300 border border-zinc-700 hover:bg-zinc-700 hover:text-white transition-colors"
+          className="px-3 py-1.5 rounded text-xs font-medium bg-content2 text-foreground border border-divider/30 hover:bg-content3 hover:text-foreground transition-colors"
         >
           New Voyage
         </button>
@@ -810,7 +789,7 @@ function RecentSessionsSection({
           return (
             <div
               key={session.id}
-              className="rounded-lg bg-zinc-800/50 border border-zinc-700/50 overflow-hidden"
+              className="rounded-lg bg-content2/50 border border-divider/30 overflow-hidden"
             >
               <div
                 className="flex flex-col gap-2 px-4 py-2.5 cursor-pointer sm:flex-row sm:items-start"
@@ -828,7 +807,7 @@ function RecentSessionsSection({
                 <div className="flex min-w-0 flex-1 items-start gap-3">
                   <button
                     type="button"
-                    className="mt-0.5 text-zinc-500 hover:text-white transition-colors shrink-0"
+                    className="mt-0.5 text-default-500 hover:text-foreground transition-colors shrink-0"
                     aria-label={isExpanded ? 'Collapse voyage' : 'Expand voyage'}
                     onClick={(event) => {
                       event.stopPropagation();
@@ -865,19 +844,19 @@ function RecentSessionsSection({
                         setEditingSessionId(null);
                         setSessionNameDraft('');
                       }}
-                      className="w-full rounded border border-zinc-600 bg-zinc-900 px-2 py-1 text-sm text-white"
+                      className="w-full rounded border border-divider/30 bg-content1 px-2 py-1 text-sm text-foreground"
                       autoFocus
                     />
                   ) : (
                     <>
-                      <span className="text-sm font-medium text-white break-words block">
+                      <span className="text-sm font-medium text-foreground break-words block">
                         {sessionName}
                       </span>
-                      <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
+                      <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-default-500">
                         <span>{sessionLocation}</span>
                         <span>{formatRelativeTime(session.updatedAt)}</span>
                         {session.id === currentSessionId && (
-                          <span className="text-primary-300">Current</span>
+                          <span className="text-primary">Current</span>
                         )}
                       </span>
                     </>
@@ -891,7 +870,7 @@ function RecentSessionsSection({
                       setEditingSessionId(session.id);
                       setSessionNameDraft(sessionName);
                     }}
-                    className="text-xs text-zinc-400 hover:text-white shrink-0"
+                    className="text-xs text-default-500 hover:text-foreground shrink-0"
                   >
                     Rename
                   </button>
@@ -906,29 +885,29 @@ function RecentSessionsSection({
                         onDeleteSession(session.id);
                       }
                     }}
-                    className="text-xs text-red-400 hover:text-red-300 shrink-0"
+                    className="text-xs text-danger hover:text-danger/80 shrink-0"
                   >
                     Delete
                   </button>
                 </div>
               </div>
               {isExpanded && (
-                <div className="border-t border-zinc-700/50 px-4 py-3 space-y-1 bg-zinc-900/40">
+                <div className="border-t border-divider/30 px-4 py-3 space-y-1 bg-content1/40">
                   {tabGroups.length > 0 ? (
                     tabGroups.map(({ tabGroup, space: ownerSpace, key }) => (
                       <button
                         key={key}
                         onClick={() => onNavigateToTabGroup(ownerSpace.id, tabGroup.id)}
-                        className="w-full flex items-start justify-between gap-3 px-3 py-2 rounded bg-zinc-800/70 hover:bg-zinc-700/70 text-left"
+                        className="w-full flex items-start justify-between gap-3 px-3 py-2 rounded bg-content2/70 hover:bg-content3/70 text-left"
                       >
                         <div className="min-w-0 flex-1">
-                          <div className="text-sm text-white break-words">
+                          <div className="text-sm text-foreground break-words">
                             {tabGroup.label}
                             {tabGroup.id === session.activeTabGroupId ? (
-                              <span className="ml-2 text-xs text-primary-300">Active</span>
+                              <span className="ml-2 text-xs text-primary">Active</span>
                             ) : null}
                           </div>
-                          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
+                          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-default-500">
                             {ownerSpace.name}
                             <span>
                               {tabGroup.tabs.length} view{tabGroup.tabs.length !== 1 ? 's' : ''}
@@ -938,7 +917,7 @@ function RecentSessionsSection({
                       </button>
                     ))
                   ) : (
-                    <div className="text-xs text-zinc-500">
+                    <div className="text-xs text-default-500">
                       No available craft found for this voyage. Resume will recover it with a fallback craft.
                     </div>
                   )}
@@ -984,7 +963,7 @@ function RecentlyVisitedTabGroups({
 
   return (
     <div className="mb-8">
-      <h2 className="text-lg font-semibold text-white mb-3">
+      <h2 className="text-lg font-semibold text-foreground mb-3">
         Recently Visited
       </h2>
       <div className="space-y-1">
@@ -1040,7 +1019,7 @@ function RecentlyCreatedTabGroups({
 
   return (
     <div className="mb-8">
-      <h2 className="text-lg font-semibold text-white mb-3">
+      <h2 className="text-lg font-semibold text-foreground mb-3">
         Recently Created
       </h2>
       <div className="space-y-1">
@@ -1086,16 +1065,16 @@ function SpacesSection({
 
   return (
     <div>
-      <h2 className="text-lg font-semibold text-white mb-3">All Spaces</h2>
+      <h2 className="text-lg font-semibold text-foreground mb-3">All Spaces</h2>
       <div className="space-y-1">
         {spacesWithTabGroups.map(({ space, tabGroups }) => (
           <div key={space.id}>
             {/* Space header row */}
             <div className="flex items-center gap-3 px-4 py-2 mt-3 first:mt-0">
-              <span className="text-sm font-semibold text-zinc-300">
+              <span className="text-sm font-semibold text-foreground">
                 {space.name}
               </span>
-              <span className="text-xs text-zinc-600">
+              <span className="text-xs text-default-500">
                 {tabGroups.length} craft
               </span>
             </div>
@@ -1104,13 +1083,13 @@ function SpacesSection({
               <button
                 key={tg.id}
                 onClick={() => onNavigateToTabGroup(space.id, tg.id)}
-                className="w-full flex items-start gap-3 px-4 py-2.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50 hover:border-zinc-600 transition-colors group text-left"
+                className="w-full flex items-start gap-3 px-4 py-2.5 rounded-lg bg-content2/50 border border-divider/30 hover:border-divider/50 transition-colors group text-left"
               >
                 <div className="min-w-0 flex-1">
-                  <span className="text-sm text-white font-medium break-words block">
+                  <span className="text-sm text-foreground font-medium break-words block">
                     {tabGroupDisplayLabelById.get(tg.id) ?? tg.label}
                   </span>
-                  <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
+                  <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-default-500">
                     <span>
                       {tg.tabs.length} view{tg.tabs.length !== 1 ? "s" : ""}
                     </span>
@@ -1122,7 +1101,7 @@ function SpacesSection({
                   </span>
                 </div>
                 <svg
-                  className="mt-1 w-3.5 h-3.5 text-zinc-600 group-hover:text-white transition-colors shrink-0"
+                  className="mt-1 w-3.5 h-3.5 text-default-500 group-hover:text-foreground transition-colors shrink-0"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -1419,12 +1398,12 @@ export function SpacesOverviewView({
   const hasSpaces = workspace.spaces.some((s) => !s.isSystem);
 
   return (
-    <div className="h-full w-full overflow-auto bg-zinc-900 p-6 md:p-8">
+    <div className="h-full w-full overflow-auto bg-background text-foreground p-6 md:p-8">
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-          <p className="text-sm text-zinc-500 mt-1">Workspace activity feed</p>
+          <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
+          <p className="text-sm text-default-500 mt-1">Workspace activity feed</p>
         </div>
 
         {/* Voyages */}
@@ -1477,9 +1456,9 @@ export function SpacesOverviewView({
         {/* VK Workspaces Section */}
         <div className="mb-10">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold text-white">VK Workspaces</h2>
+            <h2 className="text-lg font-semibold text-foreground">VK Workspaces</h2>
             {!loading && sortedWorkspaces.length > 0 && (
-              <span className="text-xs text-zinc-500">
+              <span className="text-xs text-default-500">
                 {sortedWorkspaces.length} workspace
                 {sortedWorkspaces.length !== 1 ? "s" : ""}
               </span>
@@ -1494,18 +1473,18 @@ export function SpacesOverviewView({
 
           {loading ? (
             <div className="flex items-center justify-center py-12">
-              <div className="w-6 h-6 border-2 border-zinc-600 border-t-zinc-300 rounded-full animate-spin" />
+              <div className="w-6 h-6 border-2 border-divider/30 border-t-primary rounded-full animate-spin" />
             </div>
           ) : error ? (
             <div className="text-center py-8">
-              <p className="text-zinc-500 text-sm">{error}</p>
-              <p className="text-zinc-600 text-xs mt-1">
+              <p className="text-danger text-sm">{error}</p>
+              <p className="text-default-500 text-xs mt-1">
                 VK backend may not be running
               </p>
             </div>
           ) : sortedWorkspaces.length === 0 ? (
             <div className="text-center py-8">
-              <p className="text-zinc-500 text-sm">
+              <p className="text-default-500 text-sm">
                 {selectedRepoId
                   ? "No workspaces for this repository"
                   : "No active workspaces"}
@@ -1560,7 +1539,7 @@ export function SpacesOverviewView({
         {/* Divider + Spaces */}
         {hasSpaces && (
           <>
-            <div className="border-t border-zinc-800 my-8" />
+            <div className="border-t border-divider/30 my-8" />
             <SpacesSection
               workspace={workspace}
               onNavigateToTabGroup={onNavigateToTabGroup}

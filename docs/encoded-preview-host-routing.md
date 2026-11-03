@@ -1,16 +1,20 @@
 # Encoded preview host routing
 
-Vibe Dashboard preview hosts use a first-level encoded hostname so Cloudflare TLS
-and wildcard routing only need to cover `*.vibedashboard.dev`:
+Vibe Dashboard's server builds preview URLs from `SITE_ORIGIN` and VK's stored
+workspace/repository/slot metadata. There is no customer-slug input. For a bare
+domain, add an encoded subdomain. Generated preview subdomains currently have a
+fixed `-user` suffix:
 
 ```text
-{workspaceToken}-{repoSlug}-{slotSlug}-{customerSlug}.vibedashboard.dev
+SITE_ORIGIN=https://jamtools.dev
+https://{workspaceToken}-{repoSlug}-{slotSlug}-user.jamtools.dev/
 ```
 
-Example:
+For an existing subdomain, decorate the first hostname label:
 
 ```text
-0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev
+SITE_ORIGIN=https://mickmister.jamtools.dev
+https://0123456789abcdef-vibekanban-web-mickmister-user.jamtools.dev/
 ```
 
 The encoded data must fit in the first DNS label, so V1 uses fixed separators
@@ -19,10 +23,15 @@ and dashless lowercase alphanumeric slugs:
 - `workspaceToken`: exactly 16 lowercase hexadecimal characters (`[a-f0-9]{16}`).
 - `repoSlug`: 1–18 lowercase alphanumeric characters.
 - `slotSlug`: 1–10 lowercase alphanumeric characters.
-- `customerSlug`: 1–16 lowercase alphanumeric characters.
+- An existing first hostname label is preserved after the encoded prefix;
+  it is not a separate routing field. The fixed `-user` suffix follows it.
 
-The full first-label budget is `16 + 18 + 10 + 16 + 3 separators = 63`
-characters. Old `preview-{workspace}-{slot}--{customer}` numeric hosts are
+The full first label must remain within DNS's 63-character limit. Bare versus
+subdomain detection uses the public suffix list, including suffixes like `co.uk`
+and private suffixes such as `github.io`. Native VK and VD share URL fixture cases
+in `vibe-kanban/shared/preview-url-cases.json`.
+For nested subdomains, only the first label is decorated; remaining labels stay
+unchanged. Old `preview-{workspace}-{slot}--{customer}` numeric hosts are
 intentionally rejected; this branch is a hard break with no backwards
 compatibility for numeric slots.
 By default, the Caddy handler does not need a configured base domain. It detects
@@ -30,21 +39,47 @@ preview requests by the compact first-label pattern on whatever hostname reaches
 Caddy, so previews work for any customer/runtime domain that preserves the
 original requested host.
 
-Customer hostnames that merely contain dashes are not preview hosts unless the
-first label satisfies the full `workspaceToken-repoSlug-slotSlug-customerSlug`
+Runtime hostnames that merely contain dashes are not preview hosts unless the
+first label satisfies the full `workspaceToken-repoSlug-slotSlug[-site-label]`
 grammar. Advanced deployments may still set the optional `base_domain` handler
 option to restrict preview matching to one DNS suffix.
 
 Preview URL generation still needs to choose a public scheme, DNS suffix, and
 optional port. The `vk preview-url url` CLI and Vibe Dashboard internal preview
-URL route use the scheme, hostname, and port from `SITE_ORIGIN`. Override those
-for a single command or runtime by setting `SITE_ORIGIN` for that process.
+URL route use the scheme, hostname, and port from `SITE_ORIGIN`. The run-config
+list includes server-generated `preview_urls`, keyed by slot ID, so the menu and
+configuration panel render ordinary `target="_blank"` links. Opening a link does
+not eagerly start a process; preview routing owns startup.
+
+```sh
+vk preview-url url <workspace-id> <slot-id>
+```
+
+## Preview slot menu
+
+Each slot has edit, restart, and server-log actions beside its URL:
+
+- **Edit** opens the stored run script in a modal. Saving updates the shared run
+  config; restart the slot to use the new command.
+- **Restart** stops the current workspace's slot process, then starts a new one.
+- **Logs** opens stdout/stderr replay and live output for the current process.
+  Viewing logs does not start a server. Stopped slots show an empty-state message.
+- **Delete preview slot**, inside the edit modal, uses the native workspace-scoped
+  DELETE endpoint to stop its current process and remove the slot record.
+- **Delete run config**, on the PreviewServer configuration page, removes an
+  unlinked run config. Delete all linked preview slots first, including disabled
+  slots. This follows the `feature/encoded-preview-hosts` deletion contract.
+
+Both deletion endpoints require an updated VK runtime. Older binaries return
+HTTP 405; VD reports the missing backend support rather than substituting soft
+deletion. No schema or generated-type migration is needed for these endpoints.
 
 ## Runtime request flow
 
 1. The public Cloudflare Worker receives the encoded preview host.
-2. The Worker resolves the customer part to the canonical customer hostname and
-   forwards traffic through the customer tunnel.
+2. The Worker removes the encoded prefix to recover the canonical runtime
+   hostname, then forwards traffic through that runtime's tunnel. The bare-domain
+   form removes the complete first label; the decorated form preserves its suffix.
 3. The Worker preserves the original encoded hostname in `X-Vibe-Requested-Host`
    for the private-sandbox V1 deployment.
 4. The custom Caddy `vk_preview_resolver` handler reads the requested hostname
@@ -64,14 +99,22 @@ Backend and Worker code must be deployed with the same grammar:
 - The resolver must map `workspaceToken` to the durable VK workspace ID.
 - `repoSlug` and `slotSlug` are lookup slugs for the repo-level run config and
   preview slot; they are not database IDs.
-- `customerSlug` is the customer alias used by the Worker/control plane to find
-  the canonical customer runtime.
 - The Worker must parse or preserve the full encoded preview host, route it to
   the matching canonical customer runtime, and forward the original host in
   `X-Vibe-Requested-Host`. V1 intentionally does not use a requested-host
   shared secret because the deployment is limited to the private/Cloudflare
   Access-protected sandbox. The proper per-customer/runtime secret model is
-  tracked separately.
+   tracked separately.
+
+The Caddy parser and Worker must both accept the encoded form, including its fixed
+`-user` suffix, before deploying the new URLs. The Worker is maintained outside
+this repository. The native VK URL endpoint uses only the server's `SITE_ORIGIN`;
+the native CLI calls it with workspace and slot IDs, with no URL-origin override.
+VD forwards the resolver contract below directly. These changes require a matching
+VK runtime; an older runtime requiring the removed customer field is incompatible.
+Remote type generation, current-SHA Rust checks and matching-runtime routing
+acceptance are tracked under `task-6wh`; source changes alone do not establish
+deployment readiness.
 
 ## Resolver API
 
@@ -84,7 +127,6 @@ Backend and Worker code must be deployed with the same grammar:
   "workspaceToken": "0123456789abcdef",
   "repoSlug": "vibekanban",
   "slotSlug": "web",
-  "customerSlug": "mickmister",
   "ensure": true,
   "method": "GET",
   "path": "/"
@@ -117,7 +159,6 @@ When proxying a ready preview upstream, Caddy forwards preview metadata headers:
 - `X-Vibe-Preview-Workspace-Token`
 - `X-Vibe-Preview-Repo`
 - `X-Vibe-Preview-Slot`
-- `X-Vibe-Preview-Customer`
 
 Before setting those canonical metadata headers, Caddy removes inbound
 `Forwarded`, `X-Forwarded-Host`, `X-Vibe-Requested-Host`, and
@@ -141,7 +182,7 @@ replaced with stronger attestation before release.
 
 Worker request to Caddy:
 
-- `X-Vibe-Requested-Host: {workspaceToken}-{repoSlug}-{slotSlug}-{customerSlug}.vibedashboard.dev`
+- `X-Vibe-Requested-Host: {workspaceToken}-{repoSlug}-{slotSlug}[-site-label].jamtools.dev`
 
 Advanced deployments may override the requested-host header name with
 `PREVIEW_REQUESTED_HOST_HEADER` or the equivalent Caddyfile option

@@ -1,3 +1,5 @@
+import { buildPreviewSlotUrl } from '../lib/previewSlotUrl';
+
 export type Executor =
   | 'CLAUDE_CODE'
   | 'CODEX'
@@ -135,7 +137,6 @@ export interface PreviewResolveRequest {
   workspaceToken: string;
   repoSlug: string;
   slotSlug: string;
-  customerSlug: string;
   ensure: boolean;
   method: string;
   path: string;
@@ -225,10 +226,10 @@ export interface WorkspaceRunConfigsResponse {
   run_configs: RunConfig[];
   preview_slots: PreviewSlot[];
   preview_url_parts: PreviewSlotUrlParts[];
+  preview_urls?: Record<string, string>;
 }
 
 export interface PreviewSlotUrlResponse extends PreviewSlotUrlParts {
-  customerSlug: string;
   host: string;
   url: string;
 }
@@ -375,6 +376,14 @@ export class VibeKanbanServerClient {
     return this.post(`/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots`, body);
   }
 
+  async deleteRunConfig(workspaceId: string, runConfigId: string): Promise<void> {
+    await this.request(`/workspaces/${encodeURIComponent(workspaceId)}/execution/run-configs/${encodeURIComponent(runConfigId)}`, { method: 'DELETE' });
+  }
+
+  async deletePreviewSlot(workspaceId: string, previewSlotId: string): Promise<void> {
+    await this.request(`/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots/${encodeURIComponent(previewSlotId)}`, { method: 'DELETE' });
+  }
+
   startRunConfig(workspaceId: string, runConfigId: string): Promise<RunConfigStartResponse> {
     return this.post(
       `/workspaces/${encodeURIComponent(workspaceId)}/execution/run-configs/${encodeURIComponent(runConfigId)}/start`,
@@ -389,17 +398,14 @@ export class VibeKanbanServerClient {
     );
   }
 
-  getPreviewSlotUrl(
+  async getPreviewSlotUrl(
     workspaceId: string,
     previewSlotId: string,
-    args: { customerSlug: string; baseDomain?: string; urlScheme?: 'http' | 'https' },
   ): Promise<PreviewSlotUrlResponse> {
-    const params = new URLSearchParams({ customerSlug: args.customerSlug });
-    if (args.baseDomain) params.set('baseDomain', args.baseDomain);
-    if (args.urlScheme) params.set('urlScheme', args.urlScheme);
-    return this.get(
-      `/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots/${encodeURIComponent(previewSlotId)}/url?${params}`,
-    );
+    const configs = await this.getRunConfigs(workspaceId);
+    const parts = configs.preview_url_parts.find((entry) => entry.previewSlotId === previewSlotId);
+    if (!parts) throw new Error('Preview slot was not found');
+    return buildPreviewSlotUrl(parts, process.env.SITE_ORIGIN);
   }
 
   async sendFollowUp(
@@ -440,8 +446,13 @@ export class VibeKanbanServerClient {
 
     const bodyText = await response.text();
     if (!response.ok) {
+      let message: string | undefined;
+      try {
+        const body = JSON.parse(bodyText);
+        if (typeof body?.message === 'string') message = body.message;
+      } catch {}
       throw new VkApiError({
-        message: `VK API ${path} failed: HTTP ${response.status} ${response.statusText}`,
+        message: message ?? `VK API ${path} failed: HTTP ${response.status} ${response.statusText}`,
         status: response.status,
         bodyText,
       });

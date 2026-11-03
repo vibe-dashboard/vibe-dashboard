@@ -177,7 +177,11 @@ fn build_workspace_attachment_markdown(
     label: &str,
     uses_image_markdown: bool,
 ) -> String {
-    let path = format!(".vibe-attachments/{}", file.file.file_path);
+    let path = format!(
+        "{}/{}",
+        utils::path::VIBE_ATTACHMENTS_DIR,
+        file.file.file_path
+    );
     let normalized_label = if label.trim().is_empty() {
         file.file.original_name.as_str()
     } else {
@@ -585,7 +589,7 @@ mod tests {
 
         assert_eq!(
             rewritten,
-            "[proposal.pdf](.vibe-attachments/abc_proposal.pdf)"
+            "[proposal.pdf](.alohak-attachments/abc_proposal.pdf)"
         );
     }
 
@@ -604,7 +608,7 @@ mod tests {
 
         assert_eq!(
             rewritten,
-            "![diagram.png](.vibe-attachments/xyz_diagram.png)"
+            "![diagram.png](.alohak-attachments/xyz_diagram.png)"
         );
     }
 
@@ -623,7 +627,7 @@ mod tests {
 
         assert_eq!(
             rewritten,
-            "[diagram.png](.vibe-attachments/xyz_diagram.png)"
+            "[diagram.png](.alohak-attachments/xyz_diagram.png)"
         );
     }
 
@@ -642,7 +646,7 @@ mod tests {
 
         assert_eq!(
             rewritten,
-            "![proposal.pdf](.vibe-attachments/abc_proposal.pdf)"
+            "![proposal.pdf](.alohak-attachments/abc_proposal.pdf)"
         );
     }
 
@@ -688,7 +692,7 @@ mod tests {
 
         assert_eq!(
             rewritten,
-            "See [doc.pdf](.vibe-attachments/doc_file.pdf) and ![shot.png](.vibe-attachments/shot_file.png). https://example.com"
+            "See [doc.pdf](.alohak-attachments/doc_file.pdf) and ![shot.png](.alohak-attachments/shot_file.png). https://example.com"
         );
     }
 }

@@ -8,14 +8,14 @@ const switchRootClassName =
   'data-[state=checked]:bg-foreground ' +
   'data-[state=unchecked]:bg-foreground/35 ' +
   'data-[state=unchecked]:border-foreground/15 ' +
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ' +
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus ' +
   'focus-visible:ring-offset-2 focus-visible:ring-offset-background ' +
   'disabled:cursor-not-allowed disabled:opacity-50';
 
 const switchThumbClassName =
   'pointer-events-none block h-3.5 w-3.5 rounded-full shadow-sm ring-0 ' +
   'transition-transform data-[state=checked]:translate-x-3.5 ' +
-  'data-[state=unchecked]:translate-x-0 data-[state=checked]:bg-secondary ' +
+  'data-[state=unchecked]:translate-x-0 data-[state=checked]:bg-content1 ' +
   'data-[state=unchecked]:bg-low';
 
 const Switch = React.forwardRef<

@@ -25,8 +25,8 @@ export function IconButton({
   const variantStyles = disabled
     ? 'opacity-40 cursor-not-allowed'
     : variant === 'default'
-      ? 'text-low hover:text-normal hover:bg-secondary/50'
-      : 'bg-panel hover:bg-secondary text-normal';
+      ? 'text-default-500 hover:text-foreground hover:bg-content2/50'
+      : 'bg-content1 hover:bg-content2 text-foreground';
 
   return (
     <button

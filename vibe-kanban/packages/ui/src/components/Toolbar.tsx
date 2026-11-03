@@ -44,8 +44,8 @@ function ToolbarIconButton({
   return (
     <button
       className={cn(
-        'flex items-center justify-center text-low hover:text-normal',
-        disabled && 'opacity-40 cursor-not-allowed hover:text-low',
+        'flex items-center justify-center text-default-500 hover:text-foreground',
+        disabled && 'opacity-40 cursor-not-allowed hover:text-default-500',
         className
       )}
       disabled={disabled}

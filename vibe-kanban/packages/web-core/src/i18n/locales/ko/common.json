@@ -1,4 +1,26 @@
 {
+  "composer": {
+    "tools": "메시지 작성 도구",
+    "settings": "메시지 작성 설정",
+    "diffSummary": "변경 요약",
+    "files_one": "파일 {{count}}개",
+    "files_other": "파일 {{count}}개",
+    "viewChanges": "변경 사항 보기",
+    "tasks": "워크스페이스 작업",
+    "preview": "미리보기 슬롯",
+    "prComments": "PR 댓글 추가",
+    "insertPrComments": "메시지에 PR 댓글 삽입",
+    "removeIssueLink": "{{issue}} 링크 제거",
+    "linesAdded": "+{{count}}",
+    "linesRemoved": "-{{count}}",
+    "openWorkspace": "워크스페이스 열기"
+  },
+  "turnNavigation": {
+    "title": "내 메시지",
+    "count_one": "{{count}}턴",
+    "count_other": "{{count}}턴",
+    "number": "#{{number}}"
+  },
   "editorNames": {
     "custom": "사용자 지정"
   },

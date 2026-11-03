@@ -5,6 +5,7 @@ import { getHostRequestScopeQueryKey } from '@/shared/lib/hostRequestScope';
 import type { MachineClient } from '@/shared/lib/machineClient';
 import type { JsonValue } from 'shared/types';
 import { presetOptionsKeys } from '@/shared/hooks/usePresetOptions';
+import { executorDiscoveryKeys } from '@/shared/hooks/executorDiscoveryKeys';
 
 export type UseProfilesReturn = {
   // data
@@ -44,6 +45,12 @@ export function useProfiles(hostId?: string | null): UseProfilesReturn {
       );
       void queryClient.invalidateQueries({
         queryKey: presetOptionsKeys.all,
+      });
+      void queryClient.invalidateQueries({
+        queryKey:
+          hostId === undefined
+            ? executorDiscoveryKeys.all
+            : executorDiscoveryKeys.byHost(hostId),
       });
     },
   });
@@ -116,6 +123,11 @@ export function useMachineProfiles(
       );
       void queryClient.invalidateQueries({
         queryKey: presetOptionsKeys.all,
+      });
+      void queryClient.invalidateQueries({
+        queryKey: executorDiscoveryKeys.byHost(
+          machineClient?.target.apiHostId ?? null
+        ),
       });
     },
   });

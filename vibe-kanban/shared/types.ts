@@ -34,9 +34,9 @@ export type WorkspaceRunConfigsResponse = { run_configs: Array<RunConfig>, previ
 
 export type PreviewSlotUrlParts = { previewSlotId: string, workspaceToken: string, repoSlug: string, slotSlug: string, };
 
-export type PreviewSlotUrlResponse = { previewSlotId: string, workspaceToken: string, repoSlug: string, slotSlug: string, customerSlug: string, host: string, url: string, };
+export type PreviewSlotUrlResponse = { previewSlotId: string, workspaceToken: string, repoSlug: string, slotSlug: string, host: string, url: string, };
 
-export type NamedPreviewResolveRequest = { host: string, workspaceToken: string, repoSlug: string, slotSlug: string, customerSlug: string, ensure: boolean, method: string, path: string, };
+export type NamedPreviewResolveRequest = { host: string, workspaceToken: string, repoSlug: string, slotSlug: string, ensure: boolean, method: string, path: string, };
 
 export type NamedPreviewResolveResponse = { status: string, upstream: string | null, message: string | null, executionProcessId: string | null, };
 

@@ -2,6 +2,8 @@ import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../lib/cn';
 import { Tooltip } from './Tooltip';
+import { useComposerSheet } from './ComposerSheet';
+import { Popover, PopoverContent, PopoverTrigger } from './Popover';
 
 export interface ContextUsageInfo {
   total_tokens: number;
@@ -21,6 +23,7 @@ export function ContextUsageGauge({
   tokenUsageInfo,
   className,
 }: ContextUsageGaugeProps) {
+  const { mobile } = useComposerSheet();
   const { t } = useTranslation('common');
   const { percentage, formattedUsed, formattedTotal, status } = useMemo(() => {
     if (!tokenUsageInfo || tokenUsageInfo.model_context_window === 0) {
@@ -73,68 +76,80 @@ export function ContextUsageGauge({
 
   const progressColor =
     status === 'empty'
-      ? 'text-low/40'
+      ? 'text-default-500 opacity-40'
       : status === 'critical'
-        ? 'text-error'
+        ? 'text-danger'
         : status === 'high'
           ? 'text-brand-secondary'
           : status === 'medium'
-            ? 'text-normal'
-            : 'text-low';
+            ? 'text-foreground'
+            : 'text-default-500';
 
   const radius = 8;
   const strokeWidth = 2;
   const circumference = 2 * Math.PI * radius;
   const dashOffset = circumference * (1 - progress);
 
-  return (
-    <Tooltip content={tooltip} side="bottom">
-      <div
-        className={cn(
-          'flex items-center justify-center rounded-sm p-half',
-          'hover:bg-panel transition-colors cursor-help',
-          className
-        )}
-        aria-label={
-          status === 'empty'
-            ? t('contextUsage.label')
-            : t('contextUsage.ariaLabel', {
-                percentage: Math.round(percentage),
-              })
-        }
-        role="img"
+  const gauge = (
+    <div
+      className={cn(
+        'flex items-center justify-center rounded-sm p-half',
+        'hover:bg-content2 transition-colors cursor-help',
+        className
+      )}
+      aria-label={
+        status === 'empty'
+          ? t('contextUsage.label')
+          : t('contextUsage.ariaLabel', {
+              percentage: Math.round(percentage),
+            })
+      }
+      role="img"
+    >
+      <svg
+        viewBox="0 0 20 20"
+        className="size-icon-base -rotate-90"
+        aria-hidden="true"
       >
-        <svg
-          viewBox="0 0 20 20"
-          className="size-icon-base -rotate-90"
-          aria-hidden="true"
-        >
-          <circle
-            cx="10"
-            cy="10"
-            r={radius}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={strokeWidth}
-            className="text-border/60"
-          />
-          <circle
-            cx="10"
-            cy="10"
-            r={radius}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={strokeWidth}
-            strokeLinecap="round"
-            strokeDasharray={`${circumference} ${circumference}`}
-            strokeDashoffset={dashOffset}
-            className={cn(
-              progressColor,
-              'transition-all duration-500 ease-out'
-            )}
-          />
-        </svg>
-      </div>
+        <circle
+          cx="10"
+          cy="10"
+          r={radius}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={strokeWidth}
+          className="text-default-500 opacity-25"
+        />
+        <circle
+          cx="10"
+          cy="10"
+          r={radius}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          strokeDasharray={`${circumference} ${circumference}`}
+          strokeDashoffset={dashOffset}
+          className={cn(progressColor, 'transition-all duration-500 ease-out')}
+        />
+      </svg>
+    </div>
+  );
+
+  return mobile ? (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button" aria-label={t('contextUsage.label')}>
+          {gauge}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent aria-label={t('contextUsage.label')}>
+        <p className="text-sm text-foreground">{tooltip}</p>
+      </PopoverContent>
+    </Popover>
+  ) : (
+    <Tooltip content={tooltip} side="bottom">
+      {gauge}
     </Tooltip>
   );
 }

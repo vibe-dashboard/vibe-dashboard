@@ -7,6 +7,7 @@ import { HeroUIProvider } from "@heroui/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppLoadingScreen } from "../components/AppLoadingScreen";
 import { WorkspaceShell } from "../components/WorkspaceShell";
+import { AgentSplitViewPage } from "../components/AgentSplitViewPage";
 import { useSessionWorkspaceNav } from "../sessionState";
 import type { NewSessionInitialSelection } from "../sessionState";
 import { resolveWorkspaceContainerRef } from "../lib/vkWorkspaceOpen";
@@ -37,10 +38,13 @@ import { usePluginRegistry } from "./plugins/vibe-dashboard/registry";
 import type { ResolvedWorkspaceComposition } from "./plugins/vibe-dashboard/workspace-composition";
 import { createEffectiveWorkspaceWithCraftSurfaces } from "./plugins/vibe-dashboard/craft-surfaces";
 import { VibeIntlProvider } from "../i18n";
+import { ThemeProvider } from "../components/ThemeProvider";
+import { applyTheme } from "../lib/themeDocument";
+import { defaultThemePreferences } from "../lib/themes";
 
 // Ensure dark class is on the document root so portaled elements (modals, popovers)
 // inherit dark mode styles
-document.documentElement.classList.add("dark");
+applyTheme(document.documentElement, defaultThemePreferences);
 springboard.registerSplashScreen(AppLoadingScreen);
 
 import springboard from "springboard";
@@ -879,6 +883,7 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
       },
       openVKWorkspaceInSavedSession: async (args: {
         sessionId: string;
+        select?: boolean;
         taskAttemptId: string;
         name: string;
         containerRef: string;
@@ -932,15 +937,15 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
       };
 
       return (
-        <div className="dark w-screen h-screen fixed inset-0 bg-neutral-950 text-neutral-100 flex items-center justify-center p-6">
-          <div className="w-full max-w-md rounded-2xl border border-neutral-800 bg-neutral-900 p-6 shadow-2xl">
-            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-neutral-500">
+        <div className="w-screen h-screen fixed inset-0 bg-background text-foreground flex items-center justify-center p-6">
+          <div className="w-full max-w-md rounded-2xl border border-divider bg-content1 p-6 shadow-2xl">
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-default-500">
               Voyage not found
             </div>
             <h1 className="mt-3 text-2xl font-semibold">
               This voyage link no longer resolves.
             </h1>
-            <p className="mt-3 text-sm leading-6 text-neutral-400">
+            <p className="mt-3 text-sm leading-6 text-default-500">
               The URL requested “{dashboardVoyage.requestedVoyageKey}”, but that
               voyage is not available in this workspace. Choose a working voyage
               to continue.
@@ -948,13 +953,13 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
             <div className="mt-6 flex flex-col gap-3">
               {fallbackSession ? (
                 <button
-                  className="rounded-lg bg-primary-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-400"
+                  className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:bg-primary/80"
                   onClick={openFallbackVoyage}
                 >
                   Open {fallbackSession.name?.trim() || "available voyage"}
                 </button>
               ) : (
-                <div className="rounded-lg border border-neutral-800 bg-neutral-950 px-4 py-3 text-sm text-neutral-400">
+                <div className="rounded-lg border border-divider bg-background px-4 py-3 text-sm text-default-500">
                   No saved voyages are available to recover this link.
                 </div>
               )}
@@ -974,23 +979,23 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
         )?.label || "your first craft";
 
       return (
-        <div className="dark w-screen h-screen fixed inset-0 bg-neutral-950 text-neutral-100 flex items-center justify-center p-6">
-          <div className="w-full max-w-lg rounded-2xl border border-neutral-800 bg-neutral-900 p-6 shadow-2xl">
-            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-neutral-500">
+        <div className="w-screen h-screen fixed inset-0 bg-background text-foreground flex items-center justify-center p-6">
+          <div className="w-full max-w-lg rounded-2xl border border-divider bg-content1 p-6 shadow-2xl">
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-default-500">
               Create your first Voyage
             </div>
             <h1 className="mt-3 text-2xl font-semibold">
               Name the Voyage for this workspace.
             </h1>
-            <p className="mt-3 text-sm leading-6 text-neutral-400">
+            <p className="mt-3 text-sm leading-6 text-default-500">
               A Voyage is the named set of craft and views you are working with.
               Naming it gives the URL a stable Voyage identity, so the app can
               restore and share this workspace without relying on hidden browser
               state.
             </p>
-            <p className="mt-3 text-sm leading-6 text-neutral-400">
+            <p className="mt-3 text-sm leading-6 text-default-500">
               We will start this Voyage with{" "}
-              <span className="font-medium text-neutral-200">
+              <span className="font-medium text-foreground">
                 {defaultCraftName}
               </span>
               . You can add or switch craft after it is created.
@@ -1004,7 +1009,7 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
               }}
             >
               <label className="block">
-                <span className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                <span className="text-xs font-semibold uppercase tracking-wide text-default-500">
                   Voyage name
                 </span>
                 <input
@@ -1016,18 +1021,18 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
                   aria-label="Voyage name"
                   placeholder="e.g. Client launch, Bug triage, Morning build"
                   autoFocus
-                  className="mt-2 w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none placeholder:text-neutral-600 focus:border-primary-400"
+                  className="mt-2 w-full rounded-lg border border-divider bg-background px-3 py-2 text-sm text-foreground outline-none placeholder:text-default-500 focus:border-focus"
                 />
               </label>
               {createFirstVoyageError && (
-                <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+                <div className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
                   {createFirstVoyageError}
                 </div>
               )}
               <button
                 type="submit"
                 disabled={firstVoyageNameIsInvalid || isCreatingFirstVoyage}
-                className="w-full rounded-lg bg-primary-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-400 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+                className="w-full rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:bg-primary/80 disabled:cursor-not-allowed disabled:bg-content2 disabled:text-default-500"
               >
                 {isCreatingFirstVoyage ? "Creating Voyage…" : "Create Voyage"}
               </button>
@@ -1039,7 +1044,8 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
 
     return (
       <>
-        <div className="dark w-screen h-screen fixed inset-0">
+        {/* Fixed edges follow the visible viewport; 100vh extends behind mobile browser chrome. */}
+        <div className="fixed inset-0 bg-background text-foreground">
           <WorkspaceShell
             workspace={workspace}
             session={sessionNav}
@@ -1097,19 +1103,19 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
     };
 
     return (
-      <main className="dark min-h-screen bg-zinc-950 text-zinc-100 p-8">
+      <main className="min-h-screen bg-background text-foreground p-8">
         <div className="mx-auto max-w-6xl">
           <div className="flex items-center justify-between gap-4">
             <div>
               <h1 className="text-2xl font-semibold">Plugin Admin</h1>
-              <p className="mt-1 text-sm text-zinc-400">
+              <p className="mt-1 text-sm text-default-500">
                 Persistent desired state controls sync runtime Supervisor and
                 Caddy exposure.
               </p>
             </div>
             <button
               type="button"
-              className="rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-900 disabled:opacity-50"
+              className="rounded-md border border-divider/30 px-3 py-2 text-sm hover:bg-content1 disabled:opacity-50"
               onClick={() => void loadStatuses()}
               disabled={loading || updatingPluginId !== null}
             >
@@ -1120,15 +1126,15 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
           {error ? (
             <div
               role="alert"
-              className="mt-6 rounded-md border border-red-800 bg-red-950/40 p-4 text-sm text-red-200"
+              className="mt-6 rounded-md border border-danger/40 bg-danger/10 p-4 text-sm text-danger"
             >
               {error}
             </div>
           ) : null}
 
-          <div className="mt-6 overflow-hidden rounded-lg border border-zinc-800">
+          <div className="mt-6 overflow-hidden rounded-lg border border-divider/30">
             <table className="w-full border-collapse text-left text-sm">
-              <thead className="bg-zinc-900 text-xs uppercase tracking-wide text-zinc-400">
+              <thead className="bg-content1 text-xs uppercase tracking-wide text-default-500">
                 <tr>
                   <th className="px-4 py-3">Plugin</th>
                   <th className="px-4 py-3">Desired</th>
@@ -1140,13 +1146,13 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td className="px-4 py-6 text-zinc-400" colSpan={5}>
+                    <td className="px-4 py-6 text-default-500" colSpan={5}>
                       Loading plugin status…
                     </td>
                   </tr>
                 ) : plugins.length === 0 ? (
                   <tr>
-                    <td className="px-4 py-6 text-zinc-400" colSpan={5}>
+                    <td className="px-4 py-6 text-default-500" colSpan={5}>
                       No plugins are configured.
                     </td>
                   </tr>
@@ -1154,11 +1160,11 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
                   plugins.map((plugin) => (
                     <tr
                       key={plugin.pluginId}
-                      className="border-t border-zinc-800"
+                      className="border-t border-divider/30"
                     >
                       <td className="px-4 py-3">
                         <div className="font-medium">{plugin.name}</div>
-                        <div className="text-xs text-zinc-500">
+                        <div className="text-xs text-default-500">
                           {plugin.pluginId} · {plugin.version}
                         </div>
                       </td>
@@ -1168,13 +1174,13 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
                       <td className="px-4 py-3">
                         <div>{plugin.observedState}</div>
                         {plugin.error ? (
-                          <div className="mt-1 text-xs text-red-300">
+                          <div className="mt-1 text-xs text-danger">
                             {plugin.error}
                           </div>
                         ) : null}
                       </td>
                       <td
-                        className="max-w-md truncate px-4 py-3 text-xs text-zinc-400"
+                        className="max-w-md truncate px-4 py-3 text-xs text-default-500"
                         title={plugin.installPath ?? plugin.pluginPath}
                       >
                         {plugin.installPath ??
@@ -1184,7 +1190,7 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
                       <td className="px-4 py-3 text-right">
                         <button
                           type="button"
-                          className="rounded-md border border-zinc-700 px-3 py-2 hover:bg-zinc-900 disabled:opacity-50"
+                          className="rounded-md border border-divider/30 px-3 py-2 hover:bg-content1 disabled:opacity-50"
                           disabled={updatingPluginId !== null}
                           onClick={() =>
                             void updatePluginEnabled(
@@ -1214,6 +1220,11 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
   // Root is the canonical dashboard route so PWA installs/bookmarks start from
   // a stable app-home path while query params carry Voyage navigation state.
   moduleAPI.registerRoute("/", { hideApplicationShell: true }, DashboardRoute);
+  moduleAPI.registerRoute(
+    "/split-view",
+    { hideApplicationShell: true },
+    AgentSplitViewPage,
+  );
 
   // Compatibility dashboard route. It renders the same app and canonical URL
   // sync redirects Voyage links back to root with the query params intact.
@@ -1240,7 +1251,7 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
       return (
         <QueryClientProvider client={queryClient}>
           <VibeIntlProvider>
-            <HeroUIProvider>{props.children}</HeroUIProvider>
+            <HeroUIProvider><ThemeProvider>{props.children}</ThemeProvider></HeroUIProvider>
           </VibeIntlProvider>
         </QueryClientProvider>
       );

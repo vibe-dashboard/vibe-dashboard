@@ -12,6 +12,7 @@ import {
 } from 'shared/types';
 import type { WorkspaceWithSession } from '@/shared/types/attempt';
 import { parseDiffStats } from '@/shared/lib/diffStatsParser';
+import { getUserVisiblePrompt } from '@/shared/lib/promptMessage';
 import {
   usePersistedExpanded,
   type PersistKey,
@@ -24,6 +25,7 @@ import WYSIWYGEditor from '@/shared/components/WYSIWYGEditor';
 import { useMessageEditContext } from '../model/contexts/MessageEditContext';
 import type { UseResetProcessResult } from '../model/hooks/useResetProcess';
 import { useChangesViewActions } from '@/shared/hooks/useChangesView';
+import { useWorkspaceChatSurfaceId } from '@/shared/providers/WorkspaceChatSurfaceProvider';
 import { useLogsPanelActions } from '@/shared/hooks/useLogsPanel';
 import { cn } from '@/shared/lib/utils';
 import {
@@ -484,6 +486,7 @@ function AppChatMarkdown({
   maxWidth: string | undefined;
 }) {
   const { viewFileInChanges, findMatchingDiffPath } = useChangesViewActions();
+  const isInlineSurface = useWorkspaceChatSurfaceId() !== null;
 
   return (
     <ChatMarkdown
@@ -498,8 +501,10 @@ function AppChatMarkdown({
           className={className}
           workspaceId={workspaceId}
           sessionId={sessionId}
-          findMatchingDiffPath={findMatchingDiffPath}
-          onCodeClick={viewFileInChanges}
+          findMatchingDiffPath={
+            isInlineSurface ? undefined : findMatchingDiffPath
+          }
+          onCodeClick={isInlineSurface ? undefined : viewFileInChanges}
         />
       )}
     />
@@ -526,6 +531,7 @@ function FileEditEntry({
   const { theme } = useTheme();
   const actualTheme = getActualTheme(theme);
   const { viewFileInChanges, findMatchingDiffPath } = useChangesViewActions();
+  const isInlineSurface = useWorkspaceChatSurfaceId() !== null;
   const FileIcon = useMemo(
     () => getFileIcon(path, actualTheme),
     [path, actualTheme]
@@ -596,7 +602,7 @@ function FileEditEntry({
             )
           : undefined
       }
-      onOpenInChanges={handleOpenInChanges}
+      onOpenInChanges={isInlineSurface ? undefined : handleOpenInChanges}
     />
   );
 }
@@ -702,7 +708,7 @@ function GenericToolApprovalEntry({
  * User message entry with expandable content
  */
 function UserMessageEntry({
-  content,
+  content: rawContent,
   expansionKey,
   workspaceId,
   sessionId,
@@ -718,6 +724,7 @@ function UserMessageEntry({
   executorCanFork: boolean;
   resetAction: UseResetProcessResult;
 }) {
+  const content = getUserVisiblePrompt(rawContent);
   const [expanded, toggle] = usePersistedExpanded(`user:${expansionKey}`, true);
   const { startEdit, isEntryGreyed, isInEditMode } = useMessageEditContext();
   const { resetProcess, canResetProcess, isResetPending } = resetAction;
@@ -916,6 +923,7 @@ function ToolSummaryEntry({
   command: string | undefined;
   actionType: string;
 }) {
+  const isInlineSurface = useWorkspaceChatSurfaceId() !== null;
   const [expanded, toggle] = usePersistedExpanded(
     `tool:${expansionKey}`,
     false
@@ -935,21 +943,40 @@ function ToolSummaryEntry({
   const hasOutput = content && content.trim().length > 0;
 
   const handleViewContent = useCallback(() => {
-    viewToolContentInPanel(toolName, content, command);
-  }, [viewToolContentInPanel, toolName, content, command]);
+    if (isInlineSurface) toggle();
+    else viewToolContentInPanel(toolName, content, command);
+  }, [
+    isInlineSurface,
+    toggle,
+    viewToolContentInPanel,
+    toolName,
+    content,
+    command,
+  ]);
 
   return (
-    <ChatToolSummary
-      ref={textRef}
-      summary={summary}
-      expanded={expanded}
-      onToggle={toggle}
-      status={status}
-      onViewContent={hasOutput ? handleViewContent : undefined}
-      toolName={toolName}
-      isTruncated={isTruncated}
-      actionType={actionType}
-    />
+    <div className="min-w-0">
+      <ChatToolSummary
+        ref={textRef}
+        summary={summary}
+        expanded={expanded}
+        onToggle={toggle}
+        status={status}
+        onViewContent={hasOutput ? handleViewContent : undefined}
+        toolName={toolName}
+        isTruncated={isTruncated}
+        actionType={actionType}
+      />
+      {isInlineSurface && expanded && hasOutput ? (
+        <pre
+          role="region"
+          aria-label={`${toolName} output`}
+          className="mt-base max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-sm border border-divider bg-content1 p-base font-mono text-xs text-foreground"
+        >
+          {content}
+        </pre>
+      ) : null}
+    </div>
   );
 }
 
@@ -1134,6 +1161,7 @@ function ErrorMessageEntry({
  * Aggregated group entry for consecutive file_read, search, or web_fetch entries
  */
 function AggregatedGroupEntry({ group }: { group: AggregatedPatchGroup }) {
+  const isInlineSurface = useWorkspaceChatSurfaceId() !== null;
   const { viewToolContentInPanel } = useLogsPanelActions();
   const [expanded, toggle] = usePersistedExpanded(
     `tool:${group.patchKey}`,
@@ -1243,6 +1271,25 @@ function AggregatedGroupEntry({ group }: { group: AggregatedPatchGroup }) {
       onToggle={handleToggle}
       onHoverChange={handleHoverChange}
       onViewContent={handleViewContent}
+      renderEntry={
+        isInlineSurface
+          ? (index) => {
+              const item = aggregatedEntries[index];
+              if (!item?.status) return null;
+              return (
+                <ToolSummaryEntry
+                  summary={item.summary}
+                  expansionKey={item.expansionKey}
+                  status={item.status}
+                  content={item.content}
+                  toolName={item.toolName}
+                  command={item.command}
+                  actionType={group.aggregationType}
+                />
+              );
+            }
+          : undefined
+      }
       label={label}
       icon={icon}
       unit={unit}
@@ -1311,6 +1358,7 @@ function AggregatedDiffGroupEntry({ group }: { group: AggregatedDiffGroup }) {
   const { theme } = useTheme();
   const actualTheme = getActualTheme(theme);
   const { viewFileInChanges, findMatchingDiffPath } = useChangesViewActions();
+  const isInlineSurface = useWorkspaceChatSurfaceId() !== null;
   const [expanded, toggle] = usePersistedExpanded(
     `diff:${group.patchKey}`,
     false
@@ -1371,7 +1419,7 @@ function AggregatedDiffGroupEntry({ group }: { group: AggregatedDiffGroup }) {
       isHovered={isHovered}
       onToggle={handleToggle}
       onHoverChange={handleHoverChange}
-      onOpenInChanges={handleOpenInChanges}
+      onOpenInChanges={isInlineSurface ? null : handleOpenInChanges}
       fileIcon={FileIcon}
       isVSCode={isVSCode}
       onOpenInVSCode={handleOpenInVSCode}

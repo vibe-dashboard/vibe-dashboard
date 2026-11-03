@@ -1,288 +1,206 @@
-import { Hono } from 'hono';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { registerPreviewResolverRoutes } from './preview-resolver-routes';
-import type { PreviewResolveRequest } from './vk-client';
+import { Hono } from "hono";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { registerPreviewResolverRoutes } from "./preview-resolver-routes";
+import { VkApiError, type VibeKanbanServerClient } from './vk-client';
 
-describe('registerPreviewResolverRoutes', () => {
-  const originalSiteOrigin = process.env.SITE_ORIGIN;
-  const routeClient = {
-    resolvePreview: vi.fn(),
-    getRunConfigs: vi.fn(),
-    upsertRunConfig: vi.fn(),
-    upsertPreviewSlot: vi.fn(),
-    startRunConfig: vi.fn(),
-    startPreviewSlot: vi.fn(),
-    getPreviewSlotUrl: vi.fn(),
+const parts = {
+  previewSlotId: "slot1",
+  workspaceToken: "0123456789abcdef",
+  repoSlug: "vibekanban",
+  slotSlug: "web",
+};
+
+function setup() {
+  const client = {
+    resolvePreview: vi.fn(async () => ({
+      status: "ready" as const,
+      upstream: "http://127.0.0.1:4567",
+    })),
+    getRunConfigs: vi.fn<VibeKanbanServerClient['getRunConfigs']>(async () => ({
+      run_configs: [],
+      preview_slots: [],
+      preview_url_parts: [parts],
+    })),
+    upsertRunConfig: vi.fn(async () => ({ id: "run1" }) as any),
+    upsertPreviewSlot: vi.fn(async () => ({ id: "slot1" }) as any),
+    deletePreviewSlot: vi.fn(async () => {}),
+    deleteRunConfig: vi.fn(async () => {}),
+    startRunConfig: vi.fn(
+      async () => ({ upstream: "http://127.0.0.1:4567" }) as any,
+    ),
+    startPreviewSlot: vi.fn(
+      async () => ({ upstream: "http://127.0.0.1:4567" }) as any,
+    ),
   };
+  const app = new Hono();
+  registerPreviewResolverRoutes(app, { vkClient: client });
+  return { app, client };
+}
 
+describe("registerPreviewResolverRoutes", () => {
+  const originalSiteOrigin = process.env.SITE_ORIGIN;
   afterEach(() => {
-    if (originalSiteOrigin === undefined) {
-      delete process.env.SITE_ORIGIN;
-    } else {
-      process.env.SITE_ORIGIN = originalSiteOrigin;
+    if (originalSiteOrigin === undefined) delete process.env.SITE_ORIGIN;
+    else process.env.SITE_ORIGIN = originalSiteOrigin;
+  });
+
+  it("proxies named preview resolution and rejects invalid tokens", async () => {
+    process.env.SITE_ORIGIN = "https://mickmister.jamtools.dev";
+    const { app, client } = setup();
+    const payload = {
+      host: "0123456789abcdef-vibekanban-web-mickmister-user.jamtools.dev",
+      workspaceToken: parts.workspaceToken,
+      repoSlug: parts.repoSlug,
+      slotSlug: parts.slotSlug,
+      ensure: true,
+      method: "GET",
+      path: "/",
+    };
+    const send = (body: unknown) =>
+      app.request("/internal/preview/resolve", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    await expect((await send(payload)).json()).resolves.toMatchObject({
+      status: "ready",
+      upstream: "http://127.0.0.1:4567",
+    });
+    expect(client.resolvePreview).toHaveBeenCalledWith(payload);
+    await expect(
+      (await send({ ...payload, workspaceToken: "invalid" })).json(),
+    ).resolves.toMatchObject({ status: "not_found" });
+    expect(client.resolvePreview).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [
+      "https://jamtools.dev",
+      "https://0123456789abcdef-vibekanban-web-user.jamtools.dev/",
+    ],
+    [
+      "https://mickmister.jamtools.dev",
+      "https://0123456789abcdef-vibekanban-web-mickmister-user.jamtools.dev/",
+    ],
+    [
+      "http://localhost:3001",
+      "http://0123456789abcdef-vibekanban-web-user.localhost:3001/",
+    ],
+  ])(
+    "serves consistent list and individual URLs from %s",
+    async (origin, url) => {
+      process.env.SITE_ORIGIN = origin;
+      const { app } = setup();
+      const list = await app.request(
+        "/internal/preview/workspaces/ws1/run-configs",
+      );
+      await expect(list.json()).resolves.toMatchObject({
+        preview_urls: { slot1: url },
+      });
+      const single = await app.request(
+        "/internal/preview/workspaces/ws1/preview-slots/slot1/url?baseDomain=override.example",
+      );
+      expect(single.status).toBe(200);
+      await expect(single.json()).resolves.toEqual({
+        ...parts,
+        host: new URL(url).host,
+        url,
+      });
+    },
+  );
+
+  it("reports missing slots and unusable origin configuration", async () => {
+    const { app } = setup();
+    const missing = await app.request(
+      "/internal/preview/workspaces/ws1/preview-slots/missing/url",
+    );
+    expect(missing.status).toBe(404);
+    process.env.SITE_ORIGIN = "not a URL";
+    const broken = await app.request(
+      "/internal/preview/workspaces/ws1/preview-slots/slot1/url",
+    );
+    expect(broken.status).toBe(502);
+    await expect(broken.json()).resolves.toEqual({
+      message:
+        "Preview URL could not be generated. Check SITE_ORIGIN and the VK backend.",
+    });
+  });
+
+  it('validates script input and scopes management routes to workspace slots', async () => {
+    const { app } = setup();
+    const path = '/internal/preview/workspaces/ws1/preview-slots/missing';
+    const emptyScript = await app.request(`${path}/script`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ command: '  ' }),
+    });
+    expect(emptyScript.status).toBe(400);
+    for (const [url, method] of [[`${path}/process`, 'GET'], [`${path}/restart`, 'POST'], [path, 'DELETE']]) {
+      const response = await app.request(url!, { method });
+      expect(response.status).toBe(404);
+      await expect(response.json()).resolves.toEqual({ message: 'Preview slot was not found' });
     }
   });
 
-  it('proxies named preview resolve payloads to VK', async () => {
-    const resolvePreview = vi.fn(async () => ({
-      status: 'ready' as const,
-      upstream: 'http://127.0.0.1:4567',
-      executionProcessId: 'process-1',
-    }));
-    const app = new Hono();
-    registerPreviewResolverRoutes(app, { vkClient: { resolvePreview } });
-
-    const payload: PreviewResolveRequest = {
-      host: '0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev',
-      workspaceToken: '0123456789abcdef',
-      repoSlug: 'vibekanban',
-      slotSlug: 'web',
-      customerSlug: 'mickmister',
-      ensure: true,
-      method: 'GET',
-      path: '/',
-    };
-    const response = await app.request('/internal/preview/resolve', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      headers: { 'content-type': 'application/json' },
-    });
-
-    await expect(response.json()).resolves.toEqual({
-      status: 'ready',
-      upstream: 'http://127.0.0.1:4567',
-      executionProcessId: 'process-1',
-    });
-    expect(resolvePreview).toHaveBeenCalledWith(payload);
+  it.each(['preview-slots', 'run-configs'])('proxies native %s deletion and reports unsupported runtimes', async (resource) => {
+    const { app, client } = setup();
+    const slot = { id: 'slot1', repo_id: 'repo1', run_config_id: 'config1', slot_slug: 'web', title: 'Web', enabled: false, created_at: '', updated_at: '' };
+    const config = { id: 'config1', repo_id: 'repo1', slug: 'web', name: 'Web', command: 'npm run dev', kind: 'long_running' as const, enabled: true, created_at: '', updated_at: '' };
+    client.getRunConfigs.mockResolvedValue({ run_configs: [config], preview_slots: resource === 'preview-slots' ? [slot] : [], preview_url_parts: [] });
+    const id = resource === 'preview-slots' ? 'slot1' : 'config1';
+    const remove = resource === 'preview-slots' ? client.deletePreviewSlot : client.deleteRunConfig;
+    const path = `/internal/preview/workspaces/ws1/${resource}/${id}`;
+    const response = await app.request(path, { method: 'DELETE' });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ deleted: true });
+    expect(remove).toHaveBeenCalledWith('ws1', id);
+    remove.mockRejectedValue(new VkApiError({ message: 'Unsupported', status: 405, bodyText: '' }));
+    const unsupported = await app.request(path, { method: 'DELETE' });
+    expect(unsupported.status).toBe(502);
+    await expect(unsupported.json()).resolves.toMatchObject({ message: expect.stringContaining('requires an updated VK backend') });
   });
 
-  it('rejects impossible tokens locally without calling VK', async () => {
-    const resolvePreview = vi.fn();
-    const app = new Hono();
-    registerPreviewResolverRoutes(app, { vkClient: { resolvePreview } });
-
-    const response = await app.request('/internal/preview/resolve', {
-      method: 'POST',
-      body: JSON.stringify({
-        host: '0123456789abcdeg-vibekanban-web-mickmister.vibedashboard.dev',
-        workspaceToken: '0123456789abcdeg',
-        repoSlug: 'vibekanban',
-        slotSlug: 'web',
-        customerSlug: 'mickmister',
-        ensure: true,
-        method: 'GET',
-        path: '/',
-      }),
-      headers: { 'content-type': 'application/json' },
-    });
-
-    await expect(response.json()).resolves.toMatchObject({
-      status: 'not_found',
-      message: 'Invalid preview workspace token',
-    });
-    expect(resolvePreview).not.toHaveBeenCalled();
-  });
-
-  it('proxies run config declaration and canonical URL generation routes', async () => {
-    delete process.env.SITE_ORIGIN;
-    const client = {
-      ...routeClient,
-      getRunConfigs: vi.fn(async () => ({
-        run_configs: [],
-        preview_slots: [],
-        preview_url_parts: [],
-      })),
-      upsertRunConfig: vi.fn(async (workspaceId, body) => ({ id: 'rc1', ...body })),
-      upsertPreviewSlot: vi.fn(async (workspaceId, body) => ({ id: 'slot1', ...body })),
-      getPreviewSlotUrl: vi.fn(async () => ({
-        previewSlotId: 'slot1',
-        workspaceToken: '0123456789abcdef',
-        repoSlug: 'vibekanban',
-        slotSlug: 'web',
-        customerSlug: 'mickmister',
-        host: '0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev',
-        url: 'https://0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev/',
-      })),
+  it("forwards configuration writes and explicit start actions", async () => {
+    const { app, client } = setup();
+    const run = {
+      repo_id: "repo1",
+      slug: "web",
+      command: "npm run dev",
+      name: "Web",
+      kind: "long_running",
+      enabled: true,
     };
-    const app = new Hono();
-    registerPreviewResolverRoutes(app, { vkClient: client });
-
-    await app.request('/internal/preview/workspaces/ws1/run-configs');
-    await app.request('/internal/preview/workspaces/ws1/run-configs', {
-      method: 'POST',
-      body: JSON.stringify({
-        repo_id: 'repo1',
-        slug: 'web',
-        name: 'Web',
-        command: 'npm run dev',
-        kind: 'long_running',
-        enabled: true,
-      }),
-    });
-    await app.request('/internal/preview/workspaces/ws1/preview-slots', {
-      method: 'POST',
-      body: JSON.stringify({
-        repo_id: 'repo1',
-        run_config_id: 'rc1',
-        slot_slug: 'web',
-        title: 'Web',
-        enabled: true,
-      }),
-    });
-    const urlResponse = await app.request(
-      '/internal/preview/workspaces/ws1/preview-slots/slot1/url?customerSlug=mickmister',
-    );
-
-    expect(client.getRunConfigs).toHaveBeenCalledWith('ws1');
-    expect(client.upsertRunConfig).toHaveBeenCalledWith('ws1', expect.objectContaining({ slug: 'web' }));
-    expect(client.upsertPreviewSlot).toHaveBeenCalledWith('ws1', expect.objectContaining({ slot_slug: 'web' }));
-    expect(client.getPreviewSlotUrl).toHaveBeenCalledWith('ws1', 'slot1', {
-      customerSlug: 'mickmister',
-      baseDomain: undefined,
-      urlScheme: undefined,
-    });
-    await expect(urlResponse.json()).resolves.toMatchObject({
-      url: 'https://0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev/',
-    });
-  });
-
-  it('uses SITE_ORIGIN host as canonical URL fallback', async () => {
-    process.env.SITE_ORIGIN = 'https://customer.example/app';
-    const client = {
-      ...routeClient,
-      getPreviewSlotUrl: vi.fn(async () => ({
-        previewSlotId: 'slot1',
-        workspaceToken: '0123456789abcdef',
-        repoSlug: 'vibekanban',
-        slotSlug: 'web',
-        customerSlug: 'mickmister',
-        host: '0123456789abcdef-vibekanban-web-mickmister.customer.example',
-        url: 'https://0123456789abcdef-vibekanban-web-mickmister.customer.example/',
-      })),
+    const slot = {
+      repo_id: "repo1",
+      run_config_id: "run1",
+      slot_slug: "web",
+      title: "Web",
+      enabled: true,
     };
-    const app = new Hono();
-    registerPreviewResolverRoutes(app, { vkClient: client });
-
-    const response = await app.request(
-      '/internal/preview/workspaces/ws1/preview-slots/slot1/url?customerSlug=mickmister',
-    );
-
-    expect(client.getPreviewSlotUrl).toHaveBeenCalledWith('ws1', 'slot1', {
-      customerSlug: 'mickmister',
-      baseDomain: 'customer.example',
-      urlScheme: 'https',
-    });
-    await expect(response.json()).resolves.toMatchObject({
-      url: 'https://0123456789abcdef-vibekanban-web-mickmister.customer.example/',
-    });
-  });
-
-  it('ignores baseDomain query overrides in favor of SITE_ORIGIN', async () => {
-    process.env.SITE_ORIGIN = 'https://customer.example';
-    const client = {
-      ...routeClient,
-      getPreviewSlotUrl: vi.fn(async () => ({
-        previewSlotId: 'slot1',
-        workspaceToken: '0123456789abcdef',
-        repoSlug: 'vibekanban',
-        slotSlug: 'web',
-        customerSlug: 'mickmister',
-        host: '0123456789abcdef-vibekanban-web-mickmister.customer.example',
-        url: 'https://0123456789abcdef-vibekanban-web-mickmister.customer.example/',
-      })),
-    };
-    const app = new Hono();
-    registerPreviewResolverRoutes(app, { vkClient: client });
-
-    const response = await app.request(
-      '/internal/preview/workspaces/ws1/preview-slots/slot1/url?customerSlug=mickmister&baseDomain=override.example',
-    );
-
-    expect(client.getPreviewSlotUrl).toHaveBeenCalledWith('ws1', 'slot1', {
-      customerSlug: 'mickmister',
-      baseDomain: 'customer.example',
-      urlScheme: 'https',
-    });
-    await expect(response.json()).resolves.toMatchObject({
-      url: 'https://0123456789abcdef-vibekanban-web-mickmister.customer.example/',
-    });
-  });
-
-  it('uses HTTP SITE_ORIGIN scheme and port for canonical URL fallback', async () => {
-    process.env.SITE_ORIGIN = 'http://localhost:3001';
-    const client = {
-      ...routeClient,
-      getPreviewSlotUrl: vi.fn(async () => ({
-        previewSlotId: 'slot1',
-        workspaceToken: '0123456789abcdef',
-        repoSlug: 'vibekanban',
-        slotSlug: 'web',
-        customerSlug: 'mickmister',
-        host: '0123456789abcdef-vibekanban-web-mickmister.localhost:3001',
-        url: 'http://0123456789abcdef-vibekanban-web-mickmister.localhost:3001/',
-      })),
-    };
-    const app = new Hono();
-    registerPreviewResolverRoutes(app, { vkClient: client });
-
-    await app.request('/internal/preview/workspaces/ws1/preview-slots/slot1/url?customerSlug=mickmister');
-
-    expect(client.getPreviewSlotUrl).toHaveBeenCalledWith('ws1', 'slot1', {
-      customerSlug: 'mickmister',
-      baseDomain: 'localhost:3001',
-      urlScheme: 'http',
-    });
-  });
-
-  it('ignores non-HTTP SITE_ORIGIN for canonical URL fallback', async () => {
-    process.env.SITE_ORIGIN = 'ftp://customer.example';
-    const client = {
-      ...routeClient,
-      getPreviewSlotUrl: vi.fn(async () => ({
-        previewSlotId: 'slot1',
-        workspaceToken: '0123456789abcdef',
-        repoSlug: 'vibekanban',
-        slotSlug: 'web',
-        customerSlug: 'mickmister',
-        host: '0123456789abcdef-vibekanban-web-mickmister',
-        url: 'https://0123456789abcdef-vibekanban-web-mickmister/',
-      })),
-    };
-    const app = new Hono();
-    registerPreviewResolverRoutes(app, { vkClient: client });
-
-    await app.request('/internal/preview/workspaces/ws1/preview-slots/slot1/url?customerSlug=mickmister');
-
-    expect(client.getPreviewSlotUrl).toHaveBeenCalledWith('ws1', 'slot1', {
-      customerSlug: 'mickmister',
-      baseDomain: undefined,
-      urlScheme: undefined,
-    });
-  });
-
-  it('ignores malformed SITE_ORIGIN for canonical URL fallback', async () => {
-    process.env.SITE_ORIGIN = 'not a url';
-    const client = {
-      ...routeClient,
-      getPreviewSlotUrl: vi.fn(async () => ({
-        previewSlotId: 'slot1',
-        workspaceToken: '0123456789abcdef',
-        repoSlug: 'vibekanban',
-        slotSlug: 'web',
-        customerSlug: 'mickmister',
-        host: '0123456789abcdef-vibekanban-web-mickmister',
-        url: 'https://0123456789abcdef-vibekanban-web-mickmister/',
-      })),
-    };
-    const app = new Hono();
-    registerPreviewResolverRoutes(app, { vkClient: client });
-
-    await app.request('/internal/preview/workspaces/ws1/preview-slots/slot1/url?customerSlug=mickmister');
-
-    expect(client.getPreviewSlotUrl).toHaveBeenCalledWith('ws1', 'slot1', {
-      customerSlug: 'mickmister',
-      baseDomain: undefined,
-      urlScheme: undefined,
-    });
+    for (const [path, body] of [
+      ["run-configs", run],
+      ["preview-slots", slot],
+    ] as const) {
+      expect(
+        (
+          await app.request(`/internal/preview/workspaces/ws1/${path}`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+          })
+        ).status,
+      ).toBe(200);
+    }
+    expect(client.upsertRunConfig).toHaveBeenCalledWith("ws1", run);
+    expect(client.upsertPreviewSlot).toHaveBeenCalledWith("ws1", slot);
+    for (const path of ["run-configs/run1", "preview-slots/slot1"]) {
+      expect(
+        (
+          await app.request(`/internal/preview/workspaces/ws1/${path}/start`, {
+            method: "POST",
+          })
+        ).status,
+      ).toBe(200);
+    }
+    expect(client.startRunConfig).toHaveBeenCalledWith("ws1", "run1");
+    expect(client.startPreviewSlot).toHaveBeenCalledWith("ws1", "slot1");
   });
 });
