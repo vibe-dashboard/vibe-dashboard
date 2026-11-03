@@ -17,8 +17,13 @@ const ComposerSheetContext = createContext<{
   mobile: boolean;
   style?: CSSProperties;
 }>({ mobile: false });
-const DismissContext = createContext({
-  onOpenChange: (_open: boolean) => {},
+const DismissContext = createContext<{
+  onOpenChange: (open: boolean) => void;
+  open: boolean;
+  registerChild: () => () => void;
+  hasOpenChild: boolean;
+}>({
+  onOpenChange: () => {},
   open: false,
   registerChild: () => () => {},
   hasOpenChild: false,
@@ -97,15 +102,15 @@ export function ComposerSheetOwner({
   open: boolean;
   children: ReactNode;
 }) {
-  const parent = useContext(DismissContext);
+  const { registerChild: registerParentChild } = useContext(DismissContext);
   const [childCount, setChildCount] = useState(0);
   const registerChild = useCallback(() => {
     setChildCount((count) => count + 1);
     return () => setChildCount((count) => count - 1);
   }, []);
   useEffect(() => {
-    if (open) return parent.registerChild();
-  }, [open, parent.registerChild]);
+    if (open) return registerParentChild();
+  }, [open, registerParentChild]);
   return (
     <DismissContext.Provider
       value={{
