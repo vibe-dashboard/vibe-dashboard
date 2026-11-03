@@ -1,4 +1,26 @@
 {
+  "composer": {
+    "tools": "訊息編輯工具",
+    "settings": "訊息編輯設定",
+    "diffSummary": "變更摘要",
+    "files_one": "{{count}} 個檔案",
+    "files_other": "{{count}} 個檔案",
+    "viewChanges": "檢視變更",
+    "tasks": "工作區任務",
+    "preview": "預覽槽位",
+    "prComments": "新增 PR 留言",
+    "insertPrComments": "將 PR 留言插入訊息",
+    "removeIssueLink": "移除指向 {{issue}} 的連結",
+    "linesAdded": "+{{count}}",
+    "linesRemoved": "-{{count}}",
+    "openWorkspace": "開啟工作區"
+  },
+  "turnNavigation": {
+    "title": "你的訊息",
+    "count_one": "{{count}} 輪對話",
+    "count_other": "{{count}} 輪對話",
+    "number": "#{{number}}"
+  },
   "editorNames": {
     "custom": "自訂"
   },

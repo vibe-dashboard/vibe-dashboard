@@ -1,4 +1,26 @@
 {
+  "composer": {
+    "tools": "入力ツール",
+    "settings": "入力設定",
+    "diffSummary": "変更の概要",
+    "files_one": "{{count}} ファイル",
+    "files_other": "{{count}} ファイル",
+    "viewChanges": "変更を表示",
+    "tasks": "ワークスペースのタスク",
+    "preview": "プレビュー枠",
+    "prComments": "PR コメントを追加",
+    "insertPrComments": "メッセージに PR コメントを挿入",
+    "removeIssueLink": "{{issue}} へのリンクを削除",
+    "linesAdded": "+{{count}}",
+    "linesRemoved": "-{{count}}",
+    "openWorkspace": "ワークスペースを開く"
+  },
+  "turnNavigation": {
+    "title": "あなたのメッセージ",
+    "count_one": "{{count}} ターン",
+    "count_other": "{{count}} ターン",
+    "number": "#{{number}}"
+  },
   "editorNames": {
     "custom": "カスタム"
   },
