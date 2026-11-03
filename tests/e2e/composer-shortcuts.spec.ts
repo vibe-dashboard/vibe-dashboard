@@ -100,8 +100,13 @@ test('Open Craft shortcut works from both native composers without submitting or
     await createComposer.focus();
     await createComposer.press('Control+[');
     await expect(chatComposer).toHaveText('Keep the chat draft');
-    await chatComposer.focus();
-    await chatComposer.press('Control+]');
+    // Craft switching is throttled; retry the return navigation as above.
+    await expect(async () => {
+      if (await create.isVisible()) return;
+      await chatComposer.focus();
+      await chatComposer.press('Control+]');
+      await expect(create).toBeVisible({ timeout: 1500 });
+    }).toPass({ timeout: 5000 });
     await expect(createComposer).toHaveText(createDraft);
     await expect(selectedRepo).toBeVisible();
     await page.setViewportSize({ width: 390, height: 844 });
