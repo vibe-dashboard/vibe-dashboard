@@ -131,7 +131,8 @@ jobs:
 
   test-e2e:
     name: Playwright e2e
-    runs-on: ubuntu-latest
+    # Playwright 1.58 does not support Ubuntu 26.04 (ubuntu-latest).
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
