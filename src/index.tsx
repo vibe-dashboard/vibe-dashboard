@@ -27,6 +27,7 @@ import type {
 } from "./types";
 
 // @platform "browser"
+import "./lib/vkLocalApiTransport";
 import "./modules/plugins";
 import "./modules/MainUIShellModule";
 // @platform end

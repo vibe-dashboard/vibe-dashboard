@@ -1,5 +1,5 @@
 /// <reference types="vitest/config" />
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import type { Plugin } from 'vite';
 import { springboard } from 'springboard/vite-plugin';
 import react from '@vitejs/plugin-react';
@@ -150,7 +150,13 @@ if (platformVariant === 'node') {
 } else if (platformVariant === 'browser') {
   platforms = ['browser'];
 }
-export default defineConfig({
+export default defineConfig(({ command, mode }) => {
+  const env = loadEnv(mode, dirname, '');
+  const vkWebSocketOrigin = env.VITE_VK_WEBSOCKET_ORIGIN
+    ?? (command === 'build' ? env.SITE_ORIGIN : '')
+    ?? '';
+
+  return {
   plugins: [vkPublicIconAssets(), vkSourceAliases(), executorSchemasPlugin(), react(), tailwindcss(), springboard({
     entry: './src/index.tsx',
     platforms,
@@ -174,6 +180,7 @@ export default defineConfig({
     dedupe: ['react', 'react-dom', '@tanstack/react-query', '@radix-ui/react-select']
   },
   define: {
+    'import.meta.env.VITE_VK_WEBSOCKET_ORIGIN': JSON.stringify(vkWebSocketOrigin),
     'process.env.DEBUG_LOG_PERFORMANCE': '""',
     'process.env.CADDY_PORT': JSON.stringify(process.env.CADDY_PORT || ''),
     __APP_VERSION__: JSON.stringify(process.env.npm_package_version ?? '0.0.0')
@@ -202,4 +209,5 @@ export default defineConfig({
       }
     }]
   }
+  };
 });
