@@ -2210,7 +2210,7 @@ impl ContainerService for LocalContainerService {
 
         {
             let mut child_guard = child.write().await;
-            if let Err(e) = command::kill_process_group(&mut child_guard).await {
+            if let Err(e) = command::kill_process_group_confirmed(&mut child_guard).await {
                 tracing::error!(
                     "Failed to stop execution process {}: {}",
                     execution_process.id,
