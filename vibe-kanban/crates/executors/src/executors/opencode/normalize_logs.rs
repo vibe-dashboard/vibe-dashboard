@@ -522,13 +522,7 @@ impl LogState {
                 tool_state.set_approval_if_missing(self.approvals.get(&part.call_id).cloned());
 
                 tool_state.update_from_part(part);
-                let entry = tool_state.to_normalized_entry(worktree_path);
-                if let Some(index) = tool_state.index {
-                    replace_normalized_entry(msg_store, index, entry);
-                } else {
-                    let index = add_normalized_entry(msg_store, &self.entry_index, entry);
-                    tool_state.index = Some(index);
-                }
+                tool_state.publish_entries(worktree_path, msg_store, &self.entry_index);
             }
             Part::Other => {}
         }
@@ -593,15 +587,7 @@ impl LogState {
         tool_state.approval = Some(ApprovalStatus::Pending);
         tool_state.approval_id = Some(approval_id);
 
-        let Some(index) = tool_state.index else {
-            return;
-        };
-
-        replace_normalized_entry(
-            msg_store,
-            index,
-            tool_state.to_normalized_entry(worktree_path),
-        );
+        tool_state.publish_entries(worktree_path, msg_store, &self.entry_index);
     }
 
     fn handle_approval_response(
@@ -645,15 +631,7 @@ impl LogState {
 
         tool_state.set_approval(status);
 
-        let Some(index) = tool_state.index else {
-            return;
-        };
-
-        replace_normalized_entry(
-            msg_store,
-            index,
-            tool_state.to_normalized_entry(worktree_path),
-        );
+        tool_state.publish_entries(worktree_path, msg_store, &self.entry_index);
     }
 
     fn handle_question_response(
@@ -666,13 +644,7 @@ impl LogState {
         if let Some(tool_state) = self.tool_states.get_mut(tool_call_id) {
             tool_state.set_question_status(status.clone());
 
-            if let Some(index) = tool_state.index {
-                replace_normalized_entry(
-                    msg_store,
-                    index,
-                    tool_state.to_normalized_entry(worktree_path),
-                );
-            }
+            tool_state.publish_entries(worktree_path, msg_store, &self.entry_index);
         }
 
         if let QuestionStatus::Answered { answers } = &status {
@@ -722,7 +694,12 @@ impl LogState {
 
         // `permission` is an approval category (e.g. "edit", "bash"), not necessarily the tool
         // name ("write" vs "edit"). Only fall back to it when we haven't seen a tool name yet.
-        if tool_state.tool_name() == "tool" {
+        // Patch permission requests use the generic "edit" category, but their
+        // files array identifies a multi-file apply_patch call, even before its tool part.
+        tool_state.update_patch_files(&event.metadata);
+        if !tool_state.patch_files.is_empty() {
+            tool_state.set_tool_name("apply_patch".to_string());
+        } else if tool_state.tool_name() == "tool" {
             tool_state.set_tool_name(event.permission.clone());
         }
 
@@ -756,13 +733,7 @@ impl LogState {
             }
         }
 
-        let entry = tool_state.to_normalized_entry(worktree_path);
-        if let Some(index) = tool_state.index {
-            replace_normalized_entry(msg_store, index, entry);
-        } else {
-            let index = add_normalized_entry(msg_store, &self.entry_index, entry);
-            tool_state.index = Some(index);
-        }
+        tool_state.publish_entries(worktree_path, msg_store, &self.entry_index);
     }
 
     fn handle_question_asked(
@@ -795,13 +766,7 @@ impl LogState {
         tool_state.apply_tool_data(Some(tool_input), None, None, None);
         tool_state.set_approval(ApprovalStatus::Pending);
 
-        let entry = tool_state.to_normalized_entry(worktree_path);
-        if let Some(index) = tool_state.index {
-            replace_normalized_entry(msg_store, index, entry);
-        } else {
-            let index = add_normalized_entry(msg_store, &self.entry_index, entry);
-            tool_state.index = Some(index);
-        }
+        tool_state.publish_entries(worktree_path, msg_store, &self.entry_index);
     }
 
     fn add_normalized_entry(&mut self, entry: NormalizedEntry) -> usize {
@@ -858,7 +823,8 @@ fn update_streaming_text(
 
 #[derive(Debug, Clone)]
 struct ToolCallState {
-    index: Option<usize>,
+    entry_indices: HashMap<String, usize>,
+    patch_files: Vec<PatchFile>,
     call_id: String,
     tool_name: String,
     state: ToolStateStatus,
@@ -932,7 +898,8 @@ enum TodoOperation {
 impl ToolCallState {
     fn new(call_id: String) -> Self {
         Self {
-            index: None,
+            entry_indices: HashMap::new(),
+            patch_files: Vec::new(),
             call_id,
             tool_name: "tool".to_string(),
             state: ToolStateStatus::Unknown,
@@ -956,6 +923,17 @@ impl ToolCallState {
     fn set_tool_name(&mut self, name: String) {
         if name.trim().is_empty() {
             return;
+        }
+        // An early permission event may have inferred a single-file "edit".
+        // The authoritative tool name must restore generic patch input/output
+        // storage rather than leaving apply_patch trapped in that variant.
+        if name == "apply_patch" && matches!(self.data, ToolData::FileEdit { .. }) {
+            self.data = ToolData::Other {
+                input: None,
+                metadata: None,
+                output: None,
+                error: None,
+            };
         }
         self.tool_name = name;
         self.maybe_promote();
@@ -1044,7 +1022,91 @@ impl ToolCallState {
             ToolStateUpdate::Unknown => (None, None, None, None),
         };
 
+        if self.tool_name == "apply_patch"
+            && let Some(metadata) = &metadata
+        {
+            self.update_patch_files(metadata);
+        }
         self.apply_tool_data(input, output, metadata, error);
+    }
+
+    fn update_patch_files(&mut self, metadata: &Value) {
+        let Some(files) = metadata.get("files").and_then(Value::as_array) else {
+            return;
+        };
+        let files: Vec<PatchFile> = files
+            .iter()
+            .filter_map(|file| serde_json::from_value::<PatchFile>(file.clone()).ok())
+            .filter(|file| !file.file_path.trim().is_empty() && !file.patch.trim().is_empty())
+            .collect();
+        // Lifecycle updates can omit metadata; never erase a usable preview with
+        // an empty or malformed payload.
+        if !files.is_empty() {
+            self.patch_files = files;
+        }
+    }
+
+    fn publish_entries(
+        &mut self,
+        worktree_path: &Path,
+        msg_store: &Arc<MsgStore>,
+        entry_index: &EntryIndexProvider,
+    ) {
+        let mut entries = Vec::new();
+        for file in &self.patch_files {
+            let path = make_relative_path(
+                file.move_path
+                    .as_deref()
+                    .filter(|path| !path.trim().is_empty())
+                    .unwrap_or(&file.file_path),
+                worktree_path,
+            );
+            let mut entry = self.to_normalized_entry(worktree_path);
+            if let NormalizedEntryType::ToolUse { action_type, .. } = &mut entry.entry_type {
+                *action_type = ActionType::FileEdit {
+                    path: path.clone(),
+                    changes: vec![FileChange::Edit {
+                        unified_diff: workspace_utils::diff::normalize_unified_diff(
+                            &path,
+                            &file.patch,
+                        ),
+                        has_line_numbers: true,
+                    }],
+                };
+            }
+            entry.content = path;
+            entries.push((file.file_path.clone(), entry));
+        }
+        // Keep errors visible alongside failed previews. Without usable file
+        // metadata, preserve the normal generic tool arguments and output.
+        if entries.is_empty() || self.state == ToolStateStatus::Error {
+            entries.push((String::new(), self.to_normalized_entry(worktree_path)));
+        }
+
+        let mut previous = std::mem::take(&mut self.entry_indices);
+        for (key, entry) in entries {
+            if self.entry_indices.contains_key(&key) {
+                continue;
+            }
+            // Turn an initial generic placeholder into the first file card.
+            let index = previous.remove(&key).or_else(|| {
+                if !key.is_empty() {
+                    previous.remove("")
+                } else {
+                    None
+                }
+            });
+            let index = if let Some(index) = index {
+                replace_normalized_entry(msg_store, index, entry);
+                index
+            } else {
+                add_normalized_entry(msg_store, entry_index, entry)
+            };
+            self.entry_indices.insert(key, index);
+        }
+        for index in previous.into_values() {
+            msg_store.push_patch(crate::logs::utils::ConversationPatch::remove(index));
+        }
     }
 
     fn apply_tool_data(
@@ -1458,6 +1520,15 @@ impl ToolCallState {
     }
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PatchFile {
+    file_path: String,
+    patch: String,
+    #[serde(default)]
+    move_path: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 struct BashInput {
     command: String,
@@ -1564,4 +1635,334 @@ fn parse_question_items(items: &[Value]) -> Vec<AskUserQuestionItem> {
         .filter_map(|v| serde_json::from_value(v.clone()).ok())
         .collect();
     parse_question_items_from_info(&infos)
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use workspace_utils::log_msg::LogMsg;
+
+    use super::*;
+
+    const WORKTREE: &str = "/workspace";
+    const UPDATE: &str = "--- old\n+++ new\n@@ -1 +1 @@\n-old\n+new\n";
+
+    struct Harness {
+        store: Arc<MsgStore>,
+        state: LogState,
+    }
+
+    impl Harness {
+        fn new() -> Self {
+            let store = Arc::new(MsgStore::new());
+            let state = LogState::new(EntryIndexProvider::start_from(&store), store.clone());
+            Self { store, state }
+        }
+
+        fn event(&mut self, event: Value) {
+            self.state
+                .handle_sdk_event(&event, Path::new(WORKTREE), &self.store);
+        }
+
+        fn tool(&mut self, name: &str, state: Value) {
+            self.event(json!({
+                "type": "message.part.updated",
+                "properties": { "part": {
+                    "type": "tool", "messageID": "message", "callID": "call",
+                    "tool": name, "state": state,
+                } }
+            }));
+        }
+
+        fn permission(&mut self, metadata: Value) {
+            self.event(json!({
+                "type": "permission.asked",
+                "properties": {
+                    "id": "permission", "permission": "edit",
+                    "patterns": ["a.ts", "b.ts"], "metadata": metadata,
+                    "tool": { "callID": "call" }
+                }
+            }));
+            self.state.handle_approval_requested(
+                "call",
+                "approval".to_string(),
+                Path::new(WORKTREE),
+                &self.store,
+            );
+        }
+
+        fn approval(&mut self, status: ApprovalStatus) {
+            self.state
+                .handle_approval_response("call", status, Path::new(WORKTREE), &self.store);
+        }
+
+        fn entries(&self) -> Value {
+            let mut document = json!({ "entries": {} });
+            for message in self.store.get_history() {
+                if let LogMsg::JsonPatch(patch) = message {
+                    json_patch::patch(&mut document, &patch).unwrap();
+                }
+            }
+            document["entries"].clone()
+        }
+    }
+
+    fn files() -> Value {
+        json!({ "files": [
+            { "filePath": "/workspace/a.ts", "type": "update", "patch": UPDATE },
+            { "filePath": "/workspace/b.ts", "type": "add",
+              "patch": "@@ -0,0 +1 @@\n+added\n" },
+            { "filePath": "/workspace/c.ts", "type": "delete",
+              "patch": "@@ -1 +0,0 @@\n-deleted\n" },
+            { "filePath": "/workspace/old.ts", "type": "move",
+              "movePath": "/workspace/dir/new.ts", "patch": UPDATE }
+        ] })
+    }
+
+    fn assert_file(entry: &Value, path: &str, status: &str) {
+        assert_eq!(entry["content"]["entry_type"]["tool_name"], "apply_patch");
+        assert_eq!(entry["content"]["entry_type"]["status"]["status"], status);
+        assert_eq!(entry["content"]["metadata"]["tool_call_id"], "call");
+        let action = &entry["content"]["entry_type"]["action_type"];
+        assert_eq!(action["action"], "file_edit");
+        assert_eq!(action["path"], path);
+        assert_eq!(action["changes"][0]["action"], "edit");
+        assert_eq!(action["changes"][0]["has_line_numbers"], true);
+        assert!(
+            action["changes"][0]["unified_diff"]
+                .as_str()
+                .unwrap()
+                .starts_with(&format!("diff --git a/{path} b/{path}\n"))
+        );
+    }
+
+    #[test]
+    fn apply_patch_completion_emits_each_file_without_approval() {
+        let mut h = Harness::new();
+        h.tool(
+            "apply_patch",
+            json!({ "status": "pending", "input": { "patchText": "patch" } }),
+        );
+        assert_eq!(h.entries().as_object().unwrap().len(), 1);
+        h.tool(
+            "apply_patch",
+            json!({ "status": "completed", "metadata": files(), "output": "Success" }),
+        );
+        let entries = h.entries();
+        assert_eq!(entries.as_object().unwrap().len(), 4);
+        for (index, path) in ["a.ts", "b.ts", "c.ts", "dir/new.ts"].iter().enumerate() {
+            assert_file(&entries[index.to_string()], path, "success");
+        }
+        assert!(
+            entries["1"]["content"]["entry_type"]["action_type"]["changes"][0]["unified_diff"]
+                .as_str()
+                .unwrap()
+                .contains("+added")
+        );
+        assert!(
+            entries["2"]["content"]["entry_type"]["action_type"]["changes"][0]["unified_diff"]
+                .as_str()
+                .unwrap()
+                .contains("-deleted")
+        );
+        // Replayed/repeated completion events update existing cards.
+        h.tool(
+            "apply_patch",
+            json!({ "status": "completed", "metadata": files(), "output": "Success" }),
+        );
+        assert_eq!(h.entries(), entries);
+    }
+
+    #[test]
+    fn apply_patch_permission_first_retains_previews_and_shared_approval() {
+        let mut h = Harness::new();
+        h.permission(files());
+        let entries = h.entries();
+        assert_eq!(entries.as_object().unwrap().len(), 4);
+        for entry in entries.as_object().unwrap().values() {
+            assert_eq!(
+                entry["content"]["entry_type"]["status"],
+                json!({
+                    "status": "pending_approval", "approval_id": "approval"
+                })
+            );
+        }
+        h.tool(
+            "apply_patch",
+            json!({ "status": "running", "input": { "patchText": "patch" } }),
+        );
+        h.approval(ApprovalStatus::Approved);
+        h.tool(
+            "apply_patch",
+            json!({ "status": "completed", "output": "Success" }),
+        );
+        let entries = h.entries();
+        assert_eq!(entries.as_object().unwrap().len(), 4);
+        assert_file(&entries["0"], "a.ts", "success");
+        assert_file(&entries["3"], "dir/new.ts", "success");
+    }
+
+    #[test]
+    fn apply_patch_tool_first_denial_and_timeout_update_every_file() {
+        for (approval, expected) in [
+            (
+                ApprovalStatus::Denied {
+                    reason: Some("no".to_string()),
+                },
+                "denied",
+            ),
+            (ApprovalStatus::TimedOut, "timed_out"),
+        ] {
+            let mut h = Harness::new();
+            h.tool("apply_patch", json!({ "status": "running" }));
+            h.permission(files());
+            h.approval(approval);
+            h.tool(
+                "apply_patch",
+                json!({ "status": "error", "error": "Rejected" }),
+            );
+            let entries = h.entries();
+            for entry in entries.as_object().unwrap().values() {
+                if entry["content"]["entry_type"]["action_type"]["action"] == "file_edit" {
+                    assert_eq!(entry["content"]["entry_type"]["status"]["status"], expected);
+                }
+            }
+            assert_file(&entries["0"], "a.ts", expected);
+            assert_file(&entries["3"], "dir/new.ts", expected);
+        }
+    }
+
+    #[test]
+    fn apply_patch_failure_preserves_error_and_previews() {
+        let mut h = Harness::new();
+        h.tool(
+            "apply_patch",
+            json!({ "status": "running", "metadata": files() }),
+        );
+        h.tool(
+            "apply_patch",
+            json!({ "status": "error", "error": "Disk full" }),
+        );
+        let entries = h.entries();
+        assert_eq!(entries.as_object().unwrap().len(), 5);
+        assert_file(&entries["0"], "a.ts", "failed");
+        let error = &entries["4"]["content"]["entry_type"];
+        assert_eq!(error["status"]["status"], "failed");
+        assert_eq!(error["action_type"]["result"]["value"], "Disk full");
+    }
+
+    #[test]
+    fn apply_patch_malformed_metadata_keeps_generic_input_and_output() {
+        for metadata in [
+            Value::Null,
+            json!({"files": []}),
+            json!({"files": [
+                {"filePath": 123, "patch": UPDATE}, {"filePath": "", "patch": UPDATE},
+                {"filePath": "a.ts", "patch": ""}
+            ]}),
+        ] {
+            let mut h = Harness::new();
+            // An incomplete early edit permission must not trap the eventual tool.
+            h.permission(json!({}));
+            h.approval(ApprovalStatus::Approved);
+            h.tool(
+                "apply_patch",
+                json!({ "status": "completed", "metadata": metadata,
+                "input": {"patchText": "patch"}, "output": "Success" }),
+            );
+            let entries = h.entries();
+            assert_eq!(entries.as_object().unwrap().len(), 1);
+            let action = &entries["0"]["content"]["entry_type"]["action_type"];
+            assert_eq!(action["action"], "tool");
+            assert_eq!(action["arguments"]["patchText"], "patch");
+            assert_eq!(action["result"]["value"], "Success");
+        }
+    }
+
+    #[test]
+    fn apply_patch_reordered_metadata_preserves_file_indices() {
+        let mut h = Harness::new();
+        h.tool(
+            "apply_patch",
+            json!({ "status": "running", "metadata": files() }),
+        );
+        let before = h.entries();
+        let mut metadata = files();
+        metadata["files"].as_array_mut().unwrap().reverse();
+        h.tool(
+            "apply_patch",
+            json!({ "status": "running", "metadata": metadata }),
+        );
+        assert_eq!(h.entries(), before);
+        h.tool(
+            "apply_patch",
+            json!({ "status": "running", "metadata": {"files": []} }),
+        );
+        assert_eq!(h.entries(), before);
+    }
+
+    #[test]
+    fn existing_file_tools_still_update_one_card() {
+        for name in ["edit", "write", "multiedit"] {
+            let mut h = Harness::new();
+            h.tool(name, json!({ "status": "pending" }));
+            h.tool(
+                name,
+                json!({ "status": "completed",
+                "input": {"filePath": "/workspace/a.ts", "content": "new"},
+                "metadata": {"diff": UPDATE} }),
+            );
+            let entries = h.entries();
+            assert_eq!(entries.as_object().unwrap().len(), 1);
+            let action = &entries["0"]["content"]["entry_type"]["action_type"];
+            assert_eq!(action["action"], "file_edit");
+            assert_eq!(action["path"], "a.ts");
+            assert_eq!(
+                action["changes"][0]["action"],
+                if name == "write" { "write" } else { "edit" }
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn apply_patch_raw_log_replay_matches_live_normalization() {
+        let event = json!({
+            "type": "sdk_event",
+            "event": {
+                "type": "message.part.updated",
+                "properties": { "part": {
+                    "type": "tool", "messageID": "message", "callID": "call",
+                    "tool": "apply_patch", "state": {
+                        "status": "completed", "metadata": files(), "output": "Success"
+                    }
+                } }
+            }
+        });
+        let line = format!("{event}\n");
+        let mut results = Vec::new();
+        for replay in [false, true] {
+            let store = Arc::new(MsgStore::new());
+            if replay {
+                store.push_stdout(line.clone());
+                store.push_finished();
+            }
+            let handles = normalize_logs(store.clone(), Path::new(WORKTREE));
+            if !replay {
+                store.push_stdout(line.clone());
+                store.push_finished();
+            }
+            for handle in handles {
+                handle.await.unwrap();
+            }
+            let h = Harness {
+                state: LogState::new(EntryIndexProvider::start_from(&store), store.clone()),
+                store,
+            };
+            results.push(h.entries());
+        }
+        assert_eq!(results[0], results[1]);
+        assert_eq!(results[0].as_object().unwrap().len(), 4);
+        assert_file(&results[0]["0"], "a.ts", "success");
+        assert_file(&results[0]["3"], "dir/new.ts", "success");
+    }
 }
