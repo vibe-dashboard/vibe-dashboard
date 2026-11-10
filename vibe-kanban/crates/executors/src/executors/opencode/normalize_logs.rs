@@ -823,7 +823,7 @@ fn update_streaming_text(
 
 #[derive(Debug, Clone)]
 struct ToolCallState {
-    entry_indices: HashMap<String, usize>,
+    entry_indices: HashMap<ToolEntryKey, usize>,
     patch_files: Vec<PatchFile>,
     call_id: String,
     tool_name: String,
@@ -833,6 +833,12 @@ struct ToolCallState {
     question: Option<QuestionStatus>,
     approval_id: Option<String>,
     data: ToolData,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum ToolEntryKey {
+    Result,
+    Patch { source: String, occurrence: usize },
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1037,7 +1043,10 @@ impl ToolCallState {
         let files: Vec<PatchFile> = files
             .iter()
             .filter_map(|file| serde_json::from_value::<PatchFile>(file.clone()).ok())
-            .filter(|file| !file.file_path.trim().is_empty() && !file.patch.trim().is_empty())
+            .filter(|file| {
+                !file.file_path.trim().is_empty()
+                    && (!file.patch.trim().is_empty() || file.kind != PatchOperation::Unknown)
+            })
             .collect();
         // Lifecycle updates can omit metadata; never erase a usable preview with
         // an empty or malformed payload.
@@ -1053,7 +1062,9 @@ impl ToolCallState {
         entry_index: &EntryIndexProvider,
     ) {
         let mut entries = Vec::new();
+        let mut occurrences = HashMap::new();
         for file in &self.patch_files {
+            let source = make_relative_path(&file.file_path, worktree_path);
             let path = make_relative_path(
                 file.move_path
                     .as_deref()
@@ -1062,40 +1073,83 @@ impl ToolCallState {
                 worktree_path,
             );
             let mut entry = self.to_normalized_entry(worktree_path);
+            let has_hunks = file.patch.lines().any(|line| line.starts_with("@@ "));
+            let description = match file.kind {
+                PatchOperation::Add => format!("Add {path} (empty file)"),
+                PatchOperation::Delete => format!("Delete {source} (empty file)"),
+                PatchOperation::Move => format!("Move {source} → {path}"),
+                _ => format!("Update {path} (no content changes)"),
+            };
             if let NormalizedEntryType::ToolUse { action_type, .. } = &mut entry.entry_type {
-                *action_type = ActionType::FileEdit {
-                    path: path.clone(),
-                    changes: vec![FileChange::Edit {
-                        unified_diff: workspace_utils::diff::normalize_unified_diff(
-                            &path,
-                            &file.patch,
-                        ),
-                        has_line_numbers: true,
-                    }],
+                *action_type = if has_hunks {
+                    ActionType::FileEdit {
+                        path: path.clone(),
+                        changes: vec![FileChange::Edit {
+                            unified_diff: workspace_utils::diff::normalize_unified_diff(
+                                &path,
+                                &file.patch,
+                            ),
+                            has_line_numbers: true,
+                        }],
+                    }
+                } else {
+                    // The shared normalizer's no-hunk fallback treats ---/+++
+                    // headers as content. Describe content-free operations instead.
+                    ActionType::Other {
+                        description: description.clone(),
+                    }
                 };
             }
-            entry.content = path;
-            entries.push((file.file_path.clone(), entry));
+            entry.content = if has_hunks { path } else { description };
+            let occurrence = occurrences.entry(file.file_path.clone()).or_insert(0);
+            entries.push((
+                ToolEntryKey::Patch {
+                    source: file.file_path.clone(),
+                    occurrence: *occurrence,
+                },
+                entry,
+            ));
+            *occurrence += 1;
         }
-        // Keep errors visible alongside failed previews. Without usable file
-        // metadata, preserve the normal generic tool arguments and output.
-        if entries.is_empty() || self.state == ToolStateStatus::Error {
-            entries.push((String::new(), self.to_normalized_entry(worktree_path)));
+        let completed_output = self.state == ToolStateStatus::Completed
+            && matches!(&self.data, ToolData::Other { output: Some(output), .. } if !output.trim().is_empty());
+        // A successful patch can still report LSP diagnostics. Keep one result
+        // per call, rather than losing output or repeating it for every file.
+        if entries.is_empty() || self.state == ToolStateStatus::Error || completed_output {
+            let mut result = self.to_normalized_entry(worktree_path);
+            if !entries.is_empty()
+                && let NormalizedEntryType::ToolUse {
+                    action_type:
+                        ActionType::Tool {
+                            arguments,
+                            result: output,
+                            ..
+                        },
+                    ..
+                } = &mut result.entry_type
+            {
+                *arguments = None;
+                if self.state == ToolStateStatus::Error
+                    && let ToolData::Other {
+                        error: Some(error), ..
+                    } = &self.data
+                {
+                    *output = Some(ToolResult::markdown(error.clone()));
+                }
+            }
+            entries.push((ToolEntryKey::Result, result));
         }
 
         let mut previous = std::mem::take(&mut self.entry_indices);
+        // Only reuse a lone generic placeholder, never an existing companion.
+        let mut placeholder = if !self.patch_files.is_empty() && previous.len() == 1 {
+            previous.remove(&ToolEntryKey::Result)
+        } else {
+            None
+        };
         for (key, entry) in entries {
-            if self.entry_indices.contains_key(&key) {
-                continue;
-            }
             // Turn an initial generic placeholder into the first file card.
-            let index = previous.remove(&key).or_else(|| {
-                if !key.is_empty() {
-                    previous.remove("")
-                } else {
-                    None
-                }
-            });
+            let index = previous.remove(&key).or_else(|| placeholder.take());
             let index = if let Some(index) = index {
                 replace_normalized_entry(msg_store, index, entry);
                 index
@@ -1525,8 +1579,22 @@ impl ToolCallState {
 struct PatchFile {
     file_path: String,
     patch: String,
+    #[serde(rename = "type", default)]
+    kind: PatchOperation,
     #[serde(default)]
     move_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum PatchOperation {
+    Add,
+    Update,
+    Delete,
+    Move,
+    #[default]
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1749,7 +1817,7 @@ mod tests {
             json!({ "status": "completed", "metadata": files(), "output": "Success" }),
         );
         let entries = h.entries();
-        assert_eq!(entries.as_object().unwrap().len(), 4);
+        assert_eq!(entries.as_object().unwrap().len(), 5);
         for (index, path) in ["a.ts", "b.ts", "c.ts", "dir/new.ts"].iter().enumerate() {
             assert_file(&entries[index.to_string()], path, "success");
         }
@@ -1797,7 +1865,7 @@ mod tests {
             json!({ "status": "completed", "output": "Success" }),
         );
         let entries = h.entries();
-        assert_eq!(entries.as_object().unwrap().len(), 4);
+        assert_eq!(entries.as_object().unwrap().len(), 5);
         assert_file(&entries["0"], "a.ts", "success");
         assert_file(&entries["3"], "dir/new.ts", "success");
     }
@@ -1961,8 +2029,157 @@ mod tests {
             results.push(h.entries());
         }
         assert_eq!(results[0], results[1]);
-        assert_eq!(results[0].as_object().unwrap().len(), 4);
+        assert_eq!(results[0].as_object().unwrap().len(), 5);
         assert_file(&results[0]["0"], "a.ts", "success");
         assert_file(&results[0]["3"], "dir/new.ts", "success");
+    }
+
+    #[test]
+    fn repeated_path_operations_survive_permission_completion_and_repetition() {
+        let metadata = json!({"files": [
+            {"filePath": "/workspace/a.ts", "type": "delete",
+             "patch": "--- a.ts\n+++ a.ts\n@@ -1 +0,0 @@\n-old\n"},
+            {"filePath": "/workspace/a.ts", "type": "add",
+             "patch": "--- a.ts\n+++ a.ts\n@@ -0,0 +1 @@\n+replacement\n"}
+        ]});
+        let mut h = Harness::new();
+        h.tool("apply_patch", json!({"status": "pending"}));
+        h.permission(metadata.clone());
+        let pending = h.entries();
+        assert_eq!(pending.as_object().unwrap().len(), 2);
+        for index in ["0", "1"] {
+            assert_file(&pending[index], "a.ts", "pending_approval");
+        }
+        assert!(
+            pending["0"]["content"]["entry_type"]["action_type"]["changes"][0]["unified_diff"]
+                .as_str()
+                .unwrap()
+                .contains("-old")
+        );
+        assert!(
+            pending["1"]["content"]["entry_type"]["action_type"]["changes"][0]["unified_diff"]
+                .as_str()
+                .unwrap()
+                .contains("+replacement")
+        );
+        h.permission(metadata.clone());
+        assert_eq!(h.entries(), pending);
+        h.approval(ApprovalStatus::Approved);
+        h.tool(
+            "apply_patch",
+            json!({"status": "completed", "metadata": metadata}),
+        );
+        let completed = h.entries();
+        assert_eq!(completed.as_object().unwrap().len(), 2);
+        assert_file(&completed["0"], "a.ts", "success");
+        assert_file(&completed["1"], "a.ts", "success");
+        h.tool(
+            "apply_patch",
+            json!({"status": "completed", "metadata": metadata}),
+        );
+        assert_eq!(h.entries(), completed);
+        // Replaying the same operations in a fresh normalizer preserves every operation.
+        let mut replay = Harness::new();
+        replay.tool("apply_patch", json!({"status": "pending"}));
+        replay.permission(metadata.clone());
+        replay.approval(ApprovalStatus::Approved);
+        replay.tool(
+            "apply_patch",
+            json!({"status": "completed", "metadata": metadata}),
+        );
+        assert_eq!(replay.entries(), completed);
+    }
+
+    #[test]
+    fn header_only_and_empty_operations_are_described_without_fabricated_diffs() {
+        let header = "Index: /workspace/old.ts\n===================================================================\n--- /workspace/old.ts\n+++ /workspace/old.ts\n";
+        let metadata = json!({"files": [
+            {"filePath": "/workspace/old.ts", "type": "move",
+             "movePath": "/workspace/new.ts", "patch": header},
+            {"filePath": "/workspace/empty-add.ts", "type": "add", "patch": header},
+            {"filePath": "/workspace/empty-delete.ts", "type": "delete", "patch": header},
+            {"filePath": "/workspace/empty.ts", "type": "add", "patch": ""},
+            {"filePath": "/workspace/changed.ts", "type": "move",
+             "movePath": "/workspace/changed-new.ts", "patch": UPDATE}
+        ]});
+        let mut h = Harness::new();
+        h.permission(metadata.clone());
+        let pending = h.entries();
+        let descriptions = [
+            "Move old.ts → new.ts",
+            "Add empty-add.ts (empty file)",
+            "Delete empty-delete.ts (empty file)",
+            "Add empty.ts (empty file)",
+        ];
+        for (index, description) in descriptions.iter().enumerate() {
+            let entry = &pending[index.to_string()]["content"];
+            assert_eq!(entry["content"], *description);
+            assert_eq!(
+                entry["entry_type"]["action_type"],
+                json!({
+                    "action": "other", "description": description
+                })
+            );
+            assert_eq!(entry["entry_type"]["status"]["status"], "pending_approval");
+        }
+        assert_file(&pending["4"], "changed-new.ts", "pending_approval");
+        h.approval(ApprovalStatus::Approved);
+        h.tool(
+            "apply_patch",
+            json!({"status": "completed", "metadata": metadata}),
+        );
+        let completed = h.entries();
+        assert_eq!(completed.as_object().unwrap().len(), 5);
+        for (index, description) in descriptions.iter().enumerate() {
+            let entry = &completed[index.to_string()]["content"];
+            assert_eq!(entry["content"], *description);
+            assert_eq!(entry["entry_type"]["status"]["status"], "success");
+            assert!(entry["entry_type"]["action_type"].get("changes").is_none());
+        }
+        assert_file(&completed["4"], "changed-new.ts", "success");
+    }
+
+    #[test]
+    fn successful_output_is_preserved_once_without_repeating_patch_arguments() {
+        let output = "Success. Updated the following files:\nM a.ts\n\nLSP errors detected in a.ts, please fix:\nType 'string' is not assignable to type 'number'.";
+        let event = json!({"status": "completed", "metadata": files(),
+            "input": {"patchText": "original patch"}, "output": output});
+        let mut h = Harness::new();
+        h.tool(
+            "apply_patch",
+            json!({"status": "pending", "input": {"patchText": "original patch"}}),
+        );
+        h.tool("apply_patch", event.clone());
+        let entries = h.entries();
+        assert_eq!(entries.as_object().unwrap().len(), 5);
+        let result = &entries["4"]["content"]["entry_type"];
+        assert_eq!(result["action_type"]["action"], "tool");
+        assert_eq!(result["action_type"]["result"]["value"], output);
+        assert!(result["action_type"]["arguments"].is_null());
+        assert_eq!(result["status"]["status"], "success");
+        h.tool("apply_patch", event.clone());
+        assert_eq!(h.entries(), entries);
+        // Adding another operation must not steal the companion's entry identity.
+        let mut expanded = event;
+        expanded["metadata"]["files"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({
+                "filePath": "/workspace/extra.ts", "type": "update", "patch": UPDATE
+            }));
+        h.tool("apply_patch", expanded);
+        let expanded_entries = h.entries();
+        assert_eq!(expanded_entries.as_object().unwrap().len(), 6);
+        assert_eq!(expanded_entries["4"], entries["4"]);
+        assert_file(&expanded_entries["5"], "extra.ts", "success");
+        assert_eq!(
+            expanded_entries
+                .as_object()
+                .unwrap()
+                .values()
+                .filter(|entry| entry["content"]["entry_type"]["action_type"]["action"] == "tool")
+                .count(),
+            1
+        );
     }
 }
