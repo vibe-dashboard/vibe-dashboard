@@ -225,9 +225,10 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     expect(sysboxSetup).toContain('Linux)');
     expect(sysboxSetup).toContain('scripts/colima/setup-sysbox.sh');
     expect(sysboxSetup).toContain('scripts/colima/install-sysbox-guest.sh');
-    expect(sysboxSmoke).toContain('docker compose up -d');
+    expect(sysboxSmoke).toContain('VKVD_CONTAINER_RUNTIME=sysbox-runc docker compose "$@"');
+    expect(sysboxSmoke).toContain('compose up -d "$service"');
     expect(sysboxSmoke).toContain('docker info');
-    expect(sysboxSmoke).toContain('docker run --rm alpine:3.20 true');
+    expect(sysboxSmoke).toContain('docker --host=unix:///var/run/docker.sock run --rm alpine:3.20 true');
     expect(sysboxSmoke).toContain('--user vkuser');
     expect(colimaConfig).toContain('arch: host');
   });

@@ -131,7 +131,8 @@ jobs:
 
   test-e2e:
     name: Playwright e2e
-    runs-on: ubuntu-latest
+    # Keep Chromium on an OS supported by the locked Playwright version.
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout

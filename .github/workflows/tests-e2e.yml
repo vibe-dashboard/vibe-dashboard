@@ -26,7 +26,8 @@ env:
 jobs:
   tests-e2e:
     name: tests-e2e
-    runs-on: ubuntu-latest
+    # Keep Chromium on an OS supported by the locked Playwright version.
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
 
     steps:
