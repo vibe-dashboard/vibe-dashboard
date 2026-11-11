@@ -22,6 +22,18 @@ services:
     # VKVD_CONTAINER_RUNTIME=sysbox-runc to enable the inner Docker daemon.
     runtime: ${VKVD_CONTAINER_RUNTIME:-runc}
 
+    # PID files, sockets, and containerd state must not survive a restart.
+    # Keep images, containers, and volumes in the persistent /var/lib/docker.
+    tmpfs:
+      - /run:rw,nosuid,nodev,mode=755
+    stop_grace_period: 2m
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/vkvd-healthcheck.sh"]
+      interval: 30s
+      timeout: 15s
+      start_period: 120s
+      retries: 3
+
     # Required for Tailscale
     cap_add:
       - NET_ADMIN

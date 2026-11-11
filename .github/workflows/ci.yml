@@ -218,6 +218,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check workspace lifecycle scripts
+        run: |
+          bash -n docker-entrypoint.sh scripts/vkvd-healthcheck.sh scripts/smoke-sysbox-dind.sh
+          python3 tests/test_vkvd_healthcheck.py -v
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 

@@ -177,3 +177,28 @@ VKVD_CONTAINER_RUNTIME=sysbox-runc docker compose up -d code-vibe
 ```
 
 If Sysbox is explicitly requested but its capabilities are unavailable, the workspace exits with an installation error rather than starting with a broken Docker daemon.
+
+The production and QA Compose files mount `/run` as tmpfs so Docker PID files,
+sockets, and containerd runtime state disappear on every container start.
+`/var/lib/docker` stays on the `docker-data` named volume. The entrypoint
+recreates runtime directories, and shutdown allows Docker 60 seconds to drain
+inside Supervisor's 90-second timeout and Compose's two-minute grace period.
+The healthcheck verifies Caddy and, in Sysbox mode, inner Docker access as
+`vkuser`. An unhealthy result exposes failures; it does not itself restart the
+container.
+
+Deploy this fix with a newly built image and recreate `code-vibe` using the
+updated Compose configuration. Restarting an existing container does not add
+its new tmpfs mount or healthcheck. Preserve the named volumes; do not use
+`docker compose down -v`. Custom deployments must also mount `/run` as tmpfs.
+
+For lifecycle regression testing on an isolated Sysbox test deployment:
+
+```bash
+VKVD_RESTART_CYCLES=3 ./scripts/smoke-sysbox-dind.sh
+```
+
+This opt-in test alternates abrupt `SIGKILL` stops and graceful restarts, checks
+that `/run` is cleared while Docker data remains, and runs an inner container
+after each restart. It interrupts the selected workspace; leave
+`VKVD_RESTART_CYCLES` unset for the normal startup smoke test.
