@@ -26,7 +26,6 @@ env:
 jobs:
   tests-e2e:
     name: tests-e2e
-    # Playwright 1.58 does not support Ubuntu 26.04 (ubuntu-latest).
     runs-on: ubuntu-24.04
     timeout-minutes: 60
 
